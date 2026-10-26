@@ -55,6 +55,8 @@ function kpiSpark(values, status, w = 64, h = 18) {
 
 // One KPI on one line: dot, name, latest value and its period, the target on the goal, a sparkline.
 function kpiLine(k, {owner = false, goal = ''} = {}) {
+  if (k.archived_at) return `<li class="kpi-line kpi-archived-line muted" data-kpi="${esc(k.id)}"${goal ? ` data-kpi-goal="${esc(goal)}"` : ''} tabindex="0" role="button">
+    <span class="kpi-name">${esc(k.name)}</span><span class="kpi-off">Archived ${esc(kpiDay(k.archived_at))}, not counting</span></li>`;
   const value = kpiFresh(k)
     ? `<span class="kpi-val tnum">${esc(kpiNum(k.latest.value, k.unit))}${KPI_QUALITY[k.latest.quality] ? ` <span class="kpi-q">${KPI_QUALITY[k.latest.quality]}</span>` : ''}<span class="muted"> · ${esc(kpiDay(k.latest.period_end))}</span></span>`
     : `<span class="kpi-val kpi-off">${k.freshness === 'stale' ? 'stale' : 'no data'}</span>`;
@@ -63,7 +65,10 @@ function kpiLine(k, {owner = false, goal = ''} = {}) {
     ${value}${k.target_label ? `<span class="kpi-target">${esc(k.target_label)}</span>` : ''}${kpiSpark(k.spark, k.status)}</li>`;
 }
 function kpiLinesHtml(kpis, opts) {
-  return (kpis || []).length ? `<ul class="kpi-lines">${kpis.map(k => kpiLine(k, opts)).join('')}</ul>` : '';
+  const active = (kpis || []).filter(k => !k.archived_at), archived = (kpis || []).filter(k => k.archived_at);
+  const limit = opts?.goal ? 3 : archived.length;
+  const lines = [...active, ...archived.slice(0, limit)].map(k => kpiLine(k, opts)).join('');
+  return lines ? `<ul class="kpi-lines">${lines}${archived.length > limit ? `<li class="muted kpi-archived-more">+${archived.length - limit} archived</li>` : ''}</ul>` : '';
 }
 function bindKpiLines(root) {
   for (const li of root.querySelectorAll('[data-kpi]')) {
@@ -326,7 +331,9 @@ function kpiPanelBind(dlg, d) {
   const archive = body.querySelector('[data-kpi-archive]');
   if (archive) archive.onclick = async () => {
     const restoring = Boolean(k.archived_at);
-    if (!restoring && !window.confirm(`Archive “${k.name}”? Its readings and definition history will stay available.`)) return;
+    const linked = d.links || [];
+    const impact = linked.length ? `\n\nIt stops counting toward ${linked.length} ${linked.length === 1 ? 'goal' : 'goals'}:\n${linked.map(l => '• ' + l.goal_title).join('\n')}` : '';
+    if (!restoring && !window.confirm(`Archive “${k.name}”? Its readings and definition history will stay available.${impact}`)) return;
     archive.disabled = true;
     try {
       await post(`/v2/kpis/${encodeURIComponent(k.id)}/${restoring ? 'restore' : 'archive'}`, {});
@@ -506,7 +513,8 @@ function goalTreeOrder(parent) {
 const GOAL_WORST = ['red', 'yellow', 'green', 'gray', 'none'];
 // A goal's KPIs as chips: the dot and the latest value. More than three: two and a count. A phone shows the count.
 function goalChips(kpis) {
-  if (!kpis?.length) return '';
+  kpis = (kpis || []).filter(k => !k.archived_at);
+  if (!kpis.length) return '';
   const shown = kpis.length > 3 ? kpis.slice(0, 2) : kpis;
   const chip = k => `<span class="gt-chip" data-kpi-chip="${esc(k.id)}" title="${esc(k.name + (k.reason ? ': ' + k.reason : ''))}">${gdot(k.status)}<span class="tnum">${kpiFresh(k) ? esc(kpiNum(k.latest.value, k.unit)) : '–'}</span></span>`;
   const worst = GOAL_WORST.find(s => kpis.some(k => (k.status || 'gray') === s)) || 'gray';

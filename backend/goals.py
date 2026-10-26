@@ -557,6 +557,10 @@ def score(conn, row, at=None):
         return fallback
     if views:
         return {"status": "gray", "basis": "kpis", "reason": views[0]["reason"]}
+    measures = K.goal_views(conn, [row["id"]], at)[row["id"]]
+    if len(measures) == 1 and measures[0].get("archived_at"):
+        return {"status": "gray", "basis": "kpis",
+                "reason": f"Its only measure was archived on {K.day(measures[0]['archived_at'])}"}
     return {"status": "gray", "basis": "none", "reason": "No data yet: no KPI, check-in or task progress"}
 
 

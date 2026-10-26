@@ -91,6 +91,7 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 @media (max-width:760px){.goal-why-prop{flex-direction:column;align-items:stretch}.goal-why-ed{flex-wrap:wrap}}
 .kpi-lines{list-style:none;margin:0 0 4px 19px;padding:0}
 .kpi-line{display:flex;align-items:center;gap:10px;min-height:32px;padding:3px 6px;margin:0 -6px;border-radius:6px;cursor:pointer;font-size:var(--t-base);line-height:1.35}
+.kpi-archived-more{padding:3px 6px;font-size:var(--t-sm)}
 .kpi-line:hover,.need-row:hover{background:var(--surface2)}
 .kpi-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kpi-val{white-space:nowrap;font-size:var(--t-sm)}.kpi-off{color:var(--muted)}.kpi-q{font-size:var(--t-xs);color:var(--muted)}

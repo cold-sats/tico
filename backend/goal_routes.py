@@ -751,6 +751,8 @@ def install(app, store, auth, mutate, settings):
             if K.auto(kid) or not may_edit_kpi(c, who, record):
                 raise Problem("forbidden", "The KPI's owner or someone above them archives or restores it", 403)
             updated = K.set_archived(c, who.actor, kid, archived)
+            for link in K.links_of(c, kpi_id=kid):
+                G.apply_auto(c, link["goal_id"])
             return kpi_detail(c, who, updated)
         return mutate(request, body, work)
 
