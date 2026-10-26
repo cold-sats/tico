@@ -90,7 +90,7 @@ def remember(c, actor, notice):
     step = notice.get("step")
     if not row or not step or row["status"] in ("done", "closed", "declined"):
         return
-    detail = {"step": step, "kind": notice.get("kind"), "head": notice.get("head"), "by": str(actor),
+    detail = {"step": step, "kind": notice.get("kind"), "head": notice.get("head"), "by": str(notice.get("by") or actor),
               "outage": outage(notice.get("text")), "seen": fingerprint(c, row), "at": H.now(),
               "since": notice.get("since") or H.now(),
               "tries": int(notice.get("tries") or 0), "state": "waiting",
@@ -150,12 +150,13 @@ def retry(store, service, row, detail):
             return False            # something else changed it while GitHub was read; the next pass looks again
         c.execute("SAVEPOINT move_retry")
         try:
-            H.task_update(c, H.KEEPER, row["id"], step=detail["step"], review_prs=snapshots)
+            H.task_update(c, H.KEEPER, row["id"], step=detail["step"], review_prs=snapshots,
+                          review_reader=detail.get("by") or H.KEEPER)
         except H.Refused as exc:
             c.execute("ROLLBACK TO move_retry")
             c.execute("RELEASE move_retry")
             notice = {**(getattr(exc, "review_gate", None) or {}), "task": row["id"], "step": detail["step"],
-                      "tries": int(detail.get("tries") or 0) + 1,
+                      "tries": int(detail.get("tries") or 0) + 1, "by": detail.get("by"),
                       "since": detail.get("since") or detail.get("at")}
             notice.setdefault("kind", detail.get("kind"))
             notice.setdefault("text", exc.detail)

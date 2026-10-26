@@ -5430,7 +5430,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 lane=None, labels=None, rank=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
                 step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None, visibility=None, public_title=None,
                 public_summary=None, approval_id=None, size=None, clear_size=False, review_prs=None, verdict=None,
-                verdict_head=None):
+                verdict_head=None, review_reader=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
@@ -5512,7 +5512,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         if target_step and target_step["name"] in ("Review 1", "Review 2") and step_id != row.get("step_id"):
             from . import review_gate
             try:
-                review_gate.check(conn, actor, {**row, "type_id": type_id}, review_prs, note=note)
+                review_gate.check(conn, actor, {**row, "type_id": type_id}, review_prs, note=note, reader=review_reader)
             except Refused as exc:
                 # The move Tico retries once what refused it clears (backend/move_retry.py).
                 if getattr(exc, "review_gate", None):

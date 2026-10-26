@@ -196,10 +196,6 @@ def snapshot(service, prs):
 def evidence(c, row, actor):
     from . import hubdb as H
     from . import task_privacy as privacy
-    # Tico's own retry of a refused move (backend/move_retry.py) reads what the owner can: the keeper is on no private
-    # task, so as itself it would miss a receipt posted as a comment there. Every message is checked against the owner
-    # below anyway.
-    actor = row["owner"] if actor == H.KEEPER else actor
     def collect(item):
         messages = []
         conv = H.conversation(c, item.get("conversation_id"))
@@ -223,7 +219,7 @@ def evidence(c, row, actor):
     return result
 
 
-def check(c, actor, row, snapshots=None, note=None, require_pr=False):
+def check(c, actor, row, snapshots=None, note=None, require_pr=False, reader=None):
     from . import hubdb as H
     if not engineering(c, row):
         return
@@ -233,7 +229,9 @@ def check(c, actor, row, snapshots=None, note=None, require_pr=False):
             reject(c, actor, row, "receipt", "unknown", {"url": "no linked PR"},
                    "Review refused: no linked PR or test receipt. Link the current PR and post its passing test receipt before asking a reviewer.")
         return  # A board-only step move has no software reviewer to wake.
-    facts = evidence(c, row, actor)
+    # Tico's retry of a refused move (backend/move_retry.py) reads as whoever made the move: the keeper is on no private
+    # task, and evidence that mover cannot read must not pass the move for them.
+    facts = evidence(c, row, reader or actor)
     if note is not None:
         facts["note"] = note
         facts["updated"] = H.now()

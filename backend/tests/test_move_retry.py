@@ -233,3 +233,17 @@ def test_a_private_tickets_receipt_comment_moves_it(api):
                          {'task': task['id'], 'comment': True}, None, None)
     assert tick(api) == [task['id']]
     assert step(api, task) == 'Review 1'
+
+
+def test_a_retry_does_not_pass_on_evidence_the_mover_cannot_read(api):
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:      # a private review child only the owner reads, holding a receipt
+        child = H.task_create(c, H.bot_actor('cpo'), 'Evidence', 'x', H.bot_actor('cpo'), parent_id=task['id'])
+        c.execute("UPDATE tasks SET private=1, title='Review 1' WHERE id=?", (child['id'],))
+        H._write_message(c, H.bot_actor('cpo'), H.bot_actor('cpo'), RECEIPT, H.conversation(c, child['conversation_id']),
+                         'say', {'task': child['id'], 'comment': True}, None, None)
+    assert move(api, task).status_code == 422           # ana cannot read it
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET note='unrelated' WHERE id=?", (task['id'],))
+    assert tick(api) == [] and step(api, task) == 'In Progress'
+    assert retries(api, task)[-1]['by'] == 'human:ana'  # a refused retry keeps the mover it reads as
