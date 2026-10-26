@@ -200,17 +200,57 @@ def install(app, store, auth, mutate, settings):
         goal the reader sees may still be measured by a bot's KPI they may not read."""
         return [v for v in views if v.get("owner") not in hidden] if hidden else views
 
+    def exposes(c, goal_owner_actor, kpi_owner):
+        """Whether a KPI of `kpi_owner` on a goal of `goal_owner_actor` would show to someone who may read the goal
+        but not the KPI. A goal names its KPIs to every reader: its lines, history and the automatic colour's
+        reason ("<KPI> 7 above max 3"), so a bot's KPI goes only on a goal no one else reads than its own readers."""
+        if not H.is_bot(kpi_owner) or kpi_owner == goal_owner_actor:
+            return False
+        from .auth import Identity
+        slug = H.actor_id(kpi_owner)
+        goal_bot = H.actor_id(goal_owner_actor) if H.is_bot(goal_owner_actor) else None
+        readers = []
+        for person in H.humans(c):
+            try:
+                readers.append(auth.identity_for_actor(c, H.human_actor(person["id"])))
+            except Problem:
+                continue                    # no longer on the roster: reads nothing
+        readers += [Identity(H.bot_actor(b["slug"]), "bot") for b in H.bots(c)
+                    if H.bot_actor(b["slug"]) != G.AUTO_ACTOR]
+        for reader in readers:
+            access = auth.bot_accesses(c, reader, [s for s in (slug, goal_bot) if s])
+            if (not goal_bot or access[goal_bot]["read"]) and not access[slug]["read"]:
+                return True
+        return False
+
+    def refuse_exposed(c, goal_row, kpi_owner):
+        if exposes(c, goal_row["owner"], kpi_owner):
+            raise Problem("forbidden", f"That KPI is {H.actor_id(kpi_owner)}'s, and some who read this goal may not "
+                          "read it: a goal shows its KPIs to everyone who reads it. Use it on a goal of "
+                          f"{H.actor_id(kpi_owner)}'s, or a KPI everyone may read", 403)
+
+    def hidden_names(c, hidden):
+        marks = ",".join("?" * len(hidden))
+        return {r[0] for r in c.execute(f"SELECT name FROM kpis WHERE owner IN ({marks})", tuple(hidden)) if r[0]}
+
+    def names_any(text, names):
+        return bool(text) and any(name in str(text) for name in names)
+
+    def scrub_status(row, names):
+        """A link made before links were checked (exposes) may still colour a goal with a hidden KPI's reason."""
+        if names_any(row.get("status_note"), names):
+            row["status_note"] = ""
+
     def goal_view(c, who, row, *visible):
         """One goal (G.view) as this caller may read it: no hidden KPI's line, no suggestion about one, and no
-        history line naming one (a link's event names the KPI and its target, backend/goals.py kpi_link)."""
+        history line or colour reason naming one (links refuse them now; this is for a link made before)."""
         out, hidden = G.view(c, row, *visible), hidden_owners(c, who)
         if hidden:
             out["kpis"] = readable_kpis(out["kpis"], hidden)
             out["proposals"] = [p for p in out["proposals"] if not kpi_hidden(c, p, hidden)]
-            marks = ",".join("?" * len(hidden))
-            names = {r[0] for r in c.execute(f"SELECT name FROM kpis WHERE owner IN ({marks})", tuple(hidden))}
-            out["events"] = [e for e in out["events"] if e["field"] not in ("kpi", "kpi_target")
-                             or not names & {e["old"], e["new"], e["note"]}]
+            names = hidden_names(c, hidden)
+            out["events"] = [e for e in out["events"] if not any(names_any(e.get(k), names) for k in ("old", "new", "note"))]
+            scrub_status(out, names)
         return out
 
     def refuse_bot_why(who):
@@ -421,8 +461,10 @@ def install(app, store, auth, mutate, settings):
                                  "WHERE goal_id=k.goal_id)"):
                 said[row["goal_id"]] = dict(row)
             hidden = hidden_owners(c, who)
+            secret = hidden_names(c, hidden) if hidden else set()
             for row in rows:
                 row["kpis"] = readable_kpis(by_goal.get(row["id"], []), hidden)
+                scrub_status(row, secret)
                 row["open_tasks"] = open_counts.get(row["id"], 0)
                 row["checkin"] = said.get(row["id"])
             unaligned = {r["owner"]: r["n"] for r in c.execute(
@@ -590,6 +632,12 @@ def install(app, store, auth, mutate, settings):
             if not structural and not may_colour(c, who, row):
                 raise Problem("forbidden", "You cannot edit this goal", 403)
             owner = goal_owner(c, who, body.owner) if body.owner else None
+            if owner and owner != row["owner"]:
+                # Its KPIs go with it: a bot's KPI moves only to an owner whose goal its own readers alone read.
+                for link in K.links_of(c, goal_id=gid):
+                    record = K.kpi(c, link["kpi_id"])
+                    if record:
+                        refuse_exposed(c, {**row, "owner": owner}, record["owner"])
             return {"goal": goal_view(c, who, G.update(c, who.actor, gid, title=body.title, body=body.body,
                                                parent_id=body.parent_id, owner=owner, rank=body.rank,
                                                top=body.top, bet_id=body.bet_id))}
@@ -650,12 +698,13 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("forbidden", "The goal's owner or someone above them adds a measure", 403)
             target = {k: getattr(body, k) for k in ("kind", "baseline", "baseline_at", "target", "deadline", "min", "max")}
             if body.kpi_id:
-                kpi_or_404(c, who, body.kpi_id)
+                refuse_exposed(c, row, kpi_or_404(c, who, body.kpi_id)["owner"])
                 G.kpi_link(c, who.actor, gid, body.kpi_id, target)
                 return {"kpi": views_of(c, gid, body.kpi_id)}
             if not body.name:
                 raise Problem("validation", "Give a kpi_id to link, or a name to make a new KPI", 422)
             owner = goal_owner(c, who, body.owner) if body.owner else row["owner"]
+            refuse_exposed(c, row, owner)
             made = G.kpi_create(c, who.actor, owner, {k: getattr(body, k) for k in (
                 "name", "definition", "unit", "direction", "cadence", "source_note")}, goal_id=gid, target=target)
             return {"kpi": views_of(c, gid, made["id"])}
@@ -768,6 +817,8 @@ def install(app, store, auth, mutate, settings):
             if goal and not may_colour(c, who, goal):
                 raise Problem("forbidden", "The goal's owner or someone above them adds a measure", 403)
             owner = goal_owner(c, who, body.owner) if body.owner else (goal["owner"] if goal else who.actor)
+            if goal:
+                refuse_exposed(c, goal, owner)
             target = {k: getattr(body, k) for k in ("kind", "baseline", "baseline_at", "target", "deadline", "min", "max")}
             made = G.kpi_create(c, who.actor, owner, {k: getattr(body, k) for k in (
                 "name", "definition", "unit", "direction", "cadence", "source_note")}, goal_id=body.goal_id, target=target)
@@ -906,6 +957,14 @@ def install(app, store, auth, mutate, settings):
                 # As linking it by hand is (kpi_or_404): no one puts a measure they may not read on a goal.
                 raise Problem("forbidden", "That measure is one you may not read, so you cannot add it; leave it, "
                               "or someone who may read it adds it", 403)
+            if item["kind"] == "goal_kpi" and body.decision == "confirm":
+                goal = goal_or_404(c, item["goal_id"])
+                if record:
+                    refuse_exposed(c, goal, record["owner"])
+                elif not reused:
+                    named = (item.get("payload") or {}).get("owner")
+                    named = (G.COMPANY if named == G.COMPANY else H.resolve_actor(c, named)) if named else None
+                    refuse_exposed(c, goal, named or goal["owner"])
             return {"proposal": G.decide(c, who.actor, pid, body.decision, body.note, why=body.why, option=body.option,
                                          moves=body.moves,
                                          target=body.target.model_dump() if body.target else None)}
