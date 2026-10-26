@@ -3692,6 +3692,8 @@ def create_app(settings=None):
         verdict; hosted checks and both reviews on that head stay required."""
         from . import qa_waivers, review_gate
         who = request.state.identity
+        # BotOps or the Assistant acting for a person carries the person's actor; the waiver is still a bot's call.
+        person_only(who, "waives a Dev ticket's QA step")
         with store.read() as c:
             row = auth.task(c, who, auth.resolve_task(c, who, tid))
             prs = review_gate.links(c, row) if review_gate.engineering(c, row) else []

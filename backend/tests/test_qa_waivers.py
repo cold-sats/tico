@@ -40,7 +40,13 @@ def api(tmp_path, monkeypatch):
         'ana-test': Identity('human:ana', 'owner', 'ana@acme.example'),
         'ben-test': Identity('human:ben', 'human', 'ben@acme.example'),
         'cara-test': Identity('human:cara', 'human', 'cara@acme.example'),
-        'bot-test': Identity('bot:cpo', 'bot', agent='hermes')}))
+        'bot-test': Identity('bot:cpo', 'bot', agent='hermes'),
+        # What a bot's delegation (BotOps, or a confirmed Assistant card) makes of a call for Ana: her actor, a bot's
+        # call. The lending bot signs in with an agent credential, which the fixture registers for cpo.
+        'botops-test': Identity('human:ana', 'owner', 'ana@acme.example', via='botops', confirmed=True,
+                                task_actor='bot:cpo', agent='hermes'),
+        'assistant-test': Identity('human:ana', 'owner', 'ana@acme.example', via='assistant', confirmed=True),
+        'token-test': Identity('human:ana', 'owner', 'ana@acme.example', via_token=True, token_label='laptop')}))
     with TestClient(app) as client:
         client.github = github
         with app.state.store.transaction() as c:
@@ -301,3 +307,16 @@ def test_a_push_recorded_while_github_is_read_refuses_the_stale_green_read(api, 
     with api.app.state.store.read() as c:
         assert not c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='qa_waiver'", (row['id'],)).fetchall()
         assert not c.execute("SELECT 1 FROM messages WHERE body LIKE '%waived QA%'").fetchall()
+
+
+@pytest.mark.parametrize('token', ['botops-test', 'assistant-test'])
+def test_a_bot_acting_for_the_person_is_refused_and_records_nothing(api, token):
+    """BotOps or the Assistant calling for a manager carries her actor and passes every other gate; the waiver is
+    still a bot's call. Her own personal API token (the CLI, an MCP client she runs) still waives."""
+    row = ticket(api)
+    r = waive(api, row, token)
+    assert r.status_code == 403 and 'Only a person, signed in as themselves' in r.text, r.text
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='qa_waiver'", (row['id'],)).fetchall()
+        assert not c.execute("SELECT 1 FROM messages WHERE body LIKE '%waived QA%'").fetchall()
+    assert waive(api, row, 'token-test').status_code == 200
