@@ -19,14 +19,14 @@ def startable(c, row):
     return row.get('type_id') == H.GENERAL_TYPE or bool(step and step[0] == 'On Deck')
 
 
-def review(c, row):
+def review(c, row, *, parent_id=None):
     """A delegated review child has its own session and no task cap."""
-    parent = H.TR.parent_of(c, row['id'])
+    parent = parent_id or (H.TR.parent_of(c, row['id']) if row.get('id') else None)
     parent = H.task(c, parent) if parent else None
     if not parent or parent['owner'] == row['owner']:
         return False
     step = c.execute('SELECT name FROM task_steps WHERE id=?', (parent.get('step_id'),)).fetchone()
-    return bool(step and step[0] in ('Review 1', 'Review 2', 'In QA'))
+    return bool(step and step[0] in ('Review 1', 'Review 2', 'In QA', 'Post Release QA'))
 
 
 def waiting(c, row, starting=False):
