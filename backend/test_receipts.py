@@ -13,10 +13,18 @@ FAIL = re.compile(r"\b(fail(?:s|ing|ed|ures?)?|error(?:s|ed)?|timed?\s*out|timeo
 ZERO = re.compile(r"\b(?:0|no)\s+(?:fail(?:s|ing|ed|ures?)?|error(?:s|ed)?)\b", re.I)
 PLAN = re.compile(r"\b(not run|pending|will|planned|0\s*pass(?:ed)?|(?:no|not|without)\s+(?:pass(?:ed)?|green|success))\b", re.I)
 REMOVED = ("deleted_at", "hidden_at", "superseded_at")
+# These describe a repair or history, not the outcome of the named run. Remove
+# only the phrase: a separate "2 failed" in the same receipt must still block.
+_FAILURE = r"(?:fail(?:s|ing|ed|ures?)?|errors?)"
+_FIX = r"(?:fix(?:ed|ing)|repair(?:ed|ing)|resolv(?:ed|ing)|correct(?:ed|ing))"
+HISTORY = re.compile(
+    rf"\b(?:earlier|previous|historical|old)\s+(?:test\s+)?{_FAILURE}\b|"
+    rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|test|fixture)\s+){{0,4}}{_FAILURE}\b|"
+    rf"\b{_FAILURE}\s+(?:(?:is|was|has|been|now|already)\s+){{0,4}}{_FIX}\b", re.I)
 
 
-def recognise(line):
-    """None for unrelated prose; otherwise explicit status, head and original line."""
+def _recognise(line):
+    """Recognise one head's result clause, retaining failure precedence."""
     match = HEAD.search(line)
     shas = list(SHA.finditer(line))
     anchor = match or (shas[0] if len(shas) == 1 else None)
@@ -34,17 +42,45 @@ def recognise(line):
     if not TEST.search(clause):
         return None
     head = match[1].lower() if match else shas[0][0].lower() if len(shas) == 1 else None
-    result = ZERO.sub("", clause)
+    result = HISTORY.sub("", ZERO.sub("", clause))
     status = ("failed" if FAIL.search(result) else "unrecognised" if PLAN.search(result)
               else "passed" if PASS.search(result) else "unrecognised")
     return {"head": head, "status": status, "text": line}
 
 
+def recognise_many(line):
+    """Bind separate result clauses to their own heads, including within one line.
+
+    A semicolon alone cannot clear a failure: an unheaded continuation stays
+    with its run. Only another explicit head starts a separate result.
+    """
+    found = []
+    for sentence in re.split(r"[.!?]\s+", line):
+        parts = re.split(r";\s*|,\s+(?=(?:tests?|CI)\b)|\s+(?:and|but|after|while)\s+", sentence, flags=re.I)
+        clauses = []
+        for part in parts:
+            if clauses and (not SHA.search(part) or not SHA.search(clauses[-1])):
+                clauses[-1] += "; " + part
+            else:
+                clauses.append(part)
+        for clause in clauses:
+            if receipt := _recognise(clause):
+                found.append({**receipt, "text": line})
+    return found
+
+
+def recognise(line):
+    """First result in a line, or None; receipt collection uses every result."""
+    return next(iter(recognise_many(line)), None)
+
+
 def sources(task):
-    """Only the task's own evidence, plus owner-authored evidence from review children.
+    """The task's own evidence and scoped evidence from review children.
 
     Collectors supply scoped messages. Keeper notices are accepted only when they
     describe ready-for-review evidence, never arbitrary keeper chatter.
+    `receipt_authors` is supplied by the review gate's permission-aware collector;
+    callers without one retain the owner-only rule.
     """
     out = []
     for item in [task, *task.get("children", [])]:
@@ -59,7 +95,8 @@ def sources(task):
             actor = message.get("from_actor")
             text = message.get("body", "")
             keeper = actor == "keeper" and re.search(r"ready[ -]for[ -]review|Review [12]", text, re.I)
-            if actor not in (item.get("owner"), task.get("owner")) and not keeper:
+            allowed = {item.get("owner"), task.get("owner"), *item.get("receipt_authors", [])}
+            if actor not in allowed and not keeper:
                 continue
             out.append({"task": item["id"], "message": message.get("id"), "actor": actor,
                         "created": message.get("created") or "", "source": "message", "text": text})
@@ -68,7 +105,7 @@ def sources(task):
 
 def receipts(task):
     return [{**source, **receipt} for source in sources(task) for line in source["text"].splitlines()
-            if (receipt := recognise(line)) is not None]
+            for receipt in recognise_many(line)]
 
 
 def at_head(task, head):
