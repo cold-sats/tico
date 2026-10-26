@@ -21,9 +21,10 @@ _FIX = r"(?:fix(?:ed|ing)|repair(?:ed|ing)|resolv(?:ed|ing)|correct(?:ed|ing))"
 CURRENT_FAILURE = re.compile(
     rf"\b{_FAILURE}\s+(?:tests?\s+)?"
     rf"(?:(?:(?:is|was|were|are|has|have|had|been|now|already)\s+){{0,5}}"
-    rf"{_FIX}\s*(?:[;,]\s*|but\s+))?"
+    rf"{_FIX}\s*[;,]?\s*(?:but\s+)?(?:(?:they|it|this|that)\s+)?)?"
     r"(?:(?:is|are|has|have|been|now|still|keeps)\s+){0,4}"
-    r"(?:recurring|recurs|recurred|reoccurred|returned|persisting|persists|persistent|present|happening)\b", re.I)
+    r"(?:recurring|recurs|recurred|reoccurred|returned|persisting|persists|persistent|present|happening|"
+    r"(?:is|are)\s+(?:still\s+)?back)\b", re.I)
 HISTORY = re.compile(
     rf"\b(?:earlier|previous|historical|old)\s+(?:test\s+)?{_FAILURE}\b|"
     rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|test|fixture|[0-9]+)\s+){{0,5}}{_FAILURE}\b|"
@@ -33,7 +34,8 @@ HISTORY = re.compile(
 
 CONTINUATION = re.compile(
     rf"^\s*[0-9]+\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}"
-    rf"(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b|\b[0-9]+\s+(?:tests?\s+)?{_FAILURE}\b", re.I)
+    rf"(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b|\b[0-9]+\s+(?:tests?\s+)?{_FAILURE}\b|"
+    rf"\b{_FAILURE}\s*[:=]\s*[1-9][0-9]*\b", re.I)
 
 
 def _recognise(line, test_context=False):
@@ -65,10 +67,10 @@ def recognise_many(line):
     found = []
     sentences = []
     for sentence in re.split(r"[.!?]\s+", line):
-        # An unheaded counted failure belongs to the previous run, including
-        # labels such as "Re-run:" or "Latest run:" after a period.
+        # An unheaded counted failure ("Re-run: 2 failed", "Re-run failed: 2")
+        # or a recurring failure belongs to the previous run.
         # Other sentences (plans, repairs, commentary) retain their own scope.
-        if sentences and not SHA.search(sentence) and CONTINUATION.search(sentence):
+        if sentences and not SHA.search(sentence) and (CONTINUATION.search(sentence) or CURRENT_FAILURE.search(sentence)):
             sentences[-1] += "; " + sentence
         else:
             sentences.append(sentence)
