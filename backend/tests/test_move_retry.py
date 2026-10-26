@@ -181,6 +181,40 @@ def test_unreadable_without_a_temporary_cause_asks_devops_only_when_it_repeats(a
     assert devops_tasks(api) == ['GitHub cannot be read for review moves']
 
 
+@pytest.mark.parametrize('record', ['unresolved', 'no-head'])
+def test_a_pr_link_tico_cannot_resolve_is_never_routed_as_a_github_outage(api, monkeypatch, record):
+    """An unresolved link or a link with no recorded head is Tico's own record: relinking clears it, so it never
+    asks DevOps, however long it stays refused."""
+    task = ticket(api, RECEIPT)
+    unreadable(api, monkeypatch, 'read-422')
+    if record == 'unresolved':
+        sql = "UPDATE task_links SET number=NULL WHERE task_id=? AND kind='pr'"
+    else:
+        # No GitHub App configured: the gate reads the cached link, which has no head yet.
+        monkeypatch.setattr(api.app.state.github_app, 'row', lambda c=None: None)
+        sql = "UPDATE task_links SET detail_json=json_remove(detail_json,'$.head_sha') WHERE task_id=? AND kind='pr'"
+    with api.app.state.store.transaction() as c:
+        c.execute(sql, (task['id'],))
+    refused = move(api, task)
+    assert refused.status_code == 422 and 'cannot verify the current head and CI' in refused.text, refused.text
+    assert retries(api, task)[0]['local'] is True
+    assert move_retry.tick(api.app.state.github_app, at=later(6), force=True) == []
+    assert move_retry.tick(api.app.state.github_app, at=later(12), force=True) == []
+    assert len(retries(api, task)) == 3 and devops_tasks(api) == []
+
+
+def test_the_install_owners_receipt_counts_on_ticos_retry(api):
+    """Tico's retry counts the install owner's receipt as a person's move does, owner set only in the environment."""
+    task = ticket(api)
+    assert move(api, task).status_code == 422
+    api.app.state.store.settings.owner_email = 'editor@acme.example'
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM registry_metadata WHERE key='owner'")
+        c.execute("INSERT INTO humans(id,name,email,teams_json) VALUES('editor','Editor','editor@acme.example','[]')")
+        H.task_comment(c, 'human:editor', task['id'], RECEIPT, wake=False)
+    assert tick(api) == [task['id']] and step(api, task) == 'Review 1'
+
+
 def test_a_retry_that_raises_waits_five_minutes_before_reading_github_again(api, monkeypatch):
     """A retry that raises instead of being refused must not re-read GitHub on every pass: it waits like a
     refused outage retry. (`snapshot` raising here simulates the crash; the cause path is covered above.)"""

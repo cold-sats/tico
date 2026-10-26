@@ -32,7 +32,7 @@ CLEARS = {"ci": "the checks on the current head pass",
 
 
 # What the gate's GitHub read reports about why it failed (backend/review_gate.py), kept with the remembered move.
-CAUSE = ("problem_code", "temporary", "devops", "upstream_status")
+CAUSE = ("problem_code", "temporary", "devops", "local", "upstream_status")
 
 
 def outage(text):
@@ -47,8 +47,9 @@ def route_now(notice):
 
 def route_twice(notice):
     """Any other failure that is not temporary (timeout, 5xx, 429), including one GitHub gave no cause for, goes to
-    DevOps when it is still unreadable OUTAGE_EVERY later. A temporary one never does: the timer retries it."""
-    return not notice.get("temporary") and not route_now(notice)
+    DevOps when it is still unreadable OUTAGE_EVERY later. A temporary one never does: the timer retries it. Nor
+    does a local one (an unresolved PR link, no recorded head): relinking the PR clears it, not DevOps."""
+    return not notice.get("temporary") and not notice.get("local") and not route_now(notice)
 
 
 def _route(c, notice, row, twice=False):
