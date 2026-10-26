@@ -1418,7 +1418,7 @@ def needs_items(c, auth, who, task_view, older=None, count_only=False):
     raw = H.needs_you(c, who.actor)
     from . import assigned_start
     listed = {row['id'] for key in ('tasks', 'waiting', 'declined') for row in raw[key]}
-    for row in assigned_start.overdue(c):
+    for row in assigned_start.overdue(c, visible=visible, manager_actor=who.actor):
         if (assigned_start.manager(c, row) == who.actor and row['id'] not in listed
                 and _readable(auth, c, who, row['id'])):
             raw['tasks'].append({**row, 'assigned_not_started': True, 'title': 'Assigned, not started: ' + row['title'],

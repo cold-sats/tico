@@ -351,7 +351,13 @@ class Scheduler:
             unstarted = []
             try:
                 with self.store.read() as c:
-                    unstarted = assigned_start.due(c, stamp(at))
+                    saved = c.execute('SELECT value_json FROM registry_metadata WHERE key=?',
+                                      (assigned_start.CURSOR_KEY,)).fetchone()
+                    cursor = [H._json(saved[0], "") if saved else ""]
+                    unstarted = assigned_start.due(c, stamp(at), cursor=cursor)
+                with locked("assigned_start_cursor") as c:
+                    c.execute('INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json',
+                              (assigned_start.CURSOR_KEY, H._dump(cursor[0])))
             except Exception as exc:
                 failures.append({'assigned_start': 'selection', 'error': type(exc).__name__})
             for task_id in unstarted:

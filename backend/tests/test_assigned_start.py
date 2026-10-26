@@ -361,7 +361,7 @@ def test_scheduler_selection_failure_does_not_skip_later_steps_and_other_bots(ap
     original = queue_refusals.current
     later = []
 
-    def broken(*args):
+    def broken(*args, **kwargs):
         raise RuntimeError('Synthetic assignment selection failure')
 
     def one_bot(c, settings, bot):
@@ -423,3 +423,92 @@ def test_queue_refusal_checks_the_observed_jobs_message_privacy_for_bot_readers(
     observe_for(api, clock, 12)
     assert 'queue_refused' in {x['id'] for x in get(api, 'health')['checks']}
     assert 'queue_refused' not in {x['id'] for x in get(api, 'health', token='finance-observer')['checks']}
+
+
+@pytest.mark.parametrize('chat_minutes,task_minutes,expected', [(3, 10, True), (1, 20, False)])
+def test_busy_health_ages_claim_priority_instead_of_oldest_free_job(api, clock, chat_minutes, task_minutes, expected):
+    machine = task_bot(api, lanes=True, capacity=8)
+    new_task(api, 'Running lane')
+    assert claim(api, machine)
+    new_task(api, 'Free lane')
+    post(api, 'chat/ops', {'text': 'Please answer this question.'})
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("UPDATE jobs SET created=? WHERE state='queued'", (H.shift(H.now(), minutes=-task_minutes),))
+        c.execute("UPDATE jobs SET created=? WHERE state='queued' AND message_id IN "
+                  "(SELECT id FROM messages WHERE from_actor LIKE 'human:%')",
+                  (H.shift(H.now(), minutes=-chat_minutes),))
+        online = {r['id'] for r in health._online_runners(c)}
+        _, slow, stuck = health._waiting(c, online, store.settings)
+        assert bool([r for r in stuck if r['bot'] == 'ops']) is expected
+        assert bool([r for r in slow if r['bot'] == 'ops']) is expected
+
+
+def test_recovery_scan_advances_past_a_full_page_of_held_tasks_and_wraps(api, clock, monkeypatch):
+    task_bot(api, lanes=True)
+    tasks = [new_task(api, 'Held page ' + str(n)) for n in range(5)]
+    cancel(api)
+    advance(api, clock, 1)
+    store = api.app.state.store
+    ordered = sorted(t['id'] for t in tasks)
+    monkeypatch.setattr(A, 'SCAN_LIMIT', 2)
+    with store.transaction() as c:
+        c.executemany("UPDATE tasks SET waiting_on='human:ana' WHERE id=?", [(tid,) for tid in ordered[:4]])
+    cursor = ['']
+    with store.read() as c:
+        assert A.due(c, H.now(), cursor=cursor) == [] and cursor == [ordered[1]]
+        assert A.due(c, H.now(), cursor=cursor) == [] and cursor == [ordered[3]]
+        assert A.due(c, H.now(), cursor=cursor) == [ordered[4]]
+        assert A.due(c, H.now(), cursor=cursor) == [] and cursor == ['']
+
+
+def test_overdue_scopes_reader_before_its_row_budget(api, clock, monkeypatch):
+    task_bot(api, lanes=True)
+    tasks = [new_task(api, 'Overdue page ' + str(n)) for n in range(3)]
+    cancel(api)
+    advance(api, clock, 1)
+    assert len(sweep(api)) == 3
+    advance(api, clock, 2)
+    wanted = max(t['id'] for t in tasks)
+    monkeypatch.setattr(A, 'SCAN_LIMIT', 1)
+    with api.app.state.store.read() as c:
+        rows = list(A.overdue(c, visible="id='" + wanted + "'"))
+        assert [r['id'] for r in rows] == [wanted]
+
+
+def test_assignment_backlog_bounds_provenance_work_and_reuses_each_attempt(api, clock, monkeypatch):
+    machine = task_bot(api, lanes=True)
+    first = new_task(api, 'Earlier attempted assignment')
+    assert claim(api, machine)
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET status='open' WHERE id=?", (first['id'],))
+        # Large synthetic backlog of old open bot tasks, unlike the unrelated lock fixture.
+        c.execute("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<40000) "
+                  "INSERT INTO tasks(id,title,body,requester,owner,status,lane,rank,created,updated,conversation_id) "
+                  "SELECT printf('synthetic-%06d',x),'Synthetic assignment','','human:ana','bot:ops','open',"
+                  "'company',x,?,?,? FROM n", (H.now(), H.now(), first['conversation_id']))
+    advance(api, clock, 1)
+    calls = []
+    original = A.privacy.attempt_tasks
+
+    def counted(c, aid):
+        calls.append(aid)
+        return original(c, aid)
+
+    monkeypatch.setattr(A.privacy, 'attempt_tasks', counted)
+    with store.read() as c:
+        assert len(A.due(c, H.now(), limit=A.SCAN_LIMIT)) == A.SCAN_LIMIT - 1
+        assert len(calls) == 1
+
+
+def test_folded_attempt_provenance_still_excludes_unstarted_recovery(api, clock):
+    machine = task_bot(api, lanes=True)
+    new_task(api, 'Attempt carrier')
+    attempt = claim(api, machine)
+    folded = new_task(api, 'Folded work')
+    with api.app.state.store.transaction() as c:
+        H.event(c, H.KEEPER, 'task.next-run.carried', attempt['id'], {'tasks': [folded['id']]})
+    cancel(api)
+    advance(api, clock, 1)
+    assert sweep(api) == []

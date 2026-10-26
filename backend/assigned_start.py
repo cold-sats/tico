@@ -11,19 +11,46 @@ from . import auto_tasks, hubdb as H, task_privacy as privacy
 EVENT = 'task.assignment-rewake'
 WAKE_HOURS = 1
 ESCALATE_HOURS = 2
+SCAN_LIMIT = 200
+CURSOR_KEY = "assignment-recovery-cursor"
 
 
-def candidates(c, at=None, task_ids=None, recorded=None):
+def candidates(c, at=None, task_ids=None, recorded=None, *, after="", scanned=None, visible="1", manager_actor=None):
     if task_ids is not None and not task_ids:
         return
     at = at or H.now()
     cutoff = H.shift(at, hours=-WAKE_HOURS)
+    params = [cutoff]
     scope = f" AND t.id IN ({','.join('?' for _ in task_ids)})" if task_ids else ''
-    if recorded is True:
-        scope += " AND EXISTS(SELECT 1 FROM events e WHERE e.target=t.id AND e.action='task.assignment-rewake')"
-    for row in H._rows(c.execute("SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug "
+    params.extend(task_ids or ())
+    # Select the current assignment's ledger entry before reading task bodies or provenance.
+    assignment_key = "coalesce((SELECT id FROM task_events WHERE task_id=t.id AND field='owner' ORDER BY ts DESC,rowid DESC LIMIT 1),t.owner||':'||t.created)"
+    ledger = ("SELECT 1 FROM events e WHERE e.target=t.id AND e.action='task.assignment-rewake' "
+              f"AND json_extract(e.detail_json,'$.assignment')={assignment_key}")
+    if recorded is not None:
+        scope += " AND " + ("EXISTS" if recorded else "NOT EXISTS") + "(" + ledger
+        if recorded:
+            scope += " AND json_extract(e.detail_json,'$.rewoken_at')<=?"
+            params.append(H.shift(at, hours=-ESCALATE_HOURS))
+        scope += ")"
+    if after:
+        scope += " AND t.id>?"
+        params.append(after)
+    if manager_actor:
+        scope += " AND b.slug IN (SELECT bot FROM bot_config WHERE reports_to IN (?,?))"
+        params.extend((manager_actor, H.actor_id(manager_actor)))
+    # One page bounds Python wait/provenance work, including pages with no eligible wake.
+    # The scheduler persists the last inspected id, so held/started rows cannot starve later work.
+    attempts = {}
+    visibility = f" AND t.id IN (SELECT id FROM tasks WHERE ({visible}))" if visible != "1" else ""
+    rows = H._rows(c.execute("SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug "
                                  "WHERE t.status='open' AND b.state IN ('active','paused','quarantined') AND t.created<=? "
-                                 + scope + " ORDER BY t.created,t.id", (cutoff, *(task_ids or ())))):
+                                 + scope + visibility + " ORDER BY t.id LIMIT ?",
+                                 (*params, SCAN_LIMIT)))
+    earliest = min((row['created'] for row in rows), default=cutoff)
+    for row in rows:
+        if scanned is not None:
+            scanned[:] = [row['id']]
         assignment = c.execute("SELECT id,ts FROM task_events WHERE task_id=? AND field='owner' "
                                "ORDER BY ts DESC,rowid DESC LIMIT 1", (row['id'],)).fetchone()
         key, since = (assignment['id'], assignment['ts']) if assignment else (row['owner'] + ':' + row['created'], row['created'])
@@ -40,16 +67,26 @@ def candidates(c, at=None, task_ids=None, recorded=None):
         if auto_tasks.waiting(c, row, starting=True):
             continue
         # Include folded inputs and next-run carried work, not just the job's original task.
-        if any(row['id'] in privacy.attempt_tasks(c, a['id']) for a in c.execute(
-                "SELECT id FROM attempts WHERE bot=? AND created>=?", (H.actor_id(row['owner']), since)).fetchall()):
+        bot = H.actor_id(row['owner'])
+        if bot not in attempts:
+            touched = {}
+            for attempt in c.execute("SELECT id,created FROM attempts WHERE bot=? AND created>=? ORDER BY created DESC",
+                                     (bot, earliest)).fetchall():
+                for tid in privacy.attempt_tasks(c, attempt['id']):
+                    touched.setdefault(tid, attempt['created'])
+            attempts[bot] = touched
+        if attempts[bot].get(row['id'], '') >= since:
             continue
         yield row, key, since, saved
 
 
-def due(c, at, limit=50):
+def due(c, at, limit=50, cursor=None):
     """Read outside the scheduler write lock; each selected row is rechecked in its own transaction."""
     out = []
-    for row, _, _, saved in candidates(c, at, recorded=False):
+    after = cursor[0] if cursor else ""
+    if cursor is not None:
+        cursor[:] = [""]
+    for row, _, _, saved in candidates(c, at, recorded=False, after=after, scanned=cursor):
         if not saved and H.bot(c, H.actor_id(row['owner']))['state'] == 'active':
             out.append(row['id'])
             if len(out) >= limit:
@@ -97,9 +134,9 @@ def sweep(c, at=None, task_ids=None):
     return woke
 
 
-def overdue(c, at=None):
+def overdue(c, at=None, *, visible="1", manager_actor=None):
     at = at or H.now()
-    for row, _, since, saved in candidates(c, at, recorded=True):
+    for row, _, since, saved in candidates(c, at, recorded=True, visible=visible, manager_actor=manager_actor):
         if saved and saved['rewoken_at'] <= H.shift(at, hours=-ESCALATE_HOURS):
             yield {**row, 'assigned_at': since, 'rewoken_at': saved['rewoken_at'], 'rewake_refusal': saved.get('refusal')}
 

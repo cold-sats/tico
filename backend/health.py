@@ -558,7 +558,13 @@ def _waiting(c, online_ids, settings=None):
             # A bot the claim holds on purpose (a spend limit, a usage-limit cooldown, a lapsed lease whose worker still
             # runs, interrupted work awaiting review, ...) is said with that reason, not "slow".
             refused, first, person = (('company_limit', None, False) if company_stopped else
-                                      bot_claimable(c, settings, where[0], slug, oldest=slug in busy))
+                                      bot_claimable(c, settings, where[0], slug))
+            if slug in busy and not refused:
+                # Keep claim priority for age checks; only use oldest-job diagnostics when
+                # that free-lane job is actually refused.
+                diagnostic = bot_claimable(c, settings, where[0], slug, oldest=True)
+                if diagnostic[0] and diagnostic[0] != "lane_held":
+                    refused, first, person = diagnostic
             # A running turn only explains this queue when it holds the queued lane. Free task
             # lanes still get the claim's actual refusal, even while another lane runs.
             idle = where[0] not in full and not (refused == 'lane_held' and slug in busy)
@@ -1346,7 +1352,7 @@ def view(c, who, settings, auth, github, config):
     checks = []
     from . import assigned_start
     assigned = []
-    for row in assigned_start.overdue(c):
+    for row in assigned_start.overdue(c, visible=auth.task_sql(c, who)):
         if not c.execute(f"SELECT 1 FROM tasks WHERE id=? AND ({auth.task_sql(c, who)})", (row['id'],)).fetchone():
             continue
         why = assigned_start.reason(c, row, settings)
