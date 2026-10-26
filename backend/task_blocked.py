@@ -8,8 +8,6 @@ from datetime import datetime
 
 def ensure(c):
     from . import hubdb as H
-    # Role claiming creates Blocked before later roadmap migrations add this column.
-    H.add_column(c, 'task_steps', 'public_name', 'TEXT')
     for name, kind in (
         ('blocked_since', 'TEXT'), ('blocked_reason', 'TEXT'), ('blocked_kind', 'TEXT'),
         ('blocked_from_step', 'TEXT'), ('blocked_from_status', 'TEXT'), ('blocked_gate_json', 'TEXT'),
@@ -29,7 +27,10 @@ def ensure_steps(c):
         at = next((i for i, s in enumerate(rest) if s['status'] != 'open'), len(rest))
         if not blocked:
             blocked = {'id': H.new_id(), 'position': None}
-            c.execute("INSERT INTO task_steps(id,type_id,name,position,status,public_name) VALUES(?,?,'Blocked',?,'waiting','Blocked')",
+            # Role claiming also runs before the public-name migration backfills its defaults.
+            public = 'public_name' in {r[1] for r in c.execute('PRAGMA table_info(task_steps)')}
+            c.execute("INSERT INTO task_steps(id,type_id,name,position,status" + (",public_name" if public else "") +
+                      ") VALUES(?,?,'Blocked',?,'waiting'" + (",'Blocked'" if public else "") + ")",
                       (blocked['id'], typ[0], at))
         for position, step in enumerate(rest[:at] + [blocked] + rest[at:]):
             if step['position'] != position:
@@ -106,11 +107,11 @@ def wait(c, row, include_manual=True):
 
 
 def hold(c, task_id, reason, kind='dependency'):
-    from . import hubdb as H
+    from . import hubdb as H, review_gate
     reason = str(reason)[:1000]
     row = H.task(c, task_id)
     if (not row or row['status'] not in (*H.ACTIVE_STATUSES, 'review')
-            or (H.type_get(c, row.get('type_id')) or {}).get('role') == 'product-roadmap'):
+            or not review_gate.engineering(c, row)):
         return
     if row.get('blocked_since'):
         # Retain the first hold time and resume step when another gate also holds it.

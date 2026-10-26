@@ -6184,7 +6184,7 @@ def wait_detail(conn, row):
     for child in children:
         # Pipeline checks are work at the current step, not dependencies preventing it.
         # An explicit blocked_by relation below still holds on any such child.
-        if engineering and review_gate.GATE_CHILD.match(str(child.get("title") or "").strip()):
+        if engineering and is_bot(child["owner"]) and review_gate.GATE_CHILD.match(str(child.get("title") or "").strip()):
             continue
         return {"why": "an open child task", "on": child["owner"]}
     blocker = TR.live_blocker(conn, row["id"], ACTIVE_STATUSES)

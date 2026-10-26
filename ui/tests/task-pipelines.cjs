@@ -317,7 +317,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
       tasksRender(TASKS_ST);
       document.activeElement?.blur();
     }, held);
-    await drag('tdev-held', '#task-body [data-col="dev-blocked"] .bcol-body');
+    await drag('tdev-held', '#task-body [data-col="dev-blocked"]');
     await page.locator('.task-block-reason [data-cancel]').click();
     assert.equal(await page.evaluate(() => document.activeElement?.dataset.openTask), 'tdev-held',
       'cancelling a dragged Blocked move restores focus to its card');

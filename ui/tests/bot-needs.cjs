@@ -202,7 +202,7 @@ const LAYOUT = [{builtin: 'needs', name: 'Needs You'}, {builtin: 'active', name:
     assert.equal(await rail.locator('.bot-task-tabs').isHidden(), true, 'no tab bar over a single list');
     assert.equal(await rail.locator('#bot-active').isVisible(), true);
     for (const key of ['needs', 'blocked', 'done']) assert.equal(await rail.locator(`#bot-${key}`).isHidden(), true, key);
-    assert.equal(await rail.locator('#t-open .trow').count(), 5);
+    assert.equal(await rail.locator('#t-open .trow').count(), 2);
     await page.evaluate(() => { window.botTaskTabs = window.fourTabs; });
     await reopen();
     assert.equal(await rail.locator('.bot-task-tabs').isVisible(), true);
