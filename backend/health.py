@@ -478,6 +478,13 @@ def quiet_minutes(last_seen):
     return int((datetime.now(timezone.utc) - seen).total_seconds() // 60) if seen else 0
 
 
+def _fenced_queue_reason(row, refused, first, person):
+    """Name the interrupted-run fence when it is the only reason this queue cannot start."""
+    if not row["queued"] and row["dead"] and refused in (None, 'lane_held'):
+        return "uncertain", None, False
+    return refused, first, person
+
+
 def _waiting(c, online_ids, settings=None, limits=None):
     """Active bots whose computer is offline (or that have none while work is queued), with the
     work stuck behind them, and bots whose queued work is old even though their computer is up.
@@ -587,8 +594,7 @@ def _waiting(c, online_ids, settings=None, limits=None):
                 if diagnostic[0] and diagnostic[0] != "lane_held":
                     refused, first, person = diagnostic
             # Only fenced work is left: the interrupted run holds it, not the running turn, so that is the reason.
-            if not row["queued"] and row["dead"] and refused in (None, "lane_held"):
-                refused, first, person = "uncertain", None, False
+            refused, first, person = _fenced_queue_reason(row, refused, first, person)
             # A running turn only explains this queue when it holds the queued lane. Free task
             # lanes still get the claim's actual refusal, even while another lane runs.
             idle = where[0] not in full and not (refused == 'lane_held' and slug in busy)

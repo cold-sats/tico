@@ -654,6 +654,52 @@ def claimable(c, runner, *bots):
     c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(document), runner))
 
 
+def test_an_interrupted_run_fence_explains_a_busy_bot_queue(environment, monkeypatch):
+    from backend import execution, health
+
+    api = environment()
+    runner = enrolled(api)
+    heartbeat(api, runner)
+    add_bot(api, "helper")
+    old = H.shift(H.now(), minutes=-30)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('helper',?,1,?,'t')",
+                  (runner, H.now()))
+        claimable(c, runner, "helper")
+        owner = "human:" + c.execute("SELECT id FROM humans ORDER BY id LIMIT 1").fetchone()[0]
+        task = H.task_create(c, owner, "Interrupted task", "", "bot:helper", private=False)
+        interrupted = H.task_comment(c, owner, task["id"], "interrupted work")
+        interrupted_job = c.execute("SELECT id FROM jobs WHERE message_id=?", (interrupted["id"],)).fetchone()["id"]
+        c.execute("UPDATE jobs SET state='uncertain',created=? WHERE id=?", (old, interrupted_job))
+        H.task_comment(c, owner, task["id"], "queued behind interrupted work")
+        c.execute("UPDATE jobs SET created=? WHERE bot='helper' AND state='queued'", (old,))
+
+        running_chat = H.open_conversation(c, owner, [owner, "bot:helper"], kind="chat")
+        H._write_message(c, owner, "bot:helper", "running turn", running_chat, "say", {}, None, None)
+        running_job = c.execute("SELECT id FROM jobs WHERE bot='helper' AND state='queued' ORDER BY created DESC LIMIT 1").fetchone()["id"]
+        c.execute("UPDATE jobs SET state='running' WHERE id=?", (running_job,))
+        c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created,started) "
+                  "VALUES('helper-running',?,'helper',?,1,'x','running',?,?,?)",
+                  (running_job, runner, H.shift(H.now(), hours=1), H.now(), H.now()))
+        online = {r["id"] for r in health._online_runners(c)}
+        monkeypatch.setattr(execution, "bot_claimable", lambda *args, **kwargs: ("lane_held", None, False))
+
+        [row] = health._waiting(c, online)[1]
+        assert row["bot"] == "helper" and row["queued"] == 0 and row["dead"] >= 1 and row["reason"] == "uncertain"
+
+        # Removing the fenced-only override reproduces the old, misleading busy reason.
+        original = health._fenced_queue_reason
+        monkeypatch.setattr(health, "_fenced_queue_reason", lambda row, refused, first, person: (refused, first, person))
+        [without_override] = health._waiting(c, online)[1]
+        assert without_override["reason"] == "busy"
+        monkeypatch.setattr(health, "_fenced_queue_reason", original)
+
+        # With every slot occupied, no_slot is the truthful immediate wait reason, while dead stays explicit.
+        c.execute("UPDATE runners SET capacity=1 WHERE id=?", (runner,))
+        [full] = health._waiting(c, online)[1]
+        assert (full["reason"], full["wait_reason"]) == ("busy", "no_slot") and full["dead"] >= 1
+
+
 def test_a_persons_message_waiting_two_minutes_on_a_computer_with_room_is_stuck(environment):
     """Someone is sitting there waiting for the reply: two minutes, not the fifteen other queued work gets."""
     from backend import health
