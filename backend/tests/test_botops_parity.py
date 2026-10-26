@@ -113,8 +113,8 @@ def test_secrets_are_refused_and_other_routes_use_the_humans_permissions(api, bo
                                                               "config": {"api_key": "sk-live-not-for-you"}})
     assert leaked.status_code == 422 and leaked.json()["error"]["code"] == "secret_in_request"
     assert "sk-live" not in leaked.text
-    for method, path in (("POST", "credentials"), ("POST", "credentials/x/reveal"), ("POST", "enrollments"), ("POST", "me/tokens"),
-                         ("POST", "approvals/x"), ("POST", "access/owner"), ("GET", "credential-runtime")):
+    # A secret handed back, a computer's code and handing over ownership are the person's own (test_botops_confirm_cards).
+    for method, path in (("POST", "credentials"), ("POST", "approvals/x"), ("GET", "credential-runtime")):
         direct = api.request(method, "/api/v2/" + path, json={} if method == "POST" else None,
                              headers=headers("ana-test"))
         delegated = act(api, attempt, method, path, {} if method == "POST" else None)

@@ -410,6 +410,7 @@ _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/(?:goal-proposals|proposals)/[^/]+/decide"), ("POST", r"/api/v2/support/tickets"),
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
     ("POST", r"/api/v2/(slack|github/app)/disconnect"),
+    ("POST", r"/api/v2/access/owner"), ("POST", r"/api/v2/enrollments"), ("POST", r"/api/v2/seats/[^/]+/hire"),
 )]
 _SHAPE = re.compile(r"/api/v2/[A-Za-z0-9_.:\-/]+")
 
@@ -1013,6 +1014,18 @@ def _terms(arg):
         else:
             terms.append(w)
     return hint, terms
+
+
+# Cards whose answer carries a one-time value for the person who taps: the route and the fields shown to them.
+SHOWN_ONCE = {"/api/v2/enrollments": ("code", "expires", "operator")}
+
+
+def shown_once(response, fields):
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    return {k: payload.get(k) for k in fields} if isinstance(payload, dict) and payload.get(fields[0]) else None
 
 
 def outcome(response):
@@ -1650,6 +1663,7 @@ def install(app, store, auth, mutate, onboarding):
         if row is None:
             raise Problem("expired", "This proposal is more than a day old; ask again", 409)
         ok, result = False, {"status_code": 0, "error": "It did not finish; ask again"}
+        shown = None
         try:
             path = normalize_path(row["path"])
             if not valid_operation(row["method"], path, settings, row.get("proposer") or "assistant"):
@@ -1680,6 +1694,8 @@ def install(app, store, auth, mutate, onboarding):
                                           key="assistant-" + aid)
                 result = outcome(response)
                 ok = result["error"] is None
+                if ok and path in SHOWN_ONCE:
+                    shown = shown_once(response, SHOWN_ONCE[path])
         except Problem as exc:
             result = {"status_code": exc.status, "error": exc.detail[:300]}
         except httpx.HTTPError as exc:
@@ -1689,4 +1705,6 @@ def install(app, store, auth, mutate, onboarding):
                     else ("That did not go through: " + str(result["error"])[:300]))
             # Off the event loop; the thread finishes the write even if the client went away.
             out = await asyncio.to_thread(settle, aid, who, "done" if ok else "failed", result, note)
-        return out
+        # A one-time value (a computer's code) goes to the person who tapped, in this answer only: never stored on the
+        # card, in its result or in the chat, where the bot that proposed it could read it.
+        return {**out, "shown_once": shown} if shown else out

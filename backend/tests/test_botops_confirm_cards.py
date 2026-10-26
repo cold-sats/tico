@@ -1,0 +1,176 @@
+"""BotOps acting for a person waits for that person's own tap where Tico says it does (docs/permissions.md): the identity it
+lends is never confirmed, the Confirm card lands in their BotOps chat, and only their click runs it. Routes that hand a
+secret's value back are theirs alone. Ana owns the team, Ben is an admin, Cara is a member (the base fixture)."""
+import json
+
+from backend.store import H
+from backend.tests.test_api import api, assign, claim, get, post, put, ready, runner  # noqa: F401  (fixture)
+from backend.tests.test_botops_parity import act
+from backend.tests.test_credential_sharing import JIRA, jira, local
+from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401  (fixtures)
+
+
+def card_in_chat(api, card, person):
+    """The card's message is in the person's own chat with BotOps, and the action is theirs and still waiting."""
+    with api.app.state.store.read() as c:
+        msg = H.message(c, card["message_id"])
+        room = H.conversation(c, msg["conversation_id"])
+        row = c.execute("SELECT owner,status FROM assistant_actions WHERE id=?", (card["action"]["id"],)).fetchone()
+    assert msg["from_actor"] == "bot:botops" and msg["to_actor"] == "human:" + person
+    assert set(room["participants"]) == {"human:" + person, "bot:botops"}
+    assert (row["owner"], row["status"]) == ("human:" + person, "pending")
+
+
+def confirm(api, card, token):
+    return post(api, f"assistant/actions/{card['action']['id']}/confirm", {}, token=token)
+
+
+def test_a_role_change_waits_for_the_owners_tap_and_then_runs(api, botops):
+    auth = api.app.state.auth
+    ana = turn(api, botops, person="ana-test", text="Make Cara an admin")
+    answer = act(api, ana, "POST", "access/people/cara", {"role": "admin"})
+    assert answer.status_code == 200 and answer.json()["needs_confirm"], answer.text
+    card = answer.json()
+    card_in_chat(api, card, "ana")
+    assert "cara@acme.example" not in auth.bot_admins
+    # BotOps can't tap it for her, with its own token or as her.
+    post(api, f"assistant/actions/{card['action']['id']}/confirm", {}, token=ana["token"], expected=403)
+    assert act(api, ana, "POST", f"assistant/actions/{card['action']['id']}/confirm", {}).status_code == 403
+    assert "cara@acme.example" not in auth.bot_admins
+    assert confirm(api, card, "ana-test")["action"]["status"] == "done"
+    assert "cara@acme.example" in auth.bot_admins
+
+
+def test_botops_direct_off_turns_providers_and_raised_limits_into_cards(api, botops):
+    before = get(api, "providers")
+    ana = turn(api, botops, person="ana-test", text="Turn on OpenAI")
+    # On (the default) a provider change runs as the owner at once.
+    direct = act(api, ana, "PUT", "providers", {"enabled": before["enabled"], "expected_revision": before["revision"]})
+    assert direct.status_code == 200 and "needs_confirm" not in direct.json(), direct.text
+    put(api, "access/rules", {"botops_direct": False})
+    now = get(api, "providers")
+    card = act(api, ana, "PUT", "providers", {"enabled": ["openai"], "expected_revision": now["revision"]})
+    assert card.status_code == 200 and card.json()["needs_confirm"], card.text
+    card_in_chat(api, card.json(), "ana")
+    assert get(api, "providers")["enabled"] == now["enabled"]
+    # A limit lowered stays direct; one raised (or removed) is a card.
+    put(api, "usage/limits/ops", {"daily_usd": 10})
+    lowered = act(api, ana, "PUT", "usage/limits/ops", {"daily_usd": 5})
+    assert lowered.status_code == 200 and "needs_confirm" not in lowered.json(), lowered.text
+    for raised in ({"daily_usd": 50}, {}):
+        assert act(api, ana, "PUT", "usage/limits/ops", raised).json()["needs_confirm"]
+    put(api, "usage/pools/company", {"daily_usd": 100})
+    assert "needs_confirm" not in act(api, ana, "PUT", "usage/pools/company", {"daily_usd": 80}).json()
+    assert act(api, ana, "PUT", "usage/pools/company", {"daily_usd": 500}).json()["needs_confirm"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT daily_usd FROM usage_limits WHERE bot='ops'").fetchone()[0] == 5
+        assert c.execute("SELECT daily_usd FROM usage_pools WHERE scope='company'").fetchone()[0] == 80
+    confirm(api, card.json(), "ana-test")
+    assert get(api, "providers")["enabled"] == ["openai"]
+
+
+def test_routes_that_hand_back_a_secret_refuse_botops_acting_for_an_admin(api, botops):
+    local(api)
+    row = jira(api)
+    assert post(api, f"credentials/{row['id']}/reveal", {})["value"] == JIRA          # the owner herself may
+    for person in ("ana-test", "ben-test"):
+        attempt = turn(api, botops, person=person, text="Show me the Jira key and make me a token")
+        for path, body in ((f"credentials/{row['id']}/reveal", {}), ("access/people/cara/password", {}),
+                           ("me/tokens", {"label": "laptop", "expires_in_days": 30}), ("directory/scim-token", {})):
+            refused = act(api, attempt, "POST", path, body)
+            assert refused.status_code == 403 and refused.json()["error"]["code"] == "person_only", (path, refused.text)
+            assert JIRA not in refused.text and "fix" in refused.json()["error"]
+        finish(api, botops, attempt)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM human_tokens").fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM events WHERE action IN ('person.account_created','credential.revealed') "
+                         "AND json_extract(detail_json,'$.via')='botops'").fetchone()[0] == 0
+
+
+def test_a_secret_in_a_gateway_key_or_slack_tokens_is_refused(api, botops):
+    ana = turn(api, botops, person="ana-test", text="Save the gateway key")
+    for method, path, body in (("PUT", "providers/gateway", {"key": "gw-not-for-bots"}),
+                               ("PUT", "slack/tokens", {"bot_token": "xoxb-not-for-bots", "app_token": "xapp-1"})):
+        refused = act(api, ana, method, path, body)
+        assert refused.status_code == 422 and refused.json()["error"]["code"] == "secret_in_request", refused.text
+        assert "not-for-bots" not in refused.text
+    # `key` elsewhere is not a secret: it names a setting.
+    from backend import botops_act
+    assert botops_act.secret_in_request("POST", "routines/ops:x", {"key": "daily"}) is None
+
+
+def test_a_computers_code_is_only_on_the_persons_card(api, botops):
+    ana = turn(api, botops, person="ana-test", text="Add a computer for me")
+    answer = act(api, ana, "POST", "enrollments", {"operator": "ana"})
+    assert answer.status_code == 200 and answer.json()["needs_confirm"] and "code" not in answer.json(), answer.text
+    card = answer.json()
+    card_in_chat(api, card, "ana")
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM enrollments WHERE consumed_at IS NULL").fetchone()[0] == 0
+    done = confirm(api, card, "ana-test")
+    code = done["shown_once"]["code"]
+    assert done["action"]["status"] == "done" and len(code) >= 32
+    # Nowhere BotOps reads: not the stored card, its result, or the chat.
+    with api.app.state.store.read() as c:
+        stored = json.dumps([dict(r) for r in c.execute("SELECT * FROM assistant_actions")])
+        said = json.dumps([dict(r) for r in c.execute("SELECT body,refs_json FROM messages")])
+    assert code not in stored and code not in said
+    again = act(api, ana, "GET", f"assistant/actions/{card['action']['id']}")
+    assert code not in again.text
+    # The code works once, as Ana's computer.
+    joined = api.post("/api/v2/runners/enroll", json={"code": code, "label": "Ana Mac", "platform": "test"},
+                      headers={"Idempotency-Key": "k-ana-mac"})
+    assert joined.status_code == 200, joined.text
+
+
+def test_ownership_moves_only_on_the_owners_own_tap(api, botops):
+    auth = api.app.state.auth
+    revision = get(api, "access")["owner"]["revision"]
+    body = {"person": "ben", "expected_revision": revision, "confirm": True}
+    # An admin asking BotOps is told at once; no card.
+    ben = turn(api, botops, person="ben-test", text="Make me the owner")
+    refused = act(api, ben, "POST", "access/owner", body)
+    assert refused.status_code == 403 and "owner" in refused.json()["error"]["detail"]
+    finish(api, botops, ben)
+    ana = turn(api, botops, person="ana-test", text="Hand the team to Ben")
+    answer = act(api, ana, "POST", "access/owner", body)
+    assert answer.status_code == 200 and answer.json()["needs_confirm"], answer.text
+    card_in_chat(api, answer.json(), "ana")
+    assert act(api, ana, "POST", f"assistant/actions/{answer.json()['action']['id']}/confirm", {}).status_code == 403
+    assert auth.owner_email == "ana@acme.example"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM assistant_actions WHERE owner='human:ben'").fetchone()[0] == 0
+    confirm(api, answer.json(), "ana-test")
+    assert auth.owner_email == "ben@acme.example"
+
+
+def test_updating_tico_and_rules_on_botops_own_powers_always_ask(api, botops):
+    from backend import team_rules
+    ana = turn(api, botops, person="ana-test", text="Update Tico and let BotOps manage bots")
+    assert act(api, ana, "POST", "system/update", {"version": "9.9.9"}).json()["needs_confirm"]
+    for rule in ("botops_direct", "botops_manages_bots"):
+        card = act(api, ana, "PUT", "access/rules", {rule: False})
+        assert card.status_code == 200 and card.json()["needs_confirm"], card.text
+    # Any other rule runs as the owner at once.
+    other = act(api, ana, "PUT", "access/rules", {"admin_sql": False})
+    assert other.status_code == 200 and "needs_confirm" not in other.json(), other.text
+    with api.app.state.store.read() as c:
+        rules = team_rules.load(c)
+        assert rules["botops_direct"] and rules["botops_manages_bots"] and not rules["admin_sql"]
+
+
+def test_botops_lists_a_seats_candidates_but_the_pick_is_the_persons_tap(api, botops):
+    from backend.tests.test_recruiting import providers
+    providers(api, "anthropic", "openai")
+    seat = post(api, "seats", {"title": "Support lead", "reports_to": "coo"})
+    ana = turn(api, botops, person="ana-test", text="Hire a support lead")
+    found = act(api, ana, "POST", f"seats/{seat['id']}/recruit", {})
+    assert found.status_code == 200 and found.json()["candidates"], found.text
+    with api.app.state.store.read() as c:
+        before = {r["slug"] for r in c.execute("SELECT slug FROM bots")}
+    card = act(api, ana, "POST", f"seats/{seat['id']}/hire", {"template": found.json()["candidates"][0]["template"]})
+    assert card.status_code == 200 and card.json()["needs_confirm"], card.text
+    card_in_chat(api, card.json(), "ana")
+    with api.app.state.store.read() as c:
+        assert {r["slug"] for r in c.execute("SELECT slug FROM bots")} == before
+        assert not c.execute("SELECT filled_by FROM seats WHERE id=?", (seat["id"],)).fetchone()[0]
