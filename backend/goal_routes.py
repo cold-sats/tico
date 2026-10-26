@@ -237,9 +237,19 @@ def install(app, store, auth, mutate, settings):
         return bool(text) and any(name in str(text) for name in names)
 
     def scrub_status(row, names):
-        """A link made before links were checked (exposes) may still colour a goal with a hidden KPI's reason."""
-        if names_any(row.get("status_note"), names):
-            row["status_note"] = ""
+        """A link made before links were checked (exposes) may still colour a goal with a hidden KPI's reason, or
+        suggest a colour for one a person set with it."""
+        for key in ("status_note", "suggest_note"):
+            if names_any(row.get(key), names):
+                row[key] = "" if key == "status_note" else None
+
+    def scrub_rows(c, who, rows):
+        hidden = hidden_owners(c, who)
+        secret = hidden_names(c, hidden) if hidden else set()
+        if secret:
+            for row in rows:
+                scrub_status(row, secret)
+        return rows
 
     def goal_view(c, who, row, *visible):
         """One goal (G.view) as this caller may read it: no hidden KPI's line, no suggestion about one, and no
@@ -432,10 +442,12 @@ def install(app, store, auth, mutate, settings):
                 statuses = tuple(status.split(",")) if status else None
                 whose = goal_owner(c, who, owner) if owner else None
                 rows = readable_goals(c, who, G.goals(c, owner=whose, status=statuses, live_only=not statuses))
-                return {"goals": rows}
+                return {"goals": scrub_rows(c, who, rows)}
             actor = goal_owner(c, who, owner)
             roster, entries, archived = org_shape(c)
             out = G.for_actor(c, actor, roster, entries, archived)
+            for key in ("goals", "chain", "reports", "company"):
+                scrub_rows(c, who, out[key])
             if who.role == "bot" and actor == who.actor:
                 due = G.reads_due(c, who.actor, [g["id"] for g in out["goals"] + out["chain"]])
         mark_read(who, due)
@@ -957,6 +969,12 @@ def install(app, store, auth, mutate, settings):
                 # As linking it by hand is (kpi_or_404): no one puts a measure they may not read on a goal.
                 raise Problem("forbidden", "That measure is one you may not read, so you cannot add it; leave it, "
                               "or someone who may read it adds it", 403)
+            if item["kind"] == "kpi_target" and body.decision == "confirm" and item["goal_id"] and item["kpi_id"] \
+                    and not K.link(c, item["goal_id"], item["kpi_id"]):
+                # A target for a KPI the goal does not use yet links it (backend/goals.py decide): the same rule.
+                target_kpi = K.kpi(c, item["kpi_id"])
+                if target_kpi:
+                    refuse_exposed(c, goal_or_404(c, item["goal_id"]), target_kpi["owner"])
             if item["kind"] == "goal_kpi" and body.decision == "confirm":
                 goal = goal_or_404(c, item["goal_id"])
                 if record:

@@ -303,3 +303,41 @@ def test_a_bots_measure_goes_on_its_own_goal_and_not_with_a_goal_handed_to_a_per
     assert "NDAs waiting" in links(api, hidden["id"])
     post(api, f"goals/{hidden['id']}", {"owner": "cara"}, expected=403)
     assert get(api, f"goals/{hidden['id']}")["goal"]["owner"] == "bot:inbox"
+
+
+def test_a_target_suggestion_does_not_link_a_hidden_bots_measure_to_her_goal(api):
+    _, secret = inbox_measure(api)
+    hers = post(api, "goals", {"title": "Keep customers", "owner": "cara"}, token="cara-test")["goal"]
+    target = propose(api, "kpi_target", {"kind": "maintain", "max": 3}, hers["id"], secret["id"])
+    post(api, f"goal-proposals/{target['id']}/decide", {"decision": "confirm"}, expected=403)
+    assert "NDAs waiting" not in links(api, hers["id"])
+    post(api, f"goal-proposals/{target['id']}/decide", {"decision": "reject"})
+
+
+def old_link(api, goal_id, kpi_id, **target):
+    """A link made before links were checked: nothing makes one now (see exposes in backend/goal_routes.py)."""
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO goal_kpis (id, goal_id, kpi_id, kind, max, created, created_by, updated, updated_by) "
+                  "VALUES (?, ?, ?, 'maintain', ?, ?, 'human:ana', ?, 'human:ana')",
+                  ("old-" + goal_id, goal_id, kpi_id, target.get("max"), now, now))
+
+
+def test_an_old_link_to_a_hidden_measure_names_it_in_no_colour_reason_or_suggestion_she_reads(api):
+    _, secret = inbox_measure(api)
+    auto = post(api, "goals", {"title": "Keep customers", "owner": "cara"}, token="cara-test")["goal"]
+    manual = post(api, "goals", {"title": "Grow referrals", "owner": "cara"}, token="cara-test")["goal"]
+    post(api, f"goals/{manual['id']}/status", {"status": "green", "note": "On track"}, token="cara-test")
+    for goal in (auto, manual):
+        old_link(api, goal["id"], secret["id"], max=3)
+    import datetime
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    post(api, f"kpis/{secret['id']}/readings", {"value": 7, "period_start": yesterday, "period_end": yesterday})
+    post(api, "goals/refresh", {"goal_ids": [auto["id"], manual["id"]]})
+    with api.app.state.store.read() as c:
+        said = {r[0]: (r[1], r[2]) for r in c.execute("SELECT id, status_note, suggest_note FROM goals")}
+    assert "NDAs waiting" in str(said[auto["id"]][0]) and "NDAs waiting" in str(said[manual["id"]][1])
+    for path in ("goals", "goals?all=true", "goals/tree", f"goals/{auto['id']}", f"goals/{manual['id']}"):
+        assert leaks(get(api, path, "cara-test")) == [], path
+    assert "NDAs waiting" in str(get(api, "goals/tree"))          # the owner reads it
