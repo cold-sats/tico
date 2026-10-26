@@ -621,7 +621,7 @@ def task_create(api, args):
       {"parent": TASK_ID, "owner": _s("Bot slug or human id; `me` for a check_model subtask (the default)"),
        "title": _s("What to do"), "body": _s("Details", default=""),
        "check_model": _s("A company-enabled runtime, optionally with a model: `grok`, `codex:gpt-6.1-sol`; `auto` for "
-                         "the company's check model from a provider other than the parent's author"),
+                         "the company's check model, from a provider other than the parent's author when one can run it"),
        "check_role": {"type": "string", "enum": ["review", "check"],
                       "description": "With check_model: a review of work, or a check of a claim (default check)"}},
       required=("parent", "title"), writes=True)

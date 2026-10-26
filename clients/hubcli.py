@@ -922,8 +922,8 @@ def parser():
     s.add_argument("--body", default="")
     s.add_argument("--check-model", metavar="RUNTIME[:MODEL]", nargs="?", const="auto",
                    help="run this subtask of yours on another model, in its own session (e.g. grok, codex:gpt-6.1-sol); "
-                        "with no value (put the flag after the parent id), the company's check model from a provider other "
-                        "than the parent's authors")
+                        "with no value (put the flag after the parent id), the company's check model, from a provider other "
+                        "than the parent's authors when one can run it")
     s.add_argument("--role", dest="check_role", choices=("review", "check"),
                    help="with --check-model: what the other model is asked for (default check)")
     s.set_defaults(fn="task child create")
