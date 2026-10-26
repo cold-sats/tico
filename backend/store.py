@@ -1812,6 +1812,9 @@ class Store:
                         for item in value:
                             referenced(item)
                 referenced(result)
+                if operation == "/api/v2/task-bulk":
+                    for rows in result.get("tasks", {}).values():
+                        task_ids.update(task["id"] for task in rows)
                 for task_id in task_ids:
                     replay_auth.task(c, replay_principal, task_id)
                 privacy.require_payload(c, replay_principal, result)

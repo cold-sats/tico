@@ -3721,7 +3721,7 @@ def create_app(settings=None):
         names nothing, or more than BULK_CAP matches, is refused."""
         named = (f.owner, f.requester, f.status not in (None, "", "all") or None, f.label, f.type, f.step, f.number,
                  f.updated_since, f.member, f.ids)
-        if all(value is None for value in named):
+        if not any(named):
             raise Problem("filter", "Name at least one filter: a bulk change never applies to every task", 422)
         owner, requester, filters = task_filters(
             c, owner=f.owner, requester=f.requester, status=f.status, lane=f.lane, label=f.label, type=f.type,

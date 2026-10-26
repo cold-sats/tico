@@ -857,7 +857,7 @@ const BULK_IDS = 100;
 const BULK_SERVER_CHIPS = {owner: 'owner', asked: 'requester', tag: 'label'};
 function tasksBulkFilter(state, base, keys) {
   const f = state.filters || {};
-  const plain = base && !state.q && !state.boardFocus
+  const plain = base && state.activeComplete && !state.q && !state.boardFocus
     && Object.entries(f).every(([k, v]) => !v?.length || (BULK_SERVER_CHIPS[k] && v.length === 1));
   if (plain) {
     const filter = {...base, lane: 'company'};

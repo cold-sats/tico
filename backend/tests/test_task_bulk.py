@@ -68,6 +68,38 @@ def test_tags_close_and_reopen_by_filter(api):
     assert {get(api, "tasks/" + t["id"])["task"]["status"] for t in tasks} == {"open"}
 
 
+def test_blank_filters_never_widen_to_every_task(api):
+    t = task(api, "Draft the unrelated note")
+    for field in ("label", "updated_since"):
+        for blank in ("", " \t "):
+            out = bulk(api, {field: blank}, "close", expected=422)
+            assert out["error"]["code"] == "filter"
+    now = get(api, "tasks/" + t["id"])["task"]
+    assert (now["status"], now["version"]) == ("open", t["version"])
+    assert bulk(api, {"ids": [t["id"]], "label": " \t "}, "close")["changed"] == 1
+
+
+def test_bulk_replay_rechecks_revoked_bot_read_access(api):
+    t = task(api, "Draft the confidential brief", private=False)
+    body = {"filter": {"ids": [t["id"]]}, "action": "close"}
+    headers = {"Authorization": "Bearer priya-test", "Idempotency-Key": "bulk-replay"}
+    original = api.post("/api/v2/task-bulk", json=body, headers=headers)
+    assert original.status_code == 200, original.text
+    assert original.json()["tasks"]["skipped"][0]["id"] == t["id"]
+    assert api.post("/api/v2/task-bulk", json=body, headers=headers).json() == original.json()
+
+    access = get(api, "bots/cmo/access")
+    revoked = api.put("/api/v2/bots/cmo/access", json={
+        "revision": access["revision"], "see": {"everyone": True},
+        "read": {"people": ["ana"]}, "write": {"everyone": True}},
+        headers={"Authorization": "Bearer ana-test", "Idempotency-Key": "revoke-read"})
+    assert revoked.status_code == 200, revoked.text
+    get(api, "tasks/" + t["id"], token="priya-test", expected=403)
+    replay = api.post("/api/v2/task-bulk", json=body, headers=headers)
+    assert replay.status_code == 403, replay.text
+    assert t["title"] not in replay.text
+
+
 def test_a_dry_run_counts_the_real_outcome_and_changes_nothing(api):
     mine = [label(api, task(api, f"Call the lead {i}", owner="priya"), "calls") for i in range(2)]
     theirs = label(api, task(api, "Draft the call script"), "calls")
