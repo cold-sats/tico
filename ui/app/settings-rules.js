@@ -227,7 +227,7 @@ async function rulesLoad() {
 async function renderSettingsRules(force) {
   const el = $('#set-rules'); if (!el) return;
   const task = RULES_FOR, f = rulesFor();
-  if (RULES && el.dataset.rulesFor === task && !force && Date.now() - RULES_AT < 60000) { rulesPaint(); return; }
+  if (RULES && el.dataset.rulesFor === task && !force && Date.now() - RULES_AT < 60000) { rulesPaint(); void taskSettingsOpenEditor(); return; }
   RULES_AT = Date.now();
   if (f.kind === 'task' && !RULES_FOR_TITLE) get('/v2/tasks/' + encodeURIComponent(f.id)).then(t => {
     RULES_FOR_TITLE = (t.task || t).title || '';
@@ -242,6 +242,7 @@ async function renderSettingsRules(force) {
   if (RULES_BUSY.size || formBusy(el.querySelector('[data-rules-list]'))) return;
   rulesPaint();
   settingsReveal('#set-rules-card');
+  void taskSettingsOpenEditor();
 }
 function ruleReplace(rule) {
   if (!RULES || !rule) return;
@@ -367,11 +368,11 @@ async function ruleEditor(rule, preset = null) {
   const sourceless = [...new Set([...(listing.sourceless_events || []), ...EVENT_TYPES.filter(t => t.sourceless).map(t => t.name)])];
   const isSrc = e => sourceless.includes(e);
   const srcScope = k => ['team', 'department', 'bot'].includes(k);
-  let kind = rule?.scope_kind || f.kind || scopes[0]?.[0] || 'task';
+  let kind = base.scope_kind || f.kind || scopes[0]?.[0] || 'task';
   if (!rule && isSrc(event0) && !srcScope(kind)) kind = scopes.find(([k]) => srcScope(k))?.[0] || kind;
   const params = base.params || {};
   // Until the form exists, the steps come from the rule's own scope (or the filtered one a new rule starts in).
-  let steps = () => ruleStepsFor(rule?.scope_kind || kind, rule?.scope_id ?? (kind === f.kind ? f.id : ''));
+  let steps = () => ruleStepsFor(rule?.scope_kind || kind, base.scope_id ?? (kind === f.kind ? f.id : ''));
   const message = ['*', ...(listing.events || [])];
   if (!message.includes(event0) && !isSrc(event0)) message.push(event0);
   const events = message.map(e => opt(e, (RULE_FLOOR.has(e) ? 'Always: ' : '') + ruleEventWords(e), event0)).join('')
@@ -387,7 +388,7 @@ async function ruleEditor(rule, preset = null) {
   const data = params.data && Object.keys(params.data).length ? JSON.stringify(params.data, null, 2) : '';
   dialog.innerHTML = `<form class="task-rule-form" data-rule-form><header><h2>${rule ? 'Edit rule' : 'Add rule'}</h2><button type="button" class="ghost" data-close>Cancel</button></header>
     ${rule ? `<p class="muted">${esc(ruleScopeWords(rule))}</p>` : `<label>Scope<select name="scope_kind" data-rule-kind>${scopes.map(([k, v]) => opt(k, v, kind)).join('')}</select></label>
-    <div data-rule-target>${ruleTargetHTML(kind, kind === f.kind ? f.id : '')}</div>`}
+    <div data-rule-target>${ruleTargetHTML(kind, base.scope_id ?? (kind === f.kind ? f.id : ''))}</div>`}
     <label>WHEN<select name="event">${events}</select></label>
     <div class="wr-when" data-rule-when-msg>
       <label>From<select name="actor">${opt('', 'Anyone', first(when.actor))}${Object.entries(RULE_ACTORS).map(([k, v]) => opt(k, v, first(when.actor))).join('')}</select></label>
@@ -479,7 +480,7 @@ async function ruleEditor(rule, preset = null) {
     dialog.querySelector('[data-rule-target]').onchange = restep;
     restep();
   }
-  const done = () => { dialog.close(); rulesPaint(); };
+  const done = () => { dialog.close(); rulesPaint(); toast('Saved'); TASK_SETTINGS = null; };
   form.onsubmit = async ev => {
     ev.preventDefault(); const button = form.querySelector('[type="submit"]'); button.disabled = true; error.textContent = '';
     try {

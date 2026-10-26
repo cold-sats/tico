@@ -1439,7 +1439,9 @@ def listing(c, settings, auth, who, scope_kind=None, scope_id=None, event=None, 
                 spent += len(json.dumps(item))
         else:
             next_offset = offset + min(len(rows), limit)
-    out = {"rules": items, "events": list(EVENTS), "outcomes": list(OUTCOMES), "scopes": list(SCOPES), "more": more,
+    from . import task_settings
+    items = [task_settings.describe_rule(item) for item in items]
+    out = {"task_builtins": task_settings.builtins(), "rules": items, "events": list(EVENTS), "outcomes": list(OUTCOMES), "scopes": list(SCOPES), "more": more,
            "sourceless_events": sorted(SOURCELESS), "actions": list(ACTIONS), "when_keys": list(WHEN_KEYS)}
     if more:
         out["next_offset"] = next_offset
