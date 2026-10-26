@@ -430,15 +430,29 @@ def reports_tools(c, attempt_id, config):
 # Match operations Tico can name, rather than treating every shell or file edit as an outside action.
 OUTSIDE_ACTIONS = tuple((label, re.compile(pattern, re.I)) for label, pattern in (
     ('merge pull request', r"\bgh\s+pr\s+merge\b"),
+    ('merge pull request', r"\bgh\s+api\b[^\n]*\bmerg(e|ed|ing)\b"),
     ('publish release', r"\bgh\s+release\s+create\b"),
     ('publish package', r"\bnpm\s+publish\b"),
+    ('publish package', r"\bcargo\s+publish\b"),
+    ('publish package', r"\btwine\s+upload\b"),
+    ('publish package', r"\bdocker\s+(?:image\s+)?push\b"),
     ('consume approval', r"\b(?:hub\s+)?approval\s+consume\b"),
     ('send email', r"\b(?:hub\s+)?(?:mail|email)\s+send\b"),
+    ('send email', r"\bsendmail\b"),
     ('send webhook', r"\b(?:hub\s+)?webhook\s+send\b"),
     ('make payment', r"\bstripe\s+(?:payments|payment_intents)\s+(?:create|confirm)\b"),
 ))
+# Runner tool names that name the same operations, including the hub MCP tools with their runner prefix
+# (`mcp__hub__hub_webhook_send` arrives here as `hub_webhook_send`). Internal hub writes (tasks, messages,
+# comments) stay out on purpose: they are reversible teamwork, not outside effects.
 OUTSIDE_TOOLS = {'send_email': 'send email', 'send_mail': 'send email', 'merge_pull_request': 'merge pull request',
-                 'publish_release': 'publish release', 'make_payment': 'make payment'}
+                 'publish_release': 'publish release', 'make_payment': 'make payment',
+                 'hub_release_now': 'publish release', 'hub_webhook_send': 'send webhook',
+                 'hub_webhook_retry': 'send webhook', 'hub_webhook_recover': 'send webhook',
+                 'hub_support_send': 'send support report'}
+# Tool names through which a run could have issued a merge even when its recorded summary says nothing
+# usable: a merge on the run's task only holds the run when the run itself reached a shell.
+MERGE_VECTOR_TOOLS = frozenset({'bash', 'sh', 'shell', 'exec', 'merge_pull_request'})
 
 
 def restart_reported(c, attempt_id):
@@ -468,11 +482,15 @@ def outside_actions(c, job, started, finished):
             actions.add(OUTSIDE_TOOLS[name])
         summary = str(call.get('summary') or '')
         actions.update(label for label, pattern in OUTSIDE_ACTIONS if pattern.search(summary))
-    # A merged linked PR is evidence even when its shell call's summary was abbreviated.
-    for row in c.execute("SELECT 1 FROM task_links l JOIN turns t ON t.task_id=l.task_id "
-                         "WHERE t.id=? AND l.kind='pr' AND l.pr_merged_at BETWEEN ? AND ?",
-                         (job['attempt_id'], started or job['created'], finished or H.now())):
-        actions.add('merge pull request')
+    # A merged linked PR is evidence even when its shell call's summary was abbreviated. The link is
+    # task-wide, so it only counts when this run itself reached a shell it could have merged through: a
+    # run that never left its reads is never held for another run's merge.
+    if any(str(call.get('tool') or call.get('name') or '').split('__')[-1].lower() in MERGE_VECTOR_TOOLS
+           for call in evidence.values()):
+        for row in c.execute("SELECT 1 FROM task_links l JOIN turns t ON t.task_id=l.task_id "
+                             "WHERE t.id=? AND l.kind='pr' AND l.pr_merged_at BETWEEN ? AND ?",
+                             (job['attempt_id'], started or job['created'], finished or H.now())):
+            actions.add('merge pull request')
     return sorted(actions)
 
 
@@ -486,8 +504,11 @@ def retry_facts(c, job, started, finished):
     calls = recorded_tools(c, job['attempt_id'])
     acted = sorted({call['tool'] for call in calls if call['tool'] not in READ_ONLY_TOOLS})
     window = (started or job['created'], finished or H.now())
-    approvals = c.execute("SELECT kind FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
-                          "AND consumed_at BETWEEN ? AND ?", ('bot:' + job['bot'], *window)).fetchall()
+    # An approval belongs to the message it was requested for, not to the whole bot: another lane's
+    # approval consumed in the same window never holds this run.
+    approvals = c.execute("SELECT kind FROM approvals WHERE requested_by=? AND message_id=? "
+                          "AND consumed_at IS NOT NULL AND consumed_at BETWEEN ? AND ?",
+                          ('bot:' + job['bot'], job['message_id'], *window)).fetchall()
     consumed = len(approvals)
     reported = reports_tools(c, job['attempt_id'], declared)
     # A message folded into another job's run counts that run as one of its own starts.
@@ -3576,9 +3597,16 @@ class Execution:
                 named = ', '.join([*facts['outside'],
                                    *(['consumed approval (' + ', '.join(facts['approval_kinds']) + ')'] if facts['consumed'] else [])])
                 reason = f"The computer restarted after the run recorded {named}; check this outside action before resuming."
-            elif facts['restart'] and facts['starts'] <= 1:
+            elif facts['restart'] and facts['starts'] <= 1 and not facts['acted']:
                 stopped = 'read'
                 reason = "The computer reported a restart; no consumed approval or named irreversible outside action holds this run."
+            elif facts['restart'] and facts['starts'] <= 1:
+                # Safe to resume, but the run did reach tools that can change things: the card must
+                # never say it only read (ui/app/settings.js renders each bucket's own words).
+                stopped = 'restarted'
+                reason = ("The computer reported a restart; no consumed approval or named irreversible outside "
+                          "action holds this run, but it had started tools that can change things, so check what "
+                          "already happened before running it again.")
             elif facts['restart'] and facts['starts'] > 1:
                 stopped = 'twice'
                 reason = "The run stopped the same way more than once, so Tico won't run it again."
@@ -3947,6 +3975,8 @@ class Execution:
                         "stopped, so running it again repeats nothing. If this conversation already holds your "
                         "earlier partial work, check what already happened, then continue from there.")
                 if facts['restart']:
+                    # The cut time is the attempt's finished (report) time: the closest Tico has to when
+                    # the computer was cut off.
                     at = (row['finished'] or H.now())[11:16]
                     note = (f"You were interrupted at {at} UTC by a computer restart. "
                             "Check what already happened first, then continue in this provider session. "

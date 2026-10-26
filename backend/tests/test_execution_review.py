@@ -1447,3 +1447,106 @@ def test_restart_uses_start_evidence_and_does_not_hold_internal_shell_writes(api
                   "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='completed'",
                   ('The instructions mention npm publish and hub mail send', attempt['id']))
     assert [d['state'] for d in sweep(api)] == ['queued']
+
+
+@pytest.mark.parametrize('tool,label', [
+    ('mcp__hub__hub_release_now', 'publish release'),
+    ('mcp__hub__hub_webhook_send', 'send webhook'),
+    ('mcp__hub__hub_support_send', 'send support report'),
+])
+def test_restart_with_hub_publish_or_send_call_is_held_and_names_it(api, tool, label):
+    """Hub publish/send tools recorded with their runner prefix hold a restarted run and name the operation."""
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [(tool, None)])
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    review = get(api, 'bots/ops/execution-review')['jobs'][0]
+    assert label in review['reason'] and review['stopped'] == 'changed'
+
+
+@pytest.mark.parametrize('summary,label', [
+    ('cargo publish --dry-run', 'publish package'),
+    ('twine upload dist/acme-0.1.tar.gz', 'publish package'),
+    ('docker push registry.acme.example/team/img:tag', 'publish package'),
+    ('gh api repos/acme/tico/pulls/3/merge -X PUT', 'merge pull request'),
+    ('sendmail -t < /tmp/notice', 'send email'),
+])
+def test_restart_shell_publish_merge_and_send_commands_are_held_and_named(api, summary, label):
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [('Bash', None)])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempt_events SET payload_json=json_set(payload_json,'$.summary',?) "
+                  "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='started'",
+                  (summary, attempt['id']))
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    review = get(api, 'bots/ops/execution-review')['jobs'][0]
+    assert label in review['reason'] and review['stopped'] == 'changed'
+
+
+def test_restart_read_only_run_ignores_another_runs_approval_and_merge(api):
+    """An approval another message consumed and a merge another run caused never hold this run."""
+    from backend.store import H
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None)])
+    with api.app.state.store.transaction() as c:
+        started = c.execute("SELECT started FROM attempts WHERE id=?", (attempt['id'],)).fetchone()[0]
+        # Another lane's approval, consumed while this run was cut off, names another message.
+        c.execute("INSERT INTO approvals(id,kind,message_id,requested_by,created,consumed_at) VALUES(?,?,?,?,?,?)",
+                  (H.new_id(), 'spend', 'message-elsewhere', 'bot:ops', started, started))
+        # Another run's merge on this run's task, inside the report window.
+        task = H.task_create(c, 'human:ana', 'Something else', 'Do something else.', 'bot:ops')
+        c.execute("INSERT INTO task_links(id,task_id,kind,url,created,pr_merged_at) VALUES(?,?,?,?,?,?)",
+                  (H.new_id(), task['id'], 'pr', 'https://example.com/acme/tico/pull/9', started, H.now()))
+        # The claim already recorded this run's turn under its attempt id; point it at the task.
+        c.execute("UPDATE turns SET task_id=? WHERE id=?", (task['id'], attempt['id']))
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:botops'").fetchone()
+
+
+def test_restart_run_that_consumed_its_own_approval_is_held(api):
+    from backend.store import H
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None)])
+    with api.app.state.store.transaction() as c:
+        started = c.execute("SELECT started FROM attempts WHERE id=?", (attempt['id'],)).fetchone()[0]
+        c.execute("INSERT INTO approvals(id,kind,message_id,requested_by,created,consumed_at) VALUES(?,?,?,?,?,?)",
+                  (H.new_id(), 'spend', message['id'], 'bot:ops', started, started))
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    review = get(api, 'bots/ops/execution-review')['jobs'][0]
+    assert review['stopped'] == 'changed' and 'approval' in review['reason']
+
+
+def test_restart_safe_shell_run_card_names_the_restart_not_only_read(api):
+    """A restarted shell run with no named outside action may resume, but its card never says it only read."""
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [('Bash', None)])
+    review = get(api, 'bots/ops/execution-review')['jobs'][0]
+    assert review['stopped'] == 'restarted'
+    assert 'only read' not in review['reason']
+    assert [d['state'] for d in sweep(api)] == ['queued']
+
+
+def test_saved_resume_applies_when_main_lane_frees(api, monkeypatch):
+    from backend.scheduler import Scheduler
+    from backend.store import H
+    add_recovery_reviewer(api)
+    machine, message, attempt = interrupted(api)
+    aged(api, attempt['id'])
+    assert sweep(api) == []
+    other = rival(api, machine, attempt)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET lane='main' WHERE id IN (?,?)", (attempt['id'], other['id']))
+    saved_at = H.now()
+    result = post(api, f"jobs/{attempt['job_id']}/reconcile", {
+        'attempt_id': attempt['id'], 'decision': 'resume',
+        'note': 'The work has not landed yet. Run it again when the lane is free.',
+        'acknowledge_uncertain_effects': True})
+    assert result['deferred'] is True
+    assert sweep(api) == []
+    monkeypatch.setattr(H, 'now', lambda: H.shift(saved_at, seconds=60))
+    post(api, f"attempts/{other['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Finished.'}, machine['token'])
+    Scheduler(api.app.state.store, api.app.state.execution).tick()
+    assert job_state(api, attempt['job_id']) == 'queued'
+    with api.app.state.store.read() as c:
+        saved = dict(c.execute("SELECT * FROM job_recovery WHERE job_id=?", (attempt['job_id'],)).fetchone())
+    assert saved['decision'] == 'resume'
