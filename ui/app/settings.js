@@ -540,6 +540,7 @@ async function loadSettings() {
       issues: operations.issues || [], history, limits,
       schedulerEnabled: operations.scheduler_enabled, loaded: true};
     document.dispatchEvent(new Event('tico:settings-loaded'));
+    if (TASK_SETTINGS && !formBusy($('#set-task-settings'))) taskSettingsPaint();
     renderTree();
     if (S.route !== SETTINGS) return;
     renderSettingsIssues(); renderSettingsBots(); renderSettingsMachines(); renderSettingsServices(); renderSettingsHistory();

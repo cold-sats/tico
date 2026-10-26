@@ -14,9 +14,10 @@ function taskSettingsLink(values) {
 }
 const taskSettingsMayAdd = () => TASK_SETTINGS_TYPE ? canMove() : settingsIsAdmin();
 function taskSettingsSource(r) {
+  if (r.kind === 'task_rule') return 'Department: ' + r.department.name;
   if (r.scope_kind === 'bot') return 'Bot: ' + empName(r.scope_id);
   if (r.scope_kind === 'department') return 'Department: ' + (TASK_SETTINGS.jobs.task_rule_departments || []).find(d => d.id === r.scope_id)?.name;
-  if (r.scope_kind === 'type') return 'This type';
+  if (r.scope_kind === 'type') return TASK_SETTINGS_TYPE ? 'This type' : 'Type: ' + (TASK_TYPES.find(t => t.id === r.scope_id)?.name || 'another type');
   if (r.scope_kind === 'team') return 'Team';
   return r.built_in || r.key ? 'Built-in' : 'This task';
 }
@@ -29,6 +30,7 @@ function taskSettingsTrigger(r) {
 }
 function taskSettingsSentence(r, type) {
   if (r.task_action) return r.task_action;
+  if (r.scope_kind === 'type') type = TASK_TYPES.find(t => t.id === r.scope_id);
   const bot = r.scope_kind === 'bot' ? empName(r.scope_id) : '';
   const subject = bot ? `a task of ${bot}'s` : type ? `a ${type.name} task` : 'a task';
   const role = ruleList(r.when?.role);
@@ -38,8 +40,10 @@ function taskSettingsSentence(r, type) {
   if (bot && ['wake', 'note', 'batch'].includes(r.then)) action = r.then === 'wake' ? `wake ${bot}` : `leave ${bot} a note for its next run`;
   const moment = {assignment: `${subject} is assigned, reassigned or handed back`, due: `${subject} is due`, snooze: `${subject}'s snooze ends`,
     step_entered: `${subject} enters ${ruleList(r.when?.step).join(' or ') || 'a step'}`} [r.event];
-  const conditions = r.built_in ? [] : ruleWhenWords({...r.when, ...(moment ? {step: undefined, role: undefined} : {})});
-  return `When ${moment || r.words || ruleEventWords(r.event)}${conditions.length ? ', if ' + conditions.join(' and ') : ''}, ${action}.`;
+  const conditions = r.built_in ? [] : ruleWhenWords({...r.when, ...(moment ? {step: undefined} : {})});
+  const known = TASK_SETTINGS?.rules.rules.find(row => row.scope_kind === 'builtin' && row.event === r.event);
+  const words = r.words || known?.words || r.event.replaceAll('_', ' ');
+  return `When ${moment || words}${conditions.length ? ', if ' + conditions.join(' and ') : ''}, ${action}.`;
 }
 function taskSettingsRow(r, type) {
   const isJob = !!r.key, source = taskSettingsSource(r);
@@ -53,7 +57,7 @@ function taskSettingsRow(r, type) {
     <div><p class="task-setting-action"><b>Action</b> ${esc(taskSettingsSentence(r, type))}</p>
     ${isJob ? `<p class="settings-cell-note">Trigger: ${esc(r.schedule)}${r.note ? ' · ' + esc(r.note) : ''}</p>` : ''}
     ${profile ? `<p class="settings-cell-note">From its ${esc(profile)} profile</p>` : ''}</div>
-    <div class="task-setting-meta"><span class="pill">${esc(source)}</span><span class="pill">${isJob ? 'Scheduled' : quiet ? 'Quiet' : 'Wakes'}</span>
+    <div class="task-setting-meta"><span class="pill">${esc(source)}</span><span class="pill">${esc(r.task_effect || (quiet ? 'Quiet' : 'Wakes'))}</span>
       <span title="Last 7 days">${esc(usage)}</span><span>${state}</span>
       ${change ? `<a class="ghost" role="switch" aria-label="Change action on or off" aria-checked="${on !== false}" href="${esc(link)}">${on === false ? 'Switch on' : 'Switch off'}</a><a class="ghost" href="${esc(link)}">Edit</a>` : ''}</div></article>`;
 }
@@ -65,7 +69,7 @@ function taskSettingsPaint() {
   const el = $('#set-task-settings'); if (!el || !TASK_SETTINGS) return;
   const type = TASK_TYPES.find(t => t.id === TASK_SETTINGS_TYPE), data = TASK_SETTINGS;
   const rows = [...(data.rules.task_builtins || []), ...data.rules.rules, ...data.jobs.jobs.filter(j => j.task_trigger)];
-  const relevant = rows.filter(r => r.scope_kind !== 'task' && (r.scope_kind !== 'type' || !TASK_SETTINGS_TYPE || r.scope_id === TASK_SETTINGS_TYPE));
+  const relevant = rows.filter(r => r.scope_kind !== 'task' && (!TASK_SETTINGS_TYPE || !r.task_types || r.task_types.includes(TASK_SETTINGS_TYPE)) && (r.scope_kind !== 'type' || !TASK_SETTINGS_TYPE || r.scope_id === TASK_SETTINGS_TYPE));
   const rank = {builtin: 0, team: 1, type: 2, department: 3, bot: 4};
   relevant.sort((a,b) => (rank[a.scope_kind] ?? 0) - (rank[b.scope_kind] ?? 0));
   const sectionHTML = ([key, title, intro]) => {
@@ -73,16 +77,15 @@ function taskSettingsPaint() {
     const mine = relevant.filter(r => taskSettingsTrigger(r) === key);
     const render = list => list.map(r => taskSettingsRow(r, type)).join('') || '<p class="muted">Nothing happens</p>';
     let body = render(mine);
-    if (key === 'step') body = (type.steps || []).map(step => `<div class="task-setting-step" data-task-step="${esc(step.name)}"><h4>${esc(step.name)}</h4>${render(mine.filter(r => !r.when?.step || ruleList(r.when.step).includes(step.name)))}${taskSettingsAdd(key, step.name)}</div>`).join('');
+    if (key === 'step') body = mine.filter(r => r.task_action && !r.when?.step).map(r => taskSettingsRow(r, type)).join('') + (type.steps || []).map(step => `<div class="task-setting-step" data-task-step="${esc(step.name)}"><h4>${esc(step.name)}</h4>${render(mine.filter(r => (!r.task_action || r.when?.step) && (!r.when?.step || ruleList(r.when.step).includes(step.name))))}${taskSettingsAdd(key, step.name)}</div>`).join('');
     if (key === 'finished') body = ['Done', 'Declined', 'Closed'].map(name => `<div class="task-setting-step"><h4>${name}</h4>${render(mine.filter(r => !r.event || (name === 'Declined' ? ['task_declined'] : name === 'Closed' ? ['task_done', 'batch_completion'] : ['task_done', 'batch_completion']).includes(r.event)))}</div>`).join('');
     return `<section class="task-setting-section" data-task-trigger="${key}"><h3><span class="muted">Trigger</span> ${esc(title)}</h3><p>${esc(intro.replace('{type}', type ? type.name + ' task' : 'task'))}</p>${body}${key === 'step' ? '' : taskSettingsAdd(key)}</section>`;
   };
   const footer = new Map();
   for (const r of data.rules.rules.filter(r => !r.built_in && !taskSettingsTrigger(r))) { const bot = r.scope_kind === 'bot' ? r.scope_id : ''; footer.set(bot, (footer.get(bot) || 0) + 1); }
   const mayChange = taskSettingsMayAdd() || relevant.some(r => r.can_change);
-  const owner = [...(S.people || []), ...(SETTINGS_DATA.people || [])].find(p => p.role === 'owner');
   el.innerHTML = `<label class="task-setting-picker">Type <select aria-label="Task settings type"><option value="">All tasks</option>${TASK_TYPES.map(t => `<option value="${esc(t.id)}"${t.id === TASK_SETTINGS_TYPE ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>
-    ${mayChange ? '' : `<p class="settings-cell-note">Ask ${esc(owner?.name || owner?.display_name || 'your team owner')} to change these.</p>`}
+    ${mayChange ? '' : `<p class="settings-cell-note">Ask ${esc(settingsOwnerName() || 'the team owner')} to change these.</p>`}
     ${TASK_SETTING_SECTIONS.map(sectionHTML).join('')}
     ${[...footer].map(([bot,n]) => `<p class="settings-cell-note">${esc(bot ? empName(bot) + ' has' : 'There are')} ${n} more wake rules that are not about tasks. <a href="${esc(taskSettingsLink(bot ? {bot} : {}))}">See them in Rules.</a></p>`).join('')}`;
   el.querySelector('select').onchange = e => { TASK_SETTINGS_TYPE = e.target.value; taskSettingsPaint(); };
@@ -92,10 +95,10 @@ async function taskSettingsLoad() {
   TASK_SETTINGS_LOADING = (async () => {
     const el = $('#set-task-settings'); if (!el) return;
     try {
-      const [jobs] = await Promise.all([get('/v2/system-routines'), taskTypesLoad({cached: true})]);
+      const [jobs] = await Promise.all([get('/v2/system-routines', {fresh: true}), taskTypesLoad({cached: true})]);
       let listing, offset = 0;
       do {
-        const page = await get(`/v2/rules?limit=200&offset=${offset}`);
+        const page = await get(`/v2/rules?limit=200&offset=${offset}`, {fresh: true});
         if (!listing) listing = {...page, rules: []};
         listing.rules.push(...page.rules);
         if (!page.more) break;
@@ -106,6 +109,11 @@ async function taskSettingsLoad() {
     } catch (e) { el.innerHTML = `<p class="err" role="status">${esc(e.message || 'Could not load task settings')}</p><button type="button">Try again</button>`; el.querySelector('button').onclick = () => taskSettingsLoad(); }
   })().finally(() => { TASK_SETTINGS_LOADING = null; });
   return TASK_SETTINGS_LOADING;
+}
+function taskSettingsChanged() {
+  TASK_SETTINGS = null;
+  // The card remains mounted while Rules is open; update it before a person returns to Tasks.
+  void (TASK_SETTINGS_LOADING || Promise.resolve()).then(() => taskSettingsLoad());
 }
 async function taskSettingsOpenEditor() {
   if (!RULES_OPEN || !RULES) return;

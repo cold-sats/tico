@@ -8,7 +8,7 @@ job metadata is attached to the live routine rows, retaining their schedule and 
 BUILTINS = (
     ("dedupe", "created", "Refuse it if an unfinished task (of any type) with the same title already exists between the same people (same parent)."),
     ("ceo_limit", "created", "Limit the CEO Bot to five ordinary items a day (UTC) in one person's Needs you; urgent asks go through."),
-    ("review_pr", "created", "Refuse a Review 1 or Review 2 subtask that names no pull request."),
+    ("review_pr", "created", "Refuse a Review 1 or Review 2 subtask with no linked pull request, failing checks, an unreadable current version, or no passing test evidence for the current code."),
     ("review_duplicate", "created", "Refuse a second open Review 1, Review 2 or QA subtask of the same kind for the same pull request head. Security subtasks are not checked."),
     ("private_default", "created", 'Make it private if the requester\'s or owner\'s "private tasks" default is on.'),
     ("public_text", "created", "Refuse public roadmap text from a bot that no person approved; the bot files it privately and asks for publication."),
@@ -19,6 +19,7 @@ BUILTINS = (
     ("created_wake", "created", 'Wake its owner: "New task from …". A bot\'s own task waits until the turn that filed it ends.'),
     ("human_wait", "created", "If it waits on a person, say so once in the bot's main chat."),
     ("roadmap", "step", "Move the linked Product roadmap item: Building, Ready to ship, Shipped (and back); only Engineering and Dev types linked to a roadmap item."),
+    ("review_gate", "step", "Before entering Review 1 or Review 2 with a linked pull request, require passing checks or passing test evidence for the current code; refuse failed tests or an unreadable pull request."),
     ("questions", "finished", 'Drop its open questions to people (and its subtasks\'), except the requester\'s "is this done?" question.'),
     ("approvals", "finished", "Drop any yes/no approval it was waiting on."),
     ("completion", "finished", "Tell the bot that asked for it: at once if it is waiting on this result (Wakes); otherwise in its next batch of finished tasks (Quiet). Closes it accepted itself, and its own tasks, send nothing."),
@@ -45,6 +46,14 @@ JOBS = {
 
 NON_TASK = frozenset(("routine", "schedule", "next_run", "background_done", "*", "digest", "feed", "backlog", "release_now"))
 
+# These replace the generic engine description with the limits of the task path it describes.
+RULE_WORDS = {
+    "assignment": "Reassigned or handed back: wake the new owner.",
+    "awaited_blocker_done": "Its last blocker finished: wake its bot if the task is still open (privacy checked). Links to a roadmap item it delivers stay.",
+    "awaited_subtask": 'A subtask moved or finished: wake the parent\'s bot; say "All subtasks done" after the last.',
+    "bot_to_bot": "A plain message from another bot, or status news: note it for the bot's next run.",
+}
+
 
 def trigger(event):
     if event in NON_TASK or "." in event:
@@ -57,13 +66,24 @@ def trigger(event):
 
 
 def describe_rule(row):
-    return {**row, "task_trigger": trigger(row["event"])}
+    out = {**row, "task_trigger": trigger(row["event"])}
+    if row.get("scope_kind") == "builtin" and row["event"] == "*":
+        out["task_trigger"] = "open"
+    if row.get("scope_kind") == "builtin" and row["id"] == "step_entered":
+        out["task_trigger"] = "open"
+    if row.get("scope_kind") == "builtin" and row["id"] in RULE_WORDS:
+        out["task_action"] = RULE_WORDS[row["id"]]
+    return out
 
 
-def builtins():
+def builtins(c):
+    engineering = [r[0] for r in c.execute("SELECT id FROM task_types WHERE role='engineering' OR name='Dev tickets'")]
     return [{"id": "task-setting-" + key, "task_trigger": section, "task_action": words,
              "scope_kind": "builtin", "built_in": True, "enabled": True, "can_change": False,
              "then": "wake" if key == "created_wake" else "note",
+             **({"task_types": engineering} if key in ("qa_tag", "roadmap", "review_pr", "review_duplicate", "review_gate") else {}),
+             **({"when": {"step": ["Review 1", "Review 2"]}} if key == "review_gate" else {}),
+             **({"task_effect": "Wakes / Quiet"} if key == "completion" else {}),
              "usage_available": False}
             for key, section, words in BUILTINS]
 
@@ -71,9 +91,11 @@ def builtins():
 def describe_job(row):
     if row.get("kind") == "task_rule":
         hours = " or ".join(str(t["hours"]) for t in row.get("triggers", []))
-        return {**row, "task_trigger": "after", "task_action":
+        return {**row, "task_trigger": "after", "task_effect": "Quiet", "task_action":
                 f"Close a done task after {hours} hours untouched; skips tasks waiting on a person, snoozed, pinned, "
                 "or with an open question or approval; at most 50 a pass."}
     metadata = JOBS.get(row["key"])
+    wakes = {"assigned_tasks", "stall_checks", "waiting_checks", "due_reminders", "snooze_ends", "ask_deadlines", "github_sync", "repository_waits", "routine_timer"}
     return {**row, "task_trigger": metadata[0] if metadata else None,
+            "task_effect": "Wakes" if row["key"] in wakes else "Quiet",
             "task_action": metadata[1] if metadata else None}
