@@ -225,7 +225,7 @@ its body is the note, and Decide shows it with Yes and No when it asks a yes-or-
 bot's: it is Waiting, blocked on that subtask, with the note "Blocked on Ana: <the ask>", and it is not itself a card
 in Ana's **Needs you**. The update returns the subtask as `asked_in`. When Ana marks it done or declines it (Yes or
 No on her card), the task opens again with "Ana answered: <what she said>" as its note and the bot is woken once on
-it. Nobody asks her again whether she answered.
+it; a board ticket the ask held in Blocked goes back to the step it left. Nobody asks her again whether she answered.
 
 One question, one card. If this rule already filed that person a card in the task's tree (its root and everything
 under it), no second card is made: the task is blocked on the existing one, and a different ask is added to it as a
@@ -659,7 +659,8 @@ own ask. Endpoint case and slashes are significant; only surrounding whitespace 
 endpoint is a different blocker. Private tasks never join or are joined. When DevOps
 files the person ask for a blocker, its own open tasks for that blocker wait on it.
 The card and task show what it waits for and since when. When an automatic hold clears, the task
-returns to the step it left, without advancing through the refused gate. An owner-declared hold
+returns to the step it left, without advancing through the refused gate; back at a check step, a verdict its check
+gave during the hold moves it on then. An owner-declared hold
 is cleared by moving back to a working step. The active Building clock pauses while blocked;
 a separate blocked age alerts the type's manager after four hours, once per hold. The bot rail's
 Blocked filter uses waiting tasks, and its default Doing list excludes them and Needs You tasks.
