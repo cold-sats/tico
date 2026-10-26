@@ -111,9 +111,12 @@ function route() {
   else if (S.route === '#/settings/routines') { SETTINGS_TAB = 'recurring'; location.replace(SETTINGS); return; }   // General > Team's moved switches
   else if (S.route === '#/settings/people') { SETTINGS_TAB = 'people'; location.replace(SETTINGS); return; }   // setup's people to invite
   else if (['#/settings/subscriptions', '#/subscriptions', '#/settings/computers'].includes(S.route)) { SETTINGS_TAB = 'devices'; location.replace(SETTINGS); return; }   // Subscriptions moved to Computers
-  // Every other #/settings/<tab> opens that tab (settingsShow maps old names and sections, and puts the tab's own
-  // address back in the bar), so a tab can be bookmarked and shared: #/settings/gateway, #/settings/models (scrolls to the Models card), …
-  else if (/^#\/settings\/[a-z-]+\/?(\?.*)?$/.test(S.route)) { SETTINGS_TAB = S.route.slice(11).split(/[/?]/)[0]; location.replace(SETTINGS); return; }
+  // Every other #/settings/<tab>[/<card>] opens that tab, and the card when named (the settings catalogue's links,
+  // backend/settings_entries.py). settingsShow maps old names and sections and puts the tab's own address back in
+  // the bar, so a tab can be bookmarked and shared: #/settings/gateway, #/settings/models, …
+  else if (/^#\/settings\/[a-z-]+(?:\/[a-z0-9-]+)?\/?(\?.*)?$/.test(S.route)) {
+    const [tab, card] = S.route.slice(11).split('?')[0].split('/'); SETTINGS_TAB = tab; SETTINGS_REVEAL = card ? '#' + card : ''; location.replace(SETTINGS); return;
+  }
   else if (S.route === CREDENTIALS) pageCredentials();
   else if (S.route === SQL_PAGE) pageSql();
   else if (S.route === MAIL || S.route.startsWith(MAIL + '?')) pageMail();
