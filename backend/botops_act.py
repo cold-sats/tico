@@ -195,6 +195,9 @@ DO = _routes(
     # are direct unless the owner's rule says otherwise (TIGHTENED).
     ("POST", rf"(runners|computers)/{_S}/(restart|inbox-only|logins|screen)"), ("POST", rf"(runners|computers)/{_S}/logins/{_S}/cancel"),
     ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"), ("PUT", rf"usage/pools/(company|groups/{_S})"),
+    # The Tico AI Gateway off or back to automatic is a provider change too (the owner's, which the route checks). Saving
+    # its key is a secret, refused in the request; checking it changes nothing.
+    ("DELETE", r"providers/gateway"), ("POST", r"providers/gateway/automatic"),
     # A message or chat to a bot stays in the team; a message to a person is a card (`classify`).
     ("POST", rf"chat/{_S}"),
     ("POST", r"system/update(/check)?"),
@@ -204,8 +207,9 @@ DO = _routes(
 
 # Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is
 # still direct: app.py checks it against what is set.
+GATEWAY = _routes(("DELETE", r"providers/gateway"), ("POST", r"providers/gateway/automatic"))
 TIGHTENED = _routes(("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
-                    ("PUT", rf"usage/pools/(company|groups/{_S})"))
+                    ("PUT", rf"usage/pools/(company|groups/{_S})")) + GATEWAY
 LIMITS = re.compile(API + rf"usage/limits(/{_S})?")
 
 # Comes back as a Confirm card; it runs only on the person's own click, as them.
@@ -236,8 +240,8 @@ ADMIN_ONLY = _routes(
 # Always the person's own tap when BotOps acts for them, whatever they said in chat: handing over the company, updating
 # Tico, and a computer's one-time code (shown on the card once they tap, never in BotOps' answer).
 ALWAYS = _routes(("POST", r"access/owner"), ("POST", r"system/update"), ("POST", r"enrollments"))
-# Owner-only: a member or an admin is told so at once, not handed a card that fails.
-OWNER_ONLY = _routes(("POST", r"access/owner"))
+# Owner-only: a member or an admin is told so at once, not handed a card that fails (the Gateway connection included).
+OWNER_ONLY = _routes(("POST", r"access/owner")) + GATEWAY
 # Team rules that set BotOps' own powers: a change to one of them is always the person's own tap.
 OWN_POWER_RULES = ("botops_direct", "botops_manages_bots")
 RULES = re.compile(API + r"access/rules")
@@ -342,6 +346,8 @@ SUMMARIES = [
     ("POST", re.compile(API + r"enrollments"), "Make a one-time code to add a computer: it shows here once you confirm"),
     ("PUT", RULES, "Change the team's rules"),
     ("PUT", re.compile(API + r"providers"), "Change the team's AI providers"),
+    ("DELETE", re.compile(API + r"providers/gateway"), "Turn off the Tico AI Gateway (its saved key is forgotten)"),
+    ("POST", re.compile(API + r"providers/gateway/automatic"), "Connect the Tico AI Gateway automatically again"),
     ("PUT", re.compile(API + rf"usage/(limits(/{_S})?|pools/.+)"), "Change a spending limit"),
 ]
 

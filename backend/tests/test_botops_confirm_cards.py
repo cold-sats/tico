@@ -4,7 +4,7 @@ secret's value back are theirs alone. Ana owns the team, Ben is an admin, Cara i
 import json
 
 from backend.store import H
-from backend.tests.test_api import api, assign, claim, get, post, put, ready, runner  # noqa: F401  (fixture)
+from backend.tests.test_api import api, assign, claim, get, headers, post, put, ready, runner  # noqa: F401  (fixture)
 from backend.tests.test_botops_parity import act
 from backend.tests.test_credential_sharing import JIRA, jira, local
 from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401  (fixtures)
@@ -114,6 +114,64 @@ def test_a_body_the_route_refuses_gets_no_card_and_its_value_goes_nowhere(api, b
         events = json.dumps([dict(r) for r in c.execute("SELECT * FROM events")], default=str)
     assert "sk-not-for-cards" not in rows + events
     assert get(api, "providers")["enabled"] == before["enabled"]
+
+
+def test_a_bulk_step_its_route_refuses_gets_no_card_and_its_value_goes_nowhere(api):
+    # The bulk card's own body takes any step: each step is checked against its own route, as a direct call is.
+    from backend import assistant
+    from backend.tests.test_assistant import assistant_turn
+    with api.app.state.store.transaction() as c:
+        tasks = [H.task_create(c, "human:ben", f"Old task {i}", "Stale.", "bot:ops") for i in range(2)]
+    _, attempt = assistant_turn(api, "ben-test", "Close my old tasks")
+    steps = [{"path": f"/api/v2/tasks/{t['id']}", "body": {"close": True}} for t in tasks]
+    steps[1]["body"]["key"] = "sk-not-for-cards"
+    post(api, f"tasks/{tasks[1]['id']}", {"close": True, "key": "sk-not-for-cards",
+                                         "version": tasks[1]["version"]}, token="ben-test", expected=422)
+    refused = api.post("/api/v2/assistant/actions", headers=headers(attempt["token"]), json={
+        "summary": "Close 2 old tasks", "path": assistant.BATCH_PATH, "body": {"actions": steps}})
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "validation", refused.text
+    assert "sk-not-for-cards" not in refused.text and "body.key" in refused.text
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
+        rows = json.dumps([dict(r) for r in c.execute("SELECT * FROM messages")]
+                          + [dict(r) for r in c.execute("SELECT * FROM events")], default=str)
+        assert "sk-not-for-cards" not in rows
+        assert all(H.task(c, t["id"])["status"] != "closed" for t in tasks)
+
+
+def test_botops_direct_off_turns_the_gateway_off_and_automatic_into_cards(api, botops, monkeypatch):
+    from backend import gateway_connection
+    from backend.tests.test_gateway_connection import KEY, fake_gateway, save, setup
+    setup(api, monkeypatch)
+    monkeypatch.setattr(gateway_connection, "check_later", lambda *args, **kwargs: None)
+
+    def record():
+        with api.app.state.store.read() as c:
+            return gateway_connection._row(c)
+    with fake_gateway() as fake:
+        fake.active(KEY, 0.1)
+        save(api, fake)
+        put(api, "access/rules", {"botops_direct": False})
+        ana = turn(api, botops, person="ana-test", text="Turn the gateway off")
+        off = act(api, ana, "DELETE", "providers/gateway")
+        assert off.status_code == 200 and off.json()["needs_confirm"], off.text
+        card_in_chat(api, off.json(), "ana")
+        assert record().get("key")                                      # nothing changed before her tap
+        with api.app.state.store.transaction() as c:
+            gateway_connection._write(c, {**gateway_connection._row(c), "auto": {"off": True}})
+        auto = act(api, ana, "POST", "providers/gateway/automatic", {})
+        assert auto.status_code == 200 and auto.json()["needs_confirm"], auto.text
+        assert record()["auto"] == {"off": True}
+        confirm(api, off.json(), "ana-test")
+        confirm(api, auto.json(), "ana-test")
+        assert "key" not in record() and "auto" not in record()
+        # On, BotOps does it for her at once.
+        put(api, "access/rules", {"botops_direct": True})
+        with api.app.state.store.transaction() as c:
+            gateway_connection._write(c, {**gateway_connection._row(c), "auto": {"off": True}})
+        direct = act(api, ana, "POST", "providers/gateway/automatic", {})
+        assert direct.status_code == 200 and "needs_confirm" not in direct.json(), direct.text
+        assert "auto" not in record()
 
 
 def test_a_computers_code_is_only_on_the_persons_card(api, botops):

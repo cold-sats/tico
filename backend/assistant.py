@@ -773,6 +773,10 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
         body = runnable(c, method, path, body)
     if routes is not None:
         refuse_unrunnable(routes, method, path, body)
+        # A bulk card's own model takes any step body: each step is checked against its own route, and one refused
+        # step refuses the whole card.
+        for s in body["actions"] if path == BATCH_PATH else ():
+            refuse_unrunnable(routes, s["method"], s["path"], s["body"])
     require_addressed(c, who, path, body)
     if who.via == "assistant" and not who.confirmed and approvals_in(path, body):
         require_named_approval(c, who, asked)
