@@ -820,8 +820,8 @@ async function bulk(browser) {
   assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), [undefined, undefined]);
   assert.equal(posts.filter(x => x.p.startsWith('/api/v2/tasks/t-copy/')).length, 0, 'not sent as a comment either');
   assert.equal(await page.evaluate(() => TASK_DRAFTS.get('t-copy')), 'Half a thought about headl', 'the draft stays for its task');
-  // Select all: from one picked row to every row shown, sent as one bulk change. Needs you is no server filter (it is
-  // the server's queue for you), so the change names the tasks shown.
+  // Select all: from one picked row to every row shown, sent as one bulk change. The open list is one server filter:
+  // its type and the open statuses.
   await page.locator('#task-bulk [data-bulk="clear"]').click();
   await box('tt-triage').click();
   await page.locator('#task-bulk [data-bulk="all"]').click();
@@ -839,7 +839,7 @@ async function bulk(browser) {
   await page.locator('#task-filter-pop .tl-menu-new input').fill('q4');
   await page.locator('#task-filter-pop .tl-menu-new input').press('Enter');
   await page.waitForFunction(n => document.querySelector('.tl-bulk-msg')?.textContent === `${n} tagged q4`, shown.length);
-  assert.deepEqual(sent, {filter: {ids: shown.map(k => k.slice(1))}, action: 'tags', add: ['q4']});
+  assert.deepEqual(sent, {filter: {type: 'general', status: 'open,doing,waiting,review,ready,declined', lane: 'company'}, action: 'tags', add: ['q4']});
   assert.equal(taskWrites(posts).length, writesBefore, 'one call, not one per task');
   assert.deepEqual(errors, []);
   console.log('bulk: ok');
