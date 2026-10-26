@@ -116,6 +116,8 @@ def test_person_dependency_resumes_the_previous_review_step(api):
         TR.add_blocker(c, H.KEEPER, task['id'], answer['id'])
         blocked = H.task(c, task['id'])
         assert blocked['status'] == 'waiting' and blocked['blocked_from_step'] == review_step
+        from backend import auto_tasks
+        assert auto_tasks.review(c, answer), 'a review child keeps its cap exemption while its parent is Blocked'
         H.task_update(c, 'human:ana', answer['id'], status='done')
         task_blocked.reconcile(c, task['id'])
         assert H.task(c, task['id'])['step_id'] == review_step
