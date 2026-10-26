@@ -221,3 +221,15 @@ def test_a_private_tickets_blocker_is_private_to_devops_and_does_not_name_it(api
         assert 'github.com' not in target and '/pull/' not in target and task['id'] not in detail
     seen = api.get('/api/v2/tasks/' + blocker['id'], headers=headers())     # ana, a person not on it
     assert seen.status_code in (403, 404) and 'github.com' not in seen.text and 'review moves' not in seen.text
+
+
+def test_a_private_tickets_receipt_comment_moves_it(api):
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET private=1 WHERE id=?', (task['id'],))
+    assert move(api, task).status_code == 422
+    with api.app.state.store.transaction() as c:    # the builder's receipt, as a comment rather than the note
+        H._write_message(c, task['owner'], task['requester'], RECEIPT, H.conversation(c, task['conversation_id']), 'say',
+                         {'task': task['id'], 'comment': True}, None, None)
+    assert tick(api) == [task['id']]
+    assert step(api, task) == 'Review 1'

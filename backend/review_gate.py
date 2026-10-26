@@ -196,6 +196,10 @@ def snapshot(service, prs):
 def evidence(c, row, actor):
     from . import hubdb as H
     from . import task_privacy as privacy
+    # Tico's own retry of a refused move (backend/move_retry.py) reads what the owner can: the keeper is on no private
+    # task, so as itself it would miss a receipt posted as a comment there. Every message is checked against the owner
+    # below anyway.
+    actor = row["owner"] if actor == H.KEEPER else actor
     def collect(item):
         messages = []
         conv = H.conversation(c, item.get("conversation_id"))
