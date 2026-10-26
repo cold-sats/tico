@@ -7,6 +7,9 @@ A bot's `style` is how its model behaves, as probabilities per turn that does re
 - `crash`: the run fails partway
 - `cant_test`: QA says it can't test the change
 - `off_script`: the bot moves its ticket somewhere the process doesn't allow (to Blocked, or back a step)
+- A builder's `hold_approved`: it pushes nothing after an approval at the head; `dispute_fail`: once per ticket it
+  sends a failed head back to the check unchanged; `try_waive`: it asks Tico to waive the last check before the merge
+  (a person's call: refused); `push_after_waiver`: on its first n waived tickets it pushes once more instead of merging
 - `receipt_wording`: a builder's test receipt is worded the messy ways real ones are (RECEIPTS), and on a PR whose CI
   only skips it posts none; a receipt the gate refused it puts right on its next turn
 Every number is drawn from the scenario's seeded random generator, so a run repeats exactly."""
@@ -216,6 +219,9 @@ class Builder(Bot):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.disputed = set()           # tickets whose failed head it sent back to the check unchanged
+        self.pushed_after_waiver = set()
+        self.waiver_tries = []          # (when, ticket id, head, outcome) of its own waiver requests
         self.owed = {}     # ticket id -> what its refused move needs: "receipt", or "push" for a failure at the head
         self.posted = []   # (when, ticket id, head, wording) per receipt, "none" for one left out
         self.moves = []    # (when, ticket id, step, refusal text or None) per move this builder made
@@ -276,8 +282,9 @@ class Builder(Bot):
         if not pr:
             return None
         pushed = None
-        if judged and str(judged.get("verdict_head") or "-") == w.prs[pr]["head"] or w.ci_state(pr) == "failing" \
-                or not judged and self.untouched_since_step(task, pr):
+        kept = self.keeps(task, judged, pr)
+        if not kept and (judged and str(judged.get("verdict_head") or "-") == w.prs[pr]["head"]
+                         or w.ci_state(pr) == "failing" or not judged and self.untouched_since_step(task, pr)):
             if tag and tag not in labels(task) and self.chance("skip_check"):
                 w.update(task["id"], token=self.token, labels=sorted(labels(task) | {tag}))
             self.push(task, pr)
@@ -287,7 +294,8 @@ class Builder(Bot):
                 return pushed or "forgot to hand it on"
             if step.next == MERGE:
                 return self.merge(task, pr) or pushed
-            return (pushed + ", " if pushed else "") + self.move(task, step.next)
+            return ((pushed + ", " if pushed else "") + ("disputed the fail, " if kept == "disputed" else "")
+                    + self.move(task, step.next) + self.try_waive(task, pr))
         if pushed or w.ci_state(pr) != "passing":
             return pushed
         target = step.after_green
@@ -296,6 +304,47 @@ class Builder(Bot):
         if target == MERGE:
             return self.merge(task, pr)
         return self.fallback(task, target, "green CI at the new head, still at " + step.name)
+
+    def keeps(self, task, judged, pr):
+        """Whether the builder leaves the judged head as it is: an approval with nothing to fix (`hold_approved`),
+        or a fail it disputes, once per ticket, by sending the same head back to the check (`dispute_fail`). Each
+        style draws from the generator only when the scenario sets it."""
+        w = self.world
+        if not judged or str(judged.get("verdict_head") or "") != w.prs[pr]["head"] or w.ci_state(pr) == "failing":
+            return False
+        if judged["verdict"] in ("approve", "pass"):
+            return bool(self.style.get("hold_approved")) and self.chance("hold_approved") and "held"
+        if self.style.get("dispute_fail") and task["id"] not in self.disputed and self.chance("dispute_fail"):
+            self.disputed.add(task["id"])
+            return "disputed"
+        return False
+
+    def try_waive(self, task, pr):
+        """Having just sent the ticket to the last check before the merge, the builder asks Tico to waive it with its
+        own token (`try_waive`). A waiver is a person's decision, so Tico refuses it."""
+        w = self.world
+        if not self.style.get("try_waive"):
+            return ""
+        step = w.board.step(w.step_of(w.task(task["id"])))
+        if not step or not step.check or step.check.passed != MERGE or not self.chance("try_waive"):
+            return ""
+        head = w.prs[pr]["head"]
+        try:
+            w.post(f"tasks/{task['id']}/qa-waiver", {"head": head, "reason": "QA is slow; merging without it."},
+                   token=self.token)
+            outcome = "accepted"
+        except Refusal as exc:
+            outcome = f"refused ({exc.status})"
+        self.waiver_tries.append((w.now(), task["id"], head, outcome))
+        return f", asked to waive {step.name}: {outcome}"
+
+    def waived(self, task):
+        """Whether a person's waiver covers the PR's current head, as the task view says (`current`)."""
+        w = self.world
+        if not w.sql("SELECT 1 FROM task_events WHERE task_id=? AND field='qa_waiver' LIMIT 1", (task["id"],)):
+            return False
+        view = w.get("tasks/" + task["id"], token=self.token)["task"]
+        return any(x.get("current") for x in view.get("qa_waivers") or [])
 
     def untouched_since_step(self, task, pr):
         """No push since the ticket came to this step (a check finished with no verdict sends it here too)."""
@@ -312,6 +361,14 @@ class Builder(Bot):
         if check.passed == MERGE and pr and ((message or {}).get("refs") or {}).get("handoff") == "merge":
             return self.merge(task, pr)
         if check.passed == MERGE and pr and w.cleared(task["id"]):
+            return self.merge(task, pr)
+        if check.passed == MERGE and pr and self.waived(task):
+            # A person waived the check for this exact head: the owner merges at it, unless it has one more fix.
+            if task["id"] not in self.pushed_after_waiver \
+                    and len(self.pushed_after_waiver) < self.style.get("push_after_waiver", 0):
+                self.pushed_after_waiver.add(task["id"])
+                self.push(task, pr)
+                return "pushed after the waiver"
             return self.merge(task, pr)
         if check.skip_tag and check.skip_tag in labels(task):
             return self.merge(task, pr, fallback="skip tag ignored at " + step.name) if check.passed == MERGE else \
