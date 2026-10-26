@@ -1244,6 +1244,8 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     task_id = H.message_task_id(message, conversation)
     task = H.task(c, task_id) if task_id else None
     refs = message.get("refs") or {}
+    if task and task['owner'] == 'bot:' + job['bot'] and auto_tasks.put_back_held(c, task) and not refs.get('run_now'):
+        return 'task_wait'
     if task and task['owner'] == 'bot:' + job['bot'] and message['from_actor'] == H.KEEPER and not refs.get("run_now"):
         # A subtask's result (hubdb._deliver_subtask_result) is what the task waits for: its other open subtasks
         # do not hold it back, though a snooze, a person, an approval or a worktree still does.

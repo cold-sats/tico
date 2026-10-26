@@ -718,7 +718,7 @@ RUNS, COMPUTERS, BOT_SETTINGS = ("Open Runs", "#/settings", "runs"), ("Open Comp
     ("Open bot settings", "#/settings", "bots")
 HELD = {
     "company_limit": ("Your company is at its limit; Tico is fixing what's stuck.", RUNS),
-    "task_wait": ("Its assigned task waits for a snooze, prerequisite, person or check", RUNS),
+    "task_wait": ("Its assigned task waits for a snooze, prerequisite, person, check or an owner's 60-minute queue return", RUNS),
     "task_next_run": ("Its assigned task is deferred to its next run, held by a run that carried it, or waiting on a stored resume condition", RUNS),
     "task_cap": ("Its active task limit is full; waiting work frees a place", BOT_SETTINGS),
     "auto_start_off": ("Automatic assigned-task starts are off for this bot", BOT_SETTINGS),

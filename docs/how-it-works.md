@@ -466,7 +466,7 @@ down, into another column, or between lanes; everyone else sees the board and co
 **A bot finishes.** It commits its repository, marks the task `done` with a note, and the reply is
 saved in the conversation. The task shows under **Tasks → Done** with the bot's note; a bot that
 requested it gets a *Finished: <title>* message (`/api/v2/messages?unread=1`) and may choose Close.
-Done stays Done until someone authorized closes it. Every run is listed under **Settings → History → Runs** and on
+Its requester or a person closes it; until then its owner can reopen it with `doing`, or put it back with `open` and a note. Every run is listed under **Settings → History → Runs** and on
 the bot's **More** tab.
 
 **You change a bot's Instructions.** Open **Bot → More → Instructions → Edit Instructions**
