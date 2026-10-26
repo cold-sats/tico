@@ -15,7 +15,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 REVIEW_KINDS = ("Review 1", "Review 2")
 KIND = re.compile(r"^(Review [12])(?:\b|:)", re.I)
 # Steps that look waivable but never are in this scope (Chris's open question on reviews, task 558).
-MANDATORY = re.compile(r"\b(review|ci|checks?|release|approval)\b", re.I)
+MANDATORY = re.compile(r"\b(review|ci|checks?|approval)\b", re.I)
 
 
 def _refuse(c, actor, row, text, rule="qa_waiver"):
@@ -90,11 +90,10 @@ def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=Fa
     if not review_gate.engineering(c, row):
         _refuse(c, actor, row, "Only a Dev ticket's QA step can be waived.")
     current = (H._one(c, "SELECT name FROM task_steps WHERE id=?", (row.get("step_id"),)) or {}).get("name")
-    asked = str(step or current or "").strip()
-    if asked.lower() != QA_STEP.lower():
-        named = asked or "this step"
-        why = (f"{named} is mandatory: CI, Review 1, Review 2 and release approval cannot be waived"
-               if MANDATORY.search(named) else f"Only the {QA_STEP} step can be waived, not {named}")
+    asked = str(step or "").strip()
+    if asked and asked.lower() != QA_STEP.lower():
+        why = (f"{asked} is mandatory: CI, Review 1, Review 2 and release approval cannot be waived"
+               if MANDATORY.search(asked) else f"Only the {QA_STEP} step can be waived, not {asked}")
         _refuse(c, actor, row, why + ".")
     if current != QA_STEP:
         _refuse(c, actor, row, f"The ticket is at {current or 'no step'}, not {QA_STEP}: only the current QA step "

@@ -26,7 +26,7 @@ def api(tmp_path):
         'ana-test': Identity('human:ana', 'owner', 'ana@acme.example'),
         'ben-test': Identity('human:ben', 'human', 'ben@acme.example'),
         'cara-test': Identity('human:cara', 'human', 'cara@acme.example'),
-        'bot-test': Identity('bot:cpo', 'bot', runner_id='r1', attempt_id='a1')}))
+        'bot-test': Identity('bot:cpo', 'bot', agent='hermes')}))
     with TestClient(app) as client:
         with app.state.store.transaction() as c:
             bots = {slug: {'name': slug, 'runtime': 'fake', 'status': 'active'} for slug in ('cpo', 'cmo')}
@@ -40,6 +40,9 @@ def api(tmp_path):
                           (slug, encode(config), 'product', 'ana'))
             c.execute("INSERT INTO registry_metadata VALUES('onboarding',?)", (encode({'completed': '2026-01-01T00:00:00Z'}),))
             H.type_create(c, H.KEEPER, 'Dev tickets', STEPS)
+            # The bot signs in as an agent does (bot-test), so a refusal is the waiver's and not the credential's.
+            c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('cpo','hermes','x',?,'human:ana')",
+                      (H.now(),))
         yield client
 
 
@@ -67,10 +70,11 @@ def green(api, row, checks=None):
                   (json.dumps(checks or {'check:python': 'passing', 'check:browser': 'skipped'}), row['id']))
 
 
-def ticket(api, owner='cpo', step='In QA', checks=None, reviews=(('approve', HEAD), ('approve', HEAD))):
+def ticket(api, owner='cpo', step='In QA', checks=None, reviews=(('approve', HEAD), ('approve', HEAD)),
+           title='Fix the checkout total'):
     with api.app.state.store.read() as c:
         typ = H.type_get(c, 'Dev tickets')
-    r = call(api, 'POST', 'tasks', body={'owner': owner, 'title': 'Fix the checkout total', 'body': 'Fix it.',
+    r = call(api, 'POST', 'tasks', body={'owner': owner, 'title': title, 'body': 'Fix it.',
                                         'type': typ['id'], 'step': step, 'links': [PR]})
     assert r.status_code == 200, r.text
     row = r.json()['task']
@@ -102,7 +106,9 @@ def test_owner_or_manager_waives_the_current_qa_step_on_the_exact_head(api, owne
         'actor': actor, 'reason': 'Urgent fix, QA bot down', 'head': HEAD, 'step': 'In QA', 'pr': PR, 'current': True}
     assert waiver['at']
     detail = shown(api, row)
-    assert detail['task']['qa_waivers'] == [waiver]
+    # Reads name the actor for people (`actor_name`, added to any record with an actor); the record is the same.
+    plain = lambda w: {k: v for k, v in w.items() if k != 'actor_name'}
+    assert [plain(w) for w in detail['task']['qa_waivers']] == [plain(waiver)]
     event = next(e for e in detail['events'] if e['field'] == 'qa_waiver')
     assert event['actor'] == actor and event['note'] == 'Urgent fix, QA bot down'
     assert json.loads(event['new']) == {'head': HEAD, 'step': 'In QA', 'pr': PR}
@@ -110,7 +116,9 @@ def test_owner_or_manager_waives_the_current_qa_step_on_the_exact_head(api, owne
     assert not any(e['field'] == 'verdict' for e in detail['events'])
     assert detail['task']['verdict'] is None and detail['task']['step']['name'] == 'In QA'
     qa = next(c for c in detail['children'] if c['title'].startswith('QA'))
-    assert qa['verdict'] is None and qa['status'] == 'doing'
+    with api.app.state.store.read() as c:
+        qa = H.task(c, qa['id'])
+    assert qa['verdict'] is None and qa['verdict_head'] is None and qa['status'] == 'doing'
     with api.app.state.store.read() as c:
         told = c.execute("SELECT to_actor, body FROM messages WHERE json_extract(refs_json,'$.qa_waiver')=?", (HEAD,)).fetchall()
     assert [(m[0], 'not a QA pass' in m[1]) for m in told] == ([('bot:cpo', True)] if owner == 'cpo' else [])
@@ -188,7 +196,7 @@ def test_an_open_review_is_refused_and_a_second_waiver_for_the_head_too(api):
     child(api, row, 'Review 2: PR #412 delta', status='doing')
     r = waive(api, row)
     assert r.status_code == 422 and 'Review 2 is still open' in r.text, r.text
-    row = ticket(api)
+    row = ticket(api, title='Fix the basket total')
     with api.app.state.store.transaction() as c:
         c.execute("DELETE FROM task_links WHERE task_id<>?", (row['id'],))
     assert waive(api, row).status_code == 200

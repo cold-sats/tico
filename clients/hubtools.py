@@ -683,6 +683,17 @@ def task_snooze(api, args):
     return api.post(f"tasks/{args['id']}/snooze", {"until": args["until"]}, key=_key(args))
 
 
+@tool("hub_task_waive_qa", "A person waives a Dev ticket's current In QA step for one exact pull request head, with a "
+      "reason: the ticket's owner or a manager. Recorded in its history as a waiver, never as a QA pass; refused unless "
+      "the head is the open pull request's current head with every hosted check passed and Review 2 approving it. CI, "
+      "Review 1, Review 2 and release approval cannot be waived, and a bot cannot waive QA.",
+      {"id": TASK_ID, "head": _s("The pull request's current head: the full 40-character commit sha"),
+       "reason": _s("Why QA is waived, in plain words")},
+      required=("id", "head", "reason"), writes=True)
+def task_waive_qa(api, args):
+    return api.post(f"tasks/{args['id']}/qa-waiver", {"head": args["head"], "reason": args["reason"]}, key=_key(args))
+
+
 @tool("hub_task_defer", "A quiet (next-run) task carried into this run that you will not do now: say when it is "
       "picked up again, and it gets one run of its own then. Exactly one of `after` (when that task is done or closed), "
       "`at` (a time), `next_run` (with your next run), or `handled` (this run is done with it for now). With none, "
