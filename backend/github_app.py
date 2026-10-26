@@ -330,8 +330,9 @@ class GitHubApp:
         try:
             with _client() as http:
                 return http.request(method, path, **kw)
-        except httpx.HTTPError:
-            raise Problem("github_unreachable", "GitHub could not be reached; try again shortly", 502) from None
+        except httpx.HTTPError as exc:
+            raise Problem("github_unreachable", "GitHub could not be reached; try again shortly", 502,
+                          extra={"timed_out": True} if isinstance(exc, httpx.TimeoutException) else None) from None
 
     def exchange(self, code):
         r = self._call("POST", f"/app-manifests/{quote(code, safe='')}/conversions")
@@ -492,16 +493,18 @@ class GitHubApp:
         if r.status_code in (403, 422) and "permission" in said.lower():
             raise Problem("github_app_permissions",
                           "The GitHub App has not been granted the permissions bots need (contents, pull requests, issues). "
-                          "Accept its updated permissions on the installation page in GitHub, or " + RECONNECT[0].lower() + RECONNECT[1:], 409)
+                          "Accept its updated permissions on the installation page in GitHub, or " + RECONNECT[0].lower() + RECONNECT[1:], 409,
+                          extra={"github_status": r.status_code})
         if r.status_code in (403, 404, 422) and repos:
             if diagnose:
                 raise self._unreachable(installation, repos, r.status_code)
             raise Problem('github_repo_not_accessible', 'GitHub could not reach the requested repositories', 409)
         if r.status_code == 401:
-            raise Problem("github_app_key", "GitHub rejected the App's key (" + (said or "HTTP 401") + "). " + RECONNECT, 502)
+            raise Problem("github_app_key", "GitHub rejected the App's key (" + (said or "HTTP 401") + "). " + RECONNECT, 502,
+                          extra={"github_status": r.status_code})
         if r.status_code >= 300:
             raise Problem("github_token", f"GitHub would not issue an installation token (HTTP {r.status_code}"
-                          + (": " + said if said else "") + ")", 502)
+                          + (": " + said if said else "") + ")", 502, extra={"github_status": r.status_code})
         data = r.json()
         entry = {"token": data["token"], "expires_at": data["expires_at"], "exp": _iso(data["expires_at"])}
         with self.lock:
