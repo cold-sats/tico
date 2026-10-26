@@ -363,3 +363,77 @@ def test_codex_ignores_old_login_wait_events_in_tasks_chat_status_and_health(api
     assert not status.get("waiting") and "Waiting for" not in status["focus"]
     assert not [row for row in get(api, "health")["stuck"]
                 if row["bot"] == "ops" and row.get("reason") == "login_holder_unknown"]
+
+
+DEV_563_NOTE = ("Run finished its work before the 60-min limit: PR 1596 pushed at 8cf2a8e, hosted checks passed, "
+                "Review 1 requested. Nothing to redo.")
+
+
+def botops_decides(api, job_id, attempt_id, decision, note, at):
+    """BotOps' own review of a held run (execution.reconcile_job, as `bot:botops`), saved at `at`."""
+    from types import SimpleNamespace
+    from backend.auth import Identity
+    with api.app.state.store.transaction() as c:
+        if not H.bot(c, H.FLEET_MAINTAINER):
+            c.execute("INSERT INTO bots(slug, display_name, state) VALUES(?, 'BotOps', 'active')", (H.FLEET_MAINTAINER,))
+        api.app.state.execution.reconcile_job(c, Identity("bot:" + H.FLEET_MAINTAINER, "bot"), job_id, SimpleNamespace(
+            attempt_id=attempt_id, decision=decision, note=note, acknowledge_uncertain_effects=True))
+        c.execute("UPDATE job_recovery SET created=? WHERE job_id=?", (at, job_id))
+
+
+def held_run(api, title):
+    """A task's run cut at its time limit and held for review (the Dev 563 shape): the job stays uncertain."""
+    machine = runner(api, "ana")
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    tid, attempt = task_attempt(api, machine, title)
+    expire(api, attempt["id"])
+    assert claim(api, machine) is None
+    return machine, tid, attempt
+
+
+def test_a_held_runs_decision_shows_beside_its_state_with_who_when_and_the_note(api):
+    _, tid, attempt = held_run(api, "Build the QA waiver")
+    [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
+    # No recovery decision yet: no decision label.
+    assert (run["job_state"], run["decision"]) == ("uncertain", None)
+
+    botops_decides(api, attempt["job_id"], attempt["id"], "dismiss", DEV_563_NOTE, "2026-10-26T09:50:45.103088Z")
+    [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert run["job_state"] == "cancelled"
+    assert run["decision"] == {"decision": "dismiss", "attempt_id": attempt["id"], "by": "bot:botops",
+                               "by_kind": "botops", "at": "2026-10-26T09:50:45.103088Z", "note": DEV_563_NOTE}
+    from backend.run_view import decision_label
+    assert decision_label(run["job_state"], run["decision"], lambda a: "BotOps") == (
+        "Cancelled: dismissed by BotOps at 09:50Z, " + DEV_563_NOTE)
+
+    # The label is read from the decision record each time, never copied onto the job: a later decision shows.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE job_recovery SET decision='resume', actor='human:ana', note=?, created=? WHERE job_id=?",
+                  ("Ana wants it run again after all.", "2026-10-26T10:02:00Z", attempt["job_id"]))
+    [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert (run["decision"]["decision"], run["decision"]["by"], run["decision"]["by_kind"], run["decision"]["note"]) == (
+        "resume", "human:ana", "person", "Ana wants it run again after all.")
+
+
+def test_a_persons_resume_with_a_note_names_them_and_a_run_without_one_has_no_label(api):
+    machine, tid, attempt = held_run(api, "Rename the folders")
+    post(api, f"jobs/{attempt['job_id']}/reconcile", {"attempt_id": attempt["id"], "decision": "resume",
+                                                      "note": "Nothing was renamed yet; run it again.",
+                                                      "acknowledge_uncertain_effects": True})
+    [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert run["job_state"] == "queued"
+    assert (run["decision"]["decision"], run["decision"]["by"], run["decision"]["by_kind"], run["decision"]["note"]) == (
+        "resume", "human:ana", "person", "Nothing was renamed yet; run it again.")
+    # The try it started has no decision of its own, so it carries no label.
+    ready(api, machine, ["ops"])
+    again = claim(api, machine)
+    later, earlier = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert (later["run"], later["decision"]) == (again["id"], None)
+    assert earlier["decision"]["by"] == "human:ana" and earlier["job_state"] == "leased"
+    # Tico's own auto-reconcile is named as such.
+    from backend.run_view import decided_by, decision_label
+    assert decided_by(H.KEEPER) == "tico"
+    assert decision_label("completed", {"decision": "resume", "by": H.KEEPER, "by_kind": "tico",
+                                        "at": "2026-10-26T07:05:00Z", "note": ""}, str) == (
+        "Done: resumed by Tico's auto-reconcile at 07:05Z")

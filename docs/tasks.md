@@ -266,7 +266,9 @@ readers cannot read is not kept as a checkpoint.
 The task's **Runs** section (`GET /api/v2/tasks/{id}/run-view`) shows that checkpoint ("Where it left off") with its
 author and time, then the task's last 20 attempts, newest first. Each try says its outcome, why it failed or lost its
 lease, and what followed it: run again automatically or by a person, resumed or dismissed with the decision's note, or
-waiting for a person. Under it are the subagents the try started, as a tree with each one's type, model, duration and
+waiting for a person. A try with a resume or dismiss decision shows it beside its state, read from the decision
+record each time so a later decision replaces it: "Cancelled: dismissed by BotOps at 09:50Z, <note>" (or Held,
+Queued, Done for a resume), naming BotOps, the person or Tico's auto-reconcile. Under it are the subagents the try started, as a tree with each one's type, model, duration and
 result, and the shells and monitors it ran in the background; one still running is also listed at the top while the
 run is live. Background work is reported by Claude runs; other harnesses show none. Only the file or program a call
 touches is shown, never its arguments. An attempt is left out unless you can read its bot, the conversation it
@@ -653,7 +655,10 @@ open pull requests. It also gives each bot the caller may read its running, queu
 dismissed; a bot's page counts its queued work the same way) and failed runs since `since` by cause (quota, capacity, restart, timeout, crash, stopped); past
 5000 readable failures it stops, sets `truncated` and says in `complete_after` from when the counts are whole. Filters:
 `type` (default the engineering board), `owner`, `label`, `updated_since`, `snoozed=all|hide|only` (default all),
-`bot`, and `since` up to 7 days. Counts and ids only; no titles or bodies.
+`bot`, and `since` up to 7 days. Each bot also lists, in `decisions`, its stopped runs with a resume or dismiss
+decision that still hold it or were made since `since` (newest first, 20 at most): the job's state, the decision, who
+made it, when, the note and a `label` like "Cancelled: dismissed by BotOps at 09:50Z, <note>". Counts and ids only;
+no titles or bodies. A decision's note is shown only to a reader who may open the run's conversation.
 
 Type create and update also accept `bots` (`parties`, `read` or `work`). With `work`, any bot may
 change a task of that type and close it once it is in a ready step, so a deploy bot can move shipped

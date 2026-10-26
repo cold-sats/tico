@@ -8,9 +8,11 @@ they wait on (`H.wait_detail`, the same reasons a ticket's Waiting tag gives), a
 The queue is told apart honestly: a queued job behind an interrupted run nobody reviewed (`execution.unfenced_sql`)
 is never handed out until that run is resumed or dismissed, so it is `dead`, never `queued`; a job its wake preset
 holds is `held`. Failed attempts in the window are counted by cause with their first and last time. Every job and
-attempt counts only when the caller may read it (backend/task_privacy.py), as on a bot's page.
+attempt counts only when the caller may read it (backend/task_privacy.py), as on a bot's page. A stopped run's
+recovery decision (resume or dismiss) is listed beside the bot's queue with who made it, when and its note.
 
-Counts and ids only: no titles, bodies or run text.
+Counts and ids only: no titles, bodies or run text; a decision's note is the decider's words, shown only to a reader
+who may open the run's conversation.
 """
 
 import json
@@ -25,6 +27,7 @@ from .store import H, Problem
 TASK_CAP = 5000            # tickets read for one report; `truncated` says when a type holds more live ones
 IDS_PER_STEP = 50          # ticket ids listed per step; the count is always whole
 DEAD_IDS = 20              # dead job ids listed per bot
+DECISIONS_LISTED = 20      # held or recently decided stopped runs listed per bot, newest first
 ATTEMPT_CAP = 5000         # readable failed attempts counted for one window; past it `complete_after` says how far back counts are whole
 ATTEMPT_SCAN = 50000       # failed attempts read for one window, readable or not
 ATTEMPT_PAGE = 1000
@@ -172,6 +175,52 @@ def queues_report(c, who, bots, now):
     return out
 
 
+def decisions_report(c, auth, who, bots, since):
+    """{bot: [decision]}: each readable job with a recovery decision (run_view.recovery, the job_recovery record) that
+    still holds it (a saved choice waiting for its lane) or was made since `since`, newest first, at most
+    DECISIONS_LISTED a bot. Each row names the job's state, the decision, who made it (BotOps, a person or Tico's
+    auto-reconcile), when, and its note, and `label` says it as one line. The note is a decider's own words; it is left out for a reader who cannot open the run's
+    conversation, as the run page leaves the run out."""
+    from .execution import owner_name
+    from .run_view import decision_label, recovery
+    actor = privacy.actor(who)
+    memo, out, opened = {}, {b: [] for b in bots}, {}
+
+    def can_open(cid):
+        if cid not in opened:
+            try:
+                auth.conversation(c, who, cid)
+                opened[cid] = True
+            except Problem:
+                opened[cid] = False
+        return opened[cid]
+    for part in H.chunks(list(out)):
+        marks = ",".join("?" * len(part))
+        rows = c.execute(
+            "SELECT m.*, j.id AS job_id, j.bot AS job_bot, j.state AS job_state, r.attempt_id AS decided_attempt "
+            "FROM job_recovery r JOIN jobs j ON j.id=r.job_id JOIN messages m ON m.id=j.message_id "
+            f"WHERE j.bot IN ({marks}) AND ((j.state='uncertain' AND r.attempt_id=j.attempt_id) OR r.created>=?) "
+            "ORDER BY r.created DESC, j.id",
+            (*part, since)).fetchall()
+        kept, listed = [], {}
+        for r in rows:
+            if (listed.get(r["job_bot"], 0) < DECISIONS_LISTED and privacy.message_readable(c, actor, r, current=True)
+                    and privacy.attempt_readable(c, actor, r["decided_attempt"], memo)):
+                kept.append(r)
+                listed[r["job_bot"]] = listed.get(r["job_bot"], 0) + 1
+        saved = recovery(c, [r["job_id"] for r in kept])
+        for r in kept:
+            d = saved[r["job_id"]]
+            if not can_open(r["conversation_id"]):
+                d = {**d, "note": None}
+            out[r["job_bot"]].append({"job": r["job_id"], "attempt": d["attempt_id"],
+                                      "state": "held" if r["job_state"] == "uncertain" else r["job_state"],
+                                      "decision": d["decision"], "by": d["by"], "by_kind": d["by_kind"], "at": d["at"],
+                                      "note": d["note"],
+                                      "label": decision_label(r["job_state"], d, lambda a: owner_name(c, a))})
+    return out
+
+
 def cause_of(row):
     """Why one failed, interrupted or expired attempt ended, as one of CAUSES."""
     try:
@@ -263,7 +312,10 @@ def report(c, auth, who, *, type=None, owner=None, label=None, updated_since=Non
         raise Problem("not_found", "Bot not found", 404)      # unknown, or not one whose runs the caller may read
     queues = queues_report(c, who, bots, now)
     failures = failures_report(c, who, bots, window)
-    busy = {b for b, q in queues.items() if any(q[k] for k in ("running", "queued", "held", "dead", "uncertain"))}
+    for b, decided in decisions_report(c, auth, who, bots, window).items():
+        queues[b]["decisions"] = decided
+    busy = {b for b, q in queues.items() if any(q[k] for k in ("running", "queued", "held", "dead", "uncertain",
+                                                                "decisions"))}
     busy |= set(failures["by_bot"])
     return {"now": now, "type": {"id": typ["id"], "name": typ["name"]},
             "filters": {"owner": owner_actor, "label": label, "updated_since": changed, "snoozed": snoozed,
