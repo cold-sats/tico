@@ -92,6 +92,18 @@ class ReviewRequest(BaseModel):
     body: str = Field(default="", max_length=60000)
 
 
+def throttled(response):
+    """GitHub answers 403 for a primary or secondary rate limit too; that clears on its own and is nobody's task."""
+    if response.headers.get("retry-after") or response.headers.get("x-ratelimit-remaining") == "0":
+        return True
+    try:
+        body = response.json()
+    except ValueError:
+        body = response.text
+    message = str(body.get("message") or "") if isinstance(body, dict) else str(body or "")
+    return bool(re.search(r"rate[\s_-]*limit|abuse", message, re.I))
+
+
 def install_reviews(app, store, primary, reviewer):
     with store.transaction() as c:
         c.execute("CREATE TABLE IF NOT EXISTS github_review_operations("
@@ -161,7 +173,7 @@ def install_reviews(app, store, primary, reviewer):
                 with store.transaction() as c:
                     c.execute("DELETE FROM github_review_operations WHERE actor=? AND key=? AND response_json IS NULL",
                               (who.actor, key))
-                    if response.status_code == 403:
+                    if response.status_code == 403 and not throttled(response):
                         # A permission blocker: DevOps fixes it, not Head of Engineering (backend/blockers.py).
                         from . import blockers
                         blockers.route(c, f"github_review_403:{repository}",

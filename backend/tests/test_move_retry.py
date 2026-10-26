@@ -1,6 +1,8 @@
 """A refused review move is retried by Tico once what refused it clears (Dev 534 C, criterion 8)."""
 import json
 
+import pytest
+
 from backend import hubdb as H, move_retry
 from backend.tests.test_github import api, get  # noqa: F401
 from backend.tests.test_review_gate import ticket, move, HEAD, BASE
@@ -93,6 +95,7 @@ def test_hint_names_what_clears_each_refusal():
 
 TEMPORARY = {'problem_code': 'github_unreachable', 'temporary': True, 'devops': False}
 PERMANENT = {'problem_code': 'github_app_permissions', 'temporary': False, 'devops': True}
+UNEXPECTED = {'problem_code': 'github_read', 'temporary': False, 'devops': False}
 
 
 def unreadable(api, monkeypatch, cause=None):
@@ -159,10 +162,24 @@ def test_permission_failure_asks_devops_once_and_moves_when_github_reads_again(a
     assert step(api, task) == 'Review 1'
 
 
-def test_unreadable_without_a_cause_asks_devops_only_when_it_repeats(api, monkeypatch):
+@pytest.mark.parametrize('cause', [None, UNEXPECTED], ids=['no-cause', 'unexpected-cause'])
+def test_unreadable_without_a_temporary_cause_asks_devops_only_when_it_repeats(api, monkeypatch, cause):
     task = ticket(api, RECEIPT)
-    unreadable(api, monkeypatch)
+    unreadable(api, monkeypatch, cause)
     assert move(api, task).status_code == 422
     assert devops_tasks(api) == []
     assert move_retry.tick(api.app.state.github_app, at=later(6), force=True) == []
     assert devops_tasks(api) == ['GitHub cannot be read for review moves']
+
+
+def test_one_tickets_failing_retry_does_not_hold_back_the_others(api, monkeypatch):
+    rows = [({'id': 'broken'}, {}), ({'id': 'fine'}, {})]
+    monkeypatch.setattr(move_retry, 'pending', lambda c, at: rows)
+
+    def retry(store, service, row, detail):
+        if row['id'] == 'broken':
+            raise RuntimeError('synthetic failure for one ticket')
+        return True
+
+    monkeypatch.setattr(move_retry, 'retry', retry)
+    assert tick(api) == ['fine']

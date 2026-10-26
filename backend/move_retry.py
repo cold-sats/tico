@@ -11,11 +11,14 @@ has to ask for the retry, and Head of Engineering hears nothing about it.
 A retry stops when the ticket leaves the step it was refused at, closes, or after RETRY_FOR."""
 import hashlib
 import json
+import logging
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 from . import hubdb as H
+
+log = logging.getLogger(__name__)
 
 FIELD = "move_retry"
 RETRY_FOR = timedelta(days=3)
@@ -37,11 +40,14 @@ def outage(text):
 
 def route_now(notice):
     """A GitHub read that failed for a reason only access can fix (permission, key, installation, repository
-    access) goes to DevOps on the first refusal. A temporary failure (timeout, 5xx, 429) never does: the timer
-    retries it. A refusal without a cause falls back to the twice-unreadable rule in retry()."""
-    if "devops" in notice:
-        return bool(notice["devops"])
-    return bool(notice.get("problem_code")) and notice.get("temporary") is False
+    access) goes to DevOps on the first refusal."""
+    return bool(notice.get("devops"))
+
+
+def route_twice(notice):
+    """Any other failure that is not temporary (timeout, 5xx, 429), including one GitHub gave no cause for, goes to
+    DevOps when it is still unreadable OUTAGE_EVERY later. A temporary one never does: the timer retries it."""
+    return not notice.get("temporary") and not route_now(notice)
 
 
 def _route(c, notice, row, twice=False):
@@ -149,8 +155,8 @@ def retry(store, service, row, detail):
             if getattr(exc, "review_gate", None):
                 review_gate.notify(c, H.KEEPER, notice)
             remember(c, H.KEEPER, notice)
-            if outage(notice.get("text")) and detail.get("outage") and not notice.get("problem_code"):
-                # Unreadable twice, OUTAGE_EVERY apart, and GitHub gave no cause: not a blip.
+            if outage(notice.get("text")) and detail.get("outage") and route_twice(notice):
+                # Unreadable twice, OUTAGE_EVERY apart, for no temporary reason: not a blip.
                 _route(c, notice, now_row, twice=True)
             return False
         c.execute("RELEASE move_retry")
@@ -176,4 +182,12 @@ def tick(service, store=None, at=None, force=False):
         _next["at"] = time.monotonic() + EVERY_S
     with store.read() as c:
         due = pending(c, at)
-    return [row["id"] for row, detail in due if retry(store, service, row, detail)]
+    moved = []
+    for row, detail in due:
+        try:
+            if retry(store, service, row, detail):
+                moved.append(row["id"])
+        except Exception:
+            # One ticket's failure must not hold back the others; it is due again on the next pass.
+            log.exception("move retry failed for %s", row["id"])
+    return moved

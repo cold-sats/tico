@@ -45,7 +45,7 @@ def configured(api, gh, tmp_path, monkeypatch):
             return httpx.Response(200, json={"state": "open", "head": {"sha": seen["head"]}})
         if path == "/repos/Acme/product/pulls/7/reviews":
             if seen.get("refusal"):
-                return httpx.Response(seen["refusal"], json={"message": "synthetic refusal"})
+                return httpx.Response(seen["refusal"], json={"message": seen.get("refusal_message", "synthetic refusal")})
             seen["reviews"].append((json.loads(request.content), request.headers["authorization"]))
             if seen.get("lost_response"):
                 raise httpx.ReadTimeout("synthetic lost response", request=request)
@@ -218,6 +218,22 @@ def test_github_refusing_a_review_403_files_one_devops_task_not_the_type_manager
         filed = [dict(r) for r in c.execute("SELECT owner, title FROM tasks WHERE requester=? AND title LIKE 'GitHub refused%'",
                                              (H.KEEPER,))]
     assert filed == [{"owner": "bot:devops-engineer", "title": f"GitHub refused cmo's review on {REPO} (403)"}]
+
+
+def test_github_rate_limiting_a_review_403_files_no_task(api, gh, tmp_path, monkeypatch):
+    from backend import hubdb as H
+    settings, seen = configured(api, gh, tmp_path, monkeypatch)
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug, display_name, runtime, state) VALUES('devops-engineer','DevOps','fake','active')")
+    seen["refusal"] = 403
+    seen["refusal_message"] = "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+    assert submit(api, key="throttled").status_code == 409
+    seen["refusal_message"] = "Resource not accessible by integration"      # the permission twin still files
+    assert submit(api, key="denied").status_code == 409
+    with api.app_state.store.read() as c:
+        filed = [r[0] for r in c.execute("SELECT title FROM tasks WHERE requester=? AND title LIKE 'GitHub refused%'",
+                                         (H.KEEPER,))]
+    assert filed == [f"GitHub refused cmo's review on {REPO} (403)"]
 
 
 def test_github_refusing_a_review_403_goes_to_the_tickets_type_manager_without_devops(api, gh, tmp_path, monkeypatch):
