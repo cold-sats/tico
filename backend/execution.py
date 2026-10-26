@@ -972,6 +972,21 @@ def empty_fallback_interruption(c, settings, row, result):
         field(part, 'output_tokens') for part in spent)
 
 
+def hold_job_until_reset(c, row, hold, reason):
+    """Keep an established empty retry visibly held until its known reset, outside wake batching."""
+    until = hold.get('until') or ''
+    if not hold.get('reset') or until <= H.now():
+        return
+    c.execute("UPDATE jobs SET held=1,hold_until=?,wake_class='quota-reset' WHERE id=? AND state='queued'",
+              (until, row['job_id']))
+    # A claim that ran nowhere inherits the existing deadline, not another default cooldown.
+    c.execute("UPDATE attempts SET result_json=json_set(result_json,'$.limit_resets_at',?) WHERE id=?",
+              (until, row['id']))
+    H.event(c, H.KEEPER, 'job.reset_wait', row['job_id'],
+            {'attempt_id': row['id'], 'owner': H.KEEPER, 'until': until, 'reason': reason})
+    return hold
+
+
 def fallback_mark(config):
     """The fallback a bot names, as a hold remembers it failed (login_holds.after_turn `hopped`): naming another
     one, or none, lets the bot try again."""
@@ -1053,6 +1068,8 @@ def clear_limits(c, settings, actor, bot):
                                             json.loads(row[0]) if row and row[0] else {}))
         if (H.status(c, slug) or {}).get("state") == "limited":
             H.status_set(c, actor, slug, state="idle", focus="", reason="Try now")
+        c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' "
+                  "AND wake_class='quota-reset'", (slug,))
         H.event(c, actor, "limit.cleared", slug, {"from": bot, "runtime": mine})
     return len(bots)
 
@@ -2326,6 +2343,7 @@ class Execution:
         if runner:
             note_claim(runner["id"], body)
         changes = c.total_changes
+        wake_presets.release_quota_resets(c)
         self.expire(c, limit=CLAIM_MAINTENANCE)
         if c.total_changes != changes:
             # Expiry can put a lapsed job back in the queue after the read snapshot chose:
@@ -3514,9 +3532,6 @@ class Execution:
             config_row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()
             hold.setdefault('failed_fallback', {})[row['bot']] = fallback_mark(json.loads(config_row[0] or '{}'))
             login_holds._save(c, hold)
-            H.event(c, H.KEEPER, 'job.reset_wait', row['job_id'],
-                    {'attempt_id': aid, 'owner': H.KEEPER, 'until': hold['until'],
-                     'reason': 'Fallback ended without output or effects; waiting for the primary login reset.'})
         requeue = not rejected_acted if rejected else limited or retryable or silent or yielded or reset_wait
         if body.outcome == 'interrupted' and body.primary_held and body.fallback and not reset_wait:
             requeue = False  # a yield or limit flag cannot turn unknown fallback effects into a safe retry
@@ -3641,6 +3656,9 @@ class Execution:
                                                 runtime, body, aid, H.now(),
                                                 hopped=fallback_mark(json.loads(config[0] or "{}") if config else {})
                                                 if hopped else None)
+        if reset_wait or unstarted and body.primary_held and body.limited and not body.fallback:
+            login_hold = hold_job_until_reset(c, row, own_login_hold(c, self.store.settings, row['bot']),
+                                'No fallback could take this claim; waiting for the primary login reset.') or login_hold
         if rejected:
             self.mark_rejected(c, row["runner_id"], body.auth_rejected.runtime, body.auth_rejected.reason, body.profile_used)
             H.event(c, H.KEEPER, "attempt.auth_rejected", aid,

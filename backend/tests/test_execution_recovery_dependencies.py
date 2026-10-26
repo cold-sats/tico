@@ -7,7 +7,7 @@ from backend.store import H
 from backend.scheduler import Scheduler
 from backend.tests.test_api import api, post, get, claim, ready, setup_attempt
 from backend.tests.test_execution_review import (add_recovery_reviewer, restarted_mid_turn, rival, sweep, job_state)
-from backend.tests.test_login_holds import at, signed_in, two_bots, limit
+from backend.tests.test_login_holds import at, signed_in, two_bots, limit, events, health_detail
 
 
 @pytest.mark.parametrize('identity', ['task', 'lane', 'main'])
@@ -113,6 +113,7 @@ def test_interrupted_fallback_waits_for_reset_only_with_positive_empty_evidence(
         detail = json.loads(c.execute("SELECT detail_json FROM events WHERE action='job.reset_wait' AND target=?", (fallback['job_id'],)).fetchone()[0])
         assert detail['until'].startswith('2026-10-19T02:40:00')
     at(monkeypatch, '2026-10-19T02:40:00.000000Z', api)
+    Scheduler(api.app.state.store, api.app.state.execution).tick()
     signed_in(api, machine, ['ops', 'finance'], ['codex'])
     resumed = claim(api, machine, bot='ops')
     assert resumed and not resumed['config'].get('primary_held')
@@ -142,3 +143,98 @@ def test_approval_consumer_attempt_overrides_request_message_association(api, th
             H.RUN.reset(token)
     result = sweep(api)
     assert job_state(api, attempt['job_id']) == ('uncertain' if this_attempt else 'queued')
+
+
+@pytest.mark.parametrize('named_fallback,release', [(False, 'reset'), (True, 'reset'), (True, 'try-now')])
+def test_no_fallback_ready_for_claim_persists_one_hold_until_named_reset(api, monkeypatch, named_fallback, release):
+    """Oct 26 Lead regression: zero writes, primary held to 11:50, fallback unavailable for this claim."""
+    from backend import wake_presets
+
+    machine = two_bots(api, monkeypatch)
+    at(monkeypatch, '2026-10-26T10:53:00.000000Z', api)
+    if named_fallback:
+        with api.app.state.store.transaction() as c:
+            c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.fallback',json(?)) WHERE bot='ops'",
+                      (json.dumps({'harness': 'codex', 'model': 'gpt-5.5'}),))
+    for n in range(2):
+        post(api, 'chat/ops', {'text': f'Please finish request {n}'})
+    first = claim(api, machine, bot='ops')
+    limit(api, machine, first, errors=("Model error: You've hit your session limit · resets 11:50am (UTC)",))
+    at(monkeypatch, '2026-10-26T10:54:00.000000Z', api)
+    signed_in(api, machine, ['ops', 'finance'], ['codex'])
+    fallback = claim(api, machine, bot='ops')
+    assert fallback['config']['primary_held'].startswith('2026-10-26T11:50:00')
+    # Readiness was good globally; this claim cannot use it. No /started, tool, write or model output.
+    seq = events(api, machine, fallback, [('error', 'fake login held (usage limit) until 11:50 UTC, '
+                                          'and no fallback is ready on this computer')])
+    post(api, f"attempts/{fallback['id']}/complete", {'outcome': 'failed', 'last_seq': seq,
+         'limited': True, 'primary_held': True, 'text': ''}, machine['token'])
+    with api.app.state.store.read() as c:
+        job = c.execute('SELECT state,held,hold_until FROM jobs WHERE id=?', (fallback['job_id'],)).fetchone()
+        assert tuple(job) == ('queued', 1, '2026-10-26T11:50:00.000000Z')
+        assert c.execute("SELECT count(*) FROM registry_metadata WHERE key LIKE 'login-hold:%'").fetchone()[0] == 1
+    assert '11:50' in health_detail(api, 'ops')
+    for when in ('10:55', '11:07', '11:49'):
+        at(monkeypatch, f'2026-10-26T{when}:00.000000Z', api)
+        # A changed profile/wake preset must not replace a quota reset with its news-batch delay.
+        with api.app.state.store.transaction() as c:
+            wake_presets.replan(c, 'ops')
+        Scheduler(api.app.state.store, api.app.state.execution).tick()
+        signed_in(api, machine, ['ops', 'finance'], ['codex'])
+        assert claim(api, machine, bot='ops') is None
+        with api.app.state.store.read() as c:
+            assert c.execute("SELECT count(*) FROM attempts WHERE bot='ops'").fetchone()[0] == 2
+            assert tuple(c.execute('SELECT held,hold_until FROM jobs WHERE id=?',
+                                   (fallback['job_id'],)).fetchone()) == (1, '2026-10-26T11:50:00.000000Z')
+    if release == 'try-now':
+        post(api, 'bots/ops/limit/retry', {})
+    else:
+        at(monkeypatch, '2026-10-26T11:50:01.000000Z', api)
+    Scheduler(api.app.state.store, api.app.state.execution).tick()
+    signed_in(api, machine, ['ops', 'finance'], ['codex'])
+    resumed = claim(api, machine, bot='ops')
+    assert resumed and resumed['job_id'] == fallback['job_id']
+    assert not resumed['config'].get('primary_held')
+    assert claim(api, machine, bot='ops') is None  # one probe, never a burst at reset
+
+
+def test_missing_fallback_setup_is_not_a_capacity_or_quota_error():
+    from backend import run_backoff
+    from datetime import datetime, timezone
+
+    error = 'No fallback configured on this computer; finish fallback setup before retrying.'
+    assert not run_backoff.is_limit(error)
+    assert not login_holds.capacity(error)
+    assert login_holds.reset_from_text(error, datetime(2026, 10, 26, 11, tzinfo=timezone.utc)) is None
+
+
+def test_fallbacks_own_named_reset_holds_only_that_login_and_is_visible(api, monkeypatch):
+    machine = two_bots(api, monkeypatch)
+    at(monkeypatch, '2026-10-26T10:53:00.000000Z', api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.fallback',json(?)) WHERE bot='ops'",
+                  (json.dumps({'harness': 'codex', 'model': 'gpt-5.5'}),))
+    post(api, 'chat/ops', {'text': 'Finish the queued work'})
+    first = claim(api, machine, bot='ops')
+    limit(api, machine, first, errors=('Usage limit',), limit_resets_at='2026-10-26T12:50:00Z')
+    at(monkeypatch, '2026-10-26T10:54:00.000000Z', api)
+    signed_in(api, machine, ['ops', 'finance'], ['codex'])
+    fallback = claim(api, machine, bot='ops')
+    assert fallback['config']['primary_held'].startswith('2026-10-26T12:50:00')
+    limit(api, machine, fallback,
+          errors=("Model error: You've hit your session limit · resets 11:50am (UTC)",),
+          fallback='codex', primary_held=True)
+    assert job_state(api, fallback['job_id']) == 'queued'
+    assert get(api, 'bots/ops/execution-review')['jobs'] == []
+    assert '11:50' in health_detail(api, 'ops')
+    with api.app.state.store.read() as c:
+        assert login_holds.get(c, machine['runner_id'], '', 'codex')['until'].startswith('2026-10-26T11:50:00')
+        assert login_holds.get(c, machine['runner_id'], '', 'fake')['until'].startswith('2026-10-26T12:50:00')
+    at(monkeypatch, '2026-10-26T11:49:00.000000Z', api)
+    signed_in(api, machine, ['ops', 'finance'], ['codex'])
+    assert claim(api, machine, bot='ops') is None
+    at(monkeypatch, '2026-10-26T11:50:01.000000Z', api)
+    signed_in(api, machine, ['ops', 'finance'], ['codex'])
+    resumed = claim(api, machine, bot='ops')
+    assert resumed and resumed['job_id'] == fallback['job_id']
+    assert resumed['config']['primary_held'].startswith('2026-10-26T12:50:00')
