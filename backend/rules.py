@@ -10,8 +10,8 @@ message H._write_message is about to write to a bot, and answers with an outcome
 - `ignore`: write it quietly with no note: the room history is all that carries it.
 - `ask`: write the message quietly with its note, and raise one Needs-you item for the task's human naming the rule
   (`carry_out`, once per task and rule).
-- `action`: run the row's `params.action` (close, move_step, set_wait, relate, note) as the keeper, with the rule id in
-  the event payload, and write the message quietly with its note. An action that fails opens the message: it wakes the
+- `action`: run the row's `params.action` (close, move_step, set_wait, relate, note, assign, add_tag, remove_tag) as
+  the keeper, with the rule id in the event payload, and write the message quietly with its note. An action that fails opens the message: it wakes the
   bot under `fail_open`, so work is never lost to a rule.
 
 The message is stamped `refs.rule` with the rule id, whatever the outcome, and a run copies it to `turns.rule_id`
@@ -67,7 +67,8 @@ NO_RUN = "no_run"
 BOT_TO_BOT = "bot_to_bot"
 # What a code action can do, for `action` rows (system_routines' THEN names). The task actions need a task; the event
 # actions (`wake_bot`, `send_webhook`) do not, so they also run from events without one (judge_event).
-TASK_ACTIONS = ("close", "move_step", "set_wait", "relate", "note")
+TASK_ACTIONS = ("close", "move_step", "set_wait", "relate", "note", "assign", "add_tag", "remove_tag")
+TAG_ACTIONS = ("add_tag", "remove_tag")
 EVENT_ACTIONS = ("wake_bot", "send_webhook", "create_task", "forward")
 # The two that make something new from an event judged once (judge_event) refuse a message event: its ledger is what
 # makes a repeated call do nothing.
@@ -741,8 +742,8 @@ def _act(conn, decision, row, message=None):
         raise ValueError("an action rule needs a task")
     note = str(params.get("note") or params.get("text") or "")[:1000]
     said = f"Rule {decision.rule}: {note}" if note else f"Rule {decision.rule}"
-    runner(conn, row["id"], params, said)
-    H.event(conn, H.KEEPER, "rule.action", row["id"], {"rule": decision.rule, "action": action})
+    done = runner(conn, row["id"], params, said) or {}
+    H.event(conn, H.KEEPER, "rule.action", row["id"], {"rule": decision.rule, "action": action, **done})
 
 
 def _close(conn, tid, params, said):
@@ -771,7 +772,24 @@ def _note(conn, tid, params, said):
     H.task_update(conn, H.KEEPER, tid, note=said)
 
 
-TASK_RUNNERS = {"close": _close, "move_step": _move_step, "set_wait": _set_wait, "relate": _relate, "note": _note}
+def _assign(conn, tid, params, said):
+    # The same write a person's reassignment makes, so the new owner is woken and the old one told as usual.
+    H.task_update(conn, H.KEEPER, tid, owner=str(params["owner"]), note=said)
+    return {"owner": params["owner"]}
+
+
+def _retag(add):
+    def run(conn, tid, params, said):
+        have, named = H.task_labels(H.task(conn, tid)), list(params["tag"])
+        keys = have + [k for k in named if k not in have] if add else [k for k in have if k not in named]
+        if keys != have:                # a tag already on (or already off) writes nothing and mirrors no note
+            H.task_update(conn, H.KEEPER, tid, labels=keys, note=said)
+        return {"tag": named, "changed": keys != have}
+    return run
+
+
+TASK_RUNNERS = {"close": _close, "move_step": _move_step, "set_wait": _set_wait, "relate": _relate, "note": _note,
+                "assign": _assign, "add_tag": _retag(True), "remove_tag": _retag(False)}
 
 
 # ----------------------------------------------------------------------------- events without a task
@@ -1330,6 +1348,27 @@ def _check_params(c, scope_kind, scope_id, sourceless, then, params, event=""):
             raise Problem("invalid", "create_task names params.title (300 characters) and may name params.body; "
                                      "{{path}} in them is filled in", 422)
         params["owner"] = slug
+    if action == "assign":
+        owner = params.get("owner")
+        if not (isinstance(owner, str) and owner.strip()) or "{{" in owner:
+            raise Problem("invalid", "assign names params.owner, the bot or person who gets the task", 422)
+        found = H.resolve_actor(c, owner)
+        if not found or found == H.KEEPER:
+            raise Problem("not_found", f"No bot or person {owner}", 404)
+        params["owner"] = found
+    if action in TAG_ACTIONS:
+        raw = params.get("tag")
+        named = raw if isinstance(raw, list) else [raw]
+        if not 1 <= len(named) <= 20 or not all(isinstance(t, str) and t.strip() for t in named):
+            raise Problem("invalid", f"{action} names params.tag: a tag or a list of tags", 422)
+        keys = H._labels(named)
+        for key in keys:
+            found = H.tag_by_key(c, key)
+            if not found:
+                raise Problem("not_found", f"No tag {key}", 404)
+            if found["is_template"]:
+                raise Problem("invalid", f"{key} is a template tag; name a tag a task can carry", 422)
+        params["tag"] = keys
     return params
 
 
@@ -1398,6 +1437,12 @@ def _action_writer(c, auth, who, then, params):
     if not (who.role == "owner" or auth.bot_admin(who) or who.role == "human" and H.can_move(c, who.actor)):
         raise Problem("forbidden", "An action rule acts as Tico: only the owner, an admin or a task mover writes one",
                       403)
+    if action == "assign":
+        try:
+            auth.target(c, who, str(params.get("owner") or ""), need="write")
+        except Problem as exc:
+            raise Problem("forbidden", f"You may not give tasks to {H.actor_id(params.get('owner'))}, so a rule of "
+                                       "yours cannot either", 403) from exc
     for key in ("task", "blocked_by"):
         named = H.task(c, str(params.get(key) or "")) if params.get(key) else None
         if params.get(key) and not (named and H.task_private_readable(c, who.actor, named)):

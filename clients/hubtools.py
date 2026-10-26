@@ -3311,7 +3311,8 @@ _RULE_FIELDS = {
                                               "For a webhook event only trigger (the webhook's id) and type (order.* "
                                               "matches a prefix)"},
     "params": {"type": "object", "description": "An action rule names params.action: close, move_step, set_wait, relate, "
-                                                "note, wake_bot {bot, text}, send_webhook {webhook, type, data}, "
+                                                "note, assign {owner (a bot or person)}, add_tag {tag}, remove_tag {tag} "
+                                                "(a tag or a list), wake_bot {bot, text},send_webhook {webhook, type, data}, "
                                                 "create_task {owner (a bot), title, body} or forward {webhook} (the last two "
                                                 "only on webhook.received); text, data, title and body may hold {{path}} "
                                                 "placeholders (data.order, type, trigger.name). "

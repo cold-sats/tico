@@ -469,8 +469,13 @@ or blocked on someone else (`task_blocked`). A plain
 comment, another bot's status or step move, and the bot's own write (`own_write`, ignored) do not. A rule's outcome is
 `ignore`, `note`, `batch`, `wake`, `ask` or `action`. **Ask** writes the message as a note and puts one item in the
 Needs you list of the task's human (its requester if a person, else its owner's operator), once per task and rule.
-**Action** runs `close`, `move_step`, `set_wait`, `relate`, `note`, `wake_bot` or `send_webhook` as the keeper, with the rule id in the task's history,
-and writes the message as a note; if the action fails the bot is woken instead (`fail_open`).
+**Action** runs `close`, `move_step`, `set_wait`, `relate`, `note`, `assign`, `add_tag`, `remove_tag`, `wake_bot` or `send_webhook` as the keeper, with the rule id in the task's history,
+and writes the message as a note; if the action fails the bot is woken instead (`fail_open`). `assign` `{owner}` hands
+the task to a bot or a person as a reassignment does (the new owner is woken); writing one needs the right to give that
+bot tasks. `add_tag` and `remove_tag` `{tag}` take a tag or a list of existing tags (not template tags); a tag already
+on, or already off, changes nothing. With a `tag` condition this makes label-driven rules, such as
+`when {"tag": "billing"}` → `assign {"owner": "finance"}`. What an action writes is judged as news and never starts
+another rule's action, so a rule cannot retrigger itself.
 
 **Events without a task.** Some events are not a message to a bot and have no task: `webhook.received` (an incoming
 webhook was accepted) and `tico.notice`. A rule names one as its `event`
