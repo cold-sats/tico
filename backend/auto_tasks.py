@@ -33,23 +33,26 @@ def next_run_held(c, row):
     """A real next-run deferral holds; a task reopened from Waiting has work of its own again.
 
     Read the transition so already-queued Open notices recover too. A later quiet-work decision,
-    stored resume condition or live carrier still owns the work and must not be overridden.
+    stored resume condition or a run that picked up the reopened work still owns it.
     """
     if not row.get('next_run'):
         return False
     if row.get('resume_json') or row['status'] != 'open':
         return True
-    move = c.execute("SELECT rowid,old,new FROM task_events WHERE task_id=? AND field='status' "
+    move = c.execute("SELECT rowid,ts,old,new FROM task_events WHERE task_id=? AND field='status' "
                      "ORDER BY rowid DESC LIMIT 1", (row['id'],)).fetchone()
     if not move or (move['old'], move['new']) != ('waiting', 'open'):
         return True
     if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='quiet' AND actor<>? AND rowid>? LIMIT 1",
                  (row['id'], H.KEEPER, move['rowid'])).fetchone():
         return True
-    if row.get('carried_by') and H._has_table(c, 'attempts') and c.execute(
-            "SELECT 1 FROM attempts WHERE id=? AND state IN ('leased','running')",
-            (row['carried_by'],)).fetchone():
-        return True
+    if row.get('carried_by') and H._has_table(c, 'attempts'):
+        carrier = c.execute("SELECT state,created FROM attempts WHERE id=?", (row['carried_by'],)).fetchone()
+        if carrier and (carrier['state'] in ('leased', 'running') or
+                        carrier['state'] == 'completed' and carrier['created'] >= move['ts']):
+            # Settlement clears untouched work's carrier. A completed carrier retained after this
+            # reopen already worked it; only a later reopen makes that delivery obsolete.
+            return True
     return False
 
 

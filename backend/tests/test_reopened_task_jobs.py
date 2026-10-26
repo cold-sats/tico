@@ -98,6 +98,41 @@ def test_a_completed_carrier_does_not_strand_reopened_work(api):
     assert attempt and attempt['task']['id'] == task['id']
 
 
+@pytest.mark.parametrize('worked', [False, True])
+def test_carrier_after_reopen_settles_before_queued_notice_starts(api, worked):
+    machine = task_bot(api, lanes=True)
+    task = post(api, 'tasks', {'owner': 'ops', 'title': 'Check the installation receipt',
+                              'body': 'Check the installation receipt.', 'next_run': True})
+    # An older chat job claims first and carries the newly reopened work.
+    post(api, 'chat/ops', {'text': 'Check the pending receipts.'})
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, 'bot:ops', task['id'], status='waiting', note='Waiting for receipt')
+        H.task_update(c, 'human:ana', task['id'], status='open')
+    carrier = post(api, 'jobs/claim', {'next_run': True}, machine['token'])['attempt']
+    assert [t['id'] for t in carrier['next_run']] == [task['id']]
+    post(api, f"attempts/{carrier['id']}/started", {'thread_id': 'receipt-carrier'}, machine['token'])
+    assert reason(api, machine) == 'task_next_run'
+    if worked:
+        with api.app.state.store.transaction() as c:
+            H.task_update(c, 'bot:ops', task['id'], note='Installation receipt checked')
+    post(api, f"attempts/{carrier['id']}/complete", {'outcome': 'completed', 'last_seq': 0}, machine['token'])
+    if worked:
+        assert reason(api, machine) == 'task_next_run'
+        assert post(api, 'jobs/claim', {}, machine['token'])['attempt'] is None
+        with api.app.state.store.read() as c:
+            assert H.task(c, task['id'])['carried_by'] == carrier['id']
+        with api.app.state.store.transaction() as c:
+            H.task_update(c, 'bot:ops', task['id'], status='waiting', note='Waiting for another receipt')
+            H.task_update(c, 'human:ana', task['id'], status='open')
+        assert reason(api, machine) is None
+        attempt = post(api, 'jobs/claim', {}, machine['token'])['attempt']
+        assert attempt and attempt['task']['id'] == task['id']
+    else:
+        assert reason(api, machine) is None
+        attempt = post(api, 'jobs/claim', {}, machine['token'])['attempt']
+        assert attempt and attempt['task']['id'] == task['id']
+
+
 def test_quiet_work_without_a_reopening_still_waits(api):
     machine = task_bot(api, lanes=True)
     task = post(api, 'tasks', {'owner': 'ops', 'title': 'Check on the next run',
