@@ -557,9 +557,11 @@ def _waiting(c, online_ids, settings=None):
                 (oldest and oldest < cutoff) or (asked.get(slug) and asked[slug] < person_cutoff)):
             # A bot the claim holds on purpose (a spend limit, a usage-limit cooldown, a lapsed lease whose worker still
             # runs, interrupted work awaiting review, ...) is said with that reason, not "slow".
-            idle = slug not in busy and where[0] not in full
             refused, first, person = (('company_limit', None, False) if company_stopped else
-                                      bot_claimable(c, settings, where[0], slug)) if idle else (None,) * 3
+                                      bot_claimable(c, settings, where[0], slug, oldest=slug in busy))
+            # A running turn only explains this queue when it holds the queued lane. Free task
+            # lanes still get the claim's actual refusal, even while another lane runs.
+            idle = not ((refused == 'lane_held' and slug in busy) or (not refused and where[0] in full))
             if idle and not refused:
                 if not (first and first < (person_cutoff if person else cutoff)):
                     continue        # the job the claim would take is young: the older ones wait behind it or are held
@@ -572,6 +574,11 @@ def _waiting(c, online_ids, settings=None):
                              | ({"target": updating[where[0]], "running": running.get(where[0], 0),
                                   "turns": held(where[0]), "drain_progress": runner_versions.drain_progress(c, where[0])} if reason == "updating" else {}))
     return waiting, slow, stuck
+
+
+def refused_queues(c, settings):
+    from .queue_refusals import aged
+    return list(aged(c, settings))
 
 
 WELCOME = "#/welcome"
@@ -1337,6 +1344,34 @@ def view(c, who, settings, auth, github, config):
         limited = [row for row in limited if readable.get(row["bot"], auth.FULL)["read"]]
     failed, failures = _failed(c)
     checks = []
+    from . import assigned_start
+    assigned = []
+    for row in assigned_start.overdue(c):
+        if not c.execute(f"SELECT 1 FROM tasks WHERE id=? AND ({auth.task_sql(c, who)})", (row['id'],)).fetchone():
+            continue
+        text = assigned_start.description(c, row, settings)
+        assigned.append({'task': row['id'], 'bot': H.actor_id(row['owner']), 'name': row['title'],
+                         'reason': assigned_start.reason(c, row, settings), 'text': text,
+                         'fixes': [_fix('Open task', '#/tasks/' + row['id'])]})
+    if assigned:
+        checks.append(_check('assigned_not_started', 'Assigned, not started', 'warn',
+                             _diagnostic_summary('Assignments still unstarted two hours after a recovery wake.', assigned),
+                             items=assigned))
+    refused = []
+    for row in refused_queues(c, settings):
+        if not auth.bot_accesses(c, who, [row['bot']]).get(row['bot'], auth.FULL)['read']:
+            continue
+        msg = c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
+                        "WHERE j.bot=? AND j.state='queued' AND j.held=0 ORDER BY j.created,j.id LIMIT 1",
+                        (row['bot'],)).fetchone()
+        from . import task_privacy
+        if not msg or not task_privacy.message_readable(c, who.actor, msg):
+            continue
+        refused.append({**row, 'text': f"{row['name']}: oldest queued job refused for over 12 hours; {row['reason']}.",
+                        'fixes': [_fix(*RUNS)]})
+    if refused:
+        checks.append(_check('queue_refused', 'Queued work refused over 12 hours', 'warn',
+                             _diagnostic_summary('Queued jobs need attention.', refused), items=refused))
     if full and (company := company_import_failed(c)):
         checks.append(company)
     if (full or kind == "bot") and (latency := runner_route_latency(c)):

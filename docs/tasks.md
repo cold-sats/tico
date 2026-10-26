@@ -105,6 +105,23 @@ Omit the value to read it. The matching MCP tool and `POST /api/v2/bots/{bot}/ke
 the same permissions and revision check. **Settings → Rules** lists **Start assigned tasks** using
 WHEN/THEN wording; its `start_task` catalog action uses the same task delivery and claim checks.
 
+Hand a ready batch of On Deck tickets to builders in one pass. Each assigned ticket already has its
+own session and can start on a free turn; it does not need another Lead turn for each ticket.
+The ordinary task cap and prerequisite checks still apply to the whole batch.
+
+If an open assignment has no attempt after one hour, **Recover unstarted assignments** wakes its
+owner once, including a Lead. Waiting, snoozed and deferred work is excluded. The recovery wake
+does not bypass a task cap, an explicit automatic-start off switch or any execution hold. If it
+still has no attempt two hours after that wake, Health and its manager's Needs you show
+**Assigned, not started**, the task title and its current refusal reason. Only readers of that
+task see it; being the manager does not grant access to a private task. An attempt, a wait or
+completion clears the item. A new assignment starts its own one-hour clock.
+
+Health checks the queued job's lane and claim refusal even when the bot has another turn running.
+An oldest queued job continuously observed refusing claims for twelve hours becomes a stuck
+item, with the current reason. A newly observed refusal starts its own clock; an old queue alone
+does not establish twelve hours of refusal.
+
 ## Work that is waiting
 
 Keep actively worked tasks in **Doing**. When another task must finish first, relate the blocker,

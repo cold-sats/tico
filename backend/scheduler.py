@@ -346,6 +346,15 @@ class Scheduler:
         from . import quiet_work
         with locked("quiet_work") as c:
             quiet_work.due(c, stamp(at), failures)
+        from . import assigned_start
+        if not self.store.settings.rehearsal:
+            with locked("assigned_start") as c:
+                with isolated(c, "assigned_start", "all", failures):
+                    assigned_start.sweep(c, stamp(at))
+            from . import queue_refusals
+            with locked("queue_refusals") as c:
+                with isolated(c, "queue_refusals", "all", failures):
+                    queue_refusals.observe(c, self.store.settings, stamp(at))
         # A milestone wait whose pull request merged or release was published, while the server was down or
         # before its wake was written, gets its one wake (backend/milestone_waits.py).
         from . import milestone_waits

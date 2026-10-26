@@ -1233,7 +1233,7 @@ def bot_refusal(c, settings, runner_id, bot):
     return bot_claimable(c, settings, runner_id, bot)[0]
 
 
-def bot_claimable(c, settings, runner_id, bot):
+def bot_claimable(c, settings, runner_id, bot, oldest=False):
     """(reason, first, person) for `bot`'s queued work on `runner_id`'s next claim: `reason` as bot_refusal says it;
     otherwise None with `first`, when the job the claim would hand out next was queued, and `person`, True when a
     person sent it. The scan keeps the claim's own order (Execution.candidate: a redirect, then a person's message, then
@@ -1251,15 +1251,20 @@ def bot_claimable(c, settings, runner_id, bot):
     ready = readiness_document(runner["readiness_json"])
     why, config = claim_refusal(c, settings, runner, bot, row["config_json"], row["draining"], ready, held_bots)
     if why:
+        if oldest:
+            first = c.execute("SELECT created FROM jobs WHERE bot=? AND state='queued' AND held=0 "
+                              "ORDER BY created,id LIMIT 1", (bot,)).fetchone()
+            return why, first[0] if first else None, None
         return why, None, None
     lanes, roots = lanes_on(runner), roots_on(runner)
     busy = {(r["bot"], r["lane"]) for r in c.execute(
         "SELECT bot,lane FROM attempts WHERE state IN ('leased','running')")} | held_lanes
     followed, refused = follow(c, bot, config), None     # refused: (created, reason) of the oldest held job
+    order = 'j.created,j.id' if oldest else "j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id"
     for job in c.execute(f"SELECT j.*,m.from_actor,{unfenced_sql()} free,{scoped_sql()} in_scope FROM jobs j "
                          "JOIN messages m ON m.id=j.message_id "
                          "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.bot=? AND j.state='queued' AND j.held=0 "
-                         "ORDER BY j.redirect DESC,CASE WHEN m.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
+                         f"ORDER BY {order}",
                          (bot,)).fetchall():
         person = str(job["from_actor"]).startswith("human:")
         if not job["in_scope"]:
@@ -1269,8 +1274,8 @@ def bot_claimable(c, settings, runner_id, bot):
         else:
             why = job_refusal(c, job, followed, ready, busy, lanes, roots) or (
                 "cooling_off" if login_refusal(c, settings, runner_id, bot, followed, job["id"]) else None)
-        if why is None:
-            return None, job["created"], person
+        if why is None or oldest:
+            return why, job["created"], person
         if refused is None or job["created"] < refused[0]:
             refused = (job["created"], why)
     return (refused[1] if refused else None), None, None
