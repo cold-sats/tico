@@ -295,6 +295,26 @@ def test_person_dependency_resumes_the_previous_review_step(api):
         assert H.task(c, task['id'])['status'] == 'review'
 
 
+def test_undecided_approval_blocks_and_decision_resumes_the_previous_step(api):
+    from backend import task_blocked
+    task = ticket(api, f'Tests: head {HEAD}: 9 passed, 0 failed')
+    assert move(api, task, 'Review 2').status_code == 200
+    with api.app.state.store.transaction() as c:
+        review_step = H.task(c, task['id'])['step_id']
+        ask = H.approval_request(c, task['owner'], 'merge', {'repo': 'acme/app', 'pr': 12}, task_id=task['id'])
+        task_blocked.sweep(c, H.now())
+        blocked = H.task(c, task['id'])
+        assert blocked['status'] == 'waiting' and blocked['blocked_kind'] == 'dependency'
+        assert 'undecided approval' in blocked['blocked_reason'] and blocked['blocked_from_step'] == review_step
+        task_blocked.sweep(c, H.now())
+        assert H.task(c, task['id'])['status'] == 'waiting', 'an undecided approval keeps holding'
+        H.approval_decide(c, 'human:ana', ask['id'], 'approved')
+        task_blocked.sweep(c, H.now())
+        resumed = H.task(c, task['id'])
+        assert resumed['step_id'] == review_step and resumed['status'] == 'review'
+        assert resumed['blocked_since'] is None
+
+
 def test_explicit_milestone_wait_blocks_and_resumes_without_a_task_completion(api):
     from backend import milestone_waits as MW
     task = ticket(api)
