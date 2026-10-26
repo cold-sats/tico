@@ -346,3 +346,16 @@ SCENARIOS = [
              setup=lambda run, w, team: tickets(run, w, 6), board=design_board,
              styles={"reviewer": {"changes": 0.4}}, checks=standard(*REVIEW_TIMEOUT)),
 ]
+
+
+def _cases():
+    import importlib
+    import pkgutil
+    from . import cases
+    out = []
+    for info in sorted(pkgutil.iter_modules(cases.__path__), key=lambda m: m.name):
+        out += importlib.import_module(f"{cases.__name__}.{info.name}").SCENARIOS
+    return out
+
+
+SCENARIOS += _cases()      # evals/factory/cases/: one file per scenario
