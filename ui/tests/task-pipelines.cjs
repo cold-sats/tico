@@ -316,6 +316,11 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
       if (width === 375) await page.waitForFunction(() => !history.state?.taskPeek && !PEEK_BACK);
     }
     await page.setViewportSize({width: 1200, height: 900});
+    // A phone width clamps the sidebar; rails.js widens it again in the frame after the resize, which moves the board.
+    // Measure cards for the drag only once the sidebar has the width this window gives it.
+    await page.waitForFunction(() => innerWidth === 1200 && !matchMedia(PHONE).matches &&
+      getComputedStyle(document.documentElement).getPropertyValue('--rail-left').trim() ===
+        Math.round(Math.max(RAILS.left.min, Math.min(railsWant('left'), railsMax('left')))) + 'px');
     // Owner reason entry is cancellable and sends the reason with the step move.
     Object.assign(held, {step_id: 'dev-building', step: dev.steps[2], status: 'doing', blocked_since: null, blocked_reason: null});
     await page.evaluate(task => {
