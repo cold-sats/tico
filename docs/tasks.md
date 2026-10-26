@@ -802,8 +802,8 @@ hub task child <parent-id> --check-model codex:gpt-6.1-sol --title "Check the mi
 `--check-model` takes a runtime (its provider's recommended model) or `runtime:model`. With no value (`auto` in the
 API) it takes the company's check model (Settings > Computers > Models, [How it works](how-it-works.md)): the first in its
 order from a provider other than the parent's authors and runnable on the bot's computer. The authors are every
-maker on the parent's finished runs (a fallback counts) and the provider its owner runs on; with no other provider it
-is refused, never run on an author's own. `--role` is `review` or `check` (the default). The API takes `check_model` and `check_role` on task create; the MCP tool is
+maker on the parent's finished runs (a fallback counts) and the provider its owner runs on. Another provider is a
+preference: with none that can run, it runs on an author's own, and the subtask's history says so. `--role` is `review` or `check` (the default). The API takes `check_model` and `check_role` on task create; the MCP tool is
 `hub_task_child_create` with the same fields.
 
 - The subtask is the filing bot's own, under a task it owns. Its turns run on the named runtime and model with no
@@ -839,8 +839,9 @@ is refused, never run on an author's own. `--role` is `review` or `check` (the d
 - A reviewer bot set to `review_model: check` (`hub bot update <slug> --review-model check`, `hub_bot_update`, or the
   bot definition API) runs every subtask it is handed under another's task as a `review` on the company's check
   model, chosen against the parent's authors the same way, and its verdict comes back the same way. When the authors
-  are unknown (a person's task with no runs) or no other provider can run it, the subtask is filed as usual on the
-  reviewer's own model, and its history says why. Subtasks under its own tasks, and its top-level tasks, keep its
+  are unknown (a person's task with no runs) or no check model can run it, the subtask is filed as usual on the
+  reviewer's own model, and its history says why. With no other provider able to run it, it runs on the authors'
+  own provider rather than waiting: another provider is preferred, never required. Subtasks under its own tasks, and its top-level tasks, keep its
   own model.
 
 Every task a bot owns has its own room (a `kind: task` conversation), even one filed from a chat: its comments,

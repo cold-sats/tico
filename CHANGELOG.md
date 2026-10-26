@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Reviews prefer another model family; they never wait for one.** A review or check subtask on the company's check model runs on a provider other than the work's authors when one can, and otherwise on the authors' own, with the reason in its history. Before, it was refused ([Check model](docs/tasks.md#subtasks-and-prs)).
+
 ## [0.4.12] - 2026-10-26
 
 ### Added
