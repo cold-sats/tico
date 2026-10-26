@@ -15,8 +15,8 @@ NO_TEST = (*FAILING_RECEIPTS, "lint_only")
 
 
 def setup(run, w, team):
-    w.ci_skip = 0.3
-    tickets(run, w, 8)
+    w.ci_skip = 0.2
+    tickets(run, w, 10)
 
 
 def during(run, w, team, i):
@@ -121,7 +121,7 @@ SCENARIOS = [
     Scenario("receipt_wording",
              "Builders word test receipts the messy real ways (repaired earlier failures, failing reruns, lint only), "
              "and some PRs' only CI check is skipped: review opens only on a passing receipt at the head.",
-             setup=setup, during=during, styles={"builder": {"receipt_wording": 0.6}},
+             setup=setup, during=during, styles={"builder": {"receipt_wording": 0.7}},
              checks=standard(("no review on a head whose receipt reports a failure there", GATE, no_review_on_failure),
                              ("no review on a skipped-only PR without a receipt", GATE, no_review_on_skipped),
                              ("a repaired earlier-head failure does not block the move", GATE, repaired_passes),
