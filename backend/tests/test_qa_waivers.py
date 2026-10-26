@@ -144,7 +144,7 @@ def test_owner_or_manager_waives_the_current_qa_step_on_the_exact_head(api, owne
 
 @pytest.mark.parametrize('owner,token,why', [('human:ben', 'cara-test', 'owner or a manager'),
                                              ('cpo', 'ben-test', 'owner or a manager'),
-                                             ('cpo', 'bot-test', "a person's decision")])
+                                             ('cpo', 'bot-test', 'Only a person, signed in as themselves')])
 def test_a_non_owner_non_manager_or_a_bot_is_refused(api, owner, token, why):
     row = ticket(api, owner=owner)
     r = waive(api, row, token)
