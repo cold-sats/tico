@@ -195,6 +195,24 @@ def install(app, store, auth, mutate, settings):
         record = K.kpi(c, p["kpi_id"]) if p["kpi_id"] and hidden else None
         return bool(record) and record["owner"] in hidden
 
+    def readable_kpis(views, hidden):
+        """A goal's KPI lines without the ones whose owner the reader may not read, as kpi_or_404 hides them: a
+        goal the reader sees may still be measured by a bot's KPI they may not read."""
+        return [v for v in views if v.get("owner") not in hidden] if hidden else views
+
+    def goal_view(c, who, row, *visible):
+        """One goal (G.view) as this caller may read it: no hidden KPI's line, no suggestion about one, and no
+        history line naming one (a link's event names the KPI and its target, backend/goals.py kpi_link)."""
+        out, hidden = G.view(c, row, *visible), hidden_owners(c, who)
+        if hidden:
+            out["kpis"] = readable_kpis(out["kpis"], hidden)
+            out["proposals"] = [p for p in out["proposals"] if not kpi_hidden(c, p, hidden)]
+            marks = ",".join("?" * len(hidden))
+            names = {r[0] for r in c.execute(f"SELECT name FROM kpis WHERE owner IN ({marks})", tuple(hidden))}
+            out["events"] = [e for e in out["events"] if e["field"] not in ("kpi", "kpi_target")
+                             or not names & {e["old"], e["new"], e["note"]}]
+        return out
+
     def refuse_bot_why(who):
         if who.role not in ("owner", "human") or who.via:
             raise Problem("forbidden", "A person sets a goal's Why on their own click; a bot proposes one "
@@ -402,14 +420,14 @@ def install(app, store, auth, mutate, settings):
             for row in c.execute("SELECT * FROM goal_checkins k WHERE ts=(SELECT max(ts) FROM goal_checkins "
                                  "WHERE goal_id=k.goal_id)"):
                 said[row["goal_id"]] = dict(row)
+            hidden = hidden_owners(c, who)
             for row in rows:
-                row["kpis"] = by_goal.get(row["id"], [])
+                row["kpis"] = readable_kpis(by_goal.get(row["id"], []), hidden)
                 row["open_tasks"] = open_counts.get(row["id"], 0)
                 row["checkin"] = said.get(row["id"])
             unaligned = {r["owner"]: r["n"] for r in c.execute(
                 "SELECT owner, count(*) AS n FROM tasks WHERE goal_id IS NULL AND status IN "
                 f"('open','doing','waiting') AND {readable} GROUP BY owner")}
-            hidden = hidden_owners(c, who)
             unaligned = {owner: n for owner, n in unaligned.items() if owner not in hidden}
             loose = [dict(r) for r in c.execute("SELECT * FROM kpis WHERE archived_at IS NULL "
                                                 "AND id NOT IN (SELECT kpi_id FROM goal_kpis) "
@@ -475,7 +493,7 @@ def install(app, store, auth, mutate, settings):
             if not readable_goals(c, who, [row]):
                 raise Problem("not_found", "Unknown goal", 404)
             due = G.reads_due(c, who.actor, [gid]) if who.role == "bot" else []
-            out = {"goal": G.view(c, row, auth.task_sql(c, who))}
+            out = {"goal": goal_view(c, who, row, auth.task_sql(c, who))}
         mark_read(who, due)
         return out
 
@@ -492,7 +510,7 @@ def install(app, store, auth, mutate, settings):
                                   "or for someone below you on the org chart", 403)
             row = G.create(c, who.actor, body.title, owner, body.parent_id, body.body, top=body.top,
                            bet_id=body.bet_id)
-            return {"goal": G.view(c, row)}
+            return {"goal": goal_view(c, who, row)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/goals/{gid}/status")
@@ -513,7 +531,7 @@ def install(app, store, auth, mutate, settings):
                     who.actor == parent_owner(c, row) or stands_above(c, who, row["owner"])):
                 raise Problem("forbidden", "A proposed goal gets its first colour from whoever owns the goal "
                               "it serves; that is the acceptance", 403)
-            return {"goal": G.view(c, G.set_status(c, who.actor, gid, body.status, body.note))}
+            return {"goal": goal_view(c, who, G.set_status(c, who.actor, gid, body.status, body.note))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/goals/{gid}/reopen")
@@ -533,7 +551,7 @@ def install(app, store, auth, mutate, settings):
                     who.actor == parent_owner(c, row) or stands_above(c, who, row["owner"])):
                 raise Problem("forbidden", "A proposed goal gets its first colour from whoever owns the goal "
                               "it serves; that is the acceptance", 403)
-            return {"goal": G.view(c, G.reopen(c, who.actor, gid, body.status, body.note, body.undo))}
+            return {"goal": goal_view(c, who, G.reopen(c, who.actor, gid, body.status, body.note, body.undo))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/goals/{gid}/status/auto")
@@ -546,7 +564,7 @@ def install(app, store, auth, mutate, settings):
             if is_manager(who) or not may_colour(c, who, row):
                 raise Problem("forbidden", "The goal's owner, the owner of the goal it serves, or someone "
                               "above them hands the colour back", 403)
-            return {"goal": G.view(c, G.hand_back(c, who.actor, gid))}
+            return {"goal": goal_view(c, who, G.hand_back(c, who.actor, gid))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/goals/{gid}")
@@ -572,7 +590,7 @@ def install(app, store, auth, mutate, settings):
             if not structural and not may_colour(c, who, row):
                 raise Problem("forbidden", "You cannot edit this goal", 403)
             owner = goal_owner(c, who, body.owner) if body.owner else None
-            return {"goal": G.view(c, G.update(c, who.actor, gid, title=body.title, body=body.body,
+            return {"goal": goal_view(c, who, G.update(c, who.actor, gid, title=body.title, body=body.body,
                                                parent_id=body.parent_id, owner=owner, rank=body.rank,
                                                top=body.top, bet_id=body.bet_id))}
         return mutate(request, body, work)
@@ -589,7 +607,7 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("forbidden", "The goal's owner, the owner of the goal it serves, or someone above them "
                               "sets its Why", 403)
             C.set_why(c, who.actor, gid, body.why)
-            return {"goal": G.view(c, G.goal(c, gid), auth.task_sql(c, who))}
+            return {"goal": goal_view(c, who, G.goal(c, gid), auth.task_sql(c, who))}
         return mutate(request, body, work)
 
     # ------------------------------------------------------------------ check-ins
@@ -675,7 +693,7 @@ def install(app, store, auth, mutate, settings):
             if not may_colour(c, who, row):
                 raise Problem("forbidden", "The goal's owner or someone above them removes a measure", 403)
             G.kpi_unlink(c, who.actor, gid, kid)
-            return {"goal": G.view(c, G.goal(c, gid))}
+            return {"goal": goal_view(c, who, G.goal(c, gid))}
         return mutate(request, body, work)
 
     # ------------------------------------------------------------------ KPIs
@@ -882,6 +900,12 @@ def install(app, store, auth, mutate, settings):
                 raise Problem("not_found", "Unknown proposal", 404)
             if not decider(c, who, item):
                 raise Problem("forbidden", "Whoever owns the goal or the KPI decides, and only a person, on their own click", 403)
+            reused = (item.get("payload") or {}).get("kpi_id") if item["kind"] == "goal_kpi" else None
+            record = K.kpi(c, reused) if reused and body.decision == "confirm" else None
+            if record and record["owner"] in hidden_owners(c, who):
+                # As linking it by hand is (kpi_or_404): no one puts a measure they may not read on a goal.
+                raise Problem("forbidden", "That measure is one you may not read, so you cannot add it; leave it, "
+                              "or someone who may read it adds it", 403)
             return {"proposal": G.decide(c, who.actor, pid, body.decision, body.note, why=body.why, option=body.option,
                                          moves=body.moves,
                                          target=body.target.model_dump() if body.target else None)}

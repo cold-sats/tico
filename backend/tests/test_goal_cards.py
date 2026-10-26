@@ -157,6 +157,18 @@ def test_a_persons_target_replaces_the_one_proposed_and_none_clears_it(api):
     assert links(api, other["id"])["Activation"]["kind"] == "none"
 
 
+def test_an_empty_body_in_new_wording_shows_the_description_it_clears(api):
+    goal, _ = goal_with_kpi(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE goals SET body=? WHERE id=?", ("Half of sign-ups finish setup", goal["id"]))
+    wording = propose(api, "goal_wording", {"title": "Raise activation to 70%", "body": ""}, goal["id"])
+    assert tree_card(api, wording["id"])["changes"] == [
+        {"label": "Title", "now": "Raise activation", "proposed": "Raise activation to 70%"},
+        {"label": "Description", "now": "Half of sign-ups finish setup", "proposed": ""}]
+    post(api, f"goal-proposals/{wording['id']}/decide", {"decision": "confirm"})
+    assert get(api, f"goals/{goal['id']}")["goal"]["body"] == ""      # what the card said yes does
+
+
 # A member may not read the inbox bot (the base fixture: it is Ana's alone), so nothing of its goals or measures reaches
 # her through a suggestion: not its name, what it counts, its source, its unit, nor the target it has now.
 SECRETS = ("NDAs waiting", "Unsigned NDAs in the mail", "Mailbox count", "Close all NDAs")
@@ -241,8 +253,30 @@ def test_reusing_a_hidden_bots_measure_on_her_goal_neither_names_nor_describes_i
     named = propose(api, "goal_kpi", {"kpi_id": secret["id"]}, anas["id"])
     sync_reading(api)
     tasks = {a["ref"]: a for a in asks(api)}
-    assert tasks[reuse["id"]]["title"] == "Add a measure to Keep customers?"
-    assert leaks(tasks[reuse["id"]]) == []
+    assert reuse["id"] not in tasks            # she may not add it, so she is not asked to
     assert tasks[named["id"]]["title"] == "Add the measure NDAs waiting to Sign faster?"
     with api.app.state.store.read() as c:
         assert c.execute("SELECT private FROM tasks WHERE id=?", (tasks[named["id"]]["id"],)).fetchone()[0] == 1
+
+
+def test_a_hidden_bots_measure_suggested_for_her_goal_stays_hidden_however_it_is_decided(api):
+    _, secret = inbox_measure(api)
+    hers = post(api, "goals", {"title": "Keep customers", "owner": "cara"}, token="cara-test")["goal"]
+    reuse = propose(api, "goal_kpi", {"kpi_id": secret["id"], "target": {"kind": "maintain", "max": 3}}, hers["id"])
+    # She may not add a measure she may not read, as she may not link it by hand; nothing is linked or decided.
+    post(api, f"goal-proposals/{reuse['id']}/decide", {"decision": "confirm"}, token="cara-test", expected=403)
+    post(api, f"goals/{hers['id']}/kpis", {"kpi_id": secret["id"], "kind": "none"}, token="cara-test", expected=404)
+    assert "NDAs waiting" not in links(api, hers["id"])
+    assert reuse["id"] in {p["id"] for p in get(api, "goals/tree")["proposals"]}
+    # The owner, who reads it, adds it to her goal: her goal stays hers to read, without the measure's line.
+    post(api, f"goal-proposals/{reuse['id']}/decide", {"decision": "confirm"})
+    assert "NDAs waiting" in links(api, hers["id"])
+    post(api, f"kpis/{secret['id']}/readings", {"value": 7, "period_start": "2026-01-01", "period_end": "2026-01-07"})
+    tree = get(api, "goals/tree", "cara-test")
+    [mine] = [g for g in tree["goals"] if g["id"] == hers["id"]]
+    assert mine["kpis"] == [] and leaks(tree) == []
+    shown = get(api, f"goals/{hers['id']}", "cara-test")["goal"]
+    assert shown["kpis"] == [] and leaks(shown) == []
+    # She may still say no to one waiting.
+    again = propose(api, "goal_kpi", {"kpi_id": secret["id"]}, hers["id"])
+    post(api, f"goal-proposals/{again['id']}/decide", {"decision": "reject"}, token="cara-test")
