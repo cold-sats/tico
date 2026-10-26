@@ -740,6 +740,11 @@ def _act(conn, decision, row, message=None):
         raise ValueError(f"unknown action {action!r}")
     if not row:
         raise ValueError("an action rule needs a task")
+    # The keeper passes the private-task check, so the rule's writer is held to it here: a rule never changes a
+    # private task its writer could not change by hand. Failing opens the message, so the owner still hears of it.
+    if decision.by and decision.by != H.KEEPER and H.task_private(conn, row) \
+            and not H.task_private_readable(conn, decision.by, row):
+        raise ValueError("the rule's writer cannot read this private task")
     note = str(params.get("note") or params.get("text") or "")[:1000]
     said = f"Rule {decision.rule}: {note}" if note else f"Rule {decision.rule}"
     done = runner(conn, row["id"], params, said) or {}
@@ -774,10 +779,11 @@ def _note(conn, tid, params, said):
 
 def _assign(conn, tid, params, said):
     # The same write a person's reassignment makes, so the new owner is woken and the old one told as usual. The keeper
-    # passes the private-task check, so it is made here: a rule never hands a private task to someone who may not read it.
+    # passes the private-task check, so it is made here: a rule never hands a private task to someone who may not read
+    # it. Failing opens the message, so the current owner is still woken.
     owner, task = str(params["owner"]), H.task(conn, tid)
     if H.task_private(conn, task) and not H.task_private_readable(conn, owner, task):
-        return {"owner": owner, "skipped": "owner cannot read this private task"}
+        raise ValueError("the new owner cannot read this private task")
     H.task_update(conn, H.KEEPER, tid, owner=owner, note=said)
     return {"owner": owner}
 

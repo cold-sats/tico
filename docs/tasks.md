@@ -472,7 +472,7 @@ Needs you list of the task's human (its requester if a person, else its owner's 
 **Action** runs `close`, `move_step`, `set_wait`, `relate`, `note`, `assign`, `add_tag`, `remove_tag`, `wake_bot` or `send_webhook` as the keeper, with the rule id in the task's history,
 and writes the message as a note; if the action fails the bot is woken instead (`fail_open`). `assign` `{owner}` hands
 the task to a bot or a person as a reassignment does (the new owner is woken); writing one needs the right to give that
-bot tasks. A private task is never handed to someone who may not read it: the action is skipped and recorded. `add_tag` and `remove_tag` `{tag}` take a tag or a list of existing tags (not template tags); a tag already
+bot tasks. A rule never changes a private task its writer cannot read, and never hands one to someone who may not read it: the action is not taken and the message wakes its bot as usual. `add_tag` and `remove_tag` `{tag}` take a tag or a list of existing tags (not template tags); a tag already
 on, or already off, changes nothing. With a `tag` condition this makes label-driven rules, such as
 `when {"tag": "billing"}` → `assign {"owner": "finance"}`. What an action writes is judged as news and never starts
 another rule's action, so a rule cannot retrigger itself.

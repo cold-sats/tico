@@ -261,11 +261,29 @@ def test_an_assign_rule_never_hands_a_private_task_to_someone_who_cannot_read_it
         hidden = tagged(c, H.task(c, hidden["id"]), "billing")
         readable = tagged(c, plain_task(c), "billing")      # ops filed it, so ops may read it
         c.execute("DELETE FROM jobs")
-        news(c, hidden)
-        assert H.task(c, hidden["id"])["owner"] == "bot:cpo" and jobs(c, "ops") == 0
+        news(c, hidden)                 # not handed over, and the owner it stays with is still woken (fail open)
+        assert H.task(c, hidden["id"])["owner"] == "bot:cpo" and jobs(c, "ops") == 0 and jobs(c, "cpo") == 1
+        assert actions(c, row["id"]) == []
         news(c, readable)
         assert H.task(c, readable["id"])["owner"] == "bot:ops"
-        assert actions(c, row["id"])[0]["skipped"] == "owner cannot read this private task"
+
+
+def test_a_rule_never_changes_a_private_task_its_writer_cannot_read(api):
+    # The keeper passes the private-task check, so the writer's own access is what keeps a rule off another's task.
+    setup(api)
+    with api.app.state.store.transaction() as c:
+        H.tag_create(c, "human:ana", "urgent", mover=True)
+    row = rule_row(api, then="action", params={"action": "add_tag", "tag": "urgent"})["rule"]
+    with api.app.state.store.transaction() as c:
+        hidden = H.task_create(c, "bot:cpo", "Private work", "Not for ben", "bot:cpo", private=True)
+        assert not H.task_private_readable(c, row["created_by"], hidden)
+        c.execute("DELETE FROM jobs")
+        news(c, hidden)
+        assert H.task_labels(H.task(c, hidden["id"])) == [] and jobs(c, "cpo") == 1
+        assert actions(c, row["id"]) == []
+        task = plain_task(c)
+        news(c, task)
+        assert H.task_labels(H.task(c, task["id"])) == ["urgent"]
 
 
 def test_tag_actions_add_and_remove_once_and_cannot_retrigger_their_rule(api):
