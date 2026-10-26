@@ -286,3 +286,25 @@ def test_a_gate_hold_with_no_live_retry_goes_back_to_its_earlier_step(api):
         c.execute('UPDATE tasks SET note=? WHERE id=?', (RECEIPT, task['id']))
         task_blocked.sweep(c, datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z')
     assert step(api, task) == 'In Progress'
+
+
+def test_a_retry_that_another_wait_keeps_on_blocked_claims_no_move_and_waits_for_a_change(api):
+    """A gate hold with another wait beside it (here a person's child task) stays Blocked when Tico retries the move:
+    that is no move, so Tico says nothing and does not try again until something changes."""
+    task = ticket(api)
+    assert move(api, task).status_code == 422
+    with api.app.state.store.transaction() as c:
+        child = H.task_create(c, 'human:ana', 'Choose a machine', 'Choose one.', 'human:ana', parent_id=task['id'])
+        c.execute('UPDATE tasks SET note=? WHERE id=?', (RECEIPT, task['id']))
+
+    def claimed():
+        with api.app.state.store.read() as c:
+            return c.execute("SELECT count(*) FROM messages WHERE body LIKE 'Tico moved this ticket%'").fetchone()[0]
+    for _ in range(3):
+        assert tick(api) == []
+    assert step(api, task) == 'Blocked' and claimed() == 0
+    assert len(retries(api, task)) == 2 and retries(api, task)[-1]['state'] == 'waiting'
+    # The other wait ends: that is a change, and the remembered move is made.
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, 'human:ana', child['id'], status='done')
+    assert tick(api) == [task['id']] and step(api, task) == 'Review 1' and claimed() == 1

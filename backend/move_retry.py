@@ -4,9 +4,9 @@ The review gate (backend/review_gate.py) refuses a move to Review 1 or Review 2 
 while no passing receipt names the current head. Each of those clears on its own: the checks finish, a receipt is
 posted, GitHub comes back. So the refusal is remembered on the ticket (task_events field `move_retry`, with the step it
 was going to and a fingerprint of what the gate read), and this pass retries the same move as Tico when that
-fingerprint changes: a PR link's head or checks, the ticket's note, or a new message on the ticket. An unreadable
-GitHub is retried on a timer instead, and if it is still unreadable it goes to DevOps (backend/blockers.py). Nobody
-has to ask for the retry, and Head of Engineering hears nothing about it.
+fingerprint changes: a PR link's head or checks, the ticket's note, a new message on the ticket, or another wait
+beside a Blocked hold ending. An unreadable GitHub is retried on a timer instead, and if it is still unreadable it goes
+to DevOps (backend/blockers.py). Nobody has to ask for the retry, and Head of Engineering hears nothing about it.
 
 A retry stops when the ticket leaves the step it was refused at, closes, or RETRY_FOR after the first refusal: each
 retry that is refused again carries that first time forward (`since`), so a long outage still ends."""
@@ -80,7 +80,10 @@ def fingerprint(c, row):
                    for p in review_gate.links(c, row))
     newest = c.execute("SELECT max(rowid) FROM messages WHERE conversation_id=? AND from_actor<>? AND deleted_at IS NULL",
                        (row.get("conversation_id") or "", H.KEEPER)).fetchone()[0]
-    raw = json.dumps([links, row.get("note") or "", newest], sort_keys=True)
+    # Another wait that keeps a gate-held ticket on Blocked (a person's child, a blocker) clears without touching the
+    # note or the PR, so whether one is live is part of what a retry waits to change.
+    wait = H.wait_detail(c, row) or {}
+    raw = json.dumps([links, row.get("note") or "", newest, wait.get("why"), wait.get("on")], sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -181,6 +184,16 @@ def retry(store, service, row, detail):
             if outage(notice.get("text")) and detail.get("outage") and route_twice(notice):
                 # Unreadable twice, OUTAGE_EVERY apart, for no temporary reason: not a blip.
                 _route(c, notice, now_row, twice=True)
+            return False
+        moved = H.task(c, row["id"])
+        landed = H._one(c, "SELECT name FROM task_steps WHERE id=?", (moved.get("step_id"),)) if moved else None
+        if (landed or {}).get("name") != detail["step"]:
+            # Another wait beside a gate hold keeps the ticket on Blocked (hubdb._task_state): no move was made.
+            # Undo the no-op, say nothing, and wait for the next change.
+            c.execute("ROLLBACK TO move_retry")
+            c.execute("RELEASE move_retry")
+            H._task_event(c, row["id"], H.KEEPER, FIELD, now_row.get("step_id"), json.dumps(
+                {**detail, "seen": fingerprint(c, now_row), "at": H.now(), "state": "waiting"}, sort_keys=True))
             return False
         c.execute("RELEASE move_retry")
         H._write_message(c, H.KEEPER, now_row["owner"],
