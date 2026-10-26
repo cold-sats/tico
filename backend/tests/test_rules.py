@@ -249,6 +249,25 @@ def test_a_tag_rule_assigns_the_task_through_a_reassignment_and_records_the_rule
         assert actions(c, row["id"]) == [{"rule": row["id"], "action": "assign", "owner": "bot:ops"}]
 
 
+def test_an_assign_rule_never_hands_a_private_task_to_someone_who_cannot_read_it(api):
+    # Rules act as the keeper, which passes the private-task check: the action itself must keep the task to its readers.
+    setup(api)
+    with api.app.state.store.transaction() as c:
+        H.tag_create(c, "human:ana", "billing", mover=True)
+    row = rule_row(api, when={"tag": "billing"}, then="action", params={"action": "assign", "owner": "ops"})["rule"]
+    with api.app.state.store.transaction() as c:
+        hidden = H.task_create(c, "bot:cpo", "Private work", "Not for ops", "bot:cpo", private=True)
+        assert H.task_private(c, hidden) and not H.task_private_readable(c, "bot:ops", hidden)
+        hidden = tagged(c, H.task(c, hidden["id"]), "billing")
+        readable = tagged(c, plain_task(c), "billing")      # ops filed it, so ops may read it
+        c.execute("DELETE FROM jobs")
+        news(c, hidden)
+        assert H.task(c, hidden["id"])["owner"] == "bot:cpo" and jobs(c, "ops") == 0
+        news(c, readable)
+        assert H.task(c, readable["id"])["owner"] == "bot:ops"
+        assert actions(c, row["id"])[0]["skipped"] == "owner cannot read this private task"
+
+
 def test_tag_actions_add_and_remove_once_and_cannot_retrigger_their_rule(api):
     setup(api)
     with api.app.state.store.transaction() as c:

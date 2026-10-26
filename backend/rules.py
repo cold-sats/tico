@@ -773,9 +773,13 @@ def _note(conn, tid, params, said):
 
 
 def _assign(conn, tid, params, said):
-    # The same write a person's reassignment makes, so the new owner is woken and the old one told as usual.
-    H.task_update(conn, H.KEEPER, tid, owner=str(params["owner"]), note=said)
-    return {"owner": params["owner"]}
+    # The same write a person's reassignment makes, so the new owner is woken and the old one told as usual. The keeper
+    # passes the private-task check, so it is made here: a rule never hands a private task to someone who may not read it.
+    owner, task = str(params["owner"]), H.task(conn, tid)
+    if H.task_private(conn, task) and not H.task_private_readable(conn, owner, task):
+        return {"owner": owner, "skipped": "owner cannot read this private task"}
+    H.task_update(conn, H.KEEPER, tid, owner=owner, note=said)
+    return {"owner": owner}
 
 
 def _retag(add):
