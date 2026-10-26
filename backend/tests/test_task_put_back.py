@@ -124,6 +124,15 @@ def test_done_task_question_refusal_gives_owner_command_and_nonowner_route(api):
             H.task_update(c, 'bot:ops', other['id'], status='open', note='Put back.')
         assert 'ask the owner' in refused.value.detail.lower()
         assert 'file a new task' in refused.value.detail
+        closed = H.task_create(c, 'human:ana', 'A closed task', 'Closed by its requester.', 'bot:finance', lint=False)
+        H.task_close(c, 'human:ana', closed['id'])
+        # Neither a bot off the task nor a person who may not move tasks is told to make the move just refused.
+        c.execute("INSERT INTO humans(id,name,email,teams_json) VALUES('zed','Zed','zed@acme.example','[]')")
+        for outsider in ('bot:ops', 'human:zed'):
+            with pytest.raises(H.Refused) as refused:
+                H.task_update(c, outsider, closed['id'], status='doing', note='Reopen.')
+            assert 'ask ana to reopen it' in refused.value.detail
+            assert '--status doing' not in refused.value.detail
 
 
 def test_dev_return_prefers_on_deck_over_backlog_and_owner_can_reopen_steps_only_done(api):

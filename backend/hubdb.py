@@ -5523,10 +5523,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                    f"your verdict (hub task done {check['id']} --verdict approve|changes --head <sha>); the Builder "
                    "moves the ticket.")
     if not mine and not mover and actor != KEEPER:
-        # A closed task's closer reopens it, not its owner, so the hint names whoever can.
+        # A closed task's closer reopens it, not its owner, and this caller may not, so the hint names the closer.
         refuse(conn, actor, "identity", f"{task_id} is not yours to change; " + (
-            task_reopen_hint(actor, row) if row['status'] == 'closed'
-            else "ask the owner to set doing or open, or file a new task"))
+            f"ask {actor_id(row.get('closed_by') or row['requester'])} to reopen it, or file a new task"
+            if row['status'] == 'closed' else "ask the owner to set doing or open, or file a new task"))
     type_id = row.get("type_id") or GENERAL_TYPE
     if state_change:
         type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
