@@ -162,7 +162,9 @@ def test_archive_restore_preserves_kpi_history_and_marks_it_on_goals(api):
     detail = get(api, f"kpis/{kpi['id']}")
     assert detail["readings"] == original["readings"]
     assert detail["definitions"] == original["definitions"]
-    assert detail["links"] == original["links"]
+    # The stored links and targets stay; each goal's derived colour now changes on archive.
+    stable = lambda links: [{k: v for k, v in link.items() if k != "goal_status"} for link in links]
+    assert stable(detail["links"]) == stable(original["links"])
     assert detail["readings"][0]["id"] == logged["id"]
     line = next(row for row in goal_of(api, goal["id"])["kpis"] if row["id"] == kpi["id"])
     assert line["archived_at"] == archived["archived_at"]
