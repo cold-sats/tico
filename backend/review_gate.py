@@ -107,13 +107,14 @@ def links(c, row):
 def mint_failure(exc, repo):
     """Describe a failed token request without exposing exception text or response bodies."""
     from .store import Problem
-    from .github_app import MISSING_KEY
+    from .github_app import MISSING_KEY, rate_limited
 
     status = None
     code = None
     auth = isinstance(exc, InvalidKeyError)
     timeout = isinstance(exc, (TimeoutError, httpx.TimeoutException))
     retryable = timeout
+    limited = False
     if isinstance(exc, Problem):
         code = exc.code
         # A transport failure has no GitHub HTTP response; 502 is Tico's own envelope status.
@@ -124,10 +125,12 @@ def mint_failure(exc, repo):
             MISSING_KEY, "The stored GitHub App key could not be decrypted"}
         timeout |= exc.extra.get("timed_out") is True
         retryable |= exc.retryable
+        limited = exc.extra.get("rate_limited") is True
     elif isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
-    auth |= status in (401, 403)
-    retryable = not auth and (timeout or retryable or status in (408, 429)
+        limited = rate_limited(exc.response)
+    auth = not limited and (auth or status in (401, 403))
+    retryable = not auth and (limited or timeout or retryable or status in (408, 429)
                              or isinstance(status, int) and 500 <= status < 600)
     # Only fixed-format diagnostic fields are safe to include; never copy Problem.detail.
     cause = []
@@ -137,6 +140,8 @@ def mint_failure(exc, repo):
         cause.append(f"HTTP {status}")
     if timeout:
         cause.append("timed out")
+    if limited:
+        cause.append("rate limited")
     if not cause:
         cause.append(type(exc).__name__)
     action = "the GitHub App could not sign in" if auth else "GitHub token request failed"
@@ -147,9 +152,11 @@ def mint_failure(exc, repo):
 
 
 def answered_cause(why):
-    """Cause flags for GitHub's answer to a content read (backend/move_retry.py): a 401 or 403 needs access help;
-    a 408, 429 or 5xx is temporary. Any other failure carries no cause. `why` is this module's own fixed-format
+    """Cause flags for GitHub's answer to a content read (backend/move_retry.py): a 401 or plain 403 needs access help;
+    a rate limit, 408 or 5xx is temporary. Any other failure carries no cause. `why` is this module's own fixed-format
     string, never a remote body."""
+    if why == "GitHub answered 403 rate limited":
+        return {"retryable": True, "auth": False}
     match = re.fullmatch(r"GitHub answered (\d+)", why or "")
     status = int(match[1]) if match else None
     if status in (401, 403):
@@ -161,6 +168,7 @@ def answered_cause(why):
 
 def snapshot(service, prs):
     from . import hubdb as H
+    from .github_app import rate_limited
     """Read current PR heads and all checks outside the database write lock.
 
     An unconfigured GitHub integration uses its signed-webhook link snapshot.
@@ -186,7 +194,8 @@ def snapshot(service, prs):
             def read(path, params=None):
                 response = service._call("GET", base + path, headers=headers, params=params)
                 if response.status_code != 200:
-                    raise ValueError(f"GitHub answered {response.status_code}")
+                    limited = " rate limited" if response.status_code == 403 and rate_limited(response) else ""
+                    raise ValueError(f"GitHub answered {response.status_code}{limited}")
                 return response.json()
             data = read(f"/pulls/{pr['number']}")
             head = data["head"]["sha"]
