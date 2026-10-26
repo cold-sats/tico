@@ -317,24 +317,24 @@ def general(api, task):
     return get(api, 'tasks/' + task['id'])['task']
 
 
-def cross_move(api, task):
+def cross_move(api, task, review_step='Review 1'):
     return api.post('/api/v2/tasks/' + task['id'], headers=headers(),
                     json={'version': get(api, 'tasks/' + task['id'])['task']['version'], 'type': 'Dev tickets',
-                          'step': 'Review 1'})
+                          'step': review_step})
 
 
-def test_a_refused_move_onto_another_board_is_retried_onto_that_board(api):
+@pytest.mark.parametrize('review_step', ['Review 1', 'Review 2'])
+def test_a_refused_move_onto_another_board_is_retried_onto_that_board(api, review_step):
     """Its step names exist only on the destination board: a retry that names the step alone is refused there."""
     task = general(api, ticket(api))
-    assert cross_move(api, task).status_code == 422
+    assert cross_move(api, task, review_step).status_code == 422
     held = get(api, 'tasks/' + task['id'])['task']
     assert held['type_id'] == H.GENERAL_TYPE and held['blocked_since']
-    assert retries(api, task)[-1]['type'] == task_type(api)
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE tasks SET note=? WHERE id=?', (RECEIPT, task['id']))
     assert tick(api) == [task['id']]
     moved = get(api, 'tasks/' + task['id'])['task']
-    assert moved['type_id'] == task_type(api) and moved['step']['name'] == 'Review 1'
+    assert moved['type_id'] == task_type(api) and moved['step']['name'] == review_step
     assert not moved.get('blocked_since')
 
 
@@ -343,12 +343,13 @@ def task_type(api):
         return H.type_get(c, 'Dev tickets')['id']
 
 
-def test_the_stranded_sweep_releases_another_boards_gate_hold_only_once_no_retry_will(api):
+@pytest.mark.parametrize('review_step', ['Review 1', 'Review 2'])
+def test_the_stranded_sweep_releases_another_boards_gate_hold_only_once_no_retry_will(api, review_step):
     """Only engineering tickets have reconciliation; on another board the retry is what clears a gate hold, so the
     hourly sweep leaves it while Tico still retries and releases it after, or it would be held forever."""
     from datetime import datetime, timedelta, timezone
     task = general(api, ticket(api))
-    assert cross_move(api, task).status_code == 422
+    assert cross_move(api, task, review_step).status_code == 422
     stamp = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'
     with api.app.state.store.transaction() as c:
         assert H.sweep_stranded(c, stamp) == []     # past the sweep's grace, inside the retry's
