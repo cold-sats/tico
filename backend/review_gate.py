@@ -221,6 +221,18 @@ def evidence(c, row, actor):
 
 def check(c, actor, row, snapshots=None, note=None, require_pr=False, reader=None):
     from . import hubdb as H
+    try:
+        _check(c, actor, row, snapshots, note, require_pr, reader)
+    except H.Refused as exc:
+        # The mover a refused move is retried as (backend/move_retry.py): the actor the move was made as, which can
+        # differ from the request's caller (BotOps acting for a person, a service key acting as Tico).
+        if getattr(exc, "review_gate", None) is not None:
+            exc.review_gate.setdefault("by", reader or actor)
+        raise
+
+
+def _check(c, actor, row, snapshots, note, require_pr, reader):
+    from . import hubdb as H
     if not engineering(c, row):
         return
     prs = links(c, row)

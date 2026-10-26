@@ -247,3 +247,12 @@ def test_a_retry_does_not_pass_on_evidence_the_mover_cannot_read(api):
         c.execute("UPDATE tasks SET note='unrelated' WHERE id=?", (task['id'],))
     assert tick(api) == [] and step(api, task) == 'In Progress'
     assert retries(api, task)[-1]['by'] == 'human:ana'  # a refused retry keeps the mover it reads as
+
+
+def test_a_refused_move_is_retried_as_the_actor_it_was_made_as_not_the_caller(api):
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:      # BotOps calls as itself, moving for ana
+        with pytest.raises(H.Refused) as refused:
+            H.task_update(c, 'human:ana', task['id'], step='Review 1', review_prs={})
+        move_retry.remember(c, H.bot_actor('botops'), refused.value.review_gate)
+    assert retries(api, task)[-1]['by'] == 'human:ana'
