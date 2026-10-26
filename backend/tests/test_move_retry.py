@@ -183,3 +183,35 @@ def test_one_tickets_failing_retry_does_not_hold_back_the_others(api, monkeypatc
 
     monkeypatch.setattr(move_retry, 'retry', retry)
     assert tick(api) == ['fine']
+
+
+def test_retries_refused_again_expire_three_days_after_the_first_refusal(api):
+    from datetime import datetime, timedelta, timezone
+    task = ticket(api)
+    assert move(api, task).status_code == 422
+    first = (datetime.now(timezone.utc) - timedelta(days=2, hours=12)).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'
+    with api.app.state.store.transaction() as c:    # the first refusal was two and a half days ago
+        c.execute('UPDATE task_events SET ts=? WHERE task_id=?', (first, task['id']))
+        c.execute("UPDATE task_events SET new=json_set(new,'$.at',?,'$.since',?) "
+                  "WHERE task_id=? AND field='move_retry'", (first, first, task['id']))
+        c.execute('UPDATE tasks SET note=? WHERE id=?', ('Still building the fix.', task['id']))
+    assert tick(api) == []                          # retried now and refused again
+    assert retries(api, task)[-1]['since'] == first
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET note=? WHERE id=?', (RECEIPT, task['id']))
+    assert move_retry.tick(api.app.state.github_app, at=later(13 * 60), force=True) == []
+    assert step(api, task) == 'In Progress'
+
+
+def test_a_private_tickets_blocker_does_not_name_it(api, monkeypatch):
+    task = ticket(api, RECEIPT)
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET private=1 WHERE id=?', (task['id'],))
+    unreadable(api, monkeypatch, PERMANENT)
+    assert move(api, task).status_code == 422
+    with api.app.state.store.read() as c:
+        body, private = c.execute("SELECT body, private FROM tasks WHERE owner=?",
+                                  (H.bot_actor('devops-engineer'),)).fetchone()
+        audit = c.execute("SELECT detail_json FROM events WHERE action='blocker.routed'").fetchone()[0]
+    assert not private and 'a private task' in body
+    assert task['id'] not in body and task['title'] not in body and task['id'] not in audit

@@ -8,7 +8,8 @@ fingerprint changes: a PR link's head or checks, the ticket's note, or a new mes
 GitHub is retried on a timer instead, and if it is still unreadable it goes to DevOps (backend/blockers.py). Nobody
 has to ask for the retry, and Head of Engineering hears nothing about it.
 
-A retry stops when the ticket leaves the step it was refused at, closes, or after RETRY_FOR."""
+A retry stops when the ticket leaves the step it was refused at, closes, or RETRY_FOR after the first refusal: each
+retry that is refused again carries that first time forward (`since`), so a long outage still ends."""
 import hashlib
 import json
 import logging
@@ -91,6 +92,7 @@ def remember(c, actor, notice):
         return
     detail = {"step": step, "kind": notice.get("kind"), "head": notice.get("head"), "by": str(actor),
               "outage": outage(notice.get("text")), "seen": fingerprint(c, row), "at": H.now(),
+              "since": notice.get("since") or H.now(),
               "tries": int(notice.get("tries") or 0), "state": "waiting",
               **{key: notice[key] for key in CAUSE if key in notice}}
     if notice.get("problem_code"):
@@ -109,7 +111,8 @@ def _latest(c, task_id):
 
 def pending(c, at=None):
     """[(task row, retry detail)] whose remembered move may now pass: still at the step it was refused at, still
-    open, younger than RETRY_FOR, and with what the gate read changed (an outage: OUTAGE_EVERY since the last try)."""
+    open, first refused less than RETRY_FOR ago, and with what the gate read changed (an outage: OUTAGE_EVERY since
+    the last try)."""
     at = at or datetime.now(timezone.utc)
     since = (at - RETRY_FOR).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     out = []
@@ -123,6 +126,9 @@ def pending(c, at=None):
         if (detail.get("state") != "waiting" or not row or row["status"] not in H.ACTIVE_STATUSES
                 or row.get("step_id") != last["old"]):
             continue
+        first = H.parse_ts(detail.get("since") or detail.get("at")) or H.parse_ts(last["ts"])
+        if first and at - first >= RETRY_FOR:
+            continue                # first refused RETRY_FOR ago: retries that kept failing do not extend it
         if detail.get("outage"):
             if at - H.parse_ts(detail.get("at") or last["ts"]) < OUTAGE_EVERY:
                 continue
@@ -149,7 +155,8 @@ def retry(store, service, row, detail):
             c.execute("ROLLBACK TO move_retry")
             c.execute("RELEASE move_retry")
             notice = {**(getattr(exc, "review_gate", None) or {}), "task": row["id"], "step": detail["step"],
-                      "tries": int(detail.get("tries") or 0) + 1}
+                      "tries": int(detail.get("tries") or 0) + 1,
+                      "since": detail.get("since") or detail.get("at")}
             notice.setdefault("kind", detail.get("kind"))
             notice.setdefault("text", exc.detail)
             if getattr(exc, "review_gate", None):

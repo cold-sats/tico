@@ -49,11 +49,15 @@ def route(c, key, title, body, about=None):
         owner = H.bot_actor(manager) if manager else None
     if not owner:
         return None
-    text = body + (f"\n\nIt stopped task {about['id']} ({about['title'][:120]})." if about else "") + \
+    # A private task's id and title stay with its readers: the blocker task is not private, so it names neither.
+    hidden = bool(about) and H.task_private(c, about)
+    stopped = ("" if not about else "\n\nIt stopped a private task." if hidden else
+               f"\n\nIt stopped task {about['id']} ({about['title'][:120]}).")
+    text = body + stopped + \
         "\n\nThis is a permission or outage blocker, not a decision: fix the access or the service, then mark this done."
     if not slug:
         text += " There is no active DevOps bot, so it came to the type's manager."
     made = H.task_create(c, H.KEEPER, title[:150], text, owner, deduplicate=False, lint=False)
     H.event(c, H.KEEPER, "blocker.routed", key, {"task": made["id"], "owner": owner,
-                                                 **({"about": about["id"]} if about else {})})
+                                                 **({"about": about["id"]} if about and not hidden else {})})
     return made
