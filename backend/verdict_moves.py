@@ -40,6 +40,13 @@ HANDOFF_FIRST_SQL = (f"CASE WHEN m.from_actor='{H.KEEPER}' AND json_extract(m.re
                      "IS NOT NULL THEN 0 ELSE 1 END")
 
 
+def at_step(c, task_id, refs):
+    """`refs` with the step the ticket is at now: the news is about that step, and a claim drops it once the ticket
+    has left it (execution.obsolete_notices_sql)."""
+    row = H.task(c, task_id)
+    return {**refs, "at_step": row.get("step_id")} if row and row.get("step_id") else refs
+
+
 def _ticket(c, row):
     """The ticket a bot builds, or None: an open ticket owned by a bot, on a type whose steps have a flow."""
     return row if (row and H.is_bot(row.get("owner")) and row.get("status") in H.ACTIVE_STATUSES
@@ -199,7 +206,7 @@ def after_capture(c, check_id, head, attempt_id):
         refs = {"verdict": verdict, "verdict_head": head, HANDOFF: out["handoff"]}
         if out["handoff"] == "merge":
             refs["pr_head"] = head
-        H._wake(c, ticket, ticket["owner"], out["say"], refs, source=check_id)
+        H._wake(c, ticket, ticket["owner"], out["say"], at_step(c, ticket["id"], refs), source=check_id)
     return out
 
 
@@ -377,7 +384,7 @@ def skip(c, row):
     H._task_event(c, row["id"], H.KEEPER, "step_skipped", None, step["name"], f"tagged {tag}")
     out = _passed(c, row, step, f"{step['name']} skipped: the ticket is tagged {tag}")
     if out.get("handoff"):
-        H._wake(c, row, row["owner"], out["say"], {HANDOFF: out["handoff"]})
+        H._wake(c, row, row["owner"], out["say"], at_step(c, row["id"], {HANDOFF: out["handoff"]}))
     return out
 
 
@@ -414,6 +421,6 @@ def timeouts(c, at=None):
             out = _passed(c, H.task(c, ticket_id), step, f"{step['name']} had no usable verdict for {hours:g} h; "
                                                          "Tico skipped the round")
             if out.get("handoff"):
-                H._wake(c, ticket, ticket["owner"], out["say"], {HANDOFF: out["handoff"]})
+                H._wake(c, ticket, ticket["owner"], out["say"], at_step(c, ticket_id, {HANDOFF: out["handoff"]}))
             skipped.append(ticket_id)
     return skipped

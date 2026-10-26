@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import tempfile
 import uuid
 from pathlib import Path
@@ -34,7 +35,6 @@ class World:
     """One run of one scenario. Use as a context manager: it starts the clock and the server, and stops both."""
 
     def __init__(self, board, bots, tick_minutes=5, rng=None, ci_fail=0.0):
-        import random
         self.board = board
         self.bot_slugs = list(bots)
         self.roles = {}
@@ -54,6 +54,10 @@ class World:
     def __enter__(self):
         self.travel = time_machine.travel(START, tick=False)
         self.clock = self.travel.start()
+        # Ids break ties in the server's ordering (`ORDER BY created, id`): drawn from the run's own generator, the
+        # same seed runs the same way.
+        ids = random.Random(self.rng.random())
+        self._uuid4, uuid.uuid4 = uuid.uuid4, lambda: uuid.UUID(int=ids.getrandbits(128), version=4)
         from fastapi.testclient import TestClient
         from backend.app import create_app
         from backend.auth import Identity
@@ -117,6 +121,7 @@ class World:
     def __exit__(self, *exc):
         self.client.__exit__(*exc)
         self.travel.stop()
+        uuid.uuid4 = self._uuid4
 
     # ------------------------------------------------------------------ time
     def now(self):

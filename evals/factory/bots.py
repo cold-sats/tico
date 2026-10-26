@@ -33,6 +33,7 @@ class Bot:
         self.limited_until = None   # set: every run is refused on a usage limit until then
         self.turns = []             # one dict per finished turn
         self.lost = []              # turns its computer lost going off, filed when it comes back
+        self.unfinished = set()     # messages whose turn ended without an answer: running one again is a retry
 
     @property
     def token(self):
@@ -91,13 +92,16 @@ class Bot:
         task = attempt.get("task") and w.task(attempt["task"]["id"])
         message = attempt.get("message") or {}
         if self.limited_until and w.now() < self.limited_until:
+            self.unfinished.add(message.get("id"))
             record["kind"] = "limited"
             self.finish(attempt, "failed", limited=True, resets=self.limited_until, tokens=None)
             return self.log(record)
         if self.chance("silent"):
+            self.unfinished.add(message.get("id"))
             record["kind"] = "silent"
             return self.log(record)
         if self.chance("crash") or task and task["title"] in self.style.get("crash_titles", ()):
+            self.unfinished.add(message.get("id"))
             record["kind"] = "crash"
             self.finish(attempt, "failed", tokens=TOKENS["noise"])
             return self.log(record)
@@ -123,6 +127,7 @@ class Bot:
     def lose(self):
         """The computer went off mid-turn: the turn did not finish, and the runner remembers it."""
         self.lost.append(self.attempt)
+        self.unfinished.add((self.attempt.get("message") or {}).get("id"))
         self.attempt = self.record = None
 
     def recover(self):
@@ -162,6 +167,8 @@ class Bot:
         for a head the PR has moved past, or it had moved to another step after the notice was written."""
         if not task or message.get("from_actor") not in (None, "keeper"):
             return False   # a colleague's comment is theirs to judge; the claim's cleanup is for Tico's own notices
+        if message.get("id") in self.unfinished:
+            return False   # its first turn ended unanswered (a limit, a crash, a lost computer): this one resumes it
         if task["status"] in ("done", "closed", "declined"):
             return True
         head = (message.get("refs") or {}).get("pr_head")

@@ -12,12 +12,29 @@ HOLD = "Dev 598"
 SLOTS = "Dev 542"
 HOE = "Dev 606"
 ASSIGN = "assignment rule"
+REPORT = "report"   # printed for a person to read, never failed: how long work takes is measured, not judged
+LONG_TICKET_HOURS, LONG_STEP_HOURS = 24, 12
 
 
 # ---------------------------------------------------------------------------------------------- checks
 def all_through(run):
     left = [f"{t['title']} @ {t['step']}" for t in run.final if not run.shipped(t)]
     return not left, ", ".join(left[:6]) + (f" (+{len(left) - 6})" if len(left) > 6 else "")
+
+
+def long_running(run):
+    """Tickets that took over LONG_TICKET_HOURS to merge (or are still open past it), and stays at one step over
+    LONG_STEP_HOURS: most likely a bug, but a hard change can take that long, so they are reported, not failed."""
+    end = run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    long = []
+    for t in run.final:
+        hours = ((run.merged_at.get(t["id"]) or run.end) - run.w.H.parse_ts(t["created"])).total_seconds() / 3600
+        steps = [f"{name} {span:.0f}h" for name, span in run.w.step_spans(t["id"], until=end)
+                 if span > LONG_STEP_HOURS and run.w.board.step(name) and not run.w.board.step(name).merged
+                 and not run.w.board.finished(name)]
+        if hours > LONG_TICKET_HOURS or steps:
+            long.append(f"{t['title']} {hours:.0f}h" + (f" ({', '.join(steps)})" if steps else ""))
+    return not long, ", ".join(long[:6]) + (f" (+{len(long) - 6})" if len(long) > 6 else "")
 
 
 def never_blocked_after_merge(run):
@@ -182,7 +199,8 @@ def company_cap(hourly):
     return setup
 
 
-BASE = [("every ticket ships", None, all_through),
+BASE = [("tickets not merged by the end", REPORT, all_through),
+        (f"tickets over {LONG_TICKET_HOURS} h, or a step over {LONG_STEP_HOURS} h", REPORT, long_running),
         ("merged tickets never Blocked", HOLD, never_blocked_after_merge)]
 
 

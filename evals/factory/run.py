@@ -1,8 +1,9 @@
 """Run the factory simulation: `python -m evals.factory.run [scenario ...] [--seed N] [-j N]`.
 
 Each scenario drives the real server with simulated bots on a fake clock, then prints what happened and which of
-its checks passed. A failed check that names a Dev ticket is a known gap that ticket fixes. Scenarios run in
-parallel, one process each (each has its own server, database and clock)."""
+its checks passed. A failed check that names a Dev ticket is a known gap that ticket fixes. A report (NOTE) is
+for a person to read and never fails the run. Scenarios run in parallel, one process each (each has its own server,
+database and clock)."""
 import argparse
 import json
 import os
@@ -14,7 +15,7 @@ from multiprocessing import get_context
 
 def one(name, seed, explain):
     """Run one scenario in this process: (name, seconds, summary, check results, explain lines, trace)."""
-    from .scenarios import SCENARIOS
+    from .scenarios import REPORT, SCENARIOS
     from .sim import Run
     scenario = next(s for s in SCENARIOS if s.name == name)
     started = time.perf_counter()
@@ -22,7 +23,9 @@ def one(name, seed, explain):
     results = []
     for check, ticket, fn in scenario.checks:
         ok, detail = fn(run)
-        results.append({"check": check, "ok": ok, "ticket": ticket, "detail": detail})
+        report = ticket == REPORT
+        results.append({"check": check, "ok": ok or report, "ticket": None if report else ticket, "detail": detail,
+                        "report": report, "found": not ok})
     return {"scenario": name, "about": scenario.about, "seconds": round(time.perf_counter() - started, 1),
             "summary": run.summary(), "checks": results, "explain": run.explain() if explain else []}
 
@@ -32,6 +35,10 @@ def render(r):
              "   " + ", ".join(f"{k} {v}" for k, v in r["summary"].items())]
     for c in r["checks"]:
         gap = f" [{c['ticket']}]" if c["ticket"] and not c["ok"] else ""
+        if c.get("report"):
+            if c["found"]:
+                lines.append(f"   NOTE {c['check']}: {c['detail']}")
+            continue
         lines.append(f"   {'PASS' if c['ok'] else 'FAIL'} {c['check']}{gap}" + (f": {c['detail']}" if c["detail"] else ""))
     lines += ["     " + line for line in r["explain"]]
     return "\n".join(lines)

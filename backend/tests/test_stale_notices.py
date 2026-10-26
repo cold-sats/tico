@@ -76,3 +76,22 @@ def test_a_late_warning_for_a_ticket_that_has_left_its_step_is_dropped(api):
     with api.app.state.store.read() as c:
         assert queued(c, late) == "cancelled"
         assert queued(c, kept) != "cancelled", "a ticket still at its step keeps its warning"
+
+
+def test_news_about_a_step_the_ticket_has_left_is_dropped(api):
+    from backend.tests.test_dev_ticket_rules import dev_type
+    r = fleet(api)
+    with api.app.state.store.transaction() as c:
+        typ = dev_type(c)
+        step = {st["name"]: st["id"] for st in typ["steps"]}
+        left, still = (H.task_create(c, "human:ana", title, "Build.", "bot:ops", type=typ["id"], step="QA Fixes",
+                                     lint=False) for title in ("Fix the connection", "Fix the login"))
+        c.execute("UPDATE jobs SET state='cancelled' WHERE bot='ops'")
+        old, kept = (H._wake(c, t, "bot:ops", "Tico moved this ticket to QA Fixes: QA gave changes.",
+                             {"handoff": "verdict", "at_step": step["QA Fixes"]}) for t in (left, still))
+        # A person merged it by hand: the ticket is past the fixes, and the feedback with it.
+        c.execute("UPDATE tasks SET step_id=? WHERE id=?", (step["Pending Release"], left["id"]))
+    claim(api, r)
+    with api.app.state.store.read() as c:
+        assert queued(c, old) == "cancelled"
+        assert queued(c, kept) != "cancelled", "a ticket still at the step keeps its news"
