@@ -57,39 +57,24 @@ def _answer(run, w):
             run.answer_refused.append(f"{ask['title']}: {exc.body[:120]}")
 
 
-def _watch_results(run, w, team):
-    """A check's verdict on a watched ticket, queued for its builder before the last tick, still queued while the
-    builder sat idle through that tick: the claim held it back."""
-    rows = w.sql("SELECT j.bot, j.created, j.held, m.refs_json FROM jobs j JOIN messages m ON m.id=j.message_id "
-                 "WHERE j.state='queued' AND json_extract(m.refs_json,'$.subtask') IS NOT NULL "
-                 "AND json_extract(m.refs_json,'$.verdict') IS NOT NULL")
-    for r in rows:
-        refs = json.loads(r["refs_json"])
-        ticket = w.parent_of(refs["subtask"])
-        bot = next((b for b in team.all if b.slug == r["bot"]), None)
-        if ticket not in run.asked or not bot or not bot.available or bot.running:
-            continue
-        if bot.limited_until and w.now() < bot.limited_until:
-            continue
-        if w.H.parse_ts(r["created"]) < w.now() - w.tick:
-            run.violations["result_held"].append((w.now(), w.title(ticket)))
-            import os
-            if os.environ.get("SIM_TRACE") == "1":
-                row = w.sql("SELECT status, step_id, blocked_since, blocked_kind, blocked_reason, waiting_on, snoozed_until "
-                            "FROM tasks WHERE id=?", (ticket,))[0]
-                print("HELD", w.now(), r, row, w.step_of(row))
-                from backend import execution as E
-                with w.store.read() as c:
-                    runner = c.execute("SELECT * FROM runners WHERE id=?", (w.runner["runner_id"],)).fetchone()
-                    ready = E.readiness_document(runner["readiness_json"])
-                    for job in c.execute("SELECT * FROM jobs WHERE bot=? AND state='queued' ORDER BY created",
-                                         (r["bot"],)).fetchall():
-                        job = dict(job)
-                        print("  JOB", job["created"], E.job_refusal(c, job, {}, ready, set(), E.lanes_on(runner),
-                                                                    E.roots_on(runner)),
-                              str(c.execute("SELECT refs_json FROM messages WHERE id=?", (job["message_id"],)).fetchone()[0])[:150])
-                    bc = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (r["bot"],)).fetchone()
-                    print("  BOT", E.claim_refusal(c, w.store.settings, runner, r["bot"], bc[0], False, ready)[0])
+def _watch_results(run, w):
+    """A check's verdict on a watched ticket, queued for its builder for over a tick, that the claim passes over (the
+    reason it gives, as it would answer the builder's claim now). A builder busy with another turn, or a computer
+    with no free turn, only delays it; the claim holding it back is what the check counts."""
+    from backend import execution as E
+    with w.store.read() as c:
+        runner = c.execute("SELECT * FROM runners WHERE id=?", (w.runner["runner_id"],)).fetchone()
+        ready = E.readiness_document(runner["readiness_json"])
+        rows = c.execute("SELECT j.*, m.refs_json FROM jobs j JOIN messages m ON m.id=j.message_id "
+                         "WHERE j.state='queued' AND json_extract(m.refs_json,'$.subtask') IS NOT NULL "
+                         "AND json_extract(m.refs_json,'$.verdict') IS NOT NULL").fetchall()
+        for job in map(dict, rows):
+            ticket = w.parent_of(json.loads(job.pop("refs_json"))["subtask"])
+            if ticket not in run.asked or w.H.parse_ts(job["created"]) >= w.now() - w.tick:
+                continue
+            why = E.job_refusal(c, job, {}, ready, set(), E.lanes_on(runner), E.roots_on(runner))
+            if why:
+                run.violations["result_held"].append((w.now(), f"{w.title(ticket)} ({why})"))
 
 
 def _watch_settled(run, w):
@@ -116,14 +101,9 @@ def _watch_settled(run, w):
 
 
 def during(run, w, team, i):
-    import os
-    if os.environ.get("SIM_TRACE") == "1":
-        for b in team.builders:
-            print("TICK", w.now().strftime("%H:%M"), b.slug, b.running, b.running and b.ends.strftime("%H:%M"),
-                  b.running and (b.attempt.get("task") or {}).get("title"))
     if not hasattr(run, "asked"):
         run.asked, run.answer_refused = {}, []
-    _watch_results(run, w, team)
+    _watch_results(run, w)
     _watch_settled(run, w)
     _file(run, w)
     _answer(run, w)
@@ -160,8 +140,8 @@ def _held_at(holds, ts):
 
 def verdicts_reach_builder(run):
     """Every verdict on a watched ticket reached its builder: a notice naming the check is in the builder's history
-    (a quiet one when the verdict's move needs nothing of it), any turn it asks for was claimed, and none sat queued
-    through a tick its builder was free."""
+    (a quiet one when the verdict's move needs nothing of it), any turn it asks for was claimed, and the claim never
+    passed one over for more than a tick."""
     missing = []
     for ticket in run.asked:
         owner = run.w.sql("SELECT owner FROM tasks WHERE id=?", (ticket,))[0]["owner"]
@@ -177,7 +157,7 @@ def verdicts_reach_builder(run):
     held = run.violations["result_held"]
     detail = [f"never delivered: {', '.join(missing[:4])}"] if missing else []
     if held:
-        detail.append(f"held {len(held)} ticks: " + ", ".join(sorted({f'{t} {when:%H:%M}' for when, t in held})[:4]))
+        detail.append(f"claim held it {len(held)} ticks: " + ", ".join(sorted({f'{t} {when:%H:%M}' for when, t in held})[:4]))
     return not missing and not held, "; ".join(detail)
 
 
@@ -207,7 +187,7 @@ SCENARIOS = [
              "builder, she finishes her Security subtask without a verdict, and the ticket moves on and merges.",
              setup=lambda run, w, team: tickets(run, w, 6), during=during,
              checks=standard(("tickets held on a person's subtask with a verdict in meanwhile", None, held_with_verdicts),
-                             ("every verdict reaches the builder within a tick", DELIVERY, verdicts_reach_builder),
+                             ("every verdict reaches the builder, never held past a tick", DELIVERY, verdicts_reach_builder),
                              ("no ticket sits at a check step with its verdict in", RESUME, no_settled_check_waits),
                              ("a person's check-titled subtask finishes without a verdict", None, person_child_finishes),
                              ("the held tickets merge", None, watched_merge))),
