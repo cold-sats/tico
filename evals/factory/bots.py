@@ -10,6 +10,8 @@ A bot's `style` is how its model behaves, as probabilities per turn that does re
 - A builder's `hold_approved`: it pushes nothing after an approval at the head; `dispute_fail`: once per ticket it
   sends a failed head back to the check unchanged; `try_waive`: it asks Tico to waive the last check before the merge
   (a person's call: refused); `push_after_waiver`: on its first n waived tickets it pushes once more instead of merging
+- `receipt_wording`: a builder's test receipt is worded the messy ways real ones are (RECEIPTS), and on a PR whose CI
+  only skips it posts none; a receipt the gate refused it puts right on its next turn
 Every number is drawn from the scenario's seeded random generator, so a run repeats exactly."""
 import os
 from collections import Counter
@@ -23,6 +25,23 @@ TOKENS = {  # (cached input, uncached input, output) per kind of turn: a real te
     "plan": (2_500_000, 150_000, 40_000),    # an architect's plan for a major feature, on a bigger model
 }
 FINISHED = ("done", "closed", "declined")
+# Test receipts as builders really word them, by what they report at the head they name. `clean` is the default.
+RECEIPTS = {
+    "clean": "Tests: base {base} head {head}: 9 passed, 0 failed",
+    # Passing at the head, with a failure on an earlier head since repaired: none of these blocks.
+    "repaired_seen": "Tests: head {head}: 12 passed. 2 failures seen at the prior head have been fixed.",
+    "repaired_prior": "Head {head}: 9 passed, 0 failed (pytest). 1 failure at prior head, now fixed.",
+    "repaired_old": "Tests: head {head}: 9 passed, 0 failed; earlier failure on {old} repaired",
+    # Failing at the head, however it is put: each blocks.
+    "failing": "Tests: head {head}: 40 passed, 2 failing",
+    "failing_words": "Tests at head {head}: 38 passed. Two failures remain in test_sync.py.",
+    "failing_line": "Tests: head {head}: 40 passed\nfailing tests: 2",
+    "rerun_failed": "Tests: head {head}: 9 passed, 0 failed\nRe-run at head {head}: 2 failed",
+    # No test run at all: a lint pass whose repaired errors name no test.
+    "lint_only": "Lint at head {head}: passed after 2 errors fixed",
+}
+PASSING_RECEIPTS = ("clean", "repaired_seen", "repaired_prior", "repaired_old")
+FAILING_RECEIPTS = ("failing", "failing_words", "failing_line", "rerun_failed")
 TRACE = os.environ.get("SIM_TRACE") == "1"
 
 
@@ -114,7 +133,9 @@ class Bot:
                 w.post("updates", {"body": "- Worked my tickets."}, token=self.token)
                 action = "posted update"
             else:
+                settled = self.settle()
                 action = self.act(task, message) if task else None
+                action = ", ".join(filter(None, (settled, action))) or None
         except Refusal as exc:
             action = "refused: " + exc.body[:160]
         if action:
@@ -185,6 +206,10 @@ class Bot:
     def act(self, task, message):
         raise NotImplementedError
 
+    def settle(self):
+        """What the bot owes from an earlier turn, done first on its next one, whatever woke it."""
+        return None
+
 
 class Builder(Bot):
     """Builds its tickets and takes each through the board. It acts on what the ticket shows now, whatever woke it,
@@ -197,6 +222,9 @@ class Builder(Bot):
         self.disputed = set()           # tickets whose failed head it sent back to the check unchanged
         self.pushed_after_waiver = set()
         self.waiver_tries = []          # (when, ticket id, head, outcome) of its own waiver requests
+        self.owed = {}     # ticket id -> what its refused move needs: "receipt", or "push" for a failure at the head
+        self.posted = []   # (when, ticket id, head, wording) per receipt, "none" for one left out
+        self.moves = []    # (when, ticket id, step, refusal text or None) per move this builder made
 
     def act(self, task, message):
         w, board = self.world, self.world.board
@@ -357,14 +385,39 @@ class Builder(Bot):
             return self.fallback(task, check.passed, "passed, still at " + step.name)
         return self.fallback(task, check.other, judged["verdict"] + ", still at " + step.name)
 
-    def push(self, task, pr):
+    def push(self, task, pr, clean=False):
         self.world.push(pr)
         self.world.prs[pr]["pushed"] = self.world.H.now()
-        self.receipt(task["id"], pr)
+        self.receipt(task["id"], pr, clean=clean)
 
     def move(self, task, step):
-        self.world.update(task["id"], token=self.token, step=step)
+        try:
+            self.world.update(task["id"], token=self.token, step=step)
+        except Refusal as exc:
+            self.moves.append((self.world.now(), task["id"], step, exc.body))
+            if "test receipt" in exc.body and "receipt_wording" in self.style:
+                last = next((p for p in reversed(self.posted) if p[1] == task["id"]), None)
+                self.owed[task["id"]] = "push" if last and last[3] in FAILING_RECEIPTS else "receipt"
+            raise
+        self.moves.append((self.world.now(), task["id"], step, None))
         return "moved to " + step
+
+    def settle(self):
+        """A move the gate refused for its receipt, put right as a real builder does on reading the refusal: a clean
+        receipt at the head, or, when its tests failed there, a fix pushed with one. Tico makes the move itself."""
+        w, done = self.world, []
+        for task_id, what in list(self.owed.items()):
+            del self.owed[task_id]
+            task, pr = w.task(task_id), w.pr_of(task_id)
+            if w.step_of(task) != w.board.hold_step or not pr or w.prs[pr]["merged"]:
+                continue   # moved on meanwhile: nothing left to put right
+            if what == "push":
+                self.push(task, pr, clean=True)
+            else:
+                self.receipt(task_id, pr, clean=True)
+            done.append(("pushed a fix with a clean receipt" if what == "push" else "posted a clean receipt")
+                        + " on " + task["title"])
+        return "; ".join(done) or None
 
     def fallback(self, task, step, why):
         self.world.fallback(self.slug, task["id"], f"moved to {step} by hand: {why}")
@@ -382,9 +435,22 @@ class Builder(Bot):
             return self.fallback(task, w.board.on_merge, "merged, the board did not move it")
         return "merged #%d" % pr
 
-    def receipt(self, task_id, pr):
-        head = self.world.prs[pr]["head"]
-        self.world.update(task_id, token=self.token, note=f"Tests: base {'c' * 40} head {head}: 9 passed, 0 failed")
+    def receipt(self, task_id, pr, clean=False):
+        w = self.world
+        head, old = w.prs[pr]["head"], (w.prs[pr].get("old_heads") or [None])[-1]
+        wording = "clean" if clean or "receipt_wording" not in self.style else self.wording(pr, old)
+        self.posted.append((w.now(), task_id, head, wording))
+        if wording != "none":
+            w.update(task_id, token=self.token, note=RECEIPTS[wording].format(base="c" * 40, head=head, old=old))
+
+    def wording(self, pr, old):
+        """How this receipt is worded (`receipt_wording`). A PR whose CI only skips gets none: the builder takes the
+        green-looking checks for a test run."""
+        if self.world.prs[pr].get("skip_ci"):
+            return "none"
+        if not self.chance("receipt_wording"):
+            return "clean"
+        return self.rng.choice([k for k in RECEIPTS if k != "clean" and (old or k != "repaired_old")])
 
     def pick(self, bots, avoid):
         """The least busy bot, preferring another model family and one not used on this ticket."""
@@ -501,10 +567,13 @@ class Lead(Bot):
     def sweep(self):
         w, board = self.world, self.world.board
         told = []
+        # A snoozed ticket is off the board the lead reads until its date (docs/tasks.md, Snoozing a task).
+        snoozed = {r["id"] for r in w.sql("SELECT id FROM tasks WHERE snoozed_until>?", (w.H.now(),))}
         for t in w.tickets():
             step = board.step(t["step"])
             # Only work its owner holds: a ticket queued for a start or out for a check moves without the owner.
-            if not step or not step.work or not str(t["owner"]).startswith("bot:") or t["status"] != "doing":
+            if not step or not step.work or not str(t["owner"]).startswith("bot:") or t["status"] != "doing" \
+                    or t["id"] in snoozed:
                 continue
             limit = step.wake_after_hours or 2
             if w.idle_hours(t["id"]) < limit:

@@ -45,6 +45,7 @@ class World:
         self.rng = rng or random.Random(0)
         self.ci_fail = ci_fail   # chance a CI run on a new head fails (a flaky or broken change)
         self.ci = {}             # pr number -> (head, when its checks finish, passed)
+        self.ci_skip = 0.0       # chance a new PR's only CI check is skipped or neutral on every head (a path filter)
         self.tick = dt.timedelta(minutes=tick_minutes)
         self.tmp = Path(tempfile.mkdtemp(prefix="factory-sim-"))
         self.prs = {}        # pr number -> {"task": id, "head": sha, "merged": bool}
@@ -147,6 +148,12 @@ class World:
         with self.store.transaction() as c:
             flush_wakes(c)
 
+    def retry_moves(self):
+        """The server's retry of refused review moves (backend/move_retry.py), which the app runs beside its GitHub
+        sync: a move the review gate refused is made once what refused it changes (a receipt posted, CI finished)."""
+        from backend import move_retry
+        return move_retry.tick(self.app.state.github_app, store=self.store, force=True)
+
     def heartbeat(self, ready):
         self.post("runners/heartbeat", {"version": "test", "platform": "test",
                                         "readiness": {slug: slug in ready for slug in self.bot_slugs}},
@@ -215,6 +222,9 @@ class World:
         number = self.next_pr
         self.next_pr += 1
         self.prs[number] = {"task": task_id, "head": uuid.uuid4().hex + uuid.uuid4().hex[:8], "merged": False}
+        self.prs[number]["heads"] = [(self.now(), self.prs[number]["head"])]
+        if self.ci_skip and self.rng.random() < self.ci_skip:
+            self.prs[number]["skip_ci"] = True
         self.post(f"tasks/{task_id}/links", {"url": self.pr_url(number)}, token=token)
         self.hook("pull_request", self.pr_payload(number, "opened"))
         self.start_ci(number)
@@ -223,6 +233,7 @@ class World:
     def push(self, number):
         self.prs[number].setdefault("old_heads", []).append(self.prs[number]["head"])
         self.prs[number]["head"] = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+        self.prs[number].setdefault("heads", []).append((self.now(), self.prs[number]["head"]))
         self.hook("pull_request", self.pr_payload(number, "synchronize"))
         self.start_ci(number)
         return self.prs[number]["head"]
@@ -238,11 +249,18 @@ class World:
             if due <= self.now():
                 del self.ci[number]
                 if self.prs[number]["head"] == head and not self.prs[number]["merged"]:
+                    # A skipped-only PR's suite ends skipped or neutral: GitHub lets it merge, but no test ran.
+                    skip = ("skipped", "neutral")[int(head, 16) % 2] if self.prs[number].get("skip_ci") else None
                     self.hook("check_suite", {"action": "completed", "repository": {"full_name": REPO}, "check_suite": {
                         "id": number * 1000 + len(head), "head_sha": head, "status": "completed",
-                        "conclusion": "success" if passed else "failure", "app": {"slug": "github-actions"},
+                        "conclusion": skip or ("success" if passed else "failure"), "app": {"slug": "github-actions"},
                         "pull_requests": [{"number": number, "html_url": self.pr_url(number)}]}})
                     self.prs[number]["ci"] = (head, passed)
+
+    def head_at(self, number, when):
+        """The PR's head at `when` (a datetime)."""
+        heads = self.prs[number].get("heads") or [(when, self.prs[number]["head"])]
+        return next((head for at, head in reversed(heads) if at <= when), heads[0][1])
 
     def ci_state(self, number):
         """'passing', 'failing' or 'pending' for the PR's current head."""
