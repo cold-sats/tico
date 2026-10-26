@@ -3419,7 +3419,7 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
     elif effective == "waiting" and typ.get("role") == "engineering" and (blocked := next(
             (s for s in typ["steps"] if s["name"] == "Blocked" and s["status"] == "waiting"), None)):
         chosen = blocked
-    elif row.get("blocked_from_step") and effective in ("open", "doing") and (resume := next(
+    elif typ.get("role") == "engineering" and row.get("blocked_from_step") and effective in ("open", "doing") and (resume := next(
             (s for s in typ["steps"] if s["id"] == row["blocked_from_step"]), None)):
         chosen, effective = resume, resume["status"]
     elif current and current["status"] == effective:

@@ -306,6 +306,8 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
       assert.match(await page.locator('#task-peek .task-wait').innerText(), /Waiting for a test machine <script>.*since/);
       assert.equal(await page.locator('#task-peek .tstatus').innerText(), 'Blocked');
       await page.locator('#task-peek [data-modal-close]').click();
+      // The phone peek closes its history entry asynchronously before the next board action.
+      if (width === 375) await page.waitForFunction(() => !history.state?.taskPeek && !PEEK_BACK);
     }
     await page.setViewportSize({width: 1200, height: 900});
     // Owner reason entry is cancellable and sends the reason with the step move.

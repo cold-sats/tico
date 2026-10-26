@@ -8,6 +8,8 @@ from datetime import datetime
 
 def ensure(c):
     from . import hubdb as H
+    # Role claiming creates Blocked before later roadmap migrations add this column.
+    H.add_column(c, 'task_steps', 'public_name', 'TEXT')
     for name, kind in (
         ('blocked_since', 'TEXT'), ('blocked_reason', 'TEXT'), ('blocked_kind', 'TEXT'),
         ('blocked_from_step', 'TEXT'), ('blocked_from_status', 'TEXT'), ('blocked_gate_json', 'TEXT'),
@@ -67,6 +69,8 @@ def transition(c, row, effective, step_id, note, at, manual=False):
     from . import hubdb as H
     if 'blocked_since' not in row:
         return  # old, deliberately minimal hubdb fixtures
+    if (H.type_get(c, row.get('type_id')) or {}).get('role') == 'product-roadmap':
+        return  # roadmap steps derive from linked delivery tickets, not task holds
     building = effective == 'doing'
     elapsed = clocks(row, at)['building_seconds']
     c.execute('UPDATE tasks SET building_seconds=?,building_started_at=? WHERE id=?',
@@ -105,7 +109,8 @@ def hold(c, task_id, reason, kind='dependency'):
     from . import hubdb as H
     reason = str(reason)[:1000]
     row = H.task(c, task_id)
-    if not row or row['status'] not in (*H.ACTIVE_STATUSES, 'review'):
+    if (not row or row['status'] not in (*H.ACTIVE_STATUSES, 'review')
+            or (H.type_get(c, row.get('type_id')) or {}).get('role') == 'product-roadmap'):
         return
     if row.get('blocked_since'):
         # Retain the first hold time and resume step when another gate also holds it.
@@ -121,7 +126,8 @@ def hold(c, task_id, reason, kind='dependency'):
 def reconciliation(c, row):
     """Read the needed action before taking the writer, then recheck under it."""
     from . import hubdb as H, review_gate
-    if not row or not row.get('blocked_since') or row.get('blocked_kind') in ('manual', 'stranded'):
+    if (not row or not row.get('blocked_since') or row.get('blocked_kind') in ('manual', 'stranded')
+            or not review_gate.engineering(c, row)):
         return None
     waiting = wait(c, row)
     if row.get('blocked_kind') == 'gate':

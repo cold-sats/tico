@@ -1085,6 +1085,10 @@ def create_app(settings=None):
         value.pop("checkpoint_state", None)     # wake_rules.state_of, for the server only
         for field in ("blocked_kind", "blocked_from_step", "blocked_from_status", "blocked_gate_json"):
             value.pop(field, None)
+        # Most list rows have no hold or accumulated clock; omit empty optional fields.
+        for field in ("blocked_since", "blocked_reason", "building_started_at", "building_seconds"):
+            if not value.get(field):
+                value.pop(field, None)
         if pipelines is None:
             if c is None:
                 with store.read() as pipeline_conn:

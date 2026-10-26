@@ -101,7 +101,7 @@ const LAYOUT = [{builtin: 'needs', name: 'Needs You'}, {builtin: 'active', name:
     assert.equal(await rail.locator('#bot-tasks .rail-h').innerText().then(s => s.trim().toLowerCase()), 'tasks');
     await page.waitForFunction(() => document.querySelector('#cnt-c4')?.textContent.trim() === '1');
     const tabs = (await rail.locator('[data-bot-task-tab]').allInnerTexts()).map(s => s.replace(/\s+/g, ' ').trim());
-    assert.deepEqual(tabs, ['Needs You 4', 'Doing 5', 'Blocked 3', 'Done Recently 1', 'Assigned to Others 1'], JSON.stringify(tabs));
+    assert.deepEqual(tabs, ['Needs You 4', 'Doing 2', 'Blocked 2', 'Done Recently 1', 'Assigned to Others 1'], JSON.stringify(tabs));
     assert.equal(await tab('needs').getAttribute('aria-selected'), 'true', 'Needs You leads while it has rows');
 
     // Needs You: exactly what the org tree counts for this bot: its task for Ana, its question on Senior's finished task,
@@ -114,17 +114,16 @@ const LAYOUT = [{builtin: 'needs', name: 'Needs You'}, {builtin: 'active', name:
     assert.equal((await badge.innerText()).trim(), '4', 'the tree number is the Needs you rows');
     assert.equal(await page.evaluate(() => needsMeCount('lead')), 4);
 
-    // Doing is the full list: every open task the bot holds, of every type, newest first, a waiting one included.
+    // Doing excludes held work and tasks already in Needs You.
     await tab('active').click();
-    assert.deepEqual(await titles('#t-open'), ['Plan the import page', 'Renew the domain', 'Merge the export fix',
-      'Turn on the screen default', 'Ship the release notes']);
+    assert.deepEqual(await titles('#t-open'), ['Plan the import page', 'Ship the release notes']);
     assert.equal(await rail.locator('#bot-needs').isHidden(), true);
 
     // Blocked: each row says what it waits on, from whom it names or else its note's first line.
     await tab('blocked').click();
-    assert.deepEqual(await titles('#t-blocked'), ['Renew the domain', 'Merge the export fix', 'Turn on the screen default']);
+    assert.deepEqual(await titles('#t-blocked'), ['Renew the domain', 'Merge the export fix']);
     assert.deepEqual((await rail.locator('#t-blocked .trow-waits').allInnerTexts()).map(s => s.trim()),
-      ["Waiting for the vendor's invoice.", 'Waits on QA Engineer', 'Waits on you']);
+      ["Waiting for the vendor's invoice.", 'Waits on QA Engineer']);
 
     // Done Recently: finished in the last 14 days; the one from three weeks ago is not listed. It is drawn only once its
     // tab opens, 50 rows at a time (paging, at the end).
