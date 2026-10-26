@@ -1281,3 +1281,7 @@ whoever attached them, unless the same file is also attached somewhere they can 
 says so: its answer lists them under `files_left` (how many, their versions, file bytes, the ids of
 files added to the task and, under `attachments`, the files attached when it was created), before
 and after `--apply`, and each `task.purged` event names the ones its task left.
+
+## Task settings
+
+Open **Settings → Tasks → Task settings** to see what Tico does when a task is created, enters a step, finishes, or is checked on a schedule. Choose a task type to see its steps. Each action shows its source, whether it wakes a bot or stays quiet, and its current state. Edit and Add action open the existing Rules editor with that task type and trigger selected. Built-ins marked Always on have no switch.
