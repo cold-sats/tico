@@ -422,3 +422,32 @@ def test_a_verdict_given_while_the_ticket_was_held_moves_it_once_the_hold_clears
     assert step(api, task) == "Review 1 Fixes", "back at Review 1, the verdict given meanwhile moves it on"
     handoffs = [m for m in builder_jobs(api) if m["refs"].get(V.HANDOFF) == "verdict"]
     assert len(handoffs) == 1 and handoffs[0]["refs"]["verdict"] == "changes", builder_jobs(api)
+
+
+def test_a_private_review_is_not_replayed_into_its_wider_parent_when_a_hold_clears(api):
+    from backend.check_independence import capture_attempt
+    from backend.tests.test_api import unrelated_task_managers
+
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        unrelated_task_managers(c, "cmo")
+        review = H.task_create(c, "human:ana", "Review 1: PR #412", f"Check head {HEAD}", "bot:cmo",
+                               parent_id=task["id"], private=True, lint=False)
+        turn = usage(c, review["id"], "cmo")
+        capture_attempt(c, task["id"], review["id"], HEAD, turn)
+        assert not H.task_private(c, H.task(c, task["id"]))
+        assert not H.task_private_readable(c, task["owner"], review)
+        assert H._subtask_result_parent(c, review) is None
+        H.task_update(c, "bot:cpo", task["id"], status="waiting", waiting_on="human:ana",
+                      note="Is the vendor contract signed?")
+        ask = next(H.task(c, i) for i in H.TR.child_ids(c, task["id"])
+                   if H.task(c, i)["owner"] == "human:ana")
+    assert step(api, task) == "Blocked"
+    verdict(api, review, "changes")
+    assert step(api, task) == "Blocked"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "human:ana", ask["id"], status="done", note="Yes, it is signed.")
+        history = H.task_history(c, task["id"])
+        assert not any(e["field"] in ("verdict_wait", "verdict_move") or "gave changes" in (e["note"] or "")
+                       for e in history), history
+    assert step(api, task) == "Review 1"

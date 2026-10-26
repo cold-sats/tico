@@ -219,7 +219,9 @@ def resumed(c, task_id):
     step = ticket and F.step(c, ticket.get("step_id"))
     if not step or not F.is_check(step):
         return None
-    last = next((t for t in reversed(_checks(c, ticket, step)) if _verdict(t)), None)
+    # A replay must keep the same audience as the child's normal result delivery.
+    last = next((t for t in reversed(_checks(c, ticket, step))
+                 if _verdict(t) and H._subtask_result_parent(c, t)), None)
     if not last or (delivery(c, last) or {}).get("consumed") or not after_verdict(c, last):
         return None
     attempt = c.execute("SELECT id FROM turns WHERE task_id=? ORDER BY started DESC,id DESC LIMIT 1",
