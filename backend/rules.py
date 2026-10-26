@@ -257,7 +257,7 @@ class Decision(NamedTuple):
     rule: str
     reason: Optional[str] = None        # the held_by mark when the message is written quiet here
     params: Optional[dict] = None
-    by: Optional[str] = None            # who wrote the row: an event action acts with their rights
+    by: Optional[str] = None            # task action's effective writer; event actions retain the row's creator
 
 
 # Pull request checks (backend/github.py): the webhook writes no message for one check finishing (`pr_check`), and one
@@ -340,10 +340,18 @@ CREATE TABLE IF NOT EXISTS rules(
  id TEXT PRIMARY KEY, scope_kind TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '', event TEXT NOT NULL,
  when_json TEXT NOT NULL DEFAULT '{}', then_outcome TEXT NOT NULL, params_json TEXT NOT NULL DEFAULT '{}',
  enabled INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
- created_by TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1);
+ created_by TEXT NOT NULL, action_by TEXT, created TEXT NOT NULL, updated TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1);
 CREATE INDEX IF NOT EXISTS rules_event ON rules(event, enabled);
 CREATE INDEX IF NOT EXISTS rules_scope ON rules(scope_kind, scope_id);
 """
+
+
+def ensure_schema(c):
+    """Keep creator attribution separate from the person responsible for a task action."""
+    H.add_column(c, "rules", "action_by", "TEXT")
+    # Only an unedited legacy rule is known to carry its creator's action. Revised legacy rules fail open on private
+    # tasks until someone saves their action again, rather than borrowing an unknown editor's creator permissions.
+    c.execute("UPDATE rules SET action_by=created_by WHERE action_by IS NULL AND revision=1")
 
 
 # ----------------------------------------------------------------------------- naming a message's event
@@ -506,7 +514,10 @@ def _row_decision(row, actor):
         # else wakes, with the rule still named, rather than risk a wake nobody sees.
         return Decision(BATCH if actor == H.KEEPER else WAKE, row["id"], None, params)
     if outcome in (ASK, ACTION):
-        return Decision(outcome, row["id"], None, params, row["created_by"])
+        by = row["created_by"]
+        if outcome == ACTION and params.get("action") in TASK_ACTIONS:
+            by = dict(row).get("action_by") or (by if row["revision"] == 1 else None)
+        return Decision(outcome, row["id"], None, params, by)
     return Decision(WAKE, row["id"], None, params)
 
 
@@ -742,8 +753,8 @@ def _act(conn, decision, row, message=None):
         raise ValueError("an action rule needs a task")
     # The keeper passes the private-task check, so the rule's writer is held to it here: a rule never changes a
     # private task its writer could not change by hand. Failing opens the message, so the owner still hears of it.
-    if decision.by and decision.by != H.KEEPER and H.task_private(conn, row) \
-            and not H.task_private_readable(conn, decision.by, row):
+    if H.task_private(conn, row) and decision.by != H.KEEPER \
+            and (not decision.by or not H.task_private_readable(conn, decision.by, row)):
         raise ValueError("the rule's writer cannot read this private task")
     note = str(params.get("note") or params.get("text") or "")[:1000]
     said = f"Rule {decision.rule}: {note}" if note else f"Rule {decision.rule}"
@@ -1246,7 +1257,8 @@ def view(row):
             "params": H._json(row["params_json"], {}) or {}, "enabled": bool(row["enabled"]),
             "position": row["position"], "note": row["note"], "built_in": False,
             "protected": row["id"] in tico_notices.RULE_IDS,       # Tico Team's notice rules: editable, never deleted
-            "created_by": row["created_by"], "created": row["created"], "updated": row["updated"],
+            "created_by": row["created_by"], "action_by": row["action_by"],
+            "created": row["created"], "updated": row["updated"],
             "revision": row["revision"]}
 
 
@@ -1558,10 +1570,10 @@ def create(c, settings, auth, who, body):
                               (body.scope_kind, scope_id, tico_notices.RULE_POSITION)).fetchone()[0] or 0) + 1
     rule_id, at = "rule-" + H.new_id(), H.now()
     c.execute("INSERT INTO rules(id,scope_kind,scope_id,event,when_json,then_outcome,params_json,enabled,position,"
-              "note,created_by,created,updated,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
+              "note,created_by,action_by,created,updated,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
               (rule_id, body.scope_kind, scope_id, body.event, json.dumps(when, sort_keys=True), body.then,
                json.dumps(params, sort_keys=True), int(body.on is not False), position, body.note or "",
-               who.actor, at, at))
+               who.actor, who.actor, at, at))
     H.event(c, who.actor, "rule.created", rule_id, {"after": view(get(c, rule_id))})
     return {"rule": view(get(c, rule_id))}
 
@@ -1577,15 +1589,17 @@ def update(c, settings, auth, who, rule_id, body):
     when = body.when if body.when is not None else H._json(before["when_json"], {})
     params = body.params if body.params is not None else H._json(before["params_json"], {})
     _, when, params = validate(c, settings, before["scope_kind"], before["scope_id"], event, then, when, params)
-    if body.on is True or any(v is not None for v in (body.then, body.event, body.when, body.params)):
+    authored = body.on is True or any(v is not None for v in (body.then, body.event, body.when, body.params))
+    if authored:
         _action_writer(c, auth, who, then, params)       # turning one off, moving or deleting it needs only the scope
         _wake_writer(c, settings, auth, who, before["scope_kind"], before["scope_id"], event, then, params)
-    c.execute("UPDATE rules SET event=?,when_json=?,then_outcome=?,params_json=?,enabled=?,position=?,note=?,"
+    c.execute("UPDATE rules SET event=?,when_json=?,then_outcome=?,params_json=?,enabled=?,position=?,note=?,action_by=?,"
               "updated=?,revision=revision+1 WHERE id=?",
               (event, json.dumps(when, sort_keys=True), then, json.dumps(params, sort_keys=True),
                int(body.on) if body.on is not None else before["enabled"],
                body.position if body.position is not None else before["position"],
-               body.note if body.note is not None else before["note"], H.now(), rule_id))
+               body.note if body.note is not None else before["note"],
+               who.actor if authored else before["action_by"], H.now(), rule_id))
     H.event(c, who.actor, "rule.updated", rule_id, {"before": view(before), "after": view(get(c, rule_id))})
     return {"rule": view(get(c, rule_id))}
 
