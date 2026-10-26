@@ -89,7 +89,7 @@ def _watch_results(run, w, team):
                                                                     E.roots_on(runner)),
                               str(c.execute("SELECT refs_json FROM messages WHERE id=?", (job["message_id"],)).fetchone()[0])[:150])
                     bc = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (r["bot"],)).fetchone()
-                    print("  BOT", E.claim_refusal(c, w.app.state.settings, runner, r["bot"], bc[0], False, ready)[0])
+                    print("  BOT", E.claim_refusal(c, w.app.state.execution.settings, runner, r["bot"], bc[0], False, ready)[0])
 
 
 def _watch_settled(run, w):
@@ -116,6 +116,11 @@ def _watch_settled(run, w):
 
 
 def during(run, w, team, i):
+    import os
+    if os.environ.get("SIM_TRACE") == "1":
+        for b in team.builders:
+            print("TICK", w.now().strftime("%H:%M"), b.slug, b.running, b.running and b.ends.strftime("%H:%M"),
+                  b.running and (b.attempt.get("task") or {}).get("title"))
     if not hasattr(run, "asked"):
         run.asked, run.answer_refused = {}, []
     _watch_results(run, w, team)
