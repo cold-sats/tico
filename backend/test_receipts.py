@@ -19,8 +19,11 @@ _FAILURE = r"(?:fail(?:s|ing|ed|ures?)?|errors?)"
 _FIX = r"(?:fix(?:ed|ing)|repair(?:ed|ing)|resolv(?:ed|ing)|correct(?:ed|ing))"
 # A historical subject can still describe a failure that is happening now.
 CURRENT_FAILURE = re.compile(
-    rf"\b{_FAILURE}\s+(?:tests?\s+)?(?:(?:is|are|has|have|been|now|still)\s+){{0,4}}"
-    r"(?:recurring|recurs|persisting|persists|present)\b", re.I)
+    rf"\b{_FAILURE}\s+(?:tests?\s+)?"
+    rf"(?:(?:(?:is|was|were|are|has|have|had|been|now|already)\s+){{0,5}}"
+    rf"{_FIX}\s*(?:[;,]\s*|but\s+))?"
+    r"(?:(?:is|are|has|have|been|now|still|keeps)\s+){0,4}"
+    r"(?:recurring|recurs|recurred|reoccurred|returned|persisting|persists|persistent|present|happening)\b", re.I)
 HISTORY = re.compile(
     rf"\b(?:earlier|previous|historical|old)\s+(?:test\s+)?{_FAILURE}\b|"
     rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|test|fixture|[0-9]+)\s+){{0,5}}{_FAILURE}\b|"
@@ -28,7 +31,9 @@ HISTORY = re.compile(
     rf"(?:(?:is|was|were|are|has|have|had|been|now|already)\s+){{0,5}}{_FIX}\b", re.I)
 
 
-CONTINUATION = re.compile(rf"^\s*[0-9]+\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b", re.I)
+CONTINUATION = re.compile(
+    rf"^\s*[0-9]+\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}"
+    rf"(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b|\b[0-9]+\s+(?:tests?\s+)?{_FAILURE}\b", re.I)
 
 
 def _recognise(line, test_context=False):
@@ -60,9 +65,10 @@ def recognise_many(line):
     found = []
     sentences = []
     for sentence in re.split(r"[.!?]\s+", line):
-        # A bare result count continues the previous run even after a period.
+        # An unheaded counted failure belongs to the previous run, including
+        # labels such as "Re-run:" or "Latest run:" after a period.
         # Other sentences (plans, repairs, commentary) retain their own scope.
-        if sentences and not SHA.search(sentence) and CONTINUATION.match(sentence):
+        if sentences and not SHA.search(sentence) and CONTINUATION.search(sentence):
             sentences[-1] += "; " + sentence
         else:
             sentences.append(sentence)

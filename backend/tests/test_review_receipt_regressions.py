@@ -142,6 +142,39 @@ def test_qa_repair_phrases_preserve_unresolved_and_recurring_failures(result, st
     assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == status
 
 
+@pytest.mark.parametrize('result,status', [
+    ('9 passed; 2 failures were fixed. Re-run: 2 failed', 'failed'),
+    ('9 passed; 2 failures were fixed. Rerun: 2 failing', 'failed'),
+    ('9 passed; 2 failures were fixed. Latest run: 2 failed, 9 passed', 'failed'),
+    ('9 passed. Re-run: 2 failed', 'failed'),
+    ('9 passed. The latest result: 2 failed', 'failed'),
+    ('9 passed; 2 failures were fixed. Re-run: 9 passed, 0 failed', 'passed'),
+    ('9 passed. Earlier run: 2 failures were fixed', 'passed'),
+    ('9 passed; the earlier failure has recurred', 'failed'),
+    ('9 passed; the earlier failure reoccurred', 'failed'),
+    ('9 passed; the earlier failure has returned', 'failed'),
+    ('9 passed; the earlier failure keeps happening', 'failed'),
+    ('9 passed; the earlier failure is persistent', 'failed'),
+    ('9 passed; the earlier failure fixed but still present', 'failed'),
+    ('9 passed; the earlier failure was fixed but is still present', 'failed'),
+    ('9 passed; the previous errors have been repaired but still persistent', 'failed'),
+    ('9 passed; the earlier failure was fixed but is no longer present', 'passed'),
+    ('9 passed; the earlier failure has not recurred', 'passed'),
+    ('9 passed; the earlier failure is no longer persistent', 'passed'),
+    (f'9 passed. Latest run: 2 failed at head {OLD}', 'passed'),
+])
+def test_qa_rerun_counts_and_recurrence_stay_with_their_head(result, status):
+    note = f'Tests at head {HEAD}: {result}'
+    assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == status
+
+
+@pytest.mark.parametrize('tail', ['Re-run: 2 failed', 'Rerun: 2 failing', 'Latest run: 2 failed, 9 passed'])
+def test_no_ci_review_refuses_failed_rerun_after_repaired_count(api, tail):
+    task = ticket(api, f'Tests at head {HEAD}: 9 passed; 2 failures were fixed. {tail}')
+    response = move(api, task)
+    assert response.status_code == 422 and 'failed test receipt' in response.text, response.text
+
+
 def test_dev505_original_note_does_not_claim_a_current_failure():
     # Exact opening sentence of the refused 03:37Z note, not the rewritten receipt.
     head = 'e06bfdf7ec6bdbd1772fb16102fee40715536e92'
