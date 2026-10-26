@@ -1,14 +1,16 @@
-"""The verdict moves the Dev ticket (docs/software-factory.md, "The verdict moves the ticket").
+"""The verdict moves the ticket (docs/software-factory.md, "The verdict moves the ticket"), by its steps' flow.
 
-A Review 1, Review 2 or QA check's verdict, recorded on the head the ticket's pull request is at now while the ticket
-is still at that check's step, moves the ticket as Tico, in the same write (`after_verdict`):
-- Review 1 approve -> Review 2; on a ticket tagged `review-1-only` it is the last review, as Review 2 below;
-- Review 2 approve -> In QA when the ticket has the `qa` tag; otherwise it stays and its builder is woken to merge;
-- QA pass -> Pending Release when the pull request is merged; otherwise its builder is woken to merge;
-- changes -> that review's Fixes step, fail -> QA Fixes; the builder is woken once, with the verdict and the head.
-Tico never merges (Chris's open question 1, default no): the builder does, woken once per head when the last check
-approved it and CI is green (`merge_wake`). The merge then moves a ticket waiting for it to Pending Release
-(`merged`), and checks passing on a new head at a Fixes step move it on to the next check (`checks_done`, AFTER_FIXES).
+What a check step does with a verdict is set on the step (backend/step_flow.py), never read from its name: a check
+filed while its ticket sat at a check step, finished on the head the ticket's pull request is at now while the ticket
+is still at that step, moves the ticket as Tico (`after_verdict` marks it, `after_capture` moves it once the judging
+attempt is recorded):
+- approve or pass -> the step's `on_pass`; when that is the merge, the builder is woken to merge once CI is green;
+- changes, fail, or a check finished with no verdict (its comments are the feedback) -> the step's `on_fail`, and the
+  builder is woken once, with the verdict and the head.
+Tico never merges: the builder does, woken once per head (`merge_wake`). The merge moves the ticket to the type's
+`on_merge` step from any earlier step (`merged`), and green CI on a new head at a step with `after_green` moves it on
+to its next check (`checks_done`). A ticket entering a step whose `skip_tag` it carries goes on to the step's
+`on_pass` (`skip`), and a check open past its step's `timeout_hours` is closed and its round skipped (`timeouts`).
 
 One move per step and head: Tico moves only a ticket still at the check's own step, on the judged head, so the
 builder's move and Tico's are the same move, made once. A move the review gate refuses (CI failing, no receipt at the
@@ -23,16 +25,14 @@ import logging
 
 from . import hubdb as H
 from . import review_gate
+from . import step_flow as F
 from . import task_relations as TR
 from .check_independence import assess as assess_independence
 
 log = logging.getLogger(__name__)
 
-CHECK_STEP = {"review 1": "Review 1", "review 2": "Review 2", "qa": "In QA"}
-FIXES = {"review 1": "Review 1 Fixes", "review 2": "Review 2 Fixes", "qa": "QA Fixes"}
 GOOD = ("approve", "pass")
-REVIEW_1_ONLY = "review-1-only"
-PENDING_RELEASE = "Pending Release"
+NO_VERDICT = "comments"     # a check finished with no verdict: what it said is feedback, like changes
 HANDOFF = "handoff"
 HANDOFFS = ("verdict", "failed_check", "merge_conflict", "merge")
 # The claim's order key: a keeper hand-off before the bot's other queued jobs (backend/execution.py).
@@ -40,25 +40,22 @@ HANDOFF_FIRST_SQL = (f"CASE WHEN m.from_actor='{H.KEEPER}' AND json_extract(m.re
                      "IS NOT NULL THEN 0 ELSE 1 END")
 
 
-def kind_of(row):
-    """'review 1', 'review 2' or 'qa' for a check subtask, by its title (review_gate.ONE_OPEN), else None."""
-    found = review_gate.ONE_OPEN.match(str((row or {}).get("title") or "").strip())
-    return " ".join(found[1].lower().split()) if found else None
+def at_step(c, task_id, refs):
+    """`refs` with the step the ticket is at now: the news is about that step, and a claim drops it once the ticket
+    has left it (execution.obsolete_notices_sql)."""
+    row = H.task(c, task_id)
+    return {**refs, "at_step": row.get("step_id")} if row and row.get("step_id") else refs
 
 
 def _ticket(c, row):
-    """The Dev ticket a bot builds, or None: an open engineering ticket owned by a bot."""
-    return row if (row and review_gate.engineering(c, row) and H.is_bot(row.get("owner"))
-                   and row.get("status") in H.ACTIVE_STATUSES) else None
+    """The ticket a bot builds, or None: an open ticket owned by a bot, on a type whose steps have a flow."""
+    return row if (row and H.is_bot(row.get("owner")) and row.get("status") in H.ACTIVE_STATUSES
+                   and F.has_flow(c, row.get("type_id"))) else None
 
 
 def step_of(c, row):
     found = c.execute("SELECT name FROM task_steps WHERE id=?", (row.get("step_id") or "",)).fetchone()
     return found[0] if found else None
-
-
-def _has_step(c, row, name):
-    return bool(c.execute("SELECT 1 FROM task_steps WHERE type_id=? AND name=?", (row.get("type_id"), name)).fetchone())
 
 
 def _prs(c, row):
@@ -80,45 +77,30 @@ def is_merged(c, row):
     return bool(prs) and all(p.get("state") in ("merged", "shipped") for p in prs)
 
 
-def last_review(row):
-    """The review after which only QA (on a `qa` ticket) and the merge are left."""
-    return "review 1" if REVIEW_1_ONLY in H.task_labels(row) else "review 2"
-
-
-def _approved(row, kind):
-    """Where an approval of a `kind` check sends the ticket: a step name, or None when the merge is next."""
-    if kind == "review 1" and kind != last_review(row):
-        return "Review 2"
-    if kind != "qa" and "qa" in H.task_labels(row):
-        return "In QA"
-    return None
-
-
-# A green new head at a Fixes step goes on to the next check: Review 1 Fixes to Review 2, as the factory runs one
-# round of each review (docs/software-factory.md); QA Fixes back to QA. None: the merge is next.
-AFTER_FIXES = {
-    "Review 1 Fixes": lambda row: _approved(row, "review 1"),
-    "Review 2 Fixes": lambda row: _approved(row, "review 2"),
-    "QA Fixes": lambda row: "In QA",
-}
-
-
-def _checks(c, row, kind):
-    """The ticket's check subtasks of one kind, newest last."""
+def _checks(c, row, step):
+    """The ticket's checks filed at check step `step`, newest last."""
     out = [H.task(c, cid) for cid in TR.child_ids(c, row["id"])]
-    return sorted((t for t in out if t and kind_of(t) == kind), key=lambda t: (t.get("created") or "", t["id"]))
+    out = [t for t in out if t and (F.check_step(c, t, row) or {}).get("id") == step["id"]]
+    return sorted(out, key=lambda t: (t.get("created") or "", t["id"]))
+
+
+def _verdict(check):
+    """A finished check's verdict, lowered; a check done with none counts as comments."""
+    value = str(check.get("verdict") or "").lower()
+    return value or (NO_VERDICT if check.get("status") == "done" else "")
 
 
 def move(c, row, target, why):
-    """Move the ticket to `target` as Tico, when its type has that step. True when it moved. A refusal (the review
-    gate) undoes only this move and tells the builder what clears it."""
-    if not _has_step(c, row, target) or step_of(c, row) == target:
+    """Move the ticket to step `target` (a step row or id) as Tico. True when it moved. A refusal (the review gate)
+    undoes only this move and tells the builder what clears it."""
+    target = target if isinstance(target, dict) else F.step(c, target)
+    if not target or target["type_id"] != row.get("type_id") or row.get("step_id") == target["id"]:
         return False
     c.execute("SAVEPOINT verdict_move")
     try:
         # The owner hears of the move on the hand-off that caused it, not again from a step rule.
-        H.task_update(c, H.KEEPER, row["id"], step=target, skip_step_wake=(row["owner"],))
-        H._task_event(c, row["id"], H.KEEPER, "verdict_move", None, target, why)
+        H.task_update(c, H.KEEPER, row["id"], step=target["id"], skip_step_wake=(row["owner"],))
+        H._task_event(c, row["id"], H.KEEPER, "verdict_move", None, target["name"], why)
     except H.Refused as exc:
         c.execute("ROLLBACK TO verdict_move")
         c.execute("RELEASE verdict_move")
@@ -129,22 +111,24 @@ def move(c, row, target, why):
     except Exception:  # noqa: BLE001 - a verdict or a merge is never lost to the move it causes
         c.execute("ROLLBACK TO verdict_move")
         c.execute("RELEASE verdict_move")
-        log.exception("verdict move of %s to %s failed", row["id"], target)
+        log.exception("verdict move of %s to %s failed", row["id"], target["id"])
         return False
     c.execute("RELEASE verdict_move")
     return True
 
 
 def after_verdict(c, check):
-    """A verdict was just recorded on `check`: move its Dev ticket, and keep what the builder is to hear on its
-    delivery (`delivery`). Returns the outcome, or None when the verdict moves nothing."""
+    """A verdict was just recorded on `check` (or it finished with none): mark its ticket to move once the judging
+    attempt is captured, and keep what the builder is to hear on its delivery (`delivery`). Returns the outcome, or
+    None when the check moves nothing."""
     check = H.task(c, check["id"])
-    kind, verdict = kind_of(check), str(check.get("verdict") or "").lower()
+    verdict = _verdict(check)
     ticket = _ticket(c, H.task(c, TR.parent_of(c, check["id"]) or ""))
-    head = str(check.get("verdict_head") or "").lower()
-    if kind not in CHECK_STEP or not verdict or not ticket or step_of(c, ticket) != CHECK_STEP[kind] or not at_head(c, ticket, head):
+    step = ticket and F.check_step(c, check, ticket)
+    head = str(check.get("verdict_head") or _judged_head(c, check) or "").lower()
+    if not verdict or not step or ticket.get("step_id") != step["id"] or not at_head(c, ticket, head):
         return None
-    name = CHECK_STEP[kind]
+    name = step["name"]
     # Verdicts are commonly written inside the checker turn's final tool call. The executed
     # model segments are committed by turn_finish afterwards, so this callback records an
     # immutable pending marker and leaves routing to the post-capture callback.
@@ -160,18 +144,22 @@ def after_verdict(c, check):
             H._json(existing["new"], {}).get("head") != head:
         H._task_event(c, ticket["id"], H.KEEPER, "verdict_wait", None,
                       json.dumps(pending, sort_keys=True), "")
-    else:
-        pending = H._json(existing["new"], {})
-    pending.update({"check_id": check["id"], "attempt_id": attempt_id, "step": name,
-                    "head": head, "verdict": verdict})
     return {"moved": None, "handoff": None, "quiet": True, "pending": True,
             "say": f"{name} recorded {verdict} at head {head}; waiting for this check attempt's execution record."}
+
+
+def _judged_head(c, check):
+    """The head a check was filed for (its review_head), for a check finished with no verdict line."""
+    found = c.execute("SELECT new FROM task_events WHERE task_id=? AND field='review_head' "
+                      "ORDER BY ts DESC,rowid DESC LIMIT 1", (check["id"],)).fetchone()
+    return str(found[0] if found else "").split(",")[0]
 
 
 def after_capture(c, check_id, head, attempt_id):
     """Consume a verdict only after its exact judging attempt has captured usage and settled."""
     check = H.task(c, check_id)
-    if not check or not check.get("verdict") or str(check.get("verdict_head") or "").lower() != str(head or "").lower():
+    verdict = _verdict(check or {})
+    if not verdict or str(check.get("verdict_head") or _judged_head(c, check) or "").lower() != str(head or "").lower():
         return None
     attempt = c.execute("SELECT task_id,bot,finished FROM turns WHERE id=?", (attempt_id,)).fetchone()
     latest = c.execute("SELECT id FROM turns WHERE task_id=? ORDER BY started DESC,id DESC LIMIT 1", (check_id,)).fetchone()
@@ -180,46 +168,35 @@ def after_capture(c, check_id, head, attempt_id):
             H.actor_id(attempt["bot"]) != H.actor_id(check.get("owner"))):
         return None
     ticket = _ticket(c, H.task(c, TR.parent_of(c, check_id) or ""))
-    kind = kind_of(check)
-    if kind not in CHECK_STEP or not ticket:
+    step = ticket and F.check_step(c, check, ticket)
+    if not step:
         return None
-    verdict = str(check.get("verdict") or "").lower()
     marker = c.execute("SELECT rowid,new FROM task_events WHERE task_id=? AND field='verdict_wait' "
                        "ORDER BY rowid DESC LIMIT 1", (ticket["id"],)).fetchone()
     pending = H._json(marker["new"], {}) if marker else {}
     if (pending.get("check_id"), pending.get("attempt_id"), pending.get("head"), pending.get("verdict")) != \
-            (check_id, attempt_id, str(head or "").lower(), str(check["verdict"]).lower()):
+            (check_id, attempt_id, str(head or "").lower(), verdict):
         return None
-    if step_of(c, ticket) != CHECK_STEP[kind] or not at_head(c, ticket, head):
+    if ticket.get("step_id") != step["id"] or not at_head(c, ticket, head):
         return None
     prior = delivery(c, check)
     if prior and prior.get("consumed"):
         return None
-    name = CHECK_STEP[kind]
+    name, flow = step["name"], F.of(step)
     eligible = assess_independence(c, ticket, H.actor_id(check.get("owner") or ""), head=head,
                                    check_id=check["id"], attempt_id=attempt_id)
     # Model company is a routing preference, never a verdict gate. Keep actual builder/checker families
     # alongside the verdict for audit, including fallback runs and unknown provenance.
+    gave = "no verdict (its comments are the feedback)" if verdict == NO_VERDICT else verdict
     if verdict not in GOOD:
-        target = FIXES[kind]
-        moved = move(c, ticket, target, f"{name} gave {verdict} at {head[:12]}")
-        out = {"moved": target if moved else None, "handoff": "verdict", "quiet": False,
-               "say": (f"Tico moved this ticket to {target}: {name} gave {verdict} at head {head}." if moved else
-                       f"{name} gave {verdict} at head {head}; Tico could not move this ticket to {target}.")}
+        target = F.step(c, flow.get("on_fail"))
+        moved = bool(target) and move(c, ticket, target, f"{name} gave {verdict} at {head[:12]}")
+        out = {"moved": target["name"] if moved else None, "handoff": "verdict", "quiet": False,
+               "say": (f"Tico moved this ticket to {target['name']}: {name} gave {gave} at head {head}." if moved else
+                       f"{name} gave {gave} at head {head}" + (f"; Tico could not move this ticket to {target['name']}."
+                                                              if target else "."))}
     else:
-        target = _approved(ticket, kind) or (PENDING_RELEASE if is_merged(c, ticket) else None)
-        if target:
-            moved = move(c, ticket, target, f"{name} gave {verdict} at {head[:12]}")
-            out = {"moved": target if moved else None, "handoff": None, "quiet": moved,
-                   "say": (f"Tico moved this ticket to {target}: {name} gave {verdict} at head {head}." if moved else
-                           f"{name} gave {verdict} at head {head}; Tico could not move this ticket to {target}.")}
-        else:
-            ready = merge_ready(c, ticket)
-            out = {"moved": None, "handoff": "merge" if ready else None, "quiet": not ready,
-                   "say": merge_text(c, ticket, *ready) if ready else
-                   f"{name} gave {verdict} at head {head}. Tico wakes you to merge once CI is green on it."}
-            if ready:
-                _merge_woken(c, ticket, ready[1])
+        out = _passed(c, ticket, step, f"{name} gave {verdict} at head {head}")
     out["eligibility"] = eligible  # Historical field name; this is provenance, not a gate.
     out["consumed"] = True
     out["attempt_id"] = attempt_id
@@ -229,9 +206,32 @@ def after_capture(c, check_id, head, attempt_id):
         refs = {"verdict": verdict, "verdict_head": head, HANDOFF: out["handoff"]}
         if out["handoff"] == "merge":
             refs["pr_head"] = head
-        H._wake(c, ticket, ticket["owner"], out["say"], refs,
-                source=check_id)
+        H._wake(c, ticket, ticket["owner"], out["say"], at_step(c, ticket["id"], refs), source=check_id)
     return out
+
+
+def _passed(c, ticket, step, why):
+    """The ticket's check at `step` passed (or its round was skipped): on to the step's `on_pass`, or, when the merge
+    is next, the merged step if it already merged, else the builder is woken to merge once CI is green."""
+    target = F.of(step).get("on_pass")
+    if target == F.MERGE:
+        target = F.merge_step(c, ticket["type_id"]) if is_merged(c, ticket) else None
+        if not target:
+            ready = merge_ready(c, ticket)
+            if ready:
+                _merge_woken(c, ticket, ready[1])
+            return {"moved": None, "handoff": "merge" if ready else None, "quiet": not ready,
+                    "say": merge_text(c, ticket, *ready) if ready else
+                    f"{why}. Tico wakes you to merge once CI is green on it."}
+    target = F.step(c, target) if target and not isinstance(target, dict) else target
+    if not target:
+        return {"moved": None, "handoff": None, "quiet": True, "say": f"{why}."}
+    moved = move(c, ticket, target, why)
+    # A move to the next check needs nothing from the builder; a move back to the builder's own step is its cue.
+    cue = moved and target["status"] in ("open", "doing")
+    return {"moved": target["name"] if moved else None, "handoff": "verdict" if cue else None, "quiet": moved and not cue,
+            "say": (f"Tico moved this ticket to {target['name']}: {why}." if moved else
+                    f"{why}; Tico could not move this ticket to {target['name']}.")}
 
 
 def delivery(c, check):
@@ -246,42 +246,68 @@ def delivery(c, check):
     turn = c.execute("SELECT id FROM turns WHERE task_id=? ORDER BY started DESC,id DESC LIMIT 1",
                      (check["id"],)).fetchone()
     waiting = turn and pending.get("check_id") == check["id"] and pending.get("attempt_id") == turn["id"]
+    verdict = _verdict(check)
+    head = str(check.get("verdict_head") or _judged_head(c, check) or "").lower()
     # A rerouted check can get the same verdict at the same head from its next checker: that attempt's own outcome is
     # still to come, so the earlier attempt's is not it.
-    if out and (out.get("verdict"), out.get("head")) == (str(check.get("verdict") or "").lower(),
-                                                         str(check.get("verdict_head") or "").lower()) \
+    if out and (out.get("verdict"), out.get("head")) == (verdict, head) \
             and not (waiting and out.get("attempt_id") not in (None, turn["id"])):
         return out
     if waiting:
-        return {"verdict": str(check.get("verdict") or "").lower(),
-                "head": str(check.get("verdict_head") or "").lower(), "pending": True,
+        return {"verdict": verdict, "head": head, "pending": True,
                 "quiet": True, "say": "This check verdict is waiting for its executed attempt to be captured."}
     return None
 
 
+def _skipped(c, row, step, head):
+    """Whether the ticket passes `step` without a check at `head`: it carries the step's skip tag, or the step's round
+    was skipped (timed out) at that head."""
+    if F.skip_target(c, row, step):
+        return True
+    return bool(c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='round_skipped' AND new=? LIMIT 1",
+                          (row["id"], f"{step['id']}:{head}")).fetchone())
+
+
 def merge_ready(c, row):
-    """(pull request, head) when the ticket's last check approved the head it is at now and CI is green on it: the
-    builder merges next. None otherwise."""
-    kind = "qa" if "qa" in H.task_labels(row) else last_review(row)
-    if step_of(c, row) != CHECK_STEP[kind]:
+    """(pull request, head) when the merge is next from the ticket's step (its `on_pass`, or `after_green` on a new
+    head), the step's last check approved the head it is at now (or it is skipped) and CI is green on it. None
+    otherwise."""
+    step = F.step(c, row.get("step_id"))
+    flow = F.of(step)
+    if not step or F.MERGE not in (flow.get("on_pass"), flow.get("after_green")):
         return None
     prs = [p for p in _prs(c, row) if p.get("state") in ("open", "draft")]
     if len(prs) != 1 or prs[0].get("state") != "open" or prs[0].get("checks") != "passing" \
             or prs[0].get("mergeable") == "conflict" or not _head(prs[0]):
         return None
     pr, head = prs[0], _head(prs[0])
-    last = next((t for t in reversed(_checks(c, row, kind)) if t.get("verdict")), None)
-    if not last or str(last["verdict"]).lower() not in GOOD or not head.startswith(str(last.get("verdict_head") or "-").lower()):
+    if flow.get("on_pass") == F.MERGE:
+        if _skipped(c, row, step, head):
+            return pr, head
+        last = next((t for t in reversed(_checks(c, row, step)) if _verdict(t)), None)
+        if not last or _verdict(last) not in GOOD or not head.startswith(str(last.get("verdict_head") or "-").lower()):
+            return None
+        return pr, head
+    judged = _judged_by(c, row, step)
+    return (pr, head) if judged and not head.startswith(judged) else None
+
+
+def _judged_by(c, row, step):
+    """The head the check that sent the ticket to work step `step` judged, lowered, or None."""
+    check = F.fixes_for(c, step)
+    if not check:
         return None
-    return pr, head
+    found = next((t for t in reversed(_checks(c, row, check)) if _verdict(t)), None)
+    return str(found.get("verdict_head") or _judged_head(c, found) or "").lower() if found else None
 
 
 def merge_text(c, row, pr, head):
-    name = CHECK_STEP["qa" if "qa" in H.task_labels(row) else last_review(row)]
+    name = step_of(c, row) or "The last check"
     number = pr.get("number") or "?"
-    return (f"Ready to merge: {name} approved PR #{number} at head {head} and CI is green. Merge it under the merge "
-            f"rules (gh pr merge {number} --squash --match-head-commit {head}) and post the MERGED line; Tico then "
-            f"moves this ticket to {PENDING_RELEASE}.")
+    landing = F.merge_step(c, row["type_id"])
+    return (f"Ready to merge: {name} cleared PR #{number} at head {head} and CI is green. Merge it under the merge "
+            f"rules (gh pr merge {number} --squash --match-head-commit {head}) and post the MERGED line"
+            + (f"; Tico then moves this ticket to {landing['name']}." if landing else "."))
 
 
 def _merge_woken(c, row, head):
@@ -305,34 +331,96 @@ def merge_wake(c, row):
 
 
 def checks_done(c, row, head, outcome):
-    """Every check on `head` finished (github.pr_signal). Green on a new head at a Fixes step moves the ticket on to
-    its next check (AFTER_FIXES); green on the head its last check approved wakes the builder to merge."""
+    """Every check on `head` finished (github.pr_signal). Green on a head newer than the one its check judged, at a
+    step with `after_green`, moves the ticket on to its next check; green with the merge next wakes the builder to
+    merge."""
     row = _ticket(c, H.task(c, row["id"]))
     if not row or outcome != "pass" or not at_head(c, row, head):
         return None
-    step = step_of(c, row)
-    if step in AFTER_FIXES:
-        kind = {"Review 1 Fixes": "review 1", "Review 2 Fixes": "review 2", "QA Fixes": "qa"}[step]
-        judged = next((t.get("verdict_head") for t in reversed(_checks(c, row, kind)) if t.get("verdict")), None)
-        target = AFTER_FIXES[step](row)
-        if target and not (judged and str(head).lower().startswith(str(judged).lower())):
-            if move(c, row, target, f"checks passed on the new head {str(head)[:12]} at {step}"):
-                return target
+    step = F.step(c, row.get("step_id"))
+    target = F.of(step).get("after_green")
+    if target and target != F.MERGE:
+        judged = _judged_by(c, row, step)
+        if not (judged and str(head).lower().startswith(judged)):
+            if move(c, row, target, f"checks passed on the new head {str(head)[:12]} at {step['name']}"):
+                return F.name(c, target)
         return None
     merge_wake(c, row)
     return None
 
 
 def merged(c, row):
-    """A pull request merged: a ticket whose last check passed (or that was at Review 2 Fixes, merged after its
-    fixes) goes to Pending Release. Other tickets keep their step for their builder."""
+    """A pull request merged: the ticket goes to its type's merged step (`on_merge`) from any earlier step."""
     row = _ticket(c, H.task(c, row["id"]))
     if not row or not is_merged(c, row):
         return False
-    step, qa, last = step_of(c, row), "qa" in H.task_labels(row), last_review(row)
-    if qa:
-        checks = _checks(c, row, "qa")
-        ok = step == "In QA" and checks and str(checks[-1].get("verdict") or "").lower() in GOOD
-    else:
-        ok = step in (CHECK_STEP[last], FIXES[last])
-    return bool(ok) and move(c, row, PENDING_RELEASE, "its pull request merged")
+    target = F.merge_step(c, row["type_id"])
+    if not target or F.at_or_past(c, row, target):
+        return False
+    return move(c, row, target, "its pull request merged")
+
+
+def new_head(c, row):
+    """The ticket's pull request has a new head while it sits at a check step: when no check of that step is still
+    open, file one for the new head (the step's pool); an open one judges whatever head is current when it runs."""
+    row = _ticket(c, H.task(c, row["id"]))
+    step = row and F.step(c, row.get("step_id"))
+    if not step or not F.is_check(step) or F.skip_target(c, row, step):
+        return None
+    if any(t["status"] in H.ACTIVE_STATUSES for t in _checks(c, row, step)):
+        return None
+    from . import check_pools
+    return check_pools.entered(c, H.KEEPER, row)
+
+
+def skip(c, row):
+    """The ticket is at a step whose skip tag it carries: on to the step's `on_pass`, as if its check passed. The
+    skip is recorded on the ticket."""
+    row = _ticket(c, H.task(c, row["id"]))
+    step = row and F.step(c, row.get("step_id"))
+    if not step or not F.skip_target(c, row, step):
+        return None
+    tag = F.of(step)["skip_tag"]
+    H._task_event(c, row["id"], H.KEEPER, "step_skipped", None, step["name"], f"tagged {tag}")
+    out = _passed(c, row, step, f"{step['name']} skipped: the ticket is tagged {tag}")
+    if out.get("handoff"):
+        H._wake(c, row, row["owner"], out["say"], at_step(c, row["id"], {HANDOFF: out["handoff"]}))
+    return out
+
+
+def timeouts(c, at=None):
+    """Skip the round of each ticket at a check step past the step's `timeout_hours` with no verdict Tico acted on
+    there: its open checks are closed and the ticket goes on as if the check passed with no comments. The clock starts
+    when the ticket entered the step, so a check left open, one judged on an old head and one closed unanswered all end
+    the same way. Returns the tickets moved on."""
+    at = H.parse_ts(at or H.now())
+    skipped = []
+    timed = [dict(r) for r in c.execute("SELECT * FROM task_steps WHERE flow_json LIKE '%timeout_hours%'")]
+    for step in timed:
+        hours = F.of(step).get("timeout_hours")
+        if not hours or not F.is_check(step):
+            continue
+        for (ticket_id,) in c.execute(f"SELECT id FROM tasks WHERE step_id=? AND status IN "
+                                      f"({','.join('?' * len(H.ACTIVE_STATUSES))})",
+                                      (step["id"], *H.ACTIVE_STATUSES)).fetchall():
+            ticket = _ticket(c, H.task(c, ticket_id))
+            entered = c.execute("SELECT ts FROM task_events WHERE task_id=? AND field='step' AND new=? "
+                                "ORDER BY ts DESC,rowid DESC LIMIT 1", (ticket_id, step["id"])).fetchone()
+            if not ticket or not entered or (at - H.parse_ts(entered[0])).total_seconds() < hours * 3600:
+                continue
+            if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field IN ('round_skipped','step_skipped') "
+                         "AND ts>=? LIMIT 1", (ticket_id, entered[0])).fetchone():
+                continue        # skipped already: the merge, its builder's to do, is what it waits for
+            for check in _checks(c, ticket, step):
+                if check["status"] in H.ACTIVE_STATUSES:
+                    H.task_close(c, H.KEEPER, check["id"],
+                                 note=f"Unanswered for {hours:g} h; Tico closed it and skipped this round.")
+            head = next((_head(p) for p in _prs(c, ticket) if _head(p)), "")
+            H._task_event(c, ticket_id, H.KEEPER, "round_skipped", None, f"{step['id']}:{head}",
+                          f"{step['name']}: no usable verdict in {hours:g} h")
+            out = _passed(c, H.task(c, ticket_id), step, f"{step['name']} had no usable verdict for {hours:g} h; "
+                                                         "Tico skipped the round")
+            if out.get("handoff"):
+                H._wake(c, ticket, ticket["owner"], out["say"], at_step(c, ticket_id, {HANDOFF: out["handoff"]}))
+            skipped.append(ticket_id)
+    return skipped

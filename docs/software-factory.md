@@ -107,7 +107,8 @@ ticket stays at its step with a Waiting tag.
   even when the ticket stands as at its last checkpoint and the plain status check would be held, and unless it waits on
   something recorded (a question, a snooze, a due date, a blocker, a subtask) or a run of it is going. After 4 hours at
   the step, the type's manager (Head of Engineering), or else the owner's manager, is woken once to unblock or reroute
-  it. Each happens once per stay at the step.
+  it. Each happens once per stay at the step. A step's flow sets its own hours (`status_hours`, `late_hours`), on any
+  board; a Dev step without them uses 2 and 4.
 - **Bots move a ticket by its step** (`hub task update <id> --step "Review 1"`), not by its status. Several steps
   share a status, and setting a status lands on the first step that has it.
 

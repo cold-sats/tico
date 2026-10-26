@@ -141,7 +141,7 @@ def flush_wakes(c):
     messages: its grouped items, its review notes, and one `pr_checks_done` per head that finished."""
     from .repositories import metadata
     from .review_gate import engineering
-    from . import verdict_moves
+    from . import step_flow, verdict_moves
     sent = []
     for row in c.execute("SELECT key FROM registry_metadata WHERE key LIKE 'github-task-wake:%'").fetchall():
         with isolated(c, "github_wake", row["key"]):
@@ -158,8 +158,9 @@ def flush_wakes(c):
                 if burst.get("notes"):
                     H._wake(c, task, task["owner"], "\n".join(burst["notes"]), {"wake": "pr_review"}, trigger="pr_checks")
                 for done in burst.get("done", []):
-                    # A failed check on a bot's Dev ticket is its builder's hand-off, at any step.
-                    failed = done["result"] == "fail" and engineering(c, task) and H.is_bot(task["owner"])
+                    # A failed check on a bot's ticket on a board with a flow is its builder's hand-off, at any step.
+                    failed = done["result"] == "fail" and H.is_bot(task["owner"]) and (
+                        engineering(c, task) or step_flow.has_flow(c, task.get("type_id")))
                     H._wake(c, task, task["owner"], done["item"],
                             {"wake": "pr_checks_done", "pr_head": done["head"], "pr_result": done["result"],
                              **({"pr_armed": True} if done.get("armed") else {}),
@@ -341,6 +342,10 @@ def pull_request(c, payload, review_role="", release_repo="", *, read_refresh=Fa
             # The merge the builder was woken for: a ticket whose last check passed goes to Pending Release.
             from . import verdict_moves
             verdict_moves.merged(c, task)
+        elif new_head and action == "synchronize" and state == "open":
+            # A push at a check step whose check already finished needs a check of the new head.
+            from . import check_pools, verdict_moves
+            check_pools.safely(c, verdict_moves.new_head, task)
         current = c.execute("SELECT * FROM task_links WHERE id=?", (link["id"],)).fetchone()
         changed = [field for field in ("state", "repo", "number", "branch", "checks") if current[field] != link.get(field)]
         # GitHub computes unknown mergeability after a push, without a corresponding user action.

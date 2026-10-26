@@ -1185,7 +1185,7 @@ def step_entered(conn, actor, row, *, skip=()):
             refs = {"task": row["id"], "news": "step_entered"}
             if _table_decision(conn, "step_entered", actor, target, refs, conv, row):
                 H._wake(conn, row, target, f"{row['title']} entered {step[0] if step else 'a new step'}.",
-                        {"news": "step_entered"})
+                        {"news": "step_entered", **({"at_step": row["step_id"]} if row.get("step_id") else {})})
     except Exception:  # noqa: BLE001 - a step move never fails for the news about it
         return
 
