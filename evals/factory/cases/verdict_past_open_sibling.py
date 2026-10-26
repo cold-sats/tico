@@ -40,8 +40,9 @@ def _file(run, w):
             child = child.get("task", child)
         else:
             # Ana manages the builders: she may say whom their ticket waits on, which files the ask as her subtask.
-            asked = w.update(t["id"], status="waiting", waiting_on="ana", note=ASK)
-            child = asked.get("asked_in") or {}
+            asked = w.post("tasks/" + t["id"], {"version": w.task(t["id"])["version"], "status": "waiting",
+                                                "waiting_on": "ana", "note": ASK})
+            child = asked.get("asked_in") or (asked.get("task") or {}).get("asked_in") or {}
         run.asked[t["id"]] = {"child": child.get("id"), "title": child.get("title"), "at": w.now()}
 
 
@@ -137,18 +138,21 @@ def _held_at(holds, ts):
 
 
 def verdicts_reach_builder(run):
-    """Every verdict on a watched ticket reached its builder: a notice naming the check was claimed, and none sat
-    queued through a tick its builder was free."""
+    """Every verdict on a watched ticket reached its builder: a notice naming the check is in the builder's history
+    (a quiet one when the verdict's move needs nothing of it), any turn it asks for was claimed, and none sat queued
+    through a tick its builder was free."""
     missing = []
     for ticket in run.asked:
+        owner = run.w.sql("SELECT owner FROM tasks WHERE id=?", (ticket,))[0]["owner"]
         for c in run.w.checks(ticket):
             if not (str(c["owner"]).startswith("bot:") and c["verdict"]):
                 continue
-            got = run.w.sql("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id WHERE "
-                            "json_extract(m.refs_json,'$.subtask')=? AND (j.attempt_id IS NOT NULL OR EXISTS "
-                            "(SELECT 1 FROM attempt_inputs a WHERE a.message_id=m.id)) LIMIT 1", (c["id"],))
-            if not got:
-                missing.append(f"{run.w.title(ticket)}: {c['title']}")
+            notices = run.w.sql("SELECT j.state, j.attempt_id, EXISTS (SELECT 1 FROM attempt_inputs a WHERE "
+                                "a.message_id=m.id) folded FROM messages m LEFT JOIN jobs j ON j.message_id=m.id "
+                                "WHERE m.to_actor=? AND json_extract(m.refs_json,'$.subtask')=?", (owner, c["id"]))
+            if not notices or any(n["state"] and not n["attempt_id"] and not n["folded"] for n in notices):
+                missing.append(f"{run.w.title(ticket)}: {c['title']} "
+                               f"({', '.join(str(n['state'] or 'quiet') for n in notices) or 'no notice'})")
     held = run.violations["result_held"]
     detail = [f"never delivered: {', '.join(missing[:4])}"] if missing else []
     if held:

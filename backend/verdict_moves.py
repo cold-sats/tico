@@ -78,9 +78,10 @@ def is_merged(c, row):
 
 
 def _checks(c, row, step):
-    """The ticket's checks filed at check step `step`, newest last."""
+    """The ticket's checks filed at check step `step`, newest last. A person's own subtask filed there is ordinary
+    work, never a check, whatever its title: finished with no verdict, it is not a check's comments."""
     out = [H.task(c, cid) for cid in TR.child_ids(c, row["id"])]
-    out = [t for t in out if t and (F.check_step(c, t, row) or {}).get("id") == step["id"]]
+    out = [t for t in out if t and H.is_bot(t.get("owner")) and (F.check_step(c, t, row) or {}).get("id") == step["id"]]
     return sorted(out, key=lambda t: (t.get("created") or "", t["id"]))
 
 
@@ -208,6 +209,23 @@ def after_capture(c, check_id, head, attempt_id):
             refs["pr_head"] = head
         H._wake(c, ticket, ticket["owner"], out["say"], at_step(c, ticket["id"], refs), source=check_id)
     return out
+
+
+def resumed(c, task_id):
+    """The ticket is back at a check step from a hold (task_blocked.reconcile): a verdict its check there gave while it
+    was held, at the head its pull request is at now, moves it as it would have then. A verdict moves only a ticket at
+    the check's own step, so one given during the hold moved nothing, and the ticket would sit on a settled check."""
+    ticket = _ticket(c, H.task(c, task_id))
+    step = ticket and F.step(c, ticket.get("step_id"))
+    if not step or not F.is_check(step):
+        return None
+    last = next((t for t in reversed(_checks(c, ticket, step)) if _verdict(t)), None)
+    if not last or (delivery(c, last) or {}).get("consumed") or not after_verdict(c, last):
+        return None
+    attempt = c.execute("SELECT id FROM turns WHERE task_id=? ORDER BY started DESC,id DESC LIMIT 1",
+                        (last["id"],)).fetchone()
+    head = str(last.get("verdict_head") or _judged_head(c, last) or "").lower()
+    return after_capture(c, last["id"], head, attempt["id"]) if attempt else None
 
 
 def _passed(c, ticket, step, why):

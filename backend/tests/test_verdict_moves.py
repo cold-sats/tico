@@ -390,3 +390,23 @@ def test_a_failed_check_at_a_review_step_is_a_builder_hand_off(api):
     failed = [m for m in builder_jobs(api) if m["refs"].get("pr_result") == "fail"]
     assert len(failed) == 1 and failed[0]["refs"][V.HANDOFF] == "failed_check"
     assert step(api, task) == "Review 1"
+
+
+def test_a_verdict_given_while_the_ticket_was_held_moves_it_once_the_hold_clears(api):
+    task = ticket(api)
+    review = check(api, task)
+    with api.app.state.store.transaction() as c:
+        ask = H.task_create(c, "human:ana", "Security: confirm the vendor contract", "Confirm it.", "human:ana",
+                            parent_id=task["id"], lint=False)
+        H.task_update(c, "bot:cpo", task["id"], status="waiting", note="Waiting on the vendor contract.")
+    assert step(api, task) == "Blocked"
+    verdict(api, review, "changes")
+    assert step(api, task) == "Blocked", "a held ticket is not at the check's step: the verdict moves nothing yet"
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM jobs")
+        H.task_update(c, "human:ana", ask["id"], status="done", note="Confirmed.")
+        from backend import task_blocked
+        task_blocked.sweep(c, H.now(), [task["id"]])
+    assert step(api, task) == "Review 1 Fixes", "back at Review 1, the verdict given meanwhile moves it on"
+    handoffs = [m for m in builder_jobs(api) if m["refs"].get(V.HANDOFF) == "verdict"]
+    assert len(handoffs) == 1 and handoffs[0]["refs"]["verdict"] == "changes", builder_jobs(api)
