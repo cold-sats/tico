@@ -209,3 +209,26 @@ def test_put_back_from_blocked_keeps_queue_destination_and_hold(api, monkeypatch
         with api.app.state.store.transaction() as c:
             c.execute('UPDATE runners SET last_seen=?', (H.now(),))
         assert take(api, machine)['task']['id'] == task['id']
+
+
+def test_auto_start_back_off_on_engineering_board_keeps_queue_resume_without_a_turn(api):
+    machine = task_bot(api, lanes=True)
+    typ = post(api, 'task-types', {'name': 'Dev tickets', 'steps': [
+        {'name': 'On Deck', 'status': 'open'}, {'name': 'In Progress', 'status': 'doing'},
+        {'name': 'Done', 'status': 'done'}]})['type']
+    task = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the dependent feature',
+                             'body': 'Build it.', 'type': typ['id'], 'step': 'On Deck'})
+    blocker = post(api, 'tasks', {'owner': 'ana', 'title': 'Prepare the dependency', 'body': 'Prepare it.'})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET state='cancelled'")
+    assert take(api, machine)['task']['id'] == task['id']
+    with api.app.state.store.read() as c:
+        counts = [c.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in ('jobs', 'turns')]
+    post(api, 'tasks/' + task['id'] + '/relations', {'kind': 'blocked_by', 'task': blocker['id']})
+    result = get(api, 'tasks/' + task['id'])['task']
+    assert result['status'] == 'waiting' and result['step']['name'] == 'Blocked'
+    with api.app.state.store.read() as c:
+        row = H.task(c, task['id'])
+        resume = H._one(c, 'SELECT name FROM task_steps WHERE id=?', (row['blocked_from_step'],))
+        assert resume['name'] == 'On Deck' and row['blocked_from_status'] == 'open'
+        assert [c.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in ('jobs', 'turns')] == counts
