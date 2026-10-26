@@ -17,5 +17,9 @@ up, so a run tells you what the queue, the wake rules and the board do with a wh
 `SIM_TRACE=1` prints every turn: time, bot, what woke it, whether the notice was already stale (`*`), and what the
 bot did. The seed makes each run repeat exactly.
 
+A run prints FAIL for a check that does not hold and NOTE for what it only reports: tickets not merged by the end,
+and tickets that took over 24 h or sat at one step over 12 h. Those usually mean a bug, but the product only tells
+the manager about them and never stops the work, so the run does not fail on them.
+
 The simulation is not part of the test suite. Run it before and after a change to the wake rules, the queue, the
 review gate, the Dev steps or usage limits, and compare.
