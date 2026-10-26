@@ -5491,7 +5491,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         target_step = _one(conn, "SELECT name FROM task_steps WHERE id=?", (step_id,))
         if target_step and target_step["name"] in ("Review 1", "Review 2") and step_id != row.get("step_id"):
             from . import review_gate
-            review_gate.check(conn, actor, {**row, "type_id": type_id}, review_prs, note=note)
+            try:
+                review_gate.check(conn, actor, {**row, "type_id": type_id}, review_prs, note=note)
+            except Refused as exc:
+                # The move Tico retries once what refused it clears (backend/move_retry.py).
+                if getattr(exc, "review_gate", None):
+                    exc.review_gate["step"] = target_step["name"]
+                raise
         # A move between steps with the same status changes only the pipeline label.
         if step is not None and effective == row["status"]:
             status = None

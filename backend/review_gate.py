@@ -223,6 +223,8 @@ def check(c, actor, row, snapshots=None, note=None, require_pr=False):
 
 def reject(c, actor, row, kind, head, pr, text):
     from . import hubdb as H
+    from . import move_retry
+    text += move_retry.hint(kind, text)
     try:
         H.refuse(c, actor, "review_gate", text, task=row["id"])
     except H.Refused as exc:

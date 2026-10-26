@@ -204,3 +204,34 @@ def test_review_missing_from_reviewer_installation_refuses_before_claim_or_post(
     assert seen["reviews"] == []
     with api.app_state.store.read_transaction() as c:
         assert c.execute("SELECT count(*) FROM github_review_operations").fetchone()[0] == 0
+
+
+def test_github_refusing_a_review_403_files_one_devops_task_not_the_type_manager(api, gh, tmp_path, monkeypatch):
+    from backend import hubdb as H
+    settings, seen = configured(api, gh, tmp_path, monkeypatch)
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug, display_name, runtime, state) VALUES('devops-engineer','DevOps','fake','active')")
+    seen["refusal"] = 403
+    for key in ("first", "again"):
+        assert submit(api, key=key).status_code == 409
+    with api.app_state.store.read() as c:
+        filed = [dict(r) for r in c.execute("SELECT owner, title FROM tasks WHERE requester=? AND title LIKE 'GitHub refused%'",
+                                             (H.KEEPER,))]
+    assert filed == [{"owner": "bot:devops-engineer", "title": f"GitHub refused cmo's review on {REPO} (403)"}]
+
+
+def test_github_refusing_a_review_403_goes_to_the_tickets_type_manager_without_devops(api, gh, tmp_path, monkeypatch):
+    from backend import hubdb as H
+    settings, seen = configured(api, gh, tmp_path, monkeypatch)
+    with api.app_state.store.transaction() as c:
+        typ = H.type_create(c, H.KEEPER, "Dev tickets", [{"name": "In Progress", "status": "doing"}])
+        c.execute("UPDATE task_types SET manager='cpo' WHERE id=?", (typ["id"],))
+        ticket = H.task_create(c, H.KEEPER, "Build the thing", "x", "bot:cfo", type=typ["id"], lint=False)
+        c.execute("INSERT INTO task_links(id, task_id, kind, url, created) VALUES('l1', ?, 'pr', ?, ?)",
+                  (ticket["id"], f"https://github.com/{REPO}/pull/7", H.now()))
+    seen["refusal"] = 403
+    assert submit(api, key="only").status_code == 409
+    with api.app_state.store.read() as c:
+        owners = [r[0] for r in c.execute("SELECT owner FROM tasks WHERE requester=? AND title LIKE 'GitHub refused%'",
+                                          (H.KEEPER,))]
+    assert owners == ["bot:cpo"]
