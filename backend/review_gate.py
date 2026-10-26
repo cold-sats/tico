@@ -252,12 +252,20 @@ def evidence(c, row, actor, receipt_owner=None):
     return result
 
 
-def check(c, actor, row, snapshots=None, note=None, require_pr=False, receipt_owner=None):
-    if notice := problem(c, row, actor, snapshots, note, require_pr, receipt_owner):
-        reject(c, actor, row, *notice)
+def check(c, actor, row, snapshots=None, note=None, require_pr=False, reader=None, receipt_owner=None):
+    from . import hubdb as H
+    try:
+        if notice := problem(c, row, actor, snapshots, note, require_pr, receipt_owner, reader=reader):
+            reject(c, actor, row, *notice)
+    except H.Refused as exc:
+        # The mover a refused move is retried as (backend/move_retry.py): the actor the move was made as, which can
+        # differ from the request's caller (BotOps acting for a person, a service key acting as Tico).
+        if getattr(exc, "review_gate", None) is not None:
+            exc.review_gate.setdefault("by", reader or actor)
+        raise
 
 
-def problem(c, row, actor, snapshots=None, note=None, require_pr=False, receipt_owner=None):
+def problem(c, row, actor, snapshots=None, note=None, require_pr=False, receipt_owner=None, reader=None):
     """Read the current gate without writing refusals; shared by automatic hold clearing."""
     from . import hubdb as H
     if not engineering(c, row):
@@ -270,7 +278,9 @@ def problem(c, row, actor, snapshots=None, note=None, require_pr=False, receipt_
                    "Review refused: no linked PR. Link the current PR before asking a reviewer. "
                    "The owner or a person who may edit this ticket can link it.")
         return  # A board-only step move has no software reviewer to wake.
-    facts = evidence(c, row, actor, receipt_owner)
+    # Tico's retry of a refused move (backend/move_retry.py) reads as whoever made the move: the keeper is on no private
+    # task, and evidence that mover cannot read must not pass the move for them.
+    facts = evidence(c, row, reader or actor, receipt_owner)
     if note is not None:
         facts["note"] = note
         facts["updated"] = H.now()
@@ -316,6 +326,8 @@ def problem(c, row, actor, snapshots=None, note=None, require_pr=False, receipt_
 
 def reject(c, actor, row, kind, head, pr, text, retryable=False):
     from . import hubdb as H
+    from . import move_retry
+    text += move_retry.hint(kind, text)
     try:
         H.refuse(c, actor, "review_gate", text, task=row["id"])
     except H.Refused as exc:

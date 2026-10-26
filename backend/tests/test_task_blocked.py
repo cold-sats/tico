@@ -70,7 +70,11 @@ def test_gate_refusal_commits_block_without_advancing_review(api):
         from backend import task_blocked
         H.task_update(c, task['owner'], task['id'], note=f'Tests: head {HEAD}: 9 passed, 0 failed')
         task_blocked.reconcile(c, task['id'])
-        assert H.task(c, task['id'])['step_id'] == task['step_id']
+        # Tico still retries the refused move (backend/move_retry.py), so the hold is left for it to make.
+        assert H.task(c, task['id'])['blocked_kind'] == 'gate'
+    from backend import move_retry
+    assert move_retry.tick(api.app.state.github_app, force=True) == [task['id']]
+    assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Review 1'
 
 
 def test_two_dependencies_block_until_both_clear(api):
@@ -120,8 +124,10 @@ def test_scheduler_clears_receipt_gate_without_a_stall_candidate(api):
         H.task_update(c, task['owner'], task['id'], note=f'Tests: head {HEAD}: 9 passed, 0 failed')
         assert task['id'] not in [r['id'] for r in H.stalled_tasks(c)]
     Scheduler(store, api.app.state.execution).tick(datetime.now(timezone.utc))
+    from backend import move_retry
+    assert move_retry.tick(api.app.state.github_app, force=True) == [task['id']]
+    assert get(api, 'tasks/' + task['id'])['task']['step']['name'] == 'Review 1'
     with store.read() as c:
-        assert H.task(c, task['id'])['step_id'] == task['step_id']
         assert H.task(c, task['id'])['blocked_since'] is None
 
 

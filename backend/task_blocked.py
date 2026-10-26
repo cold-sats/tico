@@ -139,6 +139,11 @@ def reconciliation(c, row):
         return None
     waiting = wait(c, row)
     if row.get('blocked_kind') == 'gate':
+        from . import move_retry
+        # A refused move Tico still retries (backend/move_retry.py) is made when the gate clears; resuming the earlier
+        # step here would undo it and drop the retry.
+        if move_retry.remembered(c, row):
+            return None
         gate = H._json(row.get('blocked_gate_json'), {}) or {}
         # A fresh refusal can describe a newer head/check result than the cached link.
         # Only a subsequent GitHub observation may clear that uncertainty.
