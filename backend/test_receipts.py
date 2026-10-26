@@ -23,27 +23,20 @@ HISTORY = re.compile(
     rf"\b{_FAILURE}\s+(?:(?:is|was|has|been|now|already)\s+){{0,4}}{_FIX}\b", re.I)
 
 
-def _recognise(line):
+COUNTED_FAILURE = re.compile(rf"\b[1-9][0-9]*\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}{_FAILURE}\b", re.I)
+CONTINUATION = re.compile(rf"^\s*[0-9]+\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b", re.I)
+
+
+def _recognise(line, test_context=False):
     """Recognise one head's result clause, retaining failure precedence."""
     match = HEAD.search(line)
     shas = list(SHA.finditer(line))
-    anchor = match or (shas[0] if len(shas) == 1 else None)
-    # Notes and keeper notices wrap a receipt in other sentences: corrected
-    # historical failures and unrun suites do not describe this head's result.
-    start, end = 0, len(line)
-    if anchor:
-        for boundary in re.finditer(r"[.!?]\s+", line):
-            if boundary.end() <= anchor.start():
-                start = boundary.end()
-            elif boundary.start() >= anchor.end():
-                end = boundary.start()
-                break
-    clause = line[start:end]
-    if not TEST.search(clause):
+    if not test_context and not TEST.search(line):
         return None
     head = match[1].lower() if match else shas[0][0].lower() if len(shas) == 1 else None
-    result = HISTORY.sub("", ZERO.sub("", clause))
-    status = ("failed" if FAIL.search(result) else "unrecognised" if PLAN.search(result)
+    outcome = ZERO.sub("", line)
+    result = HISTORY.sub("", outcome)
+    status = ("failed" if COUNTED_FAILURE.search(outcome) or FAIL.search(result) else "unrecognised" if PLAN.search(result)
               else "passed" if PASS.search(result) else "unrecognised")
     return {"head": head, "status": status, "text": line}
 
@@ -55,7 +48,15 @@ def recognise_many(line):
     with its run. Only another explicit head starts a separate result.
     """
     found = []
+    sentences = []
     for sentence in re.split(r"[.!?]\s+", line):
+        # A bare result count continues the previous run even after a period.
+        # Other sentences (plans, repairs, commentary) retain their own scope.
+        if sentences and not SHA.search(sentence) and CONTINUATION.match(sentence):
+            sentences[-1] += "; " + sentence
+        else:
+            sentences.append(sentence)
+    for sentence in sentences:
         parts = re.split(r"[;,]\s*|\s+(?:and|but|after|while)\s+", sentence, flags=re.I)
         clauses = []
         for part in parts:
@@ -65,14 +66,17 @@ def recognise_many(line):
             else:
                 clauses.append(part)
         for clause in clauses:
-            if receipt := _recognise(clause):
+            if receipt := _recognise(clause, test_context=bool(TEST.search(sentence))):
                 found.append({**receipt, "text": line})
     return found
 
 
 def recognise(line):
-    """First result in a line, or None; receipt collection uses every result."""
-    return next(iter(recognise_many(line)), None)
+    """First head's result with failure precedence; collection uses every head."""
+    found = recognise_many(line)
+    if not found:
+        return None
+    return next((r for r in found if r["head"] == found[0]["head"] and r["status"] == "failed"), found[0])
 
 
 def sources(task):

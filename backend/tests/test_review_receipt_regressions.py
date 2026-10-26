@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend import hubdb as H, test_receipts
+from backend import hubdb as H, test_receipts, review_gate
 from backend.tests.test_github import api, headers, post, PR
 from backend.tests.test_review_gate import HEAD, OLD, ticket, move
 
@@ -181,3 +181,100 @@ def test_nonparty_person_with_task_edit_rights_counts(api, permission):
         H.task_comment(c, 'human:editor', task['id'], f'Tests: head {HEAD}: 9 passed', wake=False)
     response = move(api, task)
     assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize('tail', [
+    f'2 failed at head {HEAD}',
+    f'head {HEAD}: 2 failed',
+    '2 earlier failed',
+    '12 previous test failures',
+    '2 failed.',
+    '2 failed. 1 error',
+])
+def test_failure_counts_keep_test_context_across_clauses_and_sentences(tail):
+    separator = '. ' if tail.startswith('2 failed.') else '; '
+    text = f'Tests at head {HEAD}: 9 passed{separator}{tail}'
+    assert test_receipts.recognise(text)['status'] == 'failed'
+    assert test_receipts.at_head({'id': 't', 'note': text}, HEAD)[0] == 'failed'
+
+
+def test_head_bound_failure_inherits_test_context_without_poisoning_other_head():
+    text = f'Tests at head {HEAD}: 9 passed; 2 failed at head {OLD}'
+    assert test_receipts.at_head({'id': 't', 'note': text}, HEAD)[0] == 'passed'
+    assert test_receipts.at_head({'id': 't', 'note': text}, OLD)[0] == 'failed'
+
+
+def test_null_email_receipt_author_fails_closed_without_crashing(api):
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO humans(id,name,email,teams_json) VALUES('guest','Guest',NULL,'[]')")
+        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('owner',?)",
+                  (json.dumps({'email': 'owner@acme.example'}),))
+        conv = H.conversation(c, task['conversation_id'])
+        H._write_message(c, 'human:guest', task['owner'], f'Tests: head {HEAD}: 9 passed', conv,
+                         'say', {'task': task['id'], 'quiet': True}, None, None)
+    response = move(api, task)
+    assert response.status_code == 422 and 'missing test receipt' in response.text, response.text
+
+
+@pytest.mark.parametrize('handoff', ['move', 'child'])
+def test_environment_owner_receipt_counts_without_stored_owner(api, handoff):
+    task = ticket(api)
+    api.app.state.store.settings.owner_email = 'editor@acme.example'
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM registry_metadata WHERE key='owner'")
+        c.execute("INSERT INTO humans(id,name,email,teams_json) VALUES('editor','Editor','editor@acme.example','[]')")
+        H.task_comment(c, 'human:editor', task['id'], f'Tests: head {HEAD}: 9 passed', wake=False)
+    response = (move(api, task) if handoff == 'move' else api.post('/api/v2/tasks', headers=headers(), json={
+        'owner': 'cmo', 'title': 'Review 1: PR #412', 'body': 'Check current code.',
+        'relations': [{'task': task['id'], 'kind': 'parent'}]}))
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize('removal', ['deleted_at', 'hidden_at', 'superseded_at'])
+def test_removed_manager_receipt_does_not_count(api, removal):
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET reports_to='cmo' WHERE bot='cpo'")
+        conv = H.conversation(c, task['conversation_id'])
+        msg = H._write_message(c, 'bot:cmo', task['owner'], f'Tests: head {HEAD}: 9 passed', conv,
+                               'say', {'task': task['id'], 'quiet': True}, None, None)
+        c.execute(f'UPDATE messages SET {removal}=? WHERE id=?', (H.now(), msg['id']))
+        facts = review_gate.evidence(c, H.task(c, task['id']), 'human:ana')
+        assert test_receipts.at_head(facts, HEAD)[0] == 'missing'
+        c.execute(f'UPDATE messages SET {removal}=NULL WHERE id=?', (msg['id'],))
+        facts = review_gate.evidence(c, H.task(c, task['id']), 'human:ana')
+        assert test_receipts.at_head(facts, HEAD)[0] == 'passed'
+
+
+def test_manager_receipt_in_private_child_still_requires_mover_visibility(api):
+    task = ticket(api, private=False)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET reports_to='cmo' WHERE bot='cpo'")
+        child = H.task_create(c, 'human:ana', 'Evidence', 'x', 'cmo', parent_id=task['id'], next_run=True)
+        c.execute("UPDATE tasks SET title='Review 1: previous', private=1, requester=? WHERE id=?",
+                  (task['owner'], child['id']))
+        conv = H.conversation(c, child['conversation_id'])
+        H._write_message(c, 'bot:cmo', child['owner'], f'Tests: head {HEAD}: 9 passed', conv,
+                         'say', {'task': child['id'], 'quiet': True}, None, None)
+        assert H.task_private_readable(c, task['owner'], H.task(c, child['id']))
+        assert not H.task_private_readable(c, 'human:ana', H.task(c, child['id']))
+    response = move(api, task)
+    assert response.status_code == 422 and 'missing test receipt' in response.text, response.text
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET private=0 WHERE id=?', (child['id'],))
+    assert move(api, task).status_code == 200
+
+
+def test_stored_owner_revokes_environment_owners_receipt_authority(api):
+    task = ticket(api)
+    api.app.state.store.settings.owner_email = 'former@acme.example'
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO humans(id,name,email,teams_json) VALUES('former','Former','former@acme.example','[]')")
+        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('owner',?)",
+                  (json.dumps({'email': 'current@acme.example'}),))
+        conv = H.conversation(c, task['conversation_id'])
+        H._write_message(c, 'human:former', task['owner'], f'Tests: head {HEAD}: 9 passed', conv,
+                         'say', {'task': task['id'], 'quiet': True}, None, None)
+    response = move(api, task)
+    assert response.status_code == 422 and 'missing test receipt' in response.text, response.text

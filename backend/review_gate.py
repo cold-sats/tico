@@ -161,7 +161,7 @@ def snapshot(service, prs):
     return out
 
 
-def receipt_author(c, row, actor, parents):
+def receipt_author(c, row, actor, parents, owner_email):
     """Additional receipt authors; this grants no task actions or visibility."""
     from . import hubdb as H
     from .auth import above
@@ -170,17 +170,19 @@ def receipt_author(c, row, actor, parents):
     if H.is_bot(actor):
         return H.is_bot(row["owner"]) and above(parents, H.actor_id(actor), H.actor_id(row["owner"]))
     if H.is_human(actor) and (person := H.human(c, actor)):
-        owner = c.execute("SELECT value_json FROM registry_metadata WHERE key='owner'").fetchone()
-        owner_email = (H._json(owner[0], {}) or {}).get("email") if owner else None
         return (H._task_party(c, actor, row) or H.can_move(c, actor)
-                or bool(owner_email and person.get("email", "").lower() == owner_email.lower()))
+                or bool(owner_email and (person.get("email") or "").lower() == owner_email.lower()))
     return False
 
 
-def evidence(c, row, actor):
+def evidence(c, row, actor, receipt_owner=None):
     from . import hubdb as H
     from . import task_privacy as privacy
     from .read_cache import configs
+    if receipt_owner is None:
+        owner = c.execute("SELECT value_json FROM registry_metadata WHERE key='owner'").fetchone()
+        receipt_owner = (H._json(owner[0], {}) or {}).get("email") if owner else None
+    author_cache = {}
     parents = {r["bot"]: r["reports_to"] or "" for r in configs(c)}
     def collect(item):
         messages = []
@@ -194,8 +196,11 @@ def evidence(c, row, actor):
             if (privacy.message_readable(c, actor, m, current=True)
                     and privacy.message_readable(c, row["owner"], m, current=True)):
                 messages.append(m)
-                if receipt_author(c, row, m.get("from_actor"), parents):
-                    authors.add(m["from_actor"])
+                author = m.get("from_actor")
+                if author not in author_cache:
+                    author_cache[author] = receipt_author(c, row, author, parents, receipt_owner)
+                if author_cache[author]:
+                    authors.add(author)
         return {**item, "messages": messages, "receipt_authors": sorted(authors)}
     result = collect(row)
     result["children"] = []
@@ -208,7 +213,7 @@ def evidence(c, row, actor):
     return result
 
 
-def check(c, actor, row, snapshots=None, note=None, require_pr=False):
+def check(c, actor, row, snapshots=None, note=None, require_pr=False, receipt_owner=None):
     from . import hubdb as H
     if not engineering(c, row):
         return
@@ -220,7 +225,7 @@ def check(c, actor, row, snapshots=None, note=None, require_pr=False):
                    "Review refused: no linked PR. Link the current PR before asking a reviewer. "
                    "The owner or a person who may edit this ticket can link it.")
         return  # A board-only step move has no software reviewer to wake.
-    facts = evidence(c, row, actor)
+    facts = evidence(c, row, actor, receipt_owner)
     if note is not None:
         facts["note"] = note
         facts["updated"] = H.now()
