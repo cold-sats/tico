@@ -407,3 +407,17 @@ def test_scheduler_does_not_write_check_an_unheld_engineering_task(api, monkeypa
     monkeypatch.setattr(task_blocked, 'sweep', record)
     Scheduler(api.app.state.store, api.app.state.execution).tick(datetime.now(timezone.utc))
     assert task['id'] not in called
+
+
+def test_an_old_blocker_does_not_put_a_merged_ticket_back_on_hold(api):
+    """A step whose flow says can_hold false (Pending Release on a Dev board) is never held: a merged change is
+    reverted or fixed forward, not Blocked."""
+    from backend import step_flow, task_relations as TR
+    task = ticket(api)
+    old = post(api, 'tasks', {'owner': 'cmo', 'title': 'Restore an old check', 'body': 'Old.'})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_steps SET flow_json=? WHERE id=?", (json.dumps({"can_hold": False}), task['step_id']))
+        TR.add_blocker(c, H.KEEPER, task['id'], old['id'])
+        row = H.task(c, task['id'])
+        assert (row['step_id'], row['blocked_since']) == (task['step_id'], None)
+        assert step_flow.can_hold(c, H.type_get(c, task['type_id'])['steps'][0]['id']), "other steps still hold"

@@ -31,6 +31,7 @@ class Step:
     can_hold: bool = True           # whether a ticket here may be put on hold (Blocked)
     wake_after_hours: float | None = None   # the owner is woken when a ticket sits here this long
     assign: str | None = None       # unowned tickets here go to the least busy bot of this role with a free slot
+    backlog: dict | None = None     # more than `over` tickets waiting here (per step or per owner): who hears of it
     merged: bool = False            # a ticket is here only once its change merged
     release: bool = False           # a release moves tickets from here to the next step
 
@@ -75,7 +76,7 @@ def dev_board(qa=True, review_timeout=1.0):
     who moves it on once the feedback is in (only the builder knows when). QA passes or fails; its pass makes the merge
     next. Then the release."""
     steps = [
-        Step("On Deck", "open", assign="builder"),
+        Step("On Deck", "open", assign="builder", backlog={"over": 10, "per": "step", "notify": ["manager"]}),
         Step("In Progress", "doing", work=True, next="Review 1"),
         Step("Review 1", "review", check=Check("reviewer", "Review 1 Fixes", "Review 1 Fixes",
                                                timeout_hours=review_timeout, gate=True)),
@@ -127,6 +128,10 @@ def flows(board, bots):
             flow["on_merge"] = True
         if not s.can_hold:
             flow["can_hold"] = False
+        if s.wake_after_hours:
+            flow["status_hours"] = s.wake_after_hours
+        if s.backlog:
+            flow["backlog"] = s.backlog
         if s.assign:
             flow["assign"] = {"pool": bots.get(s.assign, []), "slots": board.slots}
         row = {"name": s.name, "status": s.status, "flow": flow}

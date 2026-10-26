@@ -9,6 +9,7 @@ A bot's `style` is how its model behaves, as probabilities per turn that does re
 - `off_script`: the bot moves its ticket somewhere the process doesn't allow (to Blocked, or back a step)
 Every number is drawn from the scenario's seeded random generator, so a run repeats exactly."""
 import os
+from collections import Counter
 from .board import MERGE
 from .world import Refusal
 
@@ -31,6 +32,7 @@ class Bot:
         self.available = True       # False: its computer is off (claims nothing)
         self.limited_until = None   # set: every run is refused on a usage limit until then
         self.turns = []             # one dict per finished turn
+        self.lost = []              # turns its computer lost going off, filed when it comes back
 
     @property
     def token(self):
@@ -117,6 +119,19 @@ class Bot:
     @property
     def running(self):
         return getattr(self, "attempt", None) is not None
+
+    def lose(self):
+        """The computer went off mid-turn: the turn did not finish, and the runner remembers it."""
+        self.lost.append(self.attempt)
+        self.attempt = self.record = None
+
+    def recover(self):
+        """Back on, the runner files each turn it lost as the real runner does on a restart."""
+        while self.lost:
+            attempt = self.lost.pop()
+            self.world.call("post", f"attempts/{attempt['id']}/complete",
+                            {"outcome": "interrupted", "text": "Runner restarted during execution", "last_seq": 0},
+                            token=self.world.runner["token"], ok=False)
 
     def renew(self):
         if self.running:
@@ -378,12 +393,41 @@ class Lead(Bot):
     lead does: it tells the owner, with what it sees. It never moves a ticket itself. Any other wake is noise."""
 
     def act(self, task, message):
+        refs = message.get("refs") or {}
+        if refs.get("step_late") and task["status"] not in FINISHED and str(task["owner"]).startswith("bot:"):
+            self.world.post(f"tasks/{task['id']}/comments", {"text": f"@{task['owner'][4:]} this ticket is late at "
+                                                                     f"{self.world.step_of(task)}: what does it wait on?"},
+                            token=self.token)
+            return "asked the owner of a late ticket"
+        if refs.get("step_backlog"):
+            return self.spread(task)
         if not task["title"].startswith("Hourly board sweep") or task["owner"] != "bot:" + self.slug \
                 or task["status"] in FINISHED:
             return None
         told = self.sweep()
         self.world.update(task["id"], token=self.token, status="done", note=told)
         return told
+
+    def spread(self, task):
+        """A backlog at a step: hand the busiest bot owner's surplus there to the least loaded bot of the same kind.
+        Unowned tickets wait for the board, so a backlog of those is only acknowledged."""
+        w = self.world
+        step = w.step_of(task)
+        here = [t for t in w.tickets() if t["step"] == step and t["status"] not in FINISHED]
+        owned = Counter(t["owner"] for t in here if str(t["owner"]).startswith("bot:"))
+        if not owned:
+            return "noted a backlog the board is to assign"
+        busiest, n = owned.most_common(1)[0]
+        role = next((r for r, slugs in w.roles.items() if busiest[4:] in slugs), None)
+        peers = ["bot:" + slug for slug in w.roles.get(role, []) if "bot:" + slug != busiest]
+        if not peers:
+            return f"noted the backlog on {busiest[4:]}"
+        target = min(peers, key=lambda o: owned[o])
+        moved = 0
+        for t in [t for t in here if t["owner"] == busiest and t["status"] == "open"][: (n - owned[target]) // 2]:
+            w.update(t["id"], token=self.token, owner=target)
+            moved += 1
+        return f"moved {moved} tickets from {busiest[4:]} to {target[4:]}" if moved else f"noted the backlog on {busiest[4:]}"
 
     def sweep(self):
         w, board = self.world, self.world.board

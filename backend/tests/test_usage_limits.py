@@ -168,20 +168,3 @@ def test_subscription_runs_count_unless_the_team_turns_that_off(api):
     assert put(api, "usage/limits", {"daily_usd": 20, "count_subscription": False})["default"]["count_subscription"] is False
     assert get(api, "usage/limits")["default"]["count_subscription"] is False      # a saved choice stays
     assert put(api, "usage/limits", {"daily_usd": 20})["default"]["count_subscription"] is True
-
-
-def test_a_run_going_counts_against_the_limit_at_its_bots_average_and_a_run_starts_only_if_it_fits(api):
-    from backend import usage_limits
-    r = fleet(api)
-    put(api, "usage/limits/ops", {"hourly_usd": 12})
-    finish(api, r, start(api, r), 500_000)                                        # $5 spent; its average is $5
-    going = start(api, r, "Next one.")                                            # $5 + $5 fits under $12
-    with api.app.state.store.read() as c:
-        # $5 spent, this run reserved at $5, and another would need $5: $15 against $12, so nothing else starts.
-        assert usage_limits.state(c, "ops")["blocked"] == "hourly"
-        assert usage_limits.state(c, "ops")["hour_spent"] == 5, "what shows as spent is the finished runs"
-    finish(api, r, going, 10_000)                                                 # it cost $0.10: room again
-    with api.app.state.store.read() as c:
-        assert usage_limits.state(c, "ops")["blocked"] is None
-    put(api, "usage/limits/ops", {"hourly_usd": 6})
-    assert start(api, r, "One more.") is None, "$5.10 spent and a $2.55 run would pass $6"

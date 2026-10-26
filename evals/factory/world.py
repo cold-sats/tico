@@ -90,6 +90,8 @@ class World:
             self.dev = H.type_create(c, H.KEEPER, self.board.name,
                                      [{"name": s.name, "status": s.status} for s in self.board.steps], bots="work")
             R.seed_dev(c)
+            if "engineering-lead" in bots:   # a live install's Dev type is its Head of Engineering's (fixed by role)
+                c.execute("UPDATE task_types SET manager='engineering-lead' WHERE id=?", (self.dev["id"],))
         self.scheduler = Scheduler(self.store, self.app.state.execution)
         code = self.post("enrollments", {"operator": "ana"})["code"]
         self.runner = self.post("runners/enroll", {"code": code, "label": "Sim", "platform": "test"})

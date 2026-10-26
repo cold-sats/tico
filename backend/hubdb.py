@@ -6405,6 +6405,8 @@ def task_close(conn, actor, task_id, note="", quiet=False, *, type=None, step=No
     # A note from a person, or a close before the work was done, still wakes: that may change
     # what the bot does next.
     accepted = row["status"] in ("done", "declined") and (actor == KEEPER or not str(note or "").strip())
+    # Work not started yet, closed with nothing said, asks nothing of its bot either: it never starts it.
+    accepted = accepted or (row["status"] == "open" and not str(note or "").strip())
     # A next-run task closed before any run carried it is a cancel: the bot never saw it, so
     # there is nothing to tell it and no run to spend telling it.
     accepted = quiet or accepted or next_run_waiting(conn, row)

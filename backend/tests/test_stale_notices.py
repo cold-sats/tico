@@ -1,6 +1,6 @@
 """A notice that news has overtaken is dropped at claim, not run (backend/execution.obsolete_notices_sql): a status
 check of a quiet task its owner has acted on since, and a pull request's checks result for a head the pull request
-has moved past. A notice that is still news runs."""
+has moved past, and a step's late warning for a ticket that has left the step. A notice that is still news runs."""
 import json
 
 from backend.store import H
@@ -59,3 +59,20 @@ def test_checks_news_for_a_head_the_pull_request_moved_past_is_dropped(api):
     with api.app.state.store.read() as c:
         assert queued(c, old) == "cancelled"
     assert [a["job_id"] for a in handed if a] == [job(api, new)], "the result for the head it is at still runs"
+
+
+def test_a_late_warning_for_a_ticket_that_has_left_its_step_is_dropped(api):
+    r = fleet(api)
+    with api.app.state.store.transaction() as c:
+        moved, still = task(c), task(c, "Fix the login")
+        c.execute("UPDATE jobs SET state='cancelled' WHERE bot='ops'")
+        c.execute("UPDATE task_events SET ts=? WHERE task_id IN (?,?)", (H.shift(H.now(), minutes=-10), moved["id"], still["id"]))
+        late, kept = (H._wake(c, t, "bot:ops", "Late: it has been at In Progress for 4 h.",
+                              {"wake": "blocker", "step_late": True}, trigger="stall_check") for t in (moved, still))
+        c.execute("UPDATE messages SET created=? WHERE id IN (?,?)", (H.shift(H.now(), minutes=-5), late["id"], kept["id"]))
+        # Tico moved it on by itself (a verdict, green checks): no person or bot acted, but it is no longer late there.
+        H._task_event(c, moved["id"], H.KEEPER, "step", "in-progress", "review-1")
+    claim(api, r)
+    with api.app.state.store.read() as c:
+        assert queued(c, late) == "cancelled"
+        assert queued(c, kept) != "cancelled", "a ticket still at its step keeps its warning"

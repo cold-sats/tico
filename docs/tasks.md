@@ -113,6 +113,29 @@ At engineering-ticket creation, `change_paths` supplies the known paths for the 
 
 On a PR's first registration, the server reads its complete changed-file list and applies the same default to its linked engineering tickets, including tickets whose paths were unknown at creation. The initial read retries in the background if GitHub is unavailable. Later pushes do not reclassify the ticket. Explicit ticket choices and the PR author's `qa`, `no-qa` or `qa:no` labels override defaults. This sets the Tico ticket's tag; it does not edit GitHub labels or expand bots' label permissions. `qa_not_checkable_live` (`--qa-not-checkable-live`) also requests the candidate-only QA note.
 
+### Step flow: what a step does with a ticket
+
+What Tico does with a ticket at a step is a setting on that step (`flow` on each step of `POST /api/v2/task-types/{id}`),
+never read from the step's name, so any board can be set up its own way. Step references take a name or an id and are
+kept by id, so renaming a step keeps its flow. All keys are optional:
+
+| Key | What it does |
+| --- | --- |
+| `on_pass`, `on_fail` | Make the step a check step. A pass or approve moves the ticket to `on_pass` (`merge`: merging is next and the Builder is told once CI is green); changes, a fail, or a check finished with no verdict (its comments) move it to `on_fail`. |
+| `after_green` | A work step: green CI on a head newer than the one its check judged moves the ticket here (`merge` to merge next). Without it the owner moves the ticket on when its work is done. |
+| `on_merge` | The one step a ticket goes to when its pull request merges, from any earlier step. |
+| `skip_tag` | A ticket with this tag passes the step: it goes straight to `on_pass`, and the skip is recorded. |
+| `timeout_hours` | A check still open this long is closed unanswered and the round skipped: the ticket goes on as if it passed with no comments. |
+| `status_hours`, `late_hours` | A ticket quiet this long at the step gets its bot owner one status check; one this long at the step gets its manager one notice. Dev working steps default to 2 and 4. |
+| `assign` | `{pool, slots}`: an unowned ticket here goes to the least busy pool bot with a free slot (tickets past this step it holds). |
+| `backlog` | `{over, per, notify, every_hours}`: more than `over` tickets at the step (`per: step`) or for one owner (`per: owner`) tells `notify`: `manager` (the type's), `owner`, `owner_manager` (one level up on the org chart), or a named bot or person. Once every `every_hours` (4) while over. |
+| `can_hold` | `false`: a ticket here is never put on hold (Blocked); a merged change is reverted or fixed forward. |
+| `gate` | Entering the step needs green CI and a test receipt at the head (the review gate above). |
+
+A Dev tickets type is given the Dev board's flow once: reviews send their feedback back to the Builder's Fixes step
+whichever way they go, In QA passes to the merge (skip tag `skip-qa`), Pending Release takes merged tickets, and
+released steps never hold. Change any of it on the steps.
+
 ## Automatic starts
 
 Assigned bot work starts as soon as its computer has a free turn. Tico picks the highest-ranked eligible

@@ -12,13 +12,6 @@ on a ChatGPT or Claude sign-in are flat cost, so their API-equivalent counts onl
   100%  the bot takes no new job until the period turns over or the limit is raised: the job stays queued and the bot
         reads "Paused: over its hourly limit". A run already going finishes.
 
-A limit is a ceiling, so a run still going counts against it too: each is reserved at its bot's average over its
-last RESERVE_RUNS finished runs (in_flight), until it finishes and its estimate takes the place of the reservation.
-A new run starts only when its own average still fits under the limit, except the first run of a period with nothing
-spent or going, so a limit below one run's cost slows a bot without stopping it for good. Without this, every run
-started early in an hour went unseen until it finished, and a busy hour spent half again its limit. Only the decision
-to start reads the reservations; what a period shows as spent is the finished runs.
-
 The hour is the UTC clock hour, the day the UTC day, the week starts Monday 00:00 UTC and the month is the UTC calendar
 month.
 """
@@ -30,7 +23,6 @@ from .store import H
 
 KEY = "usage_limits"                       # the company default, in registry_metadata
 WARN = 80
-RESERVE_RUNS = 20
 MAX_USD = 10_000_000
 PERIODS = (("hourly", "hour"), ("daily", "day"), ("weekly", "week"), ("monthly", "month"))
 KEYS = tuple(name + "_usd" for name, _ in PERIODS)
@@ -241,41 +233,6 @@ def by_bot(c, start, end, subscription, default=None):
     return memo[key]
 
 
-def in_flight(c, start, end, subscription, default=None):
-    """{bot: reservation} for the runs going now that started in [start, end): each at its bot's average estimate
-    over its last RESERVE_RUNS finished runs that count (module note)."""
-    memo = default.memo if isinstance(default, Default) else {}
-    key = ("in_flight", start, end, bool(subscription))
-    if key not in memo:
-        going = dict(c.execute(
-            "SELECT bot, count(*) FROM attempts WHERE state IN ('leased','running') "
-            "AND coalesce(started, created) >= ? AND coalesce(started, created) < ? GROUP BY bot", (start, end)).fetchall())
-        memo[key] = {bot: n * average(c, bot, subscription, default) for bot, n in going.items()}
-    return memo[key]
-
-
-def average(c, bot, subscription, default=None):
-    """The bot's average estimate over its last RESERVE_RUNS finished runs that count: what one of its runs reserves."""
-    memo = default.memo if isinstance(default, Default) else {}
-    key = ("average", bot, bool(subscription))
-    if key not in memo:
-        from .usage_records import RUNS
-        found = c.execute(
-            f"SELECT avg(cost) FROM (SELECT coalesce(est_cost_usd, 0) cost FROM {RUNS} WHERE bot=? AND finished IS NOT NULL "
-            "AND (? OR coalesce(billing, 'api') != 'subscription') ORDER BY started DESC LIMIT ?)",
-            (bot, 1 if subscription else 0, RESERVE_RUNS)).fetchone()[0]
-        memo[key] = float(found or 0)
-    return memo[key]
-
-
-def _over(amount, reserved, need, cap):
-    """Whether a new run may not start: what is spent and reserved, plus the run's own `need`, passes the cap; a
-    period with nothing spent or going always lets one run start (module note)."""
-    if amount + reserved <= 0:
-        return amount >= cap
-    return amount + reserved + need > cap or amount >= cap
-
-
 def spent(c, bot, start, end, subscription, default=None):
     """The estimate for the bot's runs that started in [start, end)."""
     return by_bot(c, start, end, subscription, default).get(bot, 0.0)
@@ -288,9 +245,8 @@ def pool_spent(c, scope, start, end, subscription, default=None):
     return sum(amounts.get(bot, 0.0) for bot in members(c, scope, default))
 
 
-def pool_state(c, scope, at=None, default=None, need=0.0):
-    """A pool's caps, what its bots have spent in each period with a cap, and `blocked` (the period) when one is met,
-    or when a run reserving `need` more would not fit (_over)."""
+def pool_state(c, scope, at=None, default=None):
+    """A pool's caps, what its bots have spent in each period with a cap, and `blocked` (the period) when one is met."""
     default = default if default is not None else company(c)
     caps = pools(c, default).get(scope) or pool(c, scope)
     when = bounds(at)
@@ -302,12 +258,9 @@ def pool_state(c, scope, at=None, default=None, need=0.0):
             continue
         _, start, end = when[name]
         amount = pool_spent(c, scope, start, end, default["count_subscription"], default)
-        going = in_flight(c, start, end, default["count_subscription"], default)
-        reserved = sum(going.values()) if scope == COMPANY else sum(
-            going.get(bot, 0.0) for bot in members(c, scope, default))
         result[label_ + "_spent"] = round(amount, 6)
         result["percent"] = max(result["percent"], int(100 * amount / cap))
-        if _over(amount, reserved, need, cap) and not result["blocked"]:
+        if amount >= cap and not result["blocked"]:
             result["blocked"] = name
     return result
 
@@ -318,7 +271,6 @@ def state(c, bot, at=None, default=None):
     default = default if default is not None else company(c)
     limits, source = effective(c, bot, default)
     when = bounds(at)
-    need = average(c, bot, default["count_subscription"], default)
     result = {**limits, "source": source, **{label_ + "_spent": None for _, label_ in PERIODS},
               "percent": 0, "blocked": None, "blocked_by": None}
     for name, label_ in PERIODS:
@@ -327,15 +279,14 @@ def state(c, bot, at=None, default=None):
             continue
         _, start, end = when[name]
         amount = spent(c, bot, start, end, default["count_subscription"], default)
-        reserved = in_flight(c, start, end, default["count_subscription"], default).get(bot, 0.0)
         result[label_ + "_spent"] = round(amount, 6)
         result["percent"] = max(result["percent"], int(100 * amount / cap))
-        if _over(amount, reserved, need, cap) and not result["blocked"]:
+        if amount >= cap and not result["blocked"]:
             result["blocked"] = name
             result["blocked_by"] = {"scope": "bot", "period": name, "spent": round(amount, 6), "limit": cap}
     if not result["blocked"]:
         for scope in scopes_of(c, bot, default):
-            found = pool_state(c, scope, at, default, need)
+            found = pool_state(c, scope, at, default)
             if found["blocked"]:
                 period = found["blocked"]
                 label_ = dict(PERIODS)[period]

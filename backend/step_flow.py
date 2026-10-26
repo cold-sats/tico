@@ -13,6 +13,8 @@ A step's `flow` (all keys optional):
 - `status_hours`, `late_hours`: at a working step, a ticket quiet this long gets its bot owner one status check, and
   one this long at the step gets its manager one notice (backend/step_age.py). An engineering type's working steps
   have 2 and 4 without a setting.
+- `backlog`: {over, per, notify, every_hours}: when more than `over` tickets wait at the step (or for one owner there),
+  who to tell (backend/step_backlog.py).
 - `can_hold`: false on steps a ticket is never put on hold from (a merged change is reverted or fixed forward).
 - `assign`: {"pool": [bot slugs], "slots": n}: tickets here go to the least busy pool bot with a free slot
   (backend/task_allocator.py).
@@ -25,7 +27,7 @@ from . import hubdb as H
 
 MERGE = "merge"
 KEYS = ("on_pass", "on_fail", "after_green", "on_merge", "skip_tag", "timeout_hours", "status_hours", "late_hours",
-        "can_hold", "gate", "assign")
+        "can_hold", "gate", "assign", "backlog")
 HOURS = ("timeout_hours", "status_hours", "late_hours")
 STEP_KEYS = ("on_pass", "on_fail", "after_green")
 SEEDED = "step_flow.seeded"
@@ -70,6 +72,9 @@ def clean(c, actor, raw, existing):
         if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 < hours <= MAX_TIMEOUT_HOURS:
             H.refuse(c, actor, "kind", f"A step's {key} is a number of hours above 0, at most {MAX_TIMEOUT_HOURS}")
         out[key] = hours
+    if flow.get("backlog") is not None:
+        from . import step_backlog
+        out["backlog"] = step_backlog.clean(c, actor, flow["backlog"])
     if flow.get("assign") is not None:
         from . import task_allocator
         out["assign"] = task_allocator.clean(c, actor, flow["assign"])
@@ -195,6 +200,7 @@ def skip_target(c, row, s):
 
 # ----------------------------------------------------------------------------------------------- the Dev board
 DEV = {   # the settings each Dev tickets type is given once; a person changes them on its steps
+    "On Deck": {"backlog": {"over": 10, "per": "step", "notify": ["manager"], "every_hours": 4}},
     # A review is feedback, not a gate: whatever it says goes back to the builder, who moves the ticket on once its
     # feedback is in. Only QA passes or fails, and its pass makes the merge next.
     "Review 1": {"on_pass": "Review 1 Fixes", "on_fail": "Review 1 Fixes", "timeout_hours": 1, "gate": True},

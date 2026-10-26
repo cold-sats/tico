@@ -1418,7 +1418,8 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
 def obsolete_notices_sql():
     """FROM and WHERE of the keeper notices a claim cancels, for one runner (?), the keeper (?) and now (?): any queued
     on a task already finished, unless a person's own act caused it (H._write_message: it still owes that person its
-    answer), a status check of a quiet task that someone other than Tico has acted on since (it is no longer quiet),
+    answer), a status check of a quiet task that someone other than Tico has acted on since (it is no longer quiet), a step's
+    late warning for a task that has since left that step,
     a pull request's checks result for a head no open pull request on the task is at any more (a newer push supersedes it),
     and a self-filed task's "New task" notice while the task is parked and its filing turn has ended. The
     idle claim asks the same question: when it counted notices the claim keeps, every claim from that computer went
@@ -1438,6 +1439,8 @@ def obsolete_notices_sql():
             "OR ((json_extract(m.refs_json,'$.wake') IN ('status_check','stalled','step_status') "
             "OR json_extract(m.refs_json,'$.rule')='status_check') AND EXISTS (SELECT 1 FROM task_events "
             "e WHERE e.task_id=t.id AND e.ts>m.created AND e.actor<>m.from_actor)) "
+            "OR (json_extract(m.refs_json,'$.step_late') AND EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=t.id "
+            "AND e.ts>m.created AND e.field='step')) "
             "OR (json_extract(m.refs_json,'$.wake')='pr_checks_done' AND json_extract(m.refs_json,'$.pr_head') IS NOT NULL "
             "AND EXISTS (SELECT 1 FROM task_links l WHERE l.task_id=t.id AND l.kind='pr' AND coalesce(l.state,'')<>'closed' "
             "AND coalesce(json_extract(l.detail_json,'$.head_sha'),'')<>'') "

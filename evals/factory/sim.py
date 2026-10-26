@@ -81,7 +81,12 @@ class Run:
             self.t = team
             s.setup(self, w, team)
             ticks = int(s.hours * 60 / s.tick_minutes)
-            for i in range(ticks):
+            drain = int(s.drain_hours * 60 / s.tick_minutes)
+            for i in range(ticks + drain):
+                # Past its hours the run only drains: it stops once every ticket has merged. "Every ticket ships"
+                # asks whether a ticket got stuck, not whether the team finished in the scenario's hours.
+                if i >= ticks and all(t["id"] in self.merged_at or self.shipped(t) for t in w.tickets()):
+                    break
                 w.advance(ready=[b.slug for b in team.all if b.available],
                           beat=lambda: [b.renew() for b in team.all if b.available])
                 s.during(self, w, team, i)
@@ -92,7 +97,9 @@ class Run:
                 self.rng.shuffle(bots)
                 for bot in bots:
                     if bot.running and not bot.available:
-                        bot.attempt = bot.record = None   # its computer went off under the run: the lease lapses
+                        bot.lose()   # its computer went off under the run: the lease lapses
+                    if bot.available:
+                        bot.recover()
                     for _ in range(8):
                         if bot.running and w.now() >= bot.ends:
                             bot.end()
@@ -230,6 +237,7 @@ class Scenario:
     checks: list = field(default_factory=list)   # (name, ticket, fn(run) -> (ok, detail))
     styles: dict = field(default_factory=dict)
     hours: float = 12
+    drain_hours: float = 6   # then up to this long more, until every ticket has merged
     tick_minutes: int = 5
     slots: int = 4
     release_every_hours: float = 4

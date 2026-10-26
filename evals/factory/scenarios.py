@@ -145,18 +145,23 @@ def every_major_planned(run):
     return not bad, ", ".join(bad[:6])
 
 
-def hourly_spend_under(cap, slack=1.3):
-    """The cap is a ceiling: a run starts only when its bot's average still fits, so an hour goes over only by what its
-    runs cost above their average (up to `slack` times the cap), and busy hours average no more than the cap."""
+def hourly_spend_under(cap):
+    """The cap stops new turns, never running ones: no turn starts in a clock hour once the runs that started in that
+    hour and have finished cost the cap (what usage_limits counts). The hour's total may pass the cap by what was
+    already running; that is reported, not judged."""
     def check(run):
-        per = Counter()   # Tico's own estimate of each run, by the hour it started, as the cap counts it
-        for r in run.w.sql("SELECT started, est_cost_usd FROM turns WHERE est_cost_usd IS NOT NULL"):
-            per[r["started"][11:13] + ":00"] += r["est_cost_usd"]
-        busy = [v for v in per.values() if v > cap / 2]
-        average = sum(busy) / len(busy) if busy else 0
-        over = {h: round(v, 2) for h, v in per.items() if v > cap * slack}
-        return not over and average <= cap, (f"peak hour ${max(per.values() or [0]):.2f}, busy-hour average "
-                                                     f"${average:.2f}" + (f", over: {over}" if over else ""))
+        runs = [dict(r) for r in run.w.sql("SELECT started, finished, est_cost_usd FROM turns ORDER BY started")]
+        per, late = Counter(), []
+        for r in runs:
+            hour = r["started"][:13]
+            per[hour[11:13] + ":00"] += r["est_cost_usd"] or 0
+            spent = sum(x["est_cost_usd"] or 0 for x in runs if x["started"][:13] == hour and x["finished"]
+                        and x["finished"] <= r["started"] and x is not r)
+            if spent >= cap:
+                late.append(f"{r['started'][11:16]} (${spent:.2f} spent)")
+        return not late, (f"peak hour ${max(per.values() or [0]):.2f}; "
+                          + (f"{len(late)} turns started past the cap: {', '.join(late[:4])}" if late
+                             else "no turn started past the cap"))
     return check
 
 
@@ -209,10 +214,12 @@ def both(*events):
 
 
 def stale_blocker(run, w, team, i):
-    """A ticket's leftover blocker (an old lead task nobody closes) is still open when the ticket merges."""
-    if w.now() != START + at(0, 5):
-        return
+    """A ticket's leftover blocker (an old lead task nobody closes) is linked to it just after it merges: a merged
+    ticket is never put back on hold (its step's can_hold), it is reverted or fixed forward."""
     first = next(t for t in w.tickets() if t["title"] == "Ticket 1")
+    if first["id"] not in run.merged_at or getattr(run, "blocker_added", False):
+        return
+    run.blocker_added = True
     old = w.post("tasks", {"owner": "engineering-lead", "title": "Restore an old check", "body": "Old."})
     old = old.get("task", old)
     w.post(f"tasks/{first['id']}/relations", {"task": old["id"], "kind": "blocked_by"})
