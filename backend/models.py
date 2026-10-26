@@ -276,6 +276,9 @@ class TaskStepInput(Contract):
     # Left out, a step keeps what it had; an empty list makes it no check step.
     check_pool: list[ID] | None = Field(default=None, max_length=40)
     check_limit: int | None = Field(default=None, ge=1, le=20)
+    # What the step does with a ticket (backend/step_flow.py): where a check's pass or other outcome sends it, the
+    # merged step, a skip tag, a check timeout. Left out, a step keeps what it had; {} clears it.
+    flow: dict | None = None
 
 
 # What every bot may do with a type's tasks beyond its own (hubdb.TYPE_BOTS): parties keeps them to

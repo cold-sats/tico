@@ -65,7 +65,8 @@ def capture_attempt(c, turn_id):
     """Freeze the actual check attempt and its ticket-head provenance after this run's usage is recorded."""
     turn = c.execute("SELECT task_id FROM turns WHERE id=?", (turn_id,)).fetchone()
     check = H.task(c, turn["task_id"]) if turn and turn["task_id"] else None
-    if not check or not CHECK_TITLE.match(str(check.get("title") or "").strip()):
+    from . import step_flow
+    if not check or not (CHECK_TITLE.match(str(check.get("title") or "").strip()) or step_flow.check_step(c, check)):
         return None
     finished_owner = check.get("owner")
     from . import task_relations as TR
@@ -83,9 +84,13 @@ def capture_attempt(c, turn_id):
     decided = c.execute("SELECT ts FROM task_events WHERE task_id=? AND field='verdict' "
                         "ORDER BY ts DESC,rowid DESC LIMIT 1", (check["id"],)).fetchone()
     started = c.execute("SELECT started FROM turns WHERE id=?", (turn_id,)).fetchone()
+    from . import verdict_moves
     if verdict and decided and started and decided["ts"] >= started["started"]:
-        from . import verdict_moves
-        consumed = verdict_moves.after_capture(c, check["id"], head, turn_id)
+        verdict_moves.after_capture(c, check["id"], head, turn_id)
+    elif not verdict and check.get("status") == "done" and step_flow.check_step(c, check):
+        # Finished with no verdict: its comments are the feedback, and the ticket goes to the step's on_fail.
+        if verdict_moves.after_verdict(c, check):
+            verdict_moves.after_capture(c, check["id"], head, turn_id)
     current = H.task(c, check["id"])
     if current and current.get("status") in H.ACTIVE_STATUSES and current.get("owner") == finished_owner:
         return result

@@ -9,22 +9,23 @@ A bot's `style` is how its model behaves, as probabilities per turn that does re
 - `off_script`: the bot moves its ticket somewhere the process doesn't allow (to Blocked, or back a step)
 Every number is drawn from the scenario's seeded random generator, so a run repeats exactly."""
 import os
-import re
-
+from .board import MERGE
 from .world import Refusal
 
 TOKENS = {  # (cached input, uncached input, output) per kind of turn: a real team's averages over a week
     "work": (3_700_000, 90_000, 17_000),     # a Builder's run
     "review": (2_100_000, 93_000, 29_000),   # a reviewer's or QA's run
     "noise": (760_000, 40_000, 5_300),       # woken, read the ticket, nothing to do (a lead's average run)
+    "plan": (2_500_000, 150_000, 40_000),    # an architect's plan for a major feature, on a bigger model
 }
+FINISHED = ("done", "closed", "declined")
 TRACE = os.environ.get("SIM_TRACE") == "1"
-CHECK = re.compile(r"^(Review [12]|QA)\b", re.I)
 
 
 class Bot:
     def __init__(self, world, slug, role, rng, style=None, family="claude", model="claude-opus-5-5", slots=4):
         self.world, self.slug, self.role, self.rng = world, slug, role, rng
+        self.architects = []
         self.style = style or {}
         self.family, self.model, self.slots = family, model, slots
         self.available = True       # False: its computer is off (claims nothing)
@@ -40,7 +41,10 @@ class Bot:
 
     # ------------------------------------------------------------------ one turn
     # Minutes a turn takes, as (shortest, longest, most likely): a build can take two minutes or two hours.
-    MINUTES = {"build": (2, 120, 30), "fix": (2, 60, 12), "review": (2, 30, 8), "qa": (3, 40, 12), "short": (1, 4, 2)}
+    MINUTES = {"build": (2, 120, 30), "fix": (2, 60, 12), "review": (2, 30, 8), "qa": (3, 40, 12), "plan": (10, 60, 25),
+               "short": (1, 4, 2)}
+    # One turn in twenty runs long: a build of three or four hours, an hour-long review.
+    TAIL = {"build": (180, 240), "fix": (60, 120), "review": (30, 60), "qa": (40, 60), "plan": (60, 120)}
 
     def start(self, attempt):
         """Begin a claimed turn: read what woke the bot, and decide how long the turn runs. It acts when it ends."""
@@ -61,18 +65,21 @@ class Bot:
         if not task or self.limited_until and self.world.now() < self.limited_until:
             return 0
         kind = self.kind_of_turn(task)
+        if kind in self.TAIL and self.rng.random() < 0.05:
+            return self.rng.uniform(*self.TAIL[kind])
         return self.rng.triangular(*self.MINUTES[kind])
 
     def kind_of_turn(self, task):
-        step = self.world.step_of(task)
-        if self.role == "builder" and task["owner"] == "bot:" + self.slug:
-            if step in ("On Deck", "In Progress"):
-                return "build"
-            return "fix" if step and ("Fixes" in step or step.startswith("Review") or step == "In QA") else "short"
-        if self.role == "reviewer" and CHECK.match(task["title"]):
-            return "review"
-        if self.role == "qa" and CHECK.match(task["title"]):
-            return "qa"
+        w = self.world
+        if task["owner"] != "bot:" + self.slug or task["status"] in ("done", "closed", "declined"):
+            return "short"
+        if self.role == "builder":
+            step = w.board.step(w.step_of(task))
+            if step and step.work:
+                return "fix" if w.board.fixes_for(step.name) else "build"
+            return "short"
+        if self.role in ("reviewer", "qa", "architect") and w.parent_of(task["id"]):
+            return {"reviewer": "review", "qa": "qa", "architect": "plan"}[self.role]
         return "short"
 
     def end(self):
@@ -102,7 +109,7 @@ class Bot:
         except Refusal as exc:
             action = "refused: " + exc.body[:160]
         if action:
-            record["kind"] = "review" if self.role in ("reviewer", "qa") else "work"
+            record["kind"] = {"reviewer": "review", "qa": "review", "architect": "plan"}.get(self.role, "work")
             record["action"] = action
         self.finish(attempt, "completed", tokens=TOKENS[record["kind"]])
         return self.log(record)
@@ -150,78 +157,138 @@ class Bot:
         raise NotImplementedError
 
 
-FIXES = {"Review 1 Fixes": "Review 1", "Review 2 Fixes": "Review 2", "QA Fixes": "QA"}
-
-
 class Builder(Bot):
-    """Builds its tickets and walks each through the linear process: Review 1, its fixes, Review 2, its fixes, then
-    QA until it passes, then merges. It acts on what the ticket shows now, whatever woke it, as a real builder reads
-    its ticket: the board moves the ticket on a verdict and on green CI after fixes, and the builder moves it only
-    when the board has not."""
-
-    def __init__(self, *a, reviewers=(), qa=(), **kw):
-        super().__init__(*a, **kw)
-        self.reviewers, self.qa = list(reviewers), list(qa)
+    """Builds its tickets and takes each through the board. It acts on what the ticket shows now, whatever woke it,
+    as a real builder reads its ticket, and on the step's settings, never its name. The board is to move the ticket
+    on a verdict, on green CI after fixes and on the merge; when it has not, the builder makes the move itself and the
+    run records it as a fallback (a task feature missing or not configured)."""
 
     def act(self, task, message):
-        w = self.world
-        if task["owner"] != "bot:" + self.slug or task["status"] in ("done", "closed", "declined"):
+        w, board = self.world, self.world.board
+        if task["owner"] != "bot:" + self.slug or task["status"] in FINISHED:
             return None
-        step, pr = w.step_of(task), w.pr_of(task["id"])
-        if step == "On Deck":
+        step = board.step(w.step_of(task))
+        if not step or step.merged:
+            return None
+        pr = w.pr_of(task["id"])
+        if pr and w.prs[pr]["merged"]:
+            return self.fallback(task, board.on_merge, "merged, but still at " + step.name)
+        if step.assign:
             if w.slots(self.slug) >= self.slots:
                 return None
-            w.update(task["id"], token=self.token, step="In Progress")
-            step = "In Progress"
-        if step == "In Progress":
-            # A real builder runs the tests itself, opens the PR and hands it to Review 1 in the same turn.
+            nxt = board.steps[board.steps.index(step) + 1]
+            w.update(task["id"], token=self.token, step=nxt.name)
+            step = nxt
+        if step.work:
+            fixes = board.fixes_for(step.name)
+            return self.fix(task, step, fixes, pr) if fixes else self.build(task, step, pr)
+        if step.check:
+            return self.at_check(task, step, pr)
+        return None
+
+    def build(self, task, step, pr):
+        """A building step: plan first when the ticket is major and the board has an architect, then build, open the
+        PR when the next step is a check, and hand the ticket on in the same turn."""
+        w, board = self.world, self.world.board
+        if "major" in labels(task) and self.architects:
+            plan = next((c for c in w.checks(task["id"]) if c["title"].startswith("Plan:")), None)
+            if not plan:
+                w.post("tasks", {"owner": self.pick(self.architects, set()), "title": f"Plan: {task['title']}",
+                                 "body": "Plan this feature: the approach, the risks, the order of work.",
+                                 "relations": [{"task": task["id"], "kind": "parent"}]}, token=self.token)
+                return "asked the architect for a plan"
+            if plan["status"] not in FINISHED:
+                return None
+        nxt = board.step(step.next)
+        if nxt and nxt.check:
             if not pr:
                 pr = w.open_pr(task["id"], token=self.token)
                 self.receipt(task["id"], pr)
             elif w.ci_state(pr) == "failing":
-                self.push(task, pr, "fixed CI")
-            return self.move(task, "Review 1")
-        if step in FIXES:
-            judged = w.latest_check(task["id"], FIXES[step])
-            ci = w.ci_state(pr)
-            if judged and str(judged.get("verdict_head") or "-") == w.prs[pr]["head"] or ci == "failing":
-                return self.push(task, pr, "pushed fixes")
-            if ci == "pending":
-                return None
-            after = self.after_fixes(task, step)
-            return self.move(task, after) if after else self.merge(task, pr)
-        if step in ("Review 1", "Review 2", "In QA"):
-            last = "In QA" if self.qa_ticket(task) else "Review 2"
-            check = w.latest_check(task["id"], step.replace("In ", ""))
-            if step == last and check and check.get("verdict") in ("approve", "pass") \
-                    and check.get("verdict_head") == w.prs[pr]["head"] and w.ci_state(pr) == "passing":
+                self.push(task, pr)
+        return self.move(task, step.next)
+
+    def fix(self, task, step, check_step, pr):
+        """A fixes step: push fixes for the check's comments, whatever form they came in. On a step whose owner moves
+        the ticket on (`next`), the builder hands it on in the same turn, as it does after a build, unless it forgets
+        (`forget_move`): then the ticket sits until something wakes the builder again. On a step the board moves on
+        green CI (`after_green`), the builder waits for that."""
+        w = self.world
+        judged = w.judged(task["id"], check_step.name)
+        tag = check_step.check.skip_tag
+        if not pr:
+            return None
+        pushed = None
+        if judged and str(judged.get("verdict_head") or "-") == w.prs[pr]["head"] or w.ci_state(pr) == "failing" \
+                or not judged and self.untouched_since_step(task, pr):
+            if tag and tag not in labels(task) and self.chance("skip_check"):
+                w.update(task["id"], token=self.token, labels=sorted(labels(task) | {tag}))
+            self.push(task, pr)
+            pushed = "pushed fixes"
+        if step.next:
+            if self.chance("forget_move"):
+                return pushed or "forgot to hand it on"
+            if step.next == MERGE:
+                return self.merge(task, pr) or pushed
+            return (pushed + ", " if pushed else "") + self.move(task, step.next)
+        if pushed or w.ci_state(pr) != "passing":
+            return pushed
+        target = step.after_green
+        if tag and tag in labels(task) and target == check_step.name:
+            target = check_step.check.passed
+        if target == MERGE:
+            return self.merge(task, pr)
+        return self.fallback(task, target, "green CI at the new head, still at " + step.name)
+
+    def untouched_since_step(self, task, pr):
+        """No push since the ticket came to this step (a check finished with no verdict sends it here too)."""
+        entered = self.world.step_entered_at(task["id"])
+        pushed = self.world.prs[pr].get("pushed")
+        return not pushed or (entered and pushed < entered)
+
+    def at_check(self, task, step, pr):
+        """Waiting on a check. The builder merges when the check passed at the head and CI is green and the step's
+        pass is the merge; a pass the board did not act on, or a skip tag the board ignored, the builder moves on."""
+        w = self.world
+        check = step.check
+        if check.skip_tag and check.skip_tag in labels(task):
+            return self.merge(task, pr, fallback="skip tag ignored at " + step.name) if check.passed == MERGE else \
+                self.fallback(task, check.passed, "skip tag ignored at " + step.name)
+        if pr and w.ci_state(pr) == "failing":
+            self.push(task, pr)
+            return "pushed a fix for failing CI"
+        judged = w.judged(task["id"], step.name)
+        if not judged or not pr or judged.get("verdict_head") != w.prs[pr]["head"]:
+            return None
+        if judged["verdict"] in ("approve", "pass"):
+            if check.passed == MERGE:
                 return self.merge(task, pr)
-        return None
+            return self.fallback(task, check.passed, "passed, still at " + step.name)
+        return self.fallback(task, check.other, judged["verdict"] + ", still at " + step.name)
 
-    @staticmethod
-    def qa_ticket(task):
-        return "qa" in [str(t).lower() for t in (task.get("labels") or [])]
-
-    def after_fixes(self, task, step):
-        if step == "Review 1 Fixes":
-            return "Review 2"
-        if step == "Review 2 Fixes":
-            return "In QA" if self.qa_ticket(task) else None
-        return "In QA"
-
-    def push(self, task, pr, what):
+    def push(self, task, pr):
         self.world.push(pr)
+        self.world.prs[pr]["pushed"] = self.world.H.now()
         self.receipt(task["id"], pr)
-        return what
 
     def move(self, task, step):
         self.world.update(task["id"], token=self.token, step=step)
         return "moved to " + step
 
-    def merge(self, task, pr):
-        if self.world.ci_state(pr) != "passing":
+    def fallback(self, task, step, why):
+        self.world.fallback(self.slug, task["id"], f"moved to {step} by hand: {why}")
+        return self.move(task, step)
+
+    def merge(self, task, pr, fallback=None):
+        w = self.world
+        if w.ci_state(pr) != "passing":
             return None
-        self.world.merge(pr)
+        w.merge(pr)
+        if fallback:
+            w.fallback(self.slug, task["id"], "merged by hand: " + fallback)
+        after = w.board.step(w.step_of(w.task(task["id"])))
+        if after and not after.merged:
+            return self.fallback(task, w.board.on_merge, "merged, the board did not move it")
         return "merged #%d" % pr
 
     def receipt(self, task_id, pr):
@@ -229,62 +296,102 @@ class Builder(Bot):
         self.world.update(task_id, token=self.token, note=f"Tests: base {'c' * 40} head {head}: 9 passed, 0 failed")
 
     def pick(self, bots, avoid):
-        """The least busy check bot, preferring another model family and one not used on this ticket."""
+        """The least busy bot, preferring another model family and one not used on this ticket."""
         ranked = sorted(bots, key=lambda b: (b.slug in avoid, b.family == self.family, self.world.open_checks(b.slug),
                                              b.slug))
         return ranked[0].slug
 
 
-class Reviewer(Bot):
-    """Owns Review 1 / Review 2 subtasks: comments, then finishes the subtask with a verdict. It never moves the
-    ticket."""
+def labels(task):
+    return {str(t).lower() for t in (task.get("labels") or [])}
+
+
+class Checker(Bot):
+    """Owns check subtasks (reviews, QA): judges the change at its head and finishes the subtask with a verdict. It
+    never moves the ticket. Its style is how its model goes wrong."""
+    GOOD, BAD = "approve", "changes"
 
     def act(self, task, message):
         w = self.world
-        if task["owner"] != "bot:" + self.slug or not CHECK.match(task["title"]) or task["status"] in (
-                "done", "closed", "declined"):
+        parent = w.parent_of(task["id"])
+        if task["owner"] != "bot:" + self.slug or task["status"] in FINISHED or not parent:
             return None
         head = w.head_for(task)
         if self.chance("off_script"):
-            parent = task.get("parent_id") or w.parent_of(task["id"])
-            w.update(parent, token=self.token, step="Review 1 Fixes")   # refused: reviewers never move the ticket
+            target = next(s.name for s in w.board.steps if s.work)
+            w.update(parent, token=self.token, step=target)   # refused: a checker never moves the ticket
             return "moved the ticket"
+        if self.chance("fallback_stop"):
+            # A run on a fallback model stops itself and leaves the check open, as a real one did.
+            w.update(task["id"], token=self.token, note="Runtime blocker: this turn ran on a fallback model after the "
+                                                          "usage limit; stopping without a verdict.")
+            return "stopped on a fallback model"
         if self.chance("garbled"):
             w.post(f"tasks/{task['id']}/comments", {"text": "Findings: the hand"}, token=self.token)
-            w.update(task["id"], token=self.token, status="done")   # refused: no verdict
+            w.update(task["id"], token=self.token, status="done")   # no verdict line: today this is refused
             return "garbled"
-        verdict = "changes" if self.chance("changes") else "approve"
-        w.post(f"tasks/{task['id']}/comments", {"text": f"Review: {verdict}"}, token=self.token)
+        if self.chance("stale_head"):
+            old = w.prs[w.pr_of(parent)].get("old_heads") or []
+            head = old[-1] if old else head
+        if self.chance("cant_test"):
+            w.post(f"tasks/{task['id']}/comments", {"text": "I can't test this change here."}, token=self.token)
+            w.update(task["id"], token=self.token, status="done", verdict=self.GOOD, verdict_head=head,
+                     note="Can't test: passed through")
+            return "can't test"
+        verdict = self.BAD if self.chance(self.BAD_STYLE) else self.GOOD
+        w.post(f"tasks/{task['id']}/comments", {"text": f"Findings: {verdict}"}, token=self.token)
         w.update(task["id"], token=self.token, status="done", verdict=verdict, verdict_head=head)
         return verdict
 
 
-class QA(Bot):
-    """Owns QA subtasks: passes or fails the change at its head, or says it can't test it. A failure moves the
-    ticket to QA Fixes."""
+class Reviewer(Checker):
+    BAD_STYLE = "changes"
+
+
+class QA(Checker):
+    GOOD, BAD, BAD_STYLE = "pass", "fail", "fail"
+
+
+class Architect(Bot):
+    """A senior architect on a big model: builders ask it to plan major features, nobody else wakes it."""
 
     def act(self, task, message):
         w = self.world
-        if task["owner"] != "bot:" + self.slug or task["status"] in ("done", "closed", "declined"):
+        if task["owner"] != "bot:" + self.slug or task["status"] in FINISHED or not task["title"].startswith("Plan:"):
             return None
-        if not CHECK.match(task["title"]):
-            return None
-        head = w.head_for(task)
-        if self.chance("cant_test"):
-            w.post(f"tasks/{task['id']}/comments", {"text": "I can't test this change here."}, token=self.token)
-            w.update(task["id"], token=self.token, status="done", verdict="pass", verdict_head=head,
-                     note="Can't test: passed through")
-            return "cant_test"
-        verdict = "fail" if self.chance("fail") else "pass"
-        w.update(task["id"], token=self.token, status="done", verdict=verdict, verdict_head=head)
-        return verdict
+        w.update(task["id"], token=self.token, status="done",
+                 note="Plan: 1. data model first; 2. API; 3. UI. Risks: migration order. Build in that order.")
+        return "planned"
 
 
 class Lead(Bot):
-    """Head of Engineering: looks for stuck tickets and moves them on by hand. Today it only answers wakes."""
+    """Head of Engineering: on its hourly sweep (a routine) it looks for stuck tickets and gets each moving the way a
+    lead does: it tells the owner, with what it sees. It never moves a ticket itself. Any other wake is noise."""
 
     def act(self, task, message):
-        return None
+        if not task["title"].startswith("Hourly board sweep") or task["owner"] != "bot:" + self.slug \
+                or task["status"] in FINISHED:
+            return None
+        told = self.sweep()
+        self.world.update(task["id"], token=self.token, status="done", note=told)
+        return told
+
+    def sweep(self):
+        w, board = self.world, self.world.board
+        told = []
+        for t in w.tickets():
+            step = board.step(t["step"])
+            if not step or step.merged or board.finished(t["step"]) or not str(t["owner"]).startswith("bot:"):
+                continue
+            limit = step.wake_after_hours or (step.check.timeout_hours if step.check else 2)
+            if w.idle_hours(t["id"]) < limit:
+                continue
+            w.post(f"tasks/{t['id']}/comments", {"text": f"@{t['owner'][4:]} this ticket has sat at {step.name} for "
+                                                          f"{w.idle_hours(t['id']):.1f} h: what moves it on?"},
+                   token=self.token)
+            w.stuck_told.append((w.now(), t["id"]))
+            told.append(t["title"])
+        return ("told owners of " + ", ".join(told)) if told else "swept: nothing stuck"
 
 
 class Quiet(Bot):
@@ -292,4 +399,3 @@ class Quiet(Bot):
 
     def act(self, task, message):
         return None
-

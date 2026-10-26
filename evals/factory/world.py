@@ -22,11 +22,6 @@ START = dt.datetime(2026, 10, 20, 9, tzinfo=dt.timezone.utc)
 SECRET = "factory-sim"
 REPO = "acme/app"
 
-DEV_STEPS = [("On Deck", "open"), ("In Progress", "doing"), ("Review 1", "review"), ("Review 1 Fixes", "doing"),
-             ("Review 2", "review"), ("Review 2 Fixes", "doing"), ("In QA", "review"), ("QA Fixes", "doing"),
-             ("Pending Release", "review"), ("Post Release QA", "review"), ("Done", "done"), ("Closed", "closed")]
-# Steps a ticket reaches only once its change is merged.
-MERGED = ("Pending Release", "Post Release QA", "Done")
 
 
 class Refusal(Exception):
@@ -38,9 +33,15 @@ class Refusal(Exception):
 class World:
     """One run of one scenario. Use as a context manager: it starts the clock and the server, and stops both."""
 
-    def __init__(self, bots, tick_minutes=5, rng=None, ci_fail=0.0):
+    def __init__(self, board, bots, tick_minutes=5, rng=None, ci_fail=0.0):
         import random
+        self.board = board
         self.bot_slugs = list(bots)
+        self.roles = {}
+        for slug, (role, _family) in (bots.items() if isinstance(bots, dict) else []):
+            self.roles.setdefault(role, []).append(slug)
+        self.fallbacks = []      # (when, who, ticket, what): a move or hand-off the board should have made itself
+        self.stuck_told = []     # (when, ticket id): the lead told the owner of a stuck ticket
         self.rng = rng or random.Random(0)
         self.ci_fail = ci_fail   # chance a CI run on a new head fails (a flaky or broken change)
         self.ci = {}             # pr number -> (head, when its checks finish, passed)
@@ -81,8 +82,8 @@ class World:
                           (slug, encode(config), "engineering", "ana"))
             c.execute("INSERT INTO registry_metadata VALUES('onboarding',?)",
                       (encode({"completed": "2026-01-01T00:00:00Z"}),))
-            self.dev = H.type_create(c, H.KEEPER, "Dev tickets", [{"name": n, "status": s} for n, s in DEV_STEPS],
-                                     bots="work")
+            self.dev = H.type_create(c, H.KEEPER, self.board.name,
+                                     [{"name": s.name, "status": s.status} for s in self.board.steps], bots="work")
             R.seed_dev(c)
         self.scheduler = Scheduler(self.store, self.app.state.execution)
         code = self.post("enrollments", {"operator": "ana"})["code"]
@@ -90,7 +91,21 @@ class World:
         for slug in self.bot_slugs:
             self.post("bots/" + slug + "/assignment", {"runner_id": self.runner["runner_id"], "expected_generation": 0})
         self.heartbeat(self.bot_slugs)
+        self.configure()
         return self
+
+    def configure(self):
+        """Set the board up as a team would, through the API only: each step's flow and check pool, and the lead's
+        hourly sweep."""
+        from .board import flows
+        ids = {st["name"]: st["id"] for st in self.dev["steps"]}
+        steps = [{**row, "id": ids[row["name"]]} for row in flows(self.board, self.roles)]
+        self.dev = self.post("task-types/" + self.dev["id"], {"steps": steps})["type"]
+        for lead in self.roles.get("lead", []) if self.board.lead_sweep else []:
+            self.post(f"bots/{lead}/routines", {
+                "title": "Hourly board sweep", "key": "board-sweep",
+                "cron": f"0 */{max(1, int(self.board.lead_sweep_hours))} * * *", "timezone": "UTC",
+                "text": "Look over the board for stuck tickets and get each one moving."})
 
     def __exit__(self, *exc):
         self.client.__exit__(*exc)
@@ -190,6 +205,7 @@ class World:
         return number
 
     def push(self, number):
+        self.prs[number].setdefault("old_heads", []).append(self.prs[number]["head"])
         self.prs[number]["head"] = uuid.uuid4().hex + uuid.uuid4().hex[:8]
         self.hook("pull_request", self.pr_payload(number, "synchronize"))
         self.start_ci(number)
@@ -220,14 +236,19 @@ class World:
         return "passing" if passed else "failing"
 
     def merge(self, number):
+        if self.prs[number]["merged"]:
+            return
         self.prs[number]["merged"] = True
         self.hook("pull_request", self.pr_payload(number, "closed", merged=True))
 
     # ------------------------------------------------------------------ board reads (no turn, no side effects)
     def tickets(self):
         """The Dev tickets: tasks of the Dev type, with their step names."""
-        rows = self.sql("SELECT t.id,t.title,t.owner,t.status,t.step_id,s.name step,t.blocked_since,t.updated "
-                        "FROM tasks t LEFT JOIN task_steps s ON s.id=t.step_id WHERE t.type_id=?", (self.dev["id"],))
+        rows = self.sql("SELECT t.id,t.title,t.owner,t.status,t.step_id,s.name step,t.blocked_since,t.updated,"
+                        "t.labels_json,t.created FROM tasks t LEFT JOIN task_steps s ON s.id=t.step_id WHERE t.type_id=?",
+                        (self.dev["id"],))
+        for r in rows:
+            r["labels"] = json.loads(r.pop("labels_json") or "[]")
         return rows
 
     def title(self, task_id):
@@ -235,10 +256,26 @@ class World:
         return found[0]["title"] if found else "?"
 
     def slots(self, slug):
-        """Tickets the builder is actively working: at a building or Fixes step."""
-        return self.sql("SELECT count(*) n FROM tasks t JOIN task_steps s ON s.id=t.step_id WHERE t.type_id=? "
-                        "AND t.owner=? AND s.status='doing' AND t.status NOT IN ('done','closed','declined')",
-                        (self.dev["id"], "bot:" + slug))[0]["n"]
+        """Tickets the builder is actively working: at one of the board's work steps."""
+        work = [s.name for s in self.board.steps if s.work]
+        return sum(1 for t in self.tickets() if t["owner"] == "bot:" + slug and t["step"] in work
+                   and t["status"] not in ("done", "closed", "declined"))
+
+    def fallback(self, who, task_id, what):
+        self.fallbacks.append((self.now(), who, self.title(task_id), what))
+
+    def check_step(self, child):
+        """The board step a check subtask was filed for: where its ticket was when the check was made."""
+        parent = self.parent_of(child["id"])
+        found = self.sql("SELECT s.name FROM task_events e JOIN task_steps s ON s.id=e.new WHERE e.task_id=? "
+                         "AND e.field='step' AND e.ts<=? ORDER BY e.ts DESC, e.rowid DESC LIMIT 1",
+                         (parent, child["created"]))
+        return found[0]["name"] if found else None
+
+    def judged(self, task_id, step=None):
+        """The ticket's newest check with a verdict (for `step` when given)."""
+        found = [c for c in self.checks(task_id) if c.get("verdict") and (step is None or self.check_step(c) == step)]
+        return found[-1] if found else None
 
     def checks(self, task_id):
         return self.sql("SELECT t.* FROM tasks t JOIN task_relations r ON r.from_task=t.id AND r.kind='parent' "

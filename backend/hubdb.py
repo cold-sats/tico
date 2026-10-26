@@ -3057,9 +3057,17 @@ def type_get(conn, value):
 
 
 def _step_views(conn, steps):
-    """Steps as callers read them: a check step's pool as a list and its limit (backend/check_pools.py)."""
-    from . import check_pools
-    return [check_pools.view(step) for step in steps] if steps and "check_pool" in steps[0] else steps
+    """Steps as callers read them: a check step's pool as a list and its limit (backend/check_pools.py), and its flow
+    with step names (backend/step_flow.py)."""
+    from . import check_pools, step_flow
+    steps = [check_pools.view(step) for step in steps] if steps and "check_pool" in steps[0] else steps
+    if not steps or "flow_json" not in steps[0]:
+        return steps
+    by_type = {}
+    for step in steps:
+        by_type.setdefault(step["type_id"], []).append(step)
+    shown = {s["id"]: s for group in by_type.values() for s in step_flow.view(conn, group)}
+    return [shown[step["id"]] for step in steps]
 
 
 def type_list(conn):
@@ -3328,10 +3336,11 @@ def _type_name(conn, actor, name, type_id=None):
 
 
 def _type_steps(conn, actor, type_id, steps):
-    from . import check_pools
+    from . import check_pools, step_flow
     typ = type_get(conn, type_id) or {}
-    existing = {row["id"]: row for row in typ.get("steps", [])}
+    existing = {row["id"]: row for row in _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=?", (type_id,)))}
     pools = check_pools._ready(conn)
+    flows = step_flow._ready(conn)
     # A new step's public name is its name only on a type whose tasks are public by default; on a private one (the
     # Product roadmap) an internal step name does not go public unless someone gives it a public name.
     unnamed = "" if typ.get("default_visibility", "private") != "public" else None
@@ -3351,7 +3360,9 @@ def _type_steps(conn, actor, type_id, steps):
                                         f"goes to the closed step. A step status is {'|'.join(STEP_STATUSES)}")
         names.add(name); ids.add(ident)
         pool, limit = check_pools.clean(conn, actor, raw, existing.get(ident)) if pools else (None, None)
+        flow = step_flow.clean(conn, actor, raw, existing.get(ident)) if flows else {}
         clean.append({"id": ident, "type_id": type_id, "name": name, "check_pool": pool, "check_limit": limit,
+                      "flow": flow,
                       "position": raw.get("position") if raw.get("position") is not None else position,
                       "status": status, "public_name": str(raw.get("public_name") if raw.get("public_name") is not None else
                           existing.get(ident, {}).get("public_name", name if unnamed is None else unnamed)).strip()})
@@ -3361,6 +3372,8 @@ def _type_steps(conn, actor, type_id, steps):
                     "SELECT 1 FROM task_trash WHERE purged_at IS NULL "
                     "AND json_extract(rows_json,'$.rows.tasks[0].step_id')=? LIMIT 1", (ident,)))
 
+    if flows:
+        step_flow.resolve(conn, actor, clean)
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
                 and in_use(row["id"])):
@@ -3380,6 +3393,9 @@ def _type_steps(conn, actor, type_id, steps):
                      "name=excluded.name,position=excluded.position,status=excluded.status,public_name=excluded.public_name", row)
         if pools:
             conn.execute("UPDATE task_steps SET check_pool=:check_pool,check_limit=:check_limit WHERE id=:id", row)
+        if flows:
+            conn.execute("UPDATE task_steps SET flow_json=? WHERE id=?",
+                         (json.dumps(row["flow"], sort_keys=True) if row["flow"] else None, row["id"]))
 
 
 def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=False, steps_only=False, default_visibility='private'):
@@ -3395,6 +3411,8 @@ def type_create(conn, actor, name, steps=(), mover=None, bots=None, numbered=Fal
     _type_steps(conn, actor, ident, steps)
     from .roadmap_flow import claim as claim_roles
     claim_roles(conn)
+    from . import step_flow
+    step_flow.seed(conn)        # a new Dev tickets type starts with the Dev board's flow
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
@@ -4680,7 +4698,7 @@ def _deliver_subtask_result(conn, row, parent, text, key=None, *, source=None, q
     # What the verdict did to the ticket: a move Tico made (an approval it moved on asks no builder turn), a Fixes
     # step or a merge to do, which goes first in the builder's queue (backend/verdict_moves.py).
     from . import verdict_moves
-    moved = verdict_moves.delivery(conn, judged) if judged.get("verdict") else None
+    moved = verdict_moves.delivery(conn, judged) if verdict_moves._verdict(judged) else None
     if moved:
         text = moved["say"] + "\n\n" + text
         silent = silent or moved["quiet"]
@@ -5655,7 +5673,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                             record_verdict(conn, row["owner"], row, text=source["text"])
                             row = task(conn, task_id)
                             break
-                if not (row.get("verdict") or supplied):
+                from . import step_flow
+                # On a step with a flow, a check finished with no verdict is feedback: it goes to the step's on_fail.
+                if not (row.get("verdict") or supplied or step_flow.check_step(conn, row)):
                     refuse(conn, actor, "verdict",
                            "Finish a review or QA check with --verdict approve|changes|pass|fail "
                            "and --head <sha>, or record a VERDICT: clause in its note, comment or final reply")
@@ -5671,7 +5691,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                     exc.task_hold = {"task": task_id, "reason": exc.detail, "kind": "worktree"}
                     raise
         target_step = _one(conn, "SELECT name FROM task_steps WHERE id=?", (step_id,))
-        if target_step and target_step["name"] in ("Review 1", "Review 2") and step_id != row.get("step_id"):
+        from . import step_flow
+        if target_step and step_flow.gated(conn, step_id) and step_id != row.get("step_id"):
             from . import review_gate
             try:
                 review_gate.check(conn, actor, {**row, "type_id": type_id}, review_prs, note=note, reader=review_reader,
@@ -5994,6 +6015,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if note is not None and not notify_requester and not quiet:
         _mirror_task_note(conn, actor, after, note)
     # A person finishing a subtask under a bot's task: the bot hears it once, on the parent.
+    if after["status"] == "done" and row["status"] != "done" and not after.get("verdict"):
+        # A check finished with no verdict moves its ticket like one with changes (backend/verdict_moves.py).
+        from . import check_pools, step_flow, verdict_moves
+        if step_flow.check_step(conn, after):
+            check_pools.safely(conn, verdict_moves.after_verdict, after)
     subtask_told = None if closing_step else _subtask_wake(conn, actor, after, row["status"], note, quiet)
     if subtask_told == after["requester"]:
         notify_requester = False
@@ -6072,8 +6098,12 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                         + (f": {after['note']}" if after.get("note") else ""))
     if after.get("step_id") != row.get("step_id") and not closing_step:
         # A check step with a pool files its check for the current head, as Tico (backend/check_pools.py).
-        from . import check_pools
-        check_pools.safely(conn, check_pools.entered, actor, after, review_prs)
+        # A step the ticket's tag skips sends it straight on instead (backend/step_flow.py, skip_tag).
+        from . import check_pools, step_flow, verdict_moves
+        if step_flow.skip_target(conn, after, step_flow.step(conn, after.get("step_id"))):
+            check_pools.safely(conn, verdict_moves.skip, after)
+        else:
+            check_pools.safely(conn, check_pools.entered, actor, after, review_prs)
     recount(conn, [after["owner"], after["requester"], row["owner"]])   # the old owner too, on a handoff
     if not closing_step:
         _parent_finished(conn, after, row["status"], actor, told=subtask_told)

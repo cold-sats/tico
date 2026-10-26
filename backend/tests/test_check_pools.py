@@ -166,7 +166,7 @@ def test_turn_finish_consumes_pending_eligible_verdict_once_after_capture(api):
         H.turn_finish(c, H.KEEPER, "review-turn", usage={**actual, "segments": [actual]})
         assert c.execute("SELECT count(*) FROM task_events WHERE task_id=? AND field='verdict_move'",
                          (check["id"],)).fetchone()[0] == 1
-    assert moved_step == "Review 2"
+    assert moved_step == "Review 1 Fixes"
 
 
 def test_same_family_fallback_verdict_counts_and_advances_the_ticket(api):
@@ -221,7 +221,7 @@ def test_same_family_verdict_is_consumed_once_without_a_second_checker(api):
     [check] = checks(api, task)
     with api.app.state.store.transaction() as c:
         _finish(c, "review-1", "rev-a", check, "claude-opus-5-5", "anthropic", "claude")
-        assert H.task(c, check["id"])["status"] == "done" and _step(c, task) == "Review 2"
+        assert H.task(c, check["id"])["status"] == "done" and _step(c, task) == "Review 1 Fixes"
         moves = c.execute("SELECT new FROM task_events WHERE task_id=? AND field='verdict_move' ORDER BY rowid",
                           (check["id"],)).fetchall()
         assert [json.loads(m[0])["attempt_id"] for m in moves] == ["review-1"]
@@ -230,7 +230,7 @@ def test_same_family_verdict_is_consumed_once_without_a_second_checker(api):
                              (check["id"],)).fetchone()
         assert [json.loads(evidence[key]) for key in ("builder_families", "configured_families", "checker_families")] == [
             ["anthropic"], ["openai"], ["anthropic"]]
-    assert _step(c, task) == "Review 2"
+    assert _step(c, task) == "Review 1 Fixes"
 
 
 def test_unknown_or_same_family_provenance_does_not_create_a_verdict_wait(api):
@@ -243,7 +243,7 @@ def test_unknown_or_same_family_provenance_does_not_create_a_verdict_wait(api):
         _finish(c, "review-1", "rev-a", check, "claude-opus-5-5", "anthropic", "claude")
         waits = c.execute("SELECT child_id,attempt_id FROM check_waits WHERE ticket_id=? AND state='waiting'",
                           (task["id"],)).fetchall()
-        assert _step(c, task) == "Review 2"
+        assert _step(c, task) == "Review 1 Fixes"
     assert waits == []
 
 
@@ -271,7 +271,7 @@ def test_same_family_verdict_does_not_become_an_unowned_wait(api):
         H.turn_finish(c, H.KEEPER, "review-turn", usage={**actual, "segments": [actual]})
         waiting = c.execute("SELECT * FROM check_waits WHERE ticket_id=? AND state='waiting'", (task["id"],)).fetchone()
     assert waiting is None
-    assert get(api, "tasks/" + task["id"])["task"]["step"]["name"] == "Review 2"
+    assert get(api, "tasks/" + task["id"])["task"]["step"]["name"] == "Review 1 Fixes"
     assert H.task(c, check["id"])["verdict"] == "approve"
 
 
@@ -376,7 +376,7 @@ def test_pool_setting_is_checked_and_shown(api):
     kind = set_pool(api, task, "Review 1", ["bot:rev-a", "rev-a", "rev-b"], limit=3)
     step = next(s for s in kind["steps"] if s["name"] == "Review 1")
     assert step["check_pool"] == ["rev-a", "rev-b"] and step["check_limit"] == 3
-    other = next(s for s in kind["steps"] if s["name"] == "Review 2")
+    other = next(s for s in kind["steps"] if s["name"] == "Review 1 Fixes")
     assert other["check_pool"] == [] and other["check_limit"] == check_pools.DEFAULT_LIMIT
     with api.app.state.store.read() as c:
         assert check_pools.pool(c, other["id"]) is None, "a step saved beside a pool does not become a check step"

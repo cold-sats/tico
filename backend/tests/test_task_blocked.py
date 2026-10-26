@@ -193,9 +193,9 @@ def test_review_fix_steps_accrue_active_building_time(api, monkeypatch):
     at = '2026-10-26T01:00:00.000000Z'
     monkeypatch.setattr(H, 'now', lambda: at)
     with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO task_steps(id,type_id,name,position,status) VALUES('fixes',?,'Review 1 Fixes',3,'doing')", (task['type_id'],))
+        fixes = c.execute("SELECT id FROM task_steps WHERE type_id=? AND name='Review 1 Fixes'", (task['type_id'],)).fetchone()[0]
         c.execute('UPDATE tasks SET building_started_at=NULL,building_seconds=0 WHERE id=?', (task['id'],))
-        H.task_update(c, task['owner'], task['id'], step='fixes')
+        H.task_update(c, task['owner'], task['id'], step=fixes)
         at = '2026-10-26T02:00:00.000000Z'
         H.task_update(c, task['owner'], task['id'], step='Blocked', note='Waiting for a machine')
         at = '2026-10-26T07:00:00.000000Z'
@@ -356,7 +356,7 @@ def test_pipeline_child_keeps_review_and_allows_fix_move(api, title):
     store = api.app.state.store
     with store.transaction() as c:
         child = H.task_create(c, task['owner'], title, 'Check the current candidate.', 'bot:cmo', parent_id=task['id'])
-        c.execute("INSERT INTO task_steps(id,type_id,name,position,status) VALUES('fixes',?,'Review 1 Fixes',3,'doing')", (task['type_id'],))
+        fixes = c.execute("SELECT id FROM task_steps WHERE type_id=? AND name='Review 1 Fixes'", (task['type_id'],)).fetchone()[0]
         review_step = H.task(c, task['id'])['step_id']
     Scheduler(store, api.app.state.execution).tick(datetime.now(timezone.utc))
     with store.transaction() as c:
@@ -366,8 +366,8 @@ def test_pipeline_child_keeps_review_and_allows_fix_move(api, title):
         task_blocked.hold(c, task['id'], 'Waiting on an open child task')
         task_blocked.reconcile(c, task['id'])
         assert H.task(c, task['id'])['step_id'] == review_step
-        H.task_update(c, task['owner'], task['id'], step='fixes')
-        assert H.task(c, task['id'])['step_id'] == 'fixes'
+        H.task_update(c, task['owner'], task['id'], step=fixes)
+        assert H.task(c, task['id'])['step_id'] == fixes
         person = H.task_create(c, 'human:ana', 'Security: confirm the vendor contract', 'Choose one.', 'human:ana', parent_id=task['id'])
         task_blocked.sweep(c, H.now(), task_ids=[task['id']])
         assert H.task(c, task['id'])['status'] == 'waiting', 'a check child must not hide another child wait'

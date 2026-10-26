@@ -1,4 +1,5 @@
-"""The verdict moves the Dev ticket, as Tico, with no builder turn spent on routing (backend/verdict_moves.py)."""
+"""The verdict moves the ticket by its steps' flow, as Tico, with no builder turn spent on routing
+(backend/verdict_moves.py, backend/step_flow.py)."""
 from backend import hubdb as H, rules, verdict_moves as V
 from backend.tests.test_github import PR, _suite, api, hook, post, pr_event  # noqa: F401
 
@@ -65,6 +66,21 @@ def step(api, task):
         return V.step_of(c, H.task(c, task["id"]))
 
 
+def flow(api, task, step_name, **settings):
+    """Set one step's flow the way Settings > Tasks does: the whole type saved with its steps."""
+    from backend.tests.test_github import get, headers
+    kind = get(api, "task-types/" + task["type_id"])["type"]
+    steps = [{**{k: s[k] for k in ("id", "name", "status")},
+              **({"flow": {**s["flow"], **settings}} if s["name"] == step_name else {})} for s in kind["steps"]]
+    r = api.post("/api/v2/task-types/" + task["type_id"], headers=headers(), json={"steps": steps})
+    assert r.status_code == 200, r.text
+
+
+def checks_of(api, task):
+    with api.app.state.store.read() as c:
+        return [t for t in (H.task(c, i) for i in H.TR.child_ids(c, task["id"])) if t["status"] in H.ACTIVE_STATUSES]
+
+
 def builder_jobs(api):
     with api.app.state.store.read() as c:
         return [H.message(c, r[0]) for r in c.execute(
@@ -77,18 +93,27 @@ def step_events(api, task):
             "SELECT actor,new FROM task_events WHERE task_id=? AND field='step' ORDER BY rowid", (task["id"],))]
 
 
-def test_review_1_approve_at_the_current_head_moves_to_review_2_as_tico_with_no_builder_turn(api):
+def test_a_review_is_feedback_its_approval_goes_back_to_the_builder_once(api):
     task = ticket(api)
     review = check(api, task)
     verdict(api, review, "approve")
-    assert step(api, task) == "Review 2"
+    assert step(api, task) == "Review 1 Fixes", "a Dev review is feedback: the builder moves on when it is in"
     assert step_events(api, task)[-1][0] == H.KEEPER, "Tico moved it, not the reviewer"
-    assert not builder_jobs(api), "an approval Tico moved on buys no builder turn"
+    woke = builder_jobs(api)
+    assert len(woke) == 1 and woke[0]["refs"][V.HANDOFF] == "verdict", woke
     # The builder's own move to the same step is the same move: nothing new is written.
     before = step_events(api, task)
     with api.app.state.store.transaction() as c:
-        H.task_update(c, "bot:cpo", task["id"], step="Review 2")
+        H.task_update(c, "bot:cpo", task["id"], step="Review 1 Fixes")
     assert step_events(api, task) == before
+
+
+def test_a_board_whose_review_approves_straight_to_the_next_check_moves_quietly(api):
+    task = ticket(api)
+    flow(api, task, "Review 1", on_pass="Review 2")
+    verdict(api, check(api, task), "approve")
+    assert step(api, task) == "Review 2"
+    assert not builder_jobs(api), "an approval Tico moved on buys no builder turn"
 
 
 def test_a_verdict_on_an_old_head_moves_nothing(api):
@@ -123,7 +148,7 @@ def test_duplicate_delivery_of_the_same_eligible_verdict_moves_only_once(api):
     with api.app.state.store.transaction() as c:
         once = V.after_verdict(c, H.task(c, review["id"]))
     assert once is None, "the ticket has already left the step the verdict judged"
-    assert step(api, task) == "Review 2"
+    assert step(api, task) == "Review 1 Fixes"
     assert len(step_events(api, task)) == len(before) + 1
 
 
@@ -139,7 +164,7 @@ def test_configured_other_family_checker_fallback_verdict_still_moves(api):
         from backend.check_independence import capture_attempt
         capture_attempt(c, task["id"], review["id"], HEAD, turn)
     verdict(api, review, "approve")
-    assert step(api, task) == "Review 2"
+    assert step(api, task) == "Review 1 Fixes"
     with api.app.state.store.read() as c:
         check_row = H.task(c, review["id"])
         assert check_row["verdict"] == "approve" and check_row["verdict_head"] == HEAD
@@ -161,7 +186,7 @@ def test_unknown_executed_checker_family_is_recorded_but_does_not_block_verdict(
         from backend.check_independence import capture_attempt
         capture_attempt(c, task["id"], review["id"], HEAD, turn)
     verdict(api, review, "approve")
-    assert step(api, task) == "Review 2"
+    assert step(api, task) == "Review 1 Fixes"
     with api.app.state.store.read() as c:
         row = H.task(c, review["id"])
         assert row["verdict"] == "approve"
@@ -185,9 +210,9 @@ def test_verdict_waits_for_its_exact_attempt_capture_then_moves_once(api):
         from backend.check_independence import capture_attempt
         capture_attempt(c, task["id"], review["id"], HEAD, turn)
         moved = V.after_capture(c, review["id"], HEAD, turn)
-        assert moved and moved["moved"] == "Review 2"
+        assert moved and moved["moved"] == "Review 1 Fixes"
         assert V.after_capture(c, review["id"], HEAD, turn) is None
-        assert V.step_of(c, H.task(c, task["id"])) == "Review 2"
+        assert V.step_of(c, H.task(c, task["id"])) == "Review 1 Fixes"
 
 
 def test_post_capture_callback_ignores_a_different_or_obsolete_attempt(api):
@@ -219,7 +244,7 @@ def test_review_2_changes_moves_to_review_2_fixes_and_wakes_the_builder_once_wit
 
 
 def test_qa_fail_moves_to_qa_fixes_and_the_step_rule_does_not_wake_the_builder_twice(api):
-    task = ticket(api, step="In QA", labels=["qa"])
+    task = ticket(api, step="In QA")
     qa = check(api, task, "QA: PR #412")
     verdict(api, qa, "fail")
     assert step(api, task) == "QA Fixes"
@@ -227,19 +252,17 @@ def test_qa_fail_moves_to_qa_fixes_and_the_step_rule_does_not_wake_the_builder_t
     assert len(woke) == 1 and woke[0]["refs"][V.HANDOFF] == "verdict", woke
 
 
-def test_qa_pass_on_a_merged_ticket_goes_to_pending_release_with_no_builder_turn(api):
-    task = ticket(api, step="In QA", labels=["qa"])
+def test_a_merge_at_in_qa_moves_the_ticket_on_and_a_later_qa_verdict_moves_nothing(api):
+    task = ticket(api, step="In QA")
     qa = check(api, task, "QA: PR #412")
     hook(api, "pull_request", pr_event("closed", merged=True, merge_commit_sha="e" * 40, head={"sha": HEAD}))
-    with api.app.state.store.transaction() as c:
-        c.execute("DELETE FROM jobs")
+    assert step(api, task) == "Pending Release"
     verdict(api, qa, "pass")
     assert step(api, task) == "Pending Release"
-    assert not builder_jobs(api)
 
 
 def test_qa_pass_before_the_merge_wakes_the_builder_to_merge_and_the_merge_moves_it_on(api):
-    task = ticket(api, step="In QA", labels=["qa"])
+    task = ticket(api, step="In QA")
     _suite(api, "github-actions", "completed", "success", sha=HEAD)
     qa = check(api, task, "QA: PR #412")
     verdict(api, qa, "pass")
@@ -250,8 +273,9 @@ def test_qa_pass_before_the_merge_wakes_the_builder_to_merge_and_the_merge_moves
     assert step(api, task) == "Pending Release"
 
 
-def test_review_2_approve_without_qa_waits_for_green_ci_then_wakes_the_merge_once(api):
+def test_a_board_without_qa_merges_after_its_last_review_once_ci_is_green(api):
     task = ticket(api, step="Review 2")
+    flow(api, task, "Review 2", on_pass="merge")
     review = check(api, task, "Review 2: PR #412")
     verdict(api, review, "approve")
     assert step(api, task) == "Review 2"
@@ -265,17 +289,23 @@ def test_review_2_approve_without_qa_waits_for_green_ci_then_wakes_the_merge_onc
     assert step(api, task) == "Pending Release"
 
 
-def test_review_1_only_makes_review_1_the_last_review(api):
-    task = ticket(api, labels=[V.REVIEW_1_ONLY])
+def test_a_ticket_tagged_with_a_steps_skip_tag_passes_it_by_and_the_skip_is_recorded(api):
+    task = ticket(api, step="QA Fixes", labels=["skip-qa"])
     _suite(api, "github-actions", "completed", "success", sha=HEAD)
-    review = check(api, task)
-    verdict(api, review, "approve")
-    assert step(api, task) == "Review 1"
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM jobs")
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+    assert step(api, task) == "In QA", "the merge is next, and Tico does not merge"
+    assert not checks_of(api, task), "a skipped step files no check"
     assert [m["refs"].get(V.HANDOFF) for m in builder_jobs(api)] == ["merge"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT new FROM task_events WHERE task_id=? AND field='step_skipped'",
+                         (task["id"],)).fetchone()[0] == "In QA"
 
 
-def test_a_green_new_head_at_a_fixes_step_moves_on_to_the_next_check(api):
+def test_a_green_new_head_at_a_step_with_after_green_moves_on_to_the_next_check(api):
     task = ticket(api)
+    flow(api, task, "Review 1 Fixes", after_green="Review 2")
     review = check(api, task)
     verdict(api, review, "changes")
     assert step(api, task) == "Review 1 Fixes"
@@ -289,8 +319,47 @@ def test_a_green_new_head_at_a_fixes_step_moves_on_to_the_next_check(api):
     assert step_events(api, task)[-1][0] == H.KEEPER
 
 
+def test_on_the_dev_board_the_builder_moves_on_from_fixes_not_ci(api):
+    task = ticket(api)
+    verdict(api, check(api, task), "changes")
+    hook(api, "pull_request", pr_event("synchronize", head={"sha": NEW}))
+    receipt(api, task, NEW)
+    _suite(api, "github-actions", "completed", "success", sha=NEW)
+    assert step(api, task) == "Review 1 Fixes", "only the builder knows when the feedback is in"
+
+
+def test_a_check_finished_with_no_verdict_is_feedback_and_goes_to_on_fail(api):
+    task = ticket(api, step="In QA")
+    qa = check(api, task, "QA: PR #412")
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, qa["owner"], qa["id"], status="done", note="Looked at it; the login form is odd.")
+        from backend import check_pools
+        turn = c.execute("SELECT id FROM turns WHERE task_id=?", (qa["id"],)).fetchone()[0]
+        check_pools.capture_attempt(c, turn)
+    assert step(api, task) == "QA Fixes"
+    assert [m["refs"].get(V.HANDOFF) for m in builder_jobs(api)] == ["verdict"], [(m["refs"], m["body"][:200]) for m in builder_jobs(api)]
+
+
+def test_an_unanswered_check_past_its_steps_timeout_is_closed_and_the_round_skipped(api):
+    task = ticket(api)
+    review = check(api, task)
+    with api.app.state.store.transaction() as c:
+        assert V.timeouts(c) == [], "not an hour yet"
+        later = H.parse_ts(H.now()) + __import__("datetime").timedelta(minutes=61)
+        assert V.timeouts(c, later.strftime("%Y-%m-%dT%H:%M:%S.%fZ")) == [review["id"]]
+        assert H.task(c, review["id"])["status"] == "closed"
+    assert step(api, task) == "Review 1 Fixes", "the round is skipped as if it passed"
+
+
+def test_a_merge_outside_the_flow_moves_the_ticket_to_the_merged_step_from_any_earlier_step(api):
+    task = ticket(api, step="Review 1")
+    hook(api, "pull_request", pr_event("closed", merged=True, merge_commit_sha="e" * 40, head={"sha": HEAD}))
+    assert step(api, task) == "Pending Release"
+
+
 def test_a_green_head_the_gate_refuses_stays_and_the_builder_hears_what_clears_it(api):
     task = ticket(api)
+    flow(api, task, "Review 1 Fixes", after_green="Review 2")
     verdict(api, check(api, task), "changes")
     hook(api, "pull_request", pr_event("synchronize", head={"sha": NEW}))
     _suite(api, "github-actions", "completed", "success", sha=NEW)
@@ -302,7 +371,8 @@ def test_a_green_head_the_gate_refuses_stays_and_the_builder_hears_what_clears_i
 
 
 def test_qa_fixes_green_new_head_goes_back_to_in_qa(api):
-    task = ticket(api, step="In QA", labels=["qa"])
+    task = ticket(api, step="In QA")
+    flow(api, task, "QA Fixes", after_green="In QA")
     verdict(api, check(api, task, "QA: PR #412"), "fail")
     hook(api, "pull_request", pr_event("synchronize", head={"sha": NEW}))
     _suite(api, "github-actions", "completed", "success", sha=NEW)

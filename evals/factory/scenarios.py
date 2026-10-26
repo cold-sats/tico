@@ -2,6 +2,7 @@
 fixes it when it is a known gap today, so a failing check reads as "not built yet", not as a broken simulation."""
 from collections import Counter
 
+from .board import design_board, dev_board
 from .sim import Scenario, at, tickets
 from .world import START
 
@@ -10,12 +11,12 @@ TIMEOUT = "Dev 601 task timeout"
 HOLD = "Dev 598"
 SLOTS = "Dev 542"
 HOE = "Dev 606"
-SHIPPED = ("Done", "Closed", "Post Release QA", "Pending Release")
+ASSIGN = "assignment rule"
 
 
 # ---------------------------------------------------------------------------------------------- checks
 def all_through(run):
-    left = [f"{t['title']} @ {t['step']}" for t in run.final if t["step"] not in SHIPPED]
+    left = [f"{t['title']} @ {t['step']}" for t in run.final if not run.shipped(t)]
     return not left, ", ".join(left[:6]) + (f" (+{len(left) - 6})" if len(left) > 6 else "")
 
 
@@ -39,22 +40,28 @@ def noise_under(share):
 
 
 def one_review_per_round(run):
-    """Linear reviews: each ticket gets at most one Review 1 and one Review 2 subtask."""
+    """Linear reviews: a review step that sends changes to fixes, which then go on to another step, gets one check per
+    ticket; only a step whose fixes come back to it (QA) can have several."""
+    board = run.w.board
+    once = {s.name for s in board.checks()
+            if s.name not in (board.step(s.check.other).after_green, board.step(s.check.other).next)}
     extra = []
     for t in run.final:
-        kinds = Counter(c["title"].split(":")[0] for c in run.w.checks(t["id"]))
-        extra += [f"{t['title']} {k} x{n}" for k, n in kinds.items() if k.startswith("Review") and n > 1]
+        kinds = Counter(run.w.check_step(c) for c in run.w.checks(t["id"]) if not c["title"].startswith("Plan:"))
+        extra += [f"{t['title']} {k} x{n}" for k, n in kinds.items() if k in once and n > 1]
     return not extra, ", ".join(extra[:6])
 
 
-def max_at_review(hours):
-    """No ticket waits longer than `hours` at a review step."""
+def max_at_check(slack=0.5):
+    """No ticket waits at a check step longer than its timeout (plus `slack` hours for the sweep to act)."""
     def check(run):
         long = []
         for t in run.final:
             spans = run.w.step_spans(t["id"], until=run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
-            long += [f"{t['title']} {name} {span:.1f}h" for name, span in spans
-                     if name in ("Review 1", "Review 2") and span > hours]
+            for name, span in spans:
+                step = run.w.board.step(name)
+                if step and step.check and span > step.check.timeout_hours + slack:
+                    long.append(f"{t['title']} {name} {span:.1f}h")
         return not long, ", ".join(long[:6])
     return check
 
@@ -92,14 +99,50 @@ def lead_heard_of(word):
     return check
 
 
-def stuck_unseen(hours):
-    """Every ticket that sat still for `hours` at a working or review step was looked at by Head of Engineering."""
+def stuck_told(hours):
+    """Every ticket that sat still for `hours` past its first step was named to Head of Engineering in a notice."""
     def check(run):
-        seen = {r["task"] for r in run.t.bot("engineering-lead").turns}
-        stuck = [t for t in run.final if t["step"] not in SHIPPED + ("On Deck",)
-                 and run.w.idle_hours(t["id"], until=run.end) >= hours and t["id"] not in seen]
-        return not stuck, ", ".join(f"{t['title']} @ {t['step']}" for t in stuck[:6])
+        told = " ".join(r["body"] or "" for r in run.w.sql(
+            "SELECT body, refs_json FROM messages WHERE to_actor='bot:engineering-lead'"))
+        refs = " ".join(r["refs_json"] or "" for r in run.w.sql(
+            "SELECT refs_json FROM messages WHERE to_actor='bot:engineering-lead'"))
+        stuck = []
+        for t in run.final:
+            spans = run.w.step_spans(t["id"], until=run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+            if any(span >= hours and not run.w.board.step(name).merged and not run.w.board.step(name).assign
+                   for name, span in spans if run.w.board.step(name)) and t["id"] not in refs and t["title"] not in told \
+                    and t["id"] not in {tid for _, tid in run.w.stuck_told}:
+                stuck.append(t["title"])
+        return not stuck, ", ".join(stuck[:6])
     return check
+
+
+def lead_only_scheduled(run):
+    """Head of Engineering runs on its schedule (and when a person asks), never on routine notices."""
+    other = [r for r in run.t.bot("engineering-lead").turns if r["action"] is None and r["news"] != "update"]
+    kinds = Counter(r["news"] for r in other)
+    return not other, f"{len(other)} turns on routine notices: " + ", ".join(f"{k} {n}" for k, n in kinds.most_common(4))
+
+
+def no_fallbacks(kinds):
+    """The board did these hand-offs itself: no bot or person had to (findings list each one)."""
+    def check(run):
+        found = [f for f in run.w.fallbacks if any(k in f[3] for k in kinds)]
+        return not found, ", ".join(f"{f[2]}: {f[3]}" for f in found[:4]) + (f" (+{len(found) - 4})" if len(found) > 4 else "")
+    return check
+
+
+def every_major_planned(run):
+    """Each major ticket got one plan from the architect before its PR, and nobody else woke the architect."""
+    bad = []
+    for t in run.final:
+        plans = [c for c in run.w.checks(t["id"]) if c["title"].startswith("Plan:")]
+        if "major" in t["labels"] and len(plans) != 1:
+            bad.append(f"{t['title']} plans {len(plans)}")
+    idle = [r for r in run.t.bot("architect").turns if r["action"] is None]
+    if idle:
+        bad.append(f"architect woken {len(idle)}x for nothing")
+    return not bad, ", ".join(bad[:6])
 
 
 def hourly_spend_under(cap, slack=2.0):
@@ -152,8 +195,9 @@ def close_many(when, count):
     def during(run, w, team, i):
         if w.now() != START + when:
             return
-        for t in [t for t in w.tickets() if t["step"] == "On Deck"][:count]:
-            w.update(t["id"], step="Closed")
+        closed = next(s.name for s in w.board.steps if s.status == "closed")
+        for t in [t for t in w.tickets() if t["step"] == w.board.first().name][:count]:
+            w.update(t["id"], step=closed)
     return during
 
 
@@ -174,52 +218,99 @@ def stale_blocker(run, w, team, i):
     w.post(f"tasks/{first['id']}/relations", {"task": old["id"], "kind": "blocked_by"})
 
 
+def merge_outside(when):
+    """A person merges a ticket's PR by hand while it is still being reviewed or fixed."""
+    def during(run, w, team, i):
+        if w.now() != START + when:
+            return
+        for t in w.tickets():
+            step = w.board.step(t["step"])
+            pr = w.pr_of(t["id"])
+            if pr and step and (step.check or step.work) and not w.prs[pr]["merged"]:
+                w.merge(pr)
+                return
+    return during
+
+
+QUEUE_CHECKS = [("no turns on stale notices", QUEUE, no_stale_turns)]
+BOARD_CHECKS = [("tickets assigned by the board", ASSIGN, no_fallbacks(["assigned"])),
+                ("the board moves tickets itself", "verdict and merge rules", no_fallbacks(["moved to", "merged by hand"]))]
+REVIEW_TIMEOUT = [("no ticket waits past a check's timeout", TIMEOUT, max_at_check())]
+HOE_CHECKS = [("every stuck ticket named to Head of Engineering", HOE, stuck_told(2)),
+              ("Head of Engineering runs on its schedule only", HOE, lead_only_scheduled)]
+
+
+def standard(*extra):
+    return [*BASE, *QUEUE_CHECKS, *BOARD_CHECKS, *extra]
+
+
 SCENARIOS = [
-    Scenario("happy_path", "Six tickets, every bot answers well: R1, R2, QA, merge, release.",
+    Scenario("happy_path", "Six tickets, every bot answers well: assigned, R1, R2, QA, merge, release.",
              setup=lambda run, w, team: tickets(run, w, 6),
-             checks=[*BASE, ("no turns on stale notices", QUEUE, no_stale_turns),
-                     ("at most a fifth of turns are noise", QUEUE, noise_under(0.2))]),
+             checks=standard(("at most a fifth of turns are noise", QUEUE, noise_under(0.2)),
+                             ("one review per round, no re-review", None, one_review_per_round), *HOE_CHECKS)),
     Scenario("review_changes", "Reviewers ask for changes most of the time: the builder fixes and moves on.",
              setup=lambda run, w, team: tickets(run, w, 6), styles={"reviewer": {"changes": 0.7}},
-             checks=[*BASE, ("one review per round, no re-review", None, one_review_per_round)]),
-    Scenario("garbled_reviews", "Reviewers' replies are often garbled: no verdict line, so finishing is refused.",
+             checks=standard(("one review per round, no re-review", None, one_review_per_round))),
+    Scenario("garbled_reviews", "Reviewers' replies are often garbled: no verdict line. It counts as comments.",
              setup=lambda run, w, team: tickets(run, w, 6), styles={"reviewer": {"garbled": 0.4, "changes": 0.3}},
-             checks=[*BASE, ("no ticket waits over 1.5h at a review", TIMEOUT, max_at_review(1.5))]),
-    Scenario("silent_reviewer", "One reviewer never reports back: its reviews must time out after an hour.",
+             checks=standard(*REVIEW_TIMEOUT)),
+    Scenario("silent_reviewer", "One reviewer never reports back: its reviews time out and the round is skipped.",
              setup=lambda run, w, team: tickets(run, w, 6), styles={"reviewer-gpt": {"silent": 1.0}},
-             checks=[*BASE, ("no ticket waits over 1.5h at a review", TIMEOUT, max_at_review(1.5))]),
+             checks=standard(*REVIEW_TIMEOUT)),
+    Scenario("fallback_model_stop", "Checks run on a fallback model stop with a note and leave the check open.",
+             setup=lambda run, w, team: tickets(run, w, 6),
+             styles={"reviewer": {"fallback_stop": 0.3}, "qa": {"fallback_stop": 0.3}},
+             checks=standard(*REVIEW_TIMEOUT)),
     Scenario("quota_outage", "Every bot hits its usage limit for 3h while tickets are mid-flight and a person triages.",
              setup=lambda run, w, team: tickets(run, w, 14),
              during=both(outage(at(0, 30), 3), close_many(at(1), 4)), hours=16,
-             checks=[*BASE, ("no turns on stale notices", QUEUE, no_stale_turns),
-                     ("at most 3 turns per bot in the hour after", QUEUE, burst_after(at(3, 30), 3))]),
+             checks=standard(("at most 3 turns per bot in the hour after", QUEUE, burst_after(at(3, 30), 3)))),
     Scenario("computer_off", "The builders' computer is off for 3h while reviews and QA finish.",
              setup=lambda run, w, team: tickets(run, w, 10),
              during=outage(at(0, 20), 3, slugs={"builder-claude", "builder-openai"}, kind="off"),
-             checks=[*BASE, ("no run left waiting for a person", "uncertain runs", no_uncertain_runs), ("no turns on stale notices", QUEUE, no_stale_turns),
-                     ("at most 3 builder turns in the hour after", QUEUE,
-                      burst_after(at(3, 20), 3, bots={"builder-claude", "builder-openai"}))]),
+             checks=standard(("no run left waiting for a person", "uncertain runs", no_uncertain_runs),
+                             ("at most 3 builder turns in the hour after", QUEUE,
+                              burst_after(at(3, 20), 3, bots={"builder-claude", "builder-openai"})))),
     Scenario("bulk_triage", "A person closes 12 of 20 queued tickets at once.",
              setup=lambda run, w, team: tickets(run, w, 20), during=close_many(at(0, 5), 12), slots=2,
-             checks=[*BASE, ("no turns on stale notices", QUEUE, no_stale_turns)]),
+             checks=standard()),
     Scenario("merged_stale_blocker", "A ticket keeps an old open blocker; it merges and must still ship.",
-             setup=lambda run, w, team: tickets(run, w, 3), during=stale_blocker,
-             checks=[*BASE]),
+             setup=lambda run, w, team: tickets(run, w, 3), during=stale_blocker, checks=standard()),
+    Scenario("merged_outside", "A person merges a PR by hand mid-review: the ticket still goes on to release.",
+             setup=lambda run, w, team: tickets(run, w, 4), during=merge_outside(at(2)), checks=standard()),
+    Scenario("stale_head", "Reviewers sometimes judge an older head of the PR.",
+             setup=lambda run, w, team: tickets(run, w, 6), styles={"reviewer": {"stale_head": 0.3, "changes": 0.4}},
+             checks=standard(*REVIEW_TIMEOUT)),
+    Scenario("flaky_ci", "CI fails a quarter of the time: the builder fixes it in its own PR, nothing is rerun.",
+             setup=lambda run, w, team: tickets(run, w, 6), ci_fail=0.25, checks=standard()),
     Scenario("backlog_30", "Thirty tickets land on one builder.",
              setup=lambda run, w, team: tickets(run, w, 30, owner="builder-claude"), hours=16,
              checks=[("at most 4 tickets in work per builder", SLOTS, peak_doing(4)),
                      ("Head of Engineering hears of the backlog", HOE, lead_heard_of("backlog"))]),
     Scenario("qa_mixed", "QA fails a third of changes and can't test another third.",
              setup=lambda run, w, team: tickets(run, w, 8), styles={"qa": {"fail": 0.33, "cant_test": 0.33}},
-             checks=[*BASE]),
+             checks=standard()),
+    Scenario("skip_qa", "QA fails half the changes; builders often tag the ticket to skip QA after a fail.",
+             setup=lambda run, w, team: tickets(run, w, 8), styles={"qa": {"fail": 0.5},
+                                                                     "builder": {"skip_check": 0.5}},
+             checks=standard()),
     Scenario("off_script", "Reviewers sometimes try to move the ticket themselves (refused).",
              setup=lambda run, w, team: tickets(run, w, 6), styles={"reviewer": {"off_script": 0.3}},
-             checks=[*BASE, ("no ticket waits over 1.5h at a review", TIMEOUT, max_at_review(1.5))]),
+             checks=standard(*REVIEW_TIMEOUT)),
     Scenario("engineering_budget", "An hourly budget of $10 for the team (below what it would spend): work slows to it, and still ships.",
              setup=company_cap(10), hours=24,
-             checks=[*BASE, ("the $10 hourly cap holds", None, hourly_spend_under(10))]),
+             checks=standard(("the $10 hourly cap holds", None, hourly_spend_under(10)))),
+    Scenario("forgetful_builder", "Builders often forget to hand a ticket on after fixes: the hourly sweep unsticks it.",
+             setup=lambda run, w, team: tickets(run, w, 6), styles={"builder": {"forget_move": 0.4}},
+             checks=standard(*HOE_CHECKS)),
     Scenario("stuck_ticket", "A builder's runs on one ticket keep crashing: Head of Engineering must notice.",
              setup=lambda run, w, team: tickets(run, w, 4),
-             styles={"builder-claude": {"crash_titles": ["Ticket 1"]}},
-             checks=[("every stuck ticket seen by Head of Engineering within 2h", HOE, stuck_unseen(2))]),
+             styles={"builder-claude": {"crash_titles": ["Ticket 1"]}}, checks=HOE_CHECKS),
+    Scenario("architect", "A senior architect on a big model plans major tickets when builders ask, and only then.",
+             setup=lambda run, w, team: tickets(run, w, 8), architect=True, major=0.4, hours=16,
+             checks=standard(("major tickets planned once, architect never idle", None, every_major_planned))),
+    Scenario("design_board", "Another team's board: a design step, one peer check, no QA, other step names.",
+             setup=lambda run, w, team: tickets(run, w, 6), board=design_board,
+             styles={"reviewer": {"changes": 0.4}}, checks=standard(*REVIEW_TIMEOUT)),
 ]
