@@ -158,3 +158,50 @@ def test_dev_return_prefers_on_deck_over_backlog_and_owner_can_reopen_steps_only
     result = post(api, 'tasks/' + task['id'], {'version': result['version'], 'step': 'Review 1'}, attempt['token'])
     result = update(api, task, attempt['token'], 'open', 'Review needs inputs that are not ready.')
     assert result['step']['name'] == 'On Deck'
+
+
+@pytest.mark.parametrize('release', ['manual', 'remove', 'finish'])
+def test_put_back_from_blocked_keeps_queue_destination_and_hold(api, monkeypatch, release):
+    from backend import task_relations as TR
+    machine = task_bot(api, lanes=True)
+    typ = post(api, 'task-types', {'name': 'Dev tickets', 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': 'On Deck', 'status': 'open'},
+        {'name': 'In Progress', 'status': 'doing'}, {'name': 'Done', 'status': 'done'}]})['type']
+    task = post(api, 'tasks', {'owner': 'ops', 'title': 'Build the queued feature',
+                             'body': 'Build it.', 'type': typ['id'], 'step': 'In Progress'})
+    blocker = post(api, 'tasks', {'owner': 'ana', 'title': 'Supply a dependency', 'body': 'Supply it.'})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET state='cancelled'")
+        if release == 'manual':
+            H.task_update(c, 'bot:ops', task['id'], status='waiting', note='Wait for the next work slot.')
+        else:
+            TR.add_blocker(c, H.KEEPER, task['id'], blocker['id'])
+        assert H.task(c, task['id'])['status'] == 'waiting'
+    with api.app.state.store.transaction() as c:
+        with pytest.raises(H.Refused) as refused:
+            H.task_update(c, 'bot:ops', task['id'], status='open')
+        assert refused.value.code == 'lint'
+        H.task_update(c, 'bot:ops', task['id'], status='open', note='Return this work to the queue.')
+    result = get(api, 'tasks/' + task['id'])['task']
+    with api.app.state.store.transaction() as c:
+        returned = H.now()
+        row = H.task(c, task['id'])
+        if release == 'manual':
+            assert result['status'] == 'open' and result['step']['name'] == 'On Deck'
+        else:
+            assert result['status'] == 'waiting' and result['step']['name'] == 'Blocked'
+            resume = H._one(c, 'SELECT name FROM task_steps WHERE id=?', (row['blocked_from_step'],))
+            assert resume['name'] == 'On Deck' and row['blocked_from_status'] == 'open'
+            if release == 'remove':
+                TR.remove_blocker(c, H.KEEPER, task['id'], blocker['id'])
+            else:
+                H.task_update(c, 'human:ana', blocker['id'], status='done')
+            assert H.task(c, task['id'])['status'] == 'open'
+        assert auto_tasks.put_back_held(c, H.task(c, task['id'])) is (release != 'finish')
+    if release == 'finish':
+        assert take(api, machine)['task']['id'] == task['id']
+    else:
+        monkeypatch.setattr(H, 'now', lambda: H.shift(returned, minutes=59))
+        assert take(api, machine) is None
+        monkeypatch.setattr(H, 'now', lambda: H.shift(returned, minutes=60))
+        assert take(api, machine)['task']['id'] == task['id']

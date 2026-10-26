@@ -16,10 +16,16 @@ def put_back_held(c, row):
     """
     if not row or row['status'] != 'open':
         return False
-    move = c.execute("SELECT rowid,ts,actor,old,new FROM task_events WHERE task_id=? AND field='status' "
-                     "ORDER BY rowid DESC LIMIT 1", (row['id'],)).fetchone()
+    move = c.execute("SELECT rowid,ts,actor,old,new FROM task_events WHERE task_id=? AND actor=? "
+                     "AND field IN ('status','queue_return') AND new='open' ORDER BY rowid DESC LIMIT 1",
+                     (row['id'], row['owner'])).fetchone()
     if (not move or move['actor'] != row['owner'] or move['old'] not in ('doing', 'waiting', 'done', 'review')
             or move['new'] != 'open' or move['ts'] <= H.shift(H.now(), minutes=-PUT_BACK_MINUTES)):
+        return False
+    # Derived Blocked and its keeper resume preserve the owner's hold. A later working move ends it.
+    if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND rowid>? AND field='status' "
+                 "AND (actor<>? OR new NOT IN ('waiting','open')) LIMIT 1",
+                 (row['id'], move['rowid'], H.KEEPER)).fetchone():
         return False
     if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND rowid>? AND new IS NOT NULL "
                  "AND field IN ('link','related','blocked_by','blocks','parent_id','subtask','follow_up_of','follow_ups') "

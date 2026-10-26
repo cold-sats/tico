@@ -3462,7 +3462,7 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
     elif effective == "waiting" and typ.get("role") == "engineering" and (blocked := next(
             (s for s in typ["steps"] if s["name"] == "Blocked" and s["status"] == "waiting"), None)):
         chosen = blocked
-    elif typ.get("role") == "engineering" and row.get("blocked_from_step") and effective in ("open", "doing") and (resume := next(
+    elif typ.get("role") == "engineering" and row.get("blocked_from_step") and status != "open" and effective in ("open", "doing") and (resume := next(
             (s for s in typ["steps"] if s["id"] == row["blocked_from_step"]), None)):
         chosen, effective = resume, resume["status"]
     elif current and current["status"] == effective:
@@ -5583,6 +5583,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                    f"ask {actor_id(row.get('closed_by') or row['requester'])} to reopen it, or file a new task"
                    if row['status'] == 'closed' else "ask the owner to set doing or open, or file a new task"))
     type_id = row.get("type_id") or GENERAL_TYPE
+    queue_return = (requested_status == 'open' and actor == row['owner']
+                    and row['status'] in ('doing', 'waiting', 'review', 'done'))
+    if queue_return and is_bot(actor) and not str(note or '').strip():
+        refuse(conn, actor, 'lint', 'Putting your task back to open requires a note: '
+               f'hub task update {task_id} --status open --note "why it goes back"')
     if state_change:
         type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
         if status is not None or step is not None:
@@ -5675,10 +5680,6 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 and not is_human(actor) and status not in OWNER_STATUSES):
             refuse(conn, actor, "close",
                    f"the owner may set {'|'.join(OWNER_STATUSES)}, not {status}")
-        if (status == 'open' and row['status'] != 'open' and actor == row['owner'] and is_bot(actor)
-                and not str(note or '').strip()):
-            refuse(conn, actor, 'lint', 'Putting your task back to open requires a note: '
-                   f'hub task update {task_id} --status open --note "why it goes back"')
         if status == "ready" and is_bot(actor):
             refuse(conn, actor, "close", "ready to ship is set when the pull request merges, not by the bot")
         # A bot parking a task it asked itself for has nobody to answer it unless it has filed
@@ -5875,6 +5876,17 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         task_close(conn, actor, task_id, note=note or "", quiet=quiet, type=type, step=step, mover=mover)
     elif state_change:
         _set_status(conn, actor, row, status, type, step, note or "")
+    if queue_return:
+        returned = task(conn, task_id)
+        if returned.get('blocked_since'):
+            # Keep the live hold, but clearing it returns to the queue the owner selected.
+            steps = type_get(conn, returned['type_id'])['steps']
+            deck = next((s for s in steps if s['name'] == 'On Deck' and s['status'] == 'open'), None)
+            deck = deck or next((s for s in steps if s['status'] == 'open'), None)
+            conn.execute('UPDATE tasks SET blocked_from_step=?,blocked_from_status=? WHERE id=?',
+                         (deck['id'] if deck else None, 'open', task_id))
+        # A derived Blocked state can hide the requested open transition from status history.
+        _task_event(conn, task_id, actor, 'queue_return', row['status'], 'open', note or '')
     if reopening:
         verdict_set = record_verdict(conn, actor, row, verdict, verdict_head, note)
     args["id"] = task_id
