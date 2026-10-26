@@ -183,6 +183,42 @@ def test_qa_rerun_counts_and_recurrence_stay_with_their_head(result, status):
     assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == status
 
 
+@pytest.mark.parametrize('result,status', [
+    ('9 passed. The 2 failures seen at the prior head have been fixed.', 'passed'),
+    ('9 passed. 2 earlier failures fixed.', 'passed'),
+    (f'9 passed. Re-run at head {HEAD}: 2 failed.', 'failed'),
+    ('9 passed. 2 failures were fixed. Re-run failed: 2', 'failed'),
+    ('9 passed. 2 failures fixed but they are back', 'failed'),
+    ('9 passed. The failure was fixed, but it is still present', 'failed'),
+    ('9 passed. Re-run: 2 failed', 'failed'),
+    ('7 passed, 2 failed', 'failed'),
+    # Only where-it-was-seen words may sit between a failure and its repair.
+    ('9 passed. 2 failed tests need fixing', 'failed'),
+    ('9 passed. 2 failures found on the last run are not fixed', 'failed'),
+    ('9 passed. The 2 failures seen at the prior head have been fixed but are back.', 'failed'),
+    (f'9 passed. Re-run at head {OLD}: 2 failed.', 'passed'),
+    ('9 passed. 2 prior failures', 'failed'),
+    # A repair word that only describes where the failure happened repairs nothing.
+    ('9 passed, 2 failed on the commit fixing the parser.', 'failed'),
+    ('9 passed, 2 errors from the resolved merge conflict.', 'failed'),
+    ('9 passed, 2 failed in the repaired fixture.', 'failed'),
+])
+def test_repaired_prior_failures_and_headed_rerun_failures_after_1546(result, status):
+    note = f'Tests at head {HEAD}: {result}'
+    assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == status
+
+
+def test_headed_failure_count_needs_no_test_word():
+    note = f'Re-run at head {HEAD}: 2 failed.'
+    assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == 'failed'
+    # A pass still needs a test word.
+    assert test_receipts.at_head({'id': 't', 'note': f'Re-run at head {HEAD}: 9 passed.'}, HEAD)[0] == 'missing'
+    # Another head's failure count gives this head's pass no test context:
+    # only the failure at the other head is read.
+    note = f'Re-run at head {HEAD}: 9 passed, 2 failed at head {OLD}.'
+    assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == 'stale'
+
+
 @pytest.mark.parametrize('tail', ['Re-run: 2 failed', 'Rerun: 2 failing', 'Latest run: 2 failed, 9 passed', 'Re-run failed: 2'])
 def test_no_ci_review_refuses_failed_rerun_after_repaired_count(api, tail):
     task = ticket(api, f'Tests at head {HEAD}: 9 passed; 2 failures were fixed. {tail}')
