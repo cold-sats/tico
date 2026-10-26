@@ -251,8 +251,10 @@ def check(c, actor, row, snapshots=None, note=None, require_pr=False, receipt_ow
         detail = snapshots[pr["id"]] if snapshots is not None else (H._json(pr.get("detail_json"), {}) or {})
         head = detail["head_sha"]
         checks = detail.get("checks") or {}
-        if checks and "passing" in checks.values() and all(v in ("passing", "skipped") for v in checks.values()):
-            continue  # Current all-green CI is stronger evidence than prose.
+        # Current all-green CI is stronger evidence than prose, but only from a fresh read: the webhook-built cache
+        # records skipped and neutral checks as passing, so it cannot tell a real pass from a skip.
+        if snapshots is not None and checks and "passing" in checks.values() and all(v in ("passing", "skipped") for v in checks.values()):
+            continue
         state, receipts = test_receipts.at_head(facts, head)
         if state != "passed":
             newest = next((r["head"] for r in reversed(receipts) if r["head"]), "no receipt")

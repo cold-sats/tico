@@ -52,6 +52,16 @@ def test_absent_pending_or_only_skipped_checks_still_need_passing_receipt(api, m
     assert move(api, task).status_code == 200
 
 
+def test_cached_webhook_green_does_not_supply_the_receipt(api):
+    # Without a fresh GitHub read the gate has only the webhook-built cache, where a skipped check reads as passing.
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_links SET detail_json=json_set(detail_json,'$.checks',json(?)) WHERE task_id=? AND kind='pr'",
+                  (json.dumps({'python': 'passing'}), task['id']))
+    response = move(api, task)
+    assert response.status_code == 422 and 'passing test receipt' in response.text, response.text
+
+
 @pytest.mark.parametrize('source', ['checks', 'statuses'])
 def test_github_failed_attempt_still_blocks_after_green_rerun(api, monkeypatch, source):
     task = ticket(api, f'Tests: head {HEAD}: 9 passed')
