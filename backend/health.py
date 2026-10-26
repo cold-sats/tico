@@ -1349,9 +1349,10 @@ def view(c, who, settings, auth, github, config):
     for row in assigned_start.overdue(c):
         if not c.execute(f"SELECT 1 FROM tasks WHERE id=? AND ({auth.task_sql(c, who)})", (row['id'],)).fetchone():
             continue
-        text = assigned_start.description(c, row, settings)
+        why = assigned_start.reason(c, row, settings)
+        text = assigned_start.description(c, row, settings, why)
         assigned.append({'task': row['id'], 'bot': H.actor_id(row['owner']), 'name': row['title'],
-                         'reason': assigned_start.reason(c, row, settings), 'text': text,
+                         'reason': why, 'text': text,
                          'fixes': [_fix('Open task', '#/tasks/' + row['id'])]})
     if assigned:
         checks.append(_check('assigned_not_started', 'Assigned, not started', 'warn',
@@ -1362,8 +1363,8 @@ def view(c, who, settings, auth, github, config):
         if not auth.bot_accesses(c, who, [row['bot']]).get(row['bot'], auth.FULL)['read']:
             continue
         msg = c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
-                        "WHERE j.bot=? AND j.state='queued' AND j.held=0 ORDER BY j.created,j.id LIMIT 1",
-                        (row['bot'],)).fetchone()
+                        "WHERE j.id=? AND j.bot=? AND j.state='queued' AND j.held=0",
+                        (row['job'], row['bot'])).fetchone()
         from . import task_privacy
         if not msg or not task_privacy.message_readable(c, who.actor, msg):
             continue

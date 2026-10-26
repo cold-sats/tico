@@ -222,7 +222,7 @@ def test_running_lane_does_not_mask_other_lanes_refusal_and_twelve_hour_finding(
             c.execute("INSERT INTO run_backoff(bot,fails,wait_until) VALUES('ops',1,?)", (H.shift(H.now(), days=1),))
     with api.app.state.store.transaction() as c:
         queue_refusals.observe(c, api.app.state.store.settings)
-    advance(api, clock, 13)
+    observe_for(api, clock, 13)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE jobs SET created=? WHERE state='queued'", (H.shift(H.now(), hours=-13),))
         online = {r['id'] for r in health._online_runners(c)}
@@ -247,7 +247,7 @@ def test_old_queue_only_ages_refusal_from_observation_and_clearing_resets_it(api
     with store.transaction() as c:
         queue_refusals.observe(c, store.settings)
         assert health.refused_queues(c, store.settings) == []
-    advance(api, clock, 12)
+    observe_for(api, clock, 12)
     with store.transaction() as c:
         assert health.refused_queues(c, store.settings)
     set_cap(api, 1)
@@ -258,3 +258,168 @@ def test_old_queue_only_ages_refusal_from_observation_and_clearing_resets_it(api
     with store.transaction() as c:
         queue_refusals.observe(c, store.settings)
         assert health.refused_queues(c, store.settings) == []
+
+
+def observe_for(api, clock, hours):
+    # Refresh at the maximum documented gap, without HTTP traffic or long wall-clock timers.
+    store = api.app.state.store
+    until = H.shift(H.now(), hours=hours)
+    with store.transaction() as c:
+        while clock[0] < until:
+            clock[0] = min(until, H.shift(clock[0], seconds=queue_refusals.MAX_GAP_SECONDS))
+            c.execute('UPDATE runners SET last_seen=?', (H.now(),))
+            queue_refusals.observe(c, store.settings)
+
+
+def test_older_same_lane_followup_does_not_hide_free_lane_refusal(api, clock):
+    machine = task_bot(api, lanes=True)
+    running = new_task(api, 'Running work')
+    assert claim(api, machine)
+    post(api, 'tasks/' + running['id'] + '/comments', {'text': 'Please include the summary.'})
+    advance(api, clock, 1)
+    task = new_task(api, 'Refused independent work')
+    set_cap(api, 0)
+    advance(api, clock, 1)
+    store = api.app.state.store
+    with store.transaction() as c:
+        jobs = c.execute(f"SELECT j.id,{H.MESSAGE_TASK_SQL} task FROM jobs j JOIN messages m ON m.id=j.message_id "
+                         "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.state='queued'").fetchall()
+        by_task = {r['task']: r['id'] for r in jobs}
+        assert set(by_task) == {running['id'], task['id']}
+        c.execute('UPDATE jobs SET created=? WHERE id=?',
+                  (H.shift(H.now(), hours=-3), by_task[running['id']]))
+        queued = by_task[task['id']]
+        online = {r['id'] for r in health._online_runners(c)}
+        rows = [r for r in health._waiting(c, online, store.settings)[2] if r['bot'] == 'ops']
+        assert [r['reason'] for r in rows] == ['auto_start_off']
+        queue_refusals.observe(c, store.settings)
+        assert queue_refusals.state(c, 'ops')['job'] == queued
+    observe_for(api, clock, 12)
+    with store.read() as c:
+        assert health.refused_queues(c, store.settings)[0]['job'] == queued
+
+
+@pytest.mark.parametrize('gap', ['paused', 'quarantined', 'held', 'older_job', 'no_pass'])
+def test_unobserved_gap_restarts_refusal_age(api, clock, gap):
+    task_bot(api, lanes=True)
+    task = new_task(api, 'Refused task')
+    set_cap(api, 0)
+    store = api.app.state.store
+    with store.transaction() as c:
+        queue_refusals.observe(c, store.settings)
+        original = queue_refusals.state(c, 'ops')
+    advance(api, clock, 1)
+    with store.transaction() as c:
+        if gap in ('paused', 'quarantined'):
+            c.execute('UPDATE bots SET state=? WHERE slug=?', (gap, 'ops'))
+        elif gap == 'held':
+            c.execute('UPDATE jobs SET held=1 WHERE id=?', (original['job'],))
+        elif gap == 'older_job':
+            H._wake(c, H.task(c, task['id']), 'bot:ops', 'Older work', {'needs_action': True})
+            c.execute("UPDATE jobs SET created=? WHERE id<>? AND state='queued'",
+                      (H.shift(H.now(), hours=-10), original['job']))
+        if gap != 'no_pass':
+            queue_refusals.observe(c, store.settings)
+    advance(api, clock, 13)
+    with store.transaction() as c:
+        c.execute("UPDATE bots SET state='active' WHERE slug='ops'")
+        c.execute('UPDATE jobs SET held=0 WHERE id=?', (original['job'],))
+        c.execute("UPDATE jobs SET state='cancelled' WHERE id<>? AND state='queued'", (original['job'],))
+        assert health.refused_queues(c, store.settings) == []
+        queue_refusals.observe(c, store.settings)
+        assert queue_refusals.state(c, 'ops')['since'] == H.now()
+        assert health.refused_queues(c, store.settings) == []
+
+
+def test_reason_change_starts_a_new_clock_and_unchanged_pass_does_not_write(api, clock):
+    task_bot(api, lanes=True)
+    new_task(api, 'Refused work')
+    set_cap(api, 0)
+    store = api.app.state.store
+    with store.transaction() as c:
+        queue_refusals.observe(c, store.settings)
+        count = c.total_changes
+        queue_refusals.observe(c, store.settings)
+        assert c.total_changes == count
+    observe_for(api, clock, 12)
+    with store.transaction() as c:
+        c.execute("INSERT INTO run_backoff(bot,fails,wait_until) VALUES('ops',1,?)", (H.shift(H.now(), days=1),))
+        queue_refusals.observe(c, store.settings)
+        assert queue_refusals.state(c, 'ops')['since'] == H.now()
+        assert queue_refusals.state(c, 'ops')['reason'] == 'backoff'
+        assert health.refused_queues(c, store.settings) == []
+
+
+def test_scheduler_selection_failure_does_not_skip_later_steps_and_other_bots(api, clock, monkeypatch):
+    from backend.scheduler import Scheduler
+    from backend import milestone_waits
+    task_bot(api, lanes=True, others=('finance',))
+    new_task(api, 'Ops refusal')
+    new_task(api, 'Finance refusal', owner='finance')
+    set_cap(api, 0)
+    store = api.app.state.store
+    original = queue_refusals.current
+    later = []
+
+    def broken(*args):
+        raise RuntimeError('Synthetic assignment selection failure')
+
+    def one_bot(c, settings, bot):
+        assert not c.write_transaction, 'claim evaluation must not take the writer lock'
+        if bot == 'finance':
+            raise RuntimeError('Synthetic one bot failure')
+        return original(c, settings, bot)
+
+    monkeypatch.setattr(A, 'due', broken)
+    monkeypatch.setattr(queue_refusals, 'current', one_bot)
+    monkeypatch.setattr(milestone_waits, 'reconcile', lambda *args: later.append(True))
+    result = Scheduler(store, api.app.state.execution).tick(H.parse_ts(H.now()))
+    assert {'assigned_start': 'selection', 'error': 'RuntimeError'} in result['failures']
+    assert {'queue_refusals': 'finance', 'error': 'RuntimeError'} in result['failures']
+    assert later
+    with store.read() as c:
+        assert queue_refusals.state(c, 'ops')['reason'] == 'auto_start_off'
+        assert c.execute("SELECT 1 FROM service_health WHERE service='scheduler'").fetchone()
+
+
+def test_orphan_and_failed_delivery_are_recorded_once_and_do_not_starve_next_batch(api, clock, monkeypatch):
+    task_bot(api, lanes=True)
+    tasks = [new_task(api, 'Recovery item ' + str(n)) for n in range(3)]
+    cancel(api)
+    advance(api, clock, 1)
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute('UPDATE tasks SET conversation_id=NULL WHERE id=?', (tasks[0]['id'],))
+    original = H._wake
+
+    def one_bad(c, row, *args, **kwargs):
+        if row['id'] == tasks[1]['id']:
+            raise RuntimeError('Synthetic bad delivery')
+        return original(c, row, *args, **kwargs)
+
+    monkeypatch.setattr(H, '_wake', one_bad)
+    with store.transaction() as c:
+        for task in tasks:
+            A.sweep(c, H.now(), [task['id']])
+        assert A.due(c, H.now(), limit=2) == []
+    advance(api, clock, 2)
+    with store.read() as c:
+        rows = {r['id']: r for r in A.overdue(c)}
+        assert rows[tasks[0]['id']]['rewake_refusal'] == 'missing_conversation'
+        assert rows[tasks[1]['id']]['rewake_refusal'] == 'recovery_error'
+        assert rows[tasks[2]['id']]['rewake_refusal'] is None
+
+
+def test_queue_refusal_checks_the_observed_jobs_message_privacy_for_bot_readers(api, clock):
+    from backend.auth import Identity
+    task_bot(api, lanes=True)
+    post(api, 'tasks', {'owner': 'ops', 'title': 'Private refused work', 'body': 'Synthetic private task.', 'private': True})
+    set_cap(api, 0)
+    store = api.app.state.store
+    store.settings.test_identities['finance-observer'] = Identity('bot:finance', 'bot', agent='hermes')
+    with store.transaction() as c:
+        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES('finance','hermes','x',?,'human:ana')", (H.now(),))
+        queue_refusals.observe(c, store.settings)
+    observe_for(api, clock, 12)
+    assert 'queue_refused' in {x['id'] for x in get(api, 'health')['checks']}
+    assert 'queue_refused' not in {x['id'] for x in get(api, 'health', token='finance-observer')['checks']}

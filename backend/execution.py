@@ -1233,29 +1233,36 @@ def bot_refusal(c, settings, runner_id, bot):
     return bot_claimable(c, settings, runner_id, bot)[0]
 
 
-def bot_claimable(c, settings, runner_id, bot, oldest=False):
+def bot_claimable(c, settings, runner_id, bot, oldest=False, with_job=False):
     """(reason, first, person) for `bot`'s queued work on `runner_id`'s next claim: `reason` as bot_refusal says it;
     otherwise None with `first`, when the job the claim would hand out next was queued, and `person`, True when a
     person sent it. The scan keeps the claim's own order (Execution.candidate: a redirect, then a person's message, then
     the longest waiting), so Health ages the job the claim would take: an old held job beside a young free one is
-    neither held nor slow, and neither is an old free job behind a young chat the claim takes first."""
+    neither held nor slow, and neither is an old free job behind a young chat the claim takes first.
+    `oldest` diagnoses the oldest job outside a held lane; `with_job` also returns its ID for
+    observation aging and message-level authorization."""
+    def result(reason, first=None, person=None, job=None):
+        values = (reason, first, person, job)
+        return values if with_job else values[:3]
+
+    # Diagnostics skip a held lane to explain the oldest job that could use another lane.
     from .shared_bots import follow
     runner = c.execute("SELECT * FROM runners WHERE id=?", (runner_id,)).fetchone()
     row = c.execute(f"SELECT bc.config_json,{DRAINING_SQL.replace('a.bot', 'bc.bot')} draining FROM bot_config bc "
                     "WHERE bc.bot=?", (bot,)).fetchone()
     if not runner:
-        return None, None, None
+        return result(None)
     if not row:
-        return "config", None, None            # the claim reads only bots with a configuration
+        return result("config")            # the claim reads only bots with a configuration
     held_bots, held_lanes = claimed_busy(runner_id)
     ready = readiness_document(runner["readiness_json"])
     why, config = claim_refusal(c, settings, runner, bot, row["config_json"], row["draining"], ready, held_bots)
     if why:
         if oldest:
-            first = c.execute("SELECT created FROM jobs WHERE bot=? AND state='queued' AND held=0 "
+            first = c.execute("SELECT id,created FROM jobs WHERE bot=? AND state='queued' AND held=0 "
                               "ORDER BY created,id LIMIT 1", (bot,)).fetchone()
-            return why, first[0] if first else None, None
-        return why, None, None
+            return result(why, first["created"] if first else None, job=first["id"] if first else None)
+        return result(why)
     lanes, roots = lanes_on(runner), roots_on(runner)
     busy = {(r["bot"], r["lane"]) for r in c.execute(
         "SELECT bot,lane FROM attempts WHERE state IN ('leased','running')")} | held_lanes
@@ -1274,11 +1281,11 @@ def bot_claimable(c, settings, runner_id, bot, oldest=False):
         else:
             why = job_refusal(c, job, followed, ready, busy, lanes, roots) or (
                 "cooling_off" if login_refusal(c, settings, runner_id, bot, followed, job["id"]) else None)
-        if why is None or oldest:
-            return why, job["created"], person
+        if why is None or (oldest and why != "lane_held"):
+            return result(why, job["created"], person, job["id"])
         if refused is None or job["created"] < refused[0]:
-            refused = (job["created"], why)
-    return (refused[1] if refused else None), None, None
+            refused = (job["created"], why, person, job["id"])
+    return result(refused[1], refused[0] if oldest else None, refused[2], refused[3]) if refused else result(None)
 
 
 class Execution:

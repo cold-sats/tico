@@ -118,9 +118,11 @@ task see it; being the manager does not grant access to a private task. An attem
 completion clears the item. A new assignment starts its own one-hour clock.
 
 Health checks the queued job's lane and claim refusal even when the bot has another turn running.
-An oldest queued job continuously observed refusing claims for twelve hours becomes a stuck
-item, with the current reason. A newly observed refusal starts its own clock; an old queue alone
-does not establish twelve hours of refusal.
+The oldest queued job outside a running lane continuously observed refusing claims for twelve
+hours becomes a stuck item, with the current reason. A different job or reason, a pause or hold,
+or a gap of more than five minutes in observations starts a new clock. An old queue alone does
+not establish twelve hours of refusal. Missing task conversations and failed recovery delivery
+are recorded once and shown with the unstarted assignment, rather than silently omitted.
 
 ## Work that is waiting
 
