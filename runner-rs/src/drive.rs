@@ -555,16 +555,19 @@ mod tests {
     #[tokio::test]
     async fn only_an_acknowledged_interruption_records_the_terminal_recovery_receipt() {
         for status in ["interrupted", "completed"] {
-            let (url, _) = lapsed_hub().await;
+            let (url, sent) = lapsed_hub().await;
             let (runner, dir) = runner_at(&url);
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             let host = Host::Claude(ClaudeHost::new("acme", vec![], tx.clone()));
             tx.send(json!({"kind": "turn_completed", "thread_id": "th-1", "turn_id": "turn-1", "status": status})).unwrap();
             let drove = drive_turn(&runner, &host, &mut rx, &flags(true), "th-1").await.unwrap();
             assert_eq!(drove.outcome, status);
-            let events = runner.state.pending("acme-late").unwrap();
+            let events: Vec<Value> = sent.lock().unwrap().iter().filter_map(|request| {
+                let (path, body) = request.split_once(' ')?;
+                path.ends_with("/events").then(|| serde_json::from_str::<Value>(body).unwrap())
+            }).flat_map(|body| body["events"].as_array().cloned().unwrap_or_default()).collect();
             assert_eq!(events.iter().any(|e| e["kind"] == "diagnostic" && e["payload"]["interruption_complete"] == true),
-                       status == "interrupted");
+                       status == "interrupted", "{events:?}");
             std::fs::remove_dir_all(dir).ok();
         }
     }

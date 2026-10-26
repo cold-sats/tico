@@ -452,6 +452,20 @@ OUTSIDE_TOOLS = {'send_email': 'send email', 'send_mail': 'send email', 'merge_p
                  'hub_support_send': 'send support report'}
 
 
+OUTSIDE_LABELS = frozenset(label for label, _ in OUTSIDE_ACTIONS) | frozenset(OUTSIDE_TOOLS.values())
+# Older computers stored only the program. Do not mistake absent arguments for a harmless invocation.
+LEGACY_OUTSIDE_PROGRAMS = {
+    'gh': 'possible pull request merge or release (older computer omitted command details)',
+    'npm': 'possible package publish (older computer omitted command details)',
+    'cargo': 'possible package publish (older computer omitted command details)',
+    'twine': 'possible package publish (older computer omitted command details)',
+    'docker': 'possible image publish (older computer omitted command details)',
+    'hub': 'possible approval, publish or send (older computer omitted command details)',
+    'stripe': 'possible payment (older computer omitted command details)',
+    'sendmail': 'send email',
+}
+
+
 def restart_reported(c, attempt_id):
     """Only the computer's terminal restart report relaxes generic tool uncertainty; a lost lease does not."""
     row = c.execute("SELECT state,result_json FROM attempts WHERE id=?", (attempt_id,)).fetchone()
@@ -477,7 +491,18 @@ def outside_actions(c, job, started, finished):
         name = str(call.get('tool') or call.get('name') or '').split('__')[-1]
         if name in OUTSIDE_TOOLS:
             actions.add(OUTSIDE_TOOLS[name])
+        labels = call.get('outside_actions')
+        classified = isinstance(labels, list) and all(isinstance(label, str) and label in OUTSIDE_LABELS
+                                                     for label in labels)
+        if classified:
+            # Only canonical labels may reach review reasons; never trust arbitrary event text as a label.
+            actions.update(labels)
         summary = str(call.get('summary') or '')
+        if not classified and name in ('Bash', 'bash', 'shell', 'exec_command'):
+            program = summary.strip().rsplit('/', 1)[-1].lower()
+            if program in LEGACY_OUTSIDE_PROGRAMS:
+                actions.add(LEGACY_OUTSIDE_PROGRAMS[program])
+        # Compatibility with older command-bearing events. Output never overrides invocation evidence.
         actions.update(label for label, pattern in OUTSIDE_ACTIONS if pattern.search(summary))
     return sorted(actions)
 

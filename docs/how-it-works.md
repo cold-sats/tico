@@ -268,7 +268,9 @@ When the computer reports a restart, a run resumes on the next scheduler sweep, 
 edited files. Its recovery note gives the interruption time and tells it to check what already happened first;
 the same computer continues the same provider session. A consumed approval or a named irreversible outside action
 (merge, publish, send or payment) holds it for BotOps instead, and the review names the action. A second interruption
-is dismissed and BotOps is told. A lost lease without the computer’s restart report keeps the conservative rule above. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
+is dismissed and BotOps is told. The computer records fixed operation labels alongside shell events without exposing
+command arguments. Older program-only events from action-capable tools (such as `gh` or `npm`) go to review with a
+command-details-unavailable reason; they cannot prove that no merge or publish happened. A lost lease without the computer’s restart report keeps the conservative rule above. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
 A known primary login reset keeps runnable jobs queued until that reset when no eligible fallback is ready;
 a new message does not start another attempt on the spent login. An interrupted fallback returns to this queue
 only when its host acknowledged the end, reported its tools completely, and recorded no output, tools or consumed

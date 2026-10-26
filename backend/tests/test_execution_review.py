@@ -1211,10 +1211,8 @@ def test_review_choice_survives_a_busy_lane_and_applies_once_idle(api, decision,
     post(api, path, body, expected=409)
 
 
-def test_a_busy_bots_stopped_run_is_judged_unless_a_live_run_is_on_the_same_task(api):
-    """Dev 488: the sweep waited while the bot had any run in the stopped run's lane, so a bot that is always busy never
-    had its stopped runs judged, and the work fenced behind them never ran. It now waits only for a live run on the same
-    task; once judged, the fenced work is queued again, and the bot's page counts it as hub pipeline does."""
+def test_a_busy_bots_stopped_run_records_dependency_until_task_and_lane_free(api):
+    """A busy task or shared lane defers recovery; once free the sweep releases fenced queued work."""
     machine = runner(api)
     assign(api, machine, 'ops')
     ready(api, machine, ['ops'])
@@ -1242,9 +1240,11 @@ def test_a_busy_bots_stopped_run_is_judged_unless_a_live_run_is_on_the_same_task
         c.execute('UPDATE turns SET task_id=? WHERE id=?', (stopped['id'], other['id']))
     assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
 
-    # A live run on another task does not.
+    # A different task still owns this shared main lane, so record its dependency until it ends.
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE turns SET task_id=? WHERE id=?', (busy['id'], other['id']))
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    post(api, f"attempts/{other['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Done.'}, machine['token'])
     assert [d['state'] for d in sweep(api)] == ['queued']
     queue, page = counts()
     assert (queue['uncertain'], queue['dead'], queue['queued']) == (0, 0, 2) and page == 2
@@ -1260,8 +1260,7 @@ def test_auto_reconcile_defers_only_for_the_live_work_identity_that_matches(api,
 
     The historical-attempt case also protects the same task while the uncertain job has no attempt row to join.
     A distinct task sharing a non-main session lane must wait too; a different task on another lane is covered by
-    test_a_busy_bots_stopped_run_is_judged_unless_a_live_run_is_on_the_same_task. Different tasks sharing main do
-    not wait on one another.
+    test_a_busy_bots_stopped_run_records_dependency_until_task_and_lane_free. Shared main also waits.
     """
     from backend.execution import STALL_MAX
     from backend.store import H
@@ -1317,11 +1316,6 @@ def test_auto_reconcile_defers_only_for_the_live_work_identity_that_matches(api,
                       (H.shift(H.now(), seconds=-STALL_MAX-1), target_attempt['job_id']))
             c.execute('UPDATE turns SET task_id=? WHERE id=?', (target_task['id'], live_attempt['id']))
 
-    if live_match == 'different_task_same_main_lane':
-        # Main is a shared scheduling lane, not a shared task session; unrelated work must not hold this decision.
-        assert [d['state'] for d in sweep(api)] == ['queued']
-        assert job_state(api, target_attempt['job_id']) == 'queued'
-        return
     assert sweep(api) == [] and job_state(api, target_attempt['job_id']) == 'uncertain'
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='expired',finished=? WHERE id=?", (H.now(), live_attempt['id']))
@@ -1463,23 +1457,56 @@ def test_restart_with_hub_publish_or_send_call_is_held_and_names_it(api, tool, l
     assert label in review['reason'] and review['stopped'] == 'changed'
 
 
-@pytest.mark.parametrize('summary,label', [
-    ('cargo publish --dry-run', 'publish package'),
-    ('twine upload dist/acme-0.1.tar.gz', 'publish package'),
-    ('docker push registry.acme.example/team/img:tag', 'publish package'),
-    ('gh api repos/acme/tico/pulls/3/merge -X PUT', 'merge pull request'),
-    ('sendmail -t < /tmp/notice', 'send email'),
-])
-def test_restart_shell_publish_merge_and_send_commands_are_held_and_named(api, summary, label):
+def runner_shell_cases():
+    from pathlib import Path
+    return json.loads((Path(__file__).resolve().parents[2] /
+                       'runner-rs/tests/fixtures/recovery-shell-events.json').read_text())
+
+
+@pytest.mark.parametrize('case', runner_shell_cases(), ids=lambda case: case['command'])
+@pytest.mark.parametrize('host', ['codex', 'claude'])
+def test_restart_shell_actions_use_real_runner_events(api, case, host):
+    """Rust host tests produce these exact payloads from provider start items; no full command summary exists."""
+    add_recovery_reviewer(api)
+    machine, message, attempt = setup_attempt(api)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'restarted'}, machine['token'])
+    payload = case[host]
+    post(api, f"attempts/{attempt['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}},
+        {'seq': 2, 'kind': 'tool', 'payload': payload}]}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/complete", {'outcome': 'interrupted', 'last_seq': 2,
+         'text': 'Runner restarted during execution'}, machine['token'])
+    if payload['outside_actions']:
+        assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+        review = get(api, 'bots/ops/execution-review')['jobs'][0]
+        assert all(label in review['reason'] for label in payload['outside_actions'])
+        with api.app.state.store.read() as c:
+            body = c.execute("SELECT body FROM tasks WHERE owner='bot:botops'").fetchone()[0]
+        assert all(label in body for label in payload['outside_actions'])
+        assert 'synthetic-private-marker' not in body + review['reason']
+    else:
+        assert [d['state'] for d in sweep(api)] == ['queued']
+        with api.app.state.store.read() as c:
+            assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:botops'").fetchone()
+
+
+@pytest.mark.parametrize('program', ['gh', 'npm', 'docker', 'hub', 'stripe'])
+@pytest.mark.parametrize('labels', [None, ['synthetic-private-marker']])
+def test_restart_legacy_program_only_event_does_not_hide_possible_action(api, program, labels):
     add_recovery_reviewer(api)
     machine, message, attempt = restarted_mid_turn(api, [('Bash', None)])
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempt_events SET payload_json=json_set(payload_json,'$.summary',?) "
                   "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='started'",
-                  (summary, attempt['id']))
+                  (program, attempt['id']))
+        if labels is not None:
+            c.execute("UPDATE attempt_events SET payload_json=json_set(payload_json,'$.outside_actions',json(?)) "
+                      "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='started'",
+                      (json.dumps(labels), attempt['id']))
     assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
     review = get(api, 'bots/ops/execution-review')['jobs'][0]
-    assert label in review['reason'] and review['stopped'] == 'changed'
+    assert 'older computer omitted command details' in review['reason']
+    assert 'synthetic-private-marker' not in review['reason']
 
 
 def test_restart_read_only_run_ignores_another_runs_approval_and_merge(api):
