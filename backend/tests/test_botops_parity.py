@@ -70,8 +70,14 @@ def test_routine_tools_delegate_canonical_ids_and_verify_schedules_before_activa
     correct = act(api, attempt, "POST", "bots/ops/go-live", {"setup": False, "routines": [{
         "id": schedule["id"], "title": "QA review", "cron": "0 8 * * *", "timezone": "UTC"}]})
     assert correct.status_code == 200 and correct.json()["state"] == "active"
-    err, gone = mcp(api, "hub_routine_delete", {"id": schedule["id"]}, attempt["token"])
-    assert not err and gone["deleted_at"]
+    # Deleting is the person's own tap: a Confirm card in her chat, and the routine goes once she taps it.
+    err, card = mcp(api, "hub_routine_delete", {"id": schedule["id"]}, attempt["token"])
+    assert not err and card["needs_confirm"], card
+    listed = lambda: any(r["id"] == schedule["id"] for r in mcp(api, "hub_routine_list", {"bot": "ops"},
+                                                                 attempt["token"])[1]["result"])
+    assert listed()
+    done = post(api, f"assistant/actions/{card['action']['id']}/confirm", {}, token="ana-test")["action"]
+    assert done["status"] == "done" and not listed(), done
     for path in ("routines/ops:qa-review/../delete", "routines/ops%3Aqa-review", "routines//ops:qa-review"):
         from backend.botops_act import normalize
         assert normalize(path) is None
