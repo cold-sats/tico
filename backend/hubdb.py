@@ -1197,6 +1197,8 @@ def migrate(conn, adopt_legacy=False):
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
+    # A bot's unread backlog, read newest first a page at a time on every inbox read (inbox_pages).
+    conn.execute(UNREAD_INDEX)
     conn.execute("CREATE INDEX IF NOT EXISTS messages_pending_conversation ON messages(conversation_id) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
     # The keeper's meeting inputs, the few messages a room's meeting provenance is read from (live_privacy.Sources) on
@@ -3295,7 +3297,11 @@ def _type_name(conn, actor, name, type_id=None):
 
 
 def _type_steps(conn, actor, type_id, steps):
-    existing = {row["id"]: row for row in (type_get(conn, type_id) or {}).get("steps", [])}
+    typ = type_get(conn, type_id) or {}
+    existing = {row["id"]: row for row in typ.get("steps", [])}
+    # A new step's public name is its name only on a type whose tasks are public by default; on a private one (the
+    # Product roadmap) an internal step name does not go public unless someone gives it a public name.
+    unnamed = "" if typ.get("default_visibility", "private") != "public" else None
     clean, names, ids = [], set(), set()
     for position, raw in enumerate(steps):
         name = str(raw.get("name") or "").strip()
@@ -3314,15 +3320,21 @@ def _type_steps(conn, actor, type_id, steps):
         clean.append({"id": ident, "type_id": type_id, "name": name,
                       "position": raw.get("position") if raw.get("position") is not None else position,
                       "status": status, "public_name": str(raw.get("public_name") if raw.get("public_name") is not None else
-                          existing.get(ident, {}).get("public_name", name))})
+                          existing.get(ident, {}).get("public_name", name if unnamed is None else unnamed)).strip()})
+    def in_use(ident):
+        return (_one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (ident,))
+                or _has_table(conn, "task_trash") and _one(conn,
+                    "SELECT 1 FROM task_trash WHERE purged_at IS NULL "
+                    "AND json_extract(rows_json,'$.rows.tasks[0].step_id')=? LIMIT 1", (ident,)))
+
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
-                and _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))):
-            refuse(conn, actor, "in-use", "Move tasks off this step before changing its status, or create a new step")
+                and in_use(row["id"])):
+            refuse(conn, actor, "in-use", "Move tasks off this step before changing its status, including tasks in the trash, or create a new step")
     removed = set(existing) - ids
     for ident in removed:
-        if _one(conn, "SELECT id FROM tasks WHERE step_id=? LIMIT 1", (ident,)):
-            refuse(conn, actor, "in-use", "Move tasks off this step before deleting it")
+        if in_use(ident):
+            refuse(conn, actor, "in-use", "Move tasks off this step before deleting it, including tasks in the trash")
     for ident in removed:
         conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
     # Temporary names let retained steps swap names without dropping referenced rows.
@@ -3526,7 +3538,7 @@ def steps_only(conn, row):
     return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
-def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
+def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *, skip_step_wake=()):
     """Every task status write keeps its type and step consistent, including old runners. A task
     that enters a step joins its end; one that lands on a numbered type without a number gets one."""
     type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
@@ -3556,6 +3568,7 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
             for below in descendants(conn, row["id"]):
                 why = f"A task above it was {TASK_ENDED[effective]}"
                 drop_asked_waits(conn, below["id"], supersede_asks(conn, below["id"], why=why), why)
+            supersede_ask_cards(conn, row, effective)
             # ...and so is a yes it was waiting for: nothing will act on it now.
             withdraw_task_approvals(conn, row["id"], f"Its task was {TASK_ENDED[effective]}.")
     from .roadmap_flow import changed as roadmap_changed
@@ -3567,7 +3580,7 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
     if step_id and row.get("step_id") != step_id and row.get("status") is not None:
         # A step entered is news a type's rules may route (QA Fixes to the Builder, In QA to QA, ...).
         from . import rules as wake_rule_engine
-        wake_rule_engine.step_entered(conn, actor, task(conn, row["id"]))
+        wake_rule_engine.step_entered(conn, actor, task(conn, row["id"]), skip=skip_step_wake)
     return effective
 
 
@@ -3982,8 +3995,9 @@ def _unblock(conn, done_task, told=()):
                   "AND json_extract(refs_json,'$.trigger_source')=? AND body LIKE 'Unblocked: %' LIMIT 1",
             (row["conversation_id"], row["id"], done_task["id"]))
         if row["status"] in ACTIVE_STATUSES and not waits and row["id"] not in told:
-            _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.",
-                  refs={"blocker_done": done_task["id"]}, source=done_task["id"])
+            outcome = "was declined" if done_task["status"] == "declined" else "is finished"
+            _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} {outcome}.",
+                  refs={"blocker_done": done_task["id"], "blocker_status": done_task["status"]}, source=done_task["id"])
 
 
 def _answered(conn, actor, task_id, card, told=None):
@@ -4743,7 +4757,8 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     from . import wake_rules
     wake_rules.own_comment(conn, msg, row)        # token saving 2/9: a bot's own comment never wakes it; log the skip
     hook(conn, "task.commented", task_id, lambda: _task_facts(conn, task_id, actor, comment_id=msg["id"]), actor, revision=msg["id"])
-    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
+    if actor != KEEPER or ask:
+        conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     if row["status"] == "waiting" and row.get("waiting_on") == actor:
         # The person it waited on has spoken: the next move is the bot's, and it leaves their
         # Needs you. The bot sets it waiting on them again if it still needs something.
@@ -5261,10 +5276,10 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         labels.append("qa")
     if labels and is_bot(actor) and not mover:
         _create_labels(conn, actor, labels)     # people, movers and the keeper as before
-    dup = _one(conn, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
-                     f"AND coalesce({TR.parent_sql()},'')=? "
-                     f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))})",
-               (requester, target, title, parent_id or "", *ACTIVE_STATUSES))
+    dup = _same_title(conn, "SELECT id,title FROM tasks WHERE requester=? AND owner=? "
+                            f"AND coalesce({TR.parent_sql()},'')=? "
+                            f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))}) ORDER BY created,id",
+                      (requester, target, parent_id or "", *ACTIVE_STATUSES), title)
     if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (deduplicate or actor != KEEPER):
         detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
                   else f"{dup['id']} already asks {actor_id(target)} for this")
@@ -5397,6 +5412,19 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     return {**made, "warnings": plain} if plain else made
 
 
+def title_key(title):
+    """What two task titles are compared by, for a duplicate: case-folded, trimmed, inner spaces collapsed. The
+    create and rename refusals, the Task Manager's duplicates and the stale review's twin all use it; the stored
+    title stays as typed. In Python, since SQLite's lower() folds ASCII only."""
+    return " ".join(str(title or "").split()).casefold()
+
+
+def _same_title(conn, sql, args, title):
+    """The first row `sql` reads (id, title) whose title is `title` by title_key, or None."""
+    key = title_key(title)
+    return next((r for r in _rows(conn.execute(sql, args)) if title_key(r["title"]) == key), None)
+
+
 def _retitle(conn, actor, row, title, owner, type_id):
     """A new title gets the checks a new task's title would, against the task as the update
     leaves it: never empty; on a General task for a person, rule 7's title half; no active task
@@ -5409,10 +5437,10 @@ def _retitle(conn, actor, row, title, owner, type_id):
     if not title:
         refuse(conn, actor, "lint", "give it a title that says what you are asking for")
     warnings = style_problems(conn, actor, lint_human_title(title)) if is_human(target) and general else []
-    dup = _one(conn, "SELECT id FROM tasks WHERE id<>? AND requester=? AND owner=? AND title=? "
-                     f"AND coalesce({TR.parent_sql()},'')=? "
-                     f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))})",
-               (row["id"], row["requester"], target, title, parent or "", *ACTIVE_STATUSES))
+    dup = _same_title(conn, "SELECT id,title FROM tasks WHERE id<>? AND requester=? AND owner=? "
+                            f"AND coalesce({TR.parent_sql()},'')=? "
+                            f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))}) ORDER BY created,id",
+                      (row["id"], row["requester"], target, parent or "", *ACTIVE_STATUSES), title)
     if dup and task_private_readable(conn, actor, task(conn, dup["id"])):
         detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
                   else f"{dup['id']} already asks {actor_id(target)} for this")
@@ -5800,7 +5828,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     answered = set()
     if status in ("done", "declined") and row["status"] != status and not closing_step:
         answered = {tid for tid in TR.blocked_ids(conn, task_id) if _answered(conn, actor, tid, after, subtask_told)}
-    if status == "done":
+    if status in ("done", "declined"):
         if subtask_told:
             answered.add(TR.parent_of(conn, task_id))  # the result also satisfies this parent's blocker notice
         _unblock(conn, after, told=answered)
@@ -6022,6 +6050,22 @@ def _ask_in_subtask(conn, actor, row, person, ask):
     return card
 
 
+def supersede_ask_cards(conn, row, status):
+    """Retire generated asks whose work ended, keeping cards still needed by another live task."""
+    ended = {row["id"], *TR.descendant_ids(conn, row["id"])}
+    candidates = set(ended)
+    for tid in ended:
+        candidates.update(TR.blocker_ids(conn, tid))
+    for tid in candidates - {row["id"]}:
+        card = task(conn, tid)
+        if not card or card["status"] not in ACTIVE_STATUSES or not ask_card(conn, card):
+            continue
+        if any(blocked not in ended and (task(conn, blocked) or {}).get("status") in ACTIVE_STATUSES
+               for blocked in TR.blocked_ids(conn, tid)):
+            continue
+        task_close(conn, KEEPER, tid, note=f"Ask superseded: its task was {TASK_ENDED[status]}.", quiet=True)
+
+
 def _waiting_person(conn, actor, row, value, status, owner=None, private=None):
     """The person `hub task update --status waiting --on <person>` names, or "" to clear it.
 
@@ -6194,6 +6238,12 @@ def wait_detail(conn, row):
         return {"why": "an undecided approval", "on": "person"}
     if row.get("waiting_on"):
         return {"why": f"{actor_id(row['waiting_on'])} to act", "on": row["waiting_on"]}
+    from .worktree_waits import for_task as worktree_waits
+    worktrees = worktree_waits(conn, row["id"])
+    if worktrees:
+        wait = worktrees[0]
+        return {"why": f"a worktree for {wait['repo']}" + (" to be ready" if wait["state"] == "reserved" else " to be available"),
+                "on": "external"}
     from .milestone_waits import pending as milestone_pending
     milestone = milestone_pending(conn, row["id"])
     if milestone:
@@ -8009,18 +8059,48 @@ def undelivered(conn, to_actor=None, limit=200):
     return out
 
 
-def inbox(conn, actor, at=None):
-    """What is waiting for me: unread or undelivered messages, and my open tasks."""
+# A message still waiting for its recipient: not yet delivered, or not yet read. The partial index repeats these terms
+# word for word, or SQLite does not use it (`inbox_pages`).
+UNREAD_TERMS = "(delivered_at IS NULL OR read_at IS NULL) AND deleted_at IS NULL"
+UNREAD_INDEX = "CREATE INDEX IF NOT EXISTS messages_unread_to ON messages(to_actor, created) WHERE " + UNREAD_TERMS
+UNREAD_PAGE_SQL = ("SELECT rowid AS _seq,* FROM messages WHERE to_actor=? AND " + UNREAD_TERMS +
+                   " AND (expires_at IS NULL OR expires_at > ?) AND created<=? AND (created<? OR rowid<?)"
+                   " ORDER BY created DESC, rowid DESC LIMIT ?")
+
+
+def inbox_pages(conn, actor, at=None, size=100):
+    """`actor`'s unread or undelivered messages, newest first, `size` at a time, each once. A bot that never marks
+    messages read holds thousands, and a reader that wants only the newest few stops paging: the rest are not read.
+    Each page carries on below the last (created, rowid) of the one before, so messages sent in the same instant are
+    neither repeated nor skipped. Read the pages in one snapshot."""
     at = at or now()
-    rows = _rows(conn.execute(
-        "SELECT * FROM messages WHERE to_actor=? AND (delivered_at IS NULL OR read_at IS NULL) "
-        "AND (expires_at IS NULL OR expires_at > ?) AND deleted_at IS NULL ORDER BY created", (actor, at)))
+    created, seq = "\uffff", 1 << 62                   # above every stored time and rowid: the first page is the newest
+    while True:
+        rows = _rows(conn.execute(UNREAD_PAGE_SQL, (actor, at, created, created, seq, size)))
+        if not rows:
+            return
+        created, seq = rows[-1]["created"], rows[-1]["_seq"]
+        for row in rows:
+            del row["_seq"]
+            row["refs"] = _json(row.get("refs_json"), {}) or {}
+        yield rows
+        if len(rows) < size:
+            return
+
+
+def mark_answered(conn, rows):
+    """Set each message's `answered_at`: when its ask was answered, or None."""
     answered = answers_to(conn, [r["id"] for r in rows if r.get("kind") == "ask"])
     for row in rows:
-        row["refs"] = _json(row.get("refs_json"), {}) or {}
         got = answered.get(row["id"])
         row["answered_at"] = got["created"] if got else None
-    return {"actor": actor, "messages": rows,
+    return rows
+
+
+def inbox(conn, actor, at=None):
+    """What is waiting for me: unread or undelivered messages, oldest first, and my open tasks."""
+    rows = [row for page in inbox_pages(conn, actor, at, size=500) for row in page][::-1]
+    return {"actor": actor, "messages": mark_answered(conn, rows),
             "tasks": tasks(conn, owner=actor, status=ACTIVE_STATUSES)}
 
 
@@ -8088,7 +8168,8 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     a board's: by step, then each task's place in it. `updated_since` is a stored timestamp.
     `tickets=False` leaves out the tasks on a numbered type. `member` keeps the tasks that actor is on
     in some role (task_roles), or in `role` when given. `ids` limits it to those tasks (a delta
-    read's changed ones). `snoozed` is "hide" (leave out snoozed tasks), "only", or None for both."""
+    read's changed ones). `snoozed` is "hide" (leave out snoozed tasks), "only", or None for both.
+    `limit=None` reads every match."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if member:
         where.append(TRo.member_sql(role))
@@ -8151,7 +8232,7 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     else:
         raise ValueError("task order is queue, finished or step")
     rows = _rows(conn.execute(sql + f" ORDER BY {ordering} LIMIT ? OFFSET ?",
-                              (*args, max(1, int(limit)), max(0, int(offset)))))
+                              (*args, -1 if limit is None else max(1, int(limit)), max(0, int(offset)))))
     hydrate_task_tags(conn, rows)
     return rows
 
@@ -8292,7 +8373,7 @@ def needs_you(conn, who):
 
     A task on a numbered type is a ticket on that type's board, worked through there: it is on
     the list only while it carries a question for the person, and a declined one stays off its
-    requester's list."""
+    requester's list, as does a declined one on a steps-only type."""
     actor = who if actor_kind(who) else human_actor(who)
     pending = _rows(conn.execute("SELECT * FROM approvals WHERE decision IS NULL ORDER BY created"))
     at = now()
@@ -8304,7 +8385,8 @@ def needs_you(conn, who):
     # decision owed today: it counts here only when it carries a question for the person.
     # The same goes for a numbered type's tickets, a board of its own.
     # A snoozed task is nobody's to act on before its date (backend/task_snooze.py).
-    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES, tickets=False, snoozed="hide")
+    # Every one: a person's list does not stop at a page of their tasks (the caller pages the items).
+    owned = [t for t in tasks(conn, owner=actor, status=ACTIVE_STATUSES, tickets=False, snoozed="hide", limit=None)
              if (t.get("lane") or "company") != "product"]
     seen = {t["id"] for t in owned}
     asked = [t for t in tasks_asked_of(conn, actor) if t["id"] not in seen and not TS.snoozed(t)]
@@ -8315,11 +8397,15 @@ def needs_you(conn, who):
     # What the CEO Bot merged into one item of its own is that item here, not each original (backend/ceo_merge.py).
     from . import ceo_merge
     merged = ceo_merge.hidden(conn, actor)
+    # A declined task on a steps-only type (the Product roadmap) stays on its Declined step, where the board and
+    # the public roadmap show it: closing it off the list would take it off both, so it is not on the list.
+    by_step = {r["id"] for r in conn.execute("SELECT id FROM task_types WHERE steps_only=1")}
     return {"actor": actor,
             "tasks": [t for t in asked + owned if t["id"] not in merged],
             "waiting": [t for t in waited if t["id"] not in merged],
             "approvals": pending,
-            "declined": tasks(conn, requester=actor, status="declined", tickets=False, snoozed="hide")}
+            "declined": [t for t in tasks(conn, requester=actor, status="declined", tickets=False, snoozed="hide",
+                                          limit=None) if (t.get("type_id") or GENERAL_TYPE) not in by_step]}
 
 
 def approval(conn, approval_id):
