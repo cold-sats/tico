@@ -156,6 +156,7 @@ def test_destination_board_review_preflight_uses_fresh_github_and_refuses_atomic
     assert refused.status_code == 422 and OLD in refused.text and 'python' in refused.text, refused.text
     current = get(api, 'tasks/' + task['id'])['task']
     assert current['type_id'] == task['type_id'] and current['status'] == 'waiting'
+    assert current['blocked_since'] and 'CI failing' in current['blocked_reason']
     assert current['version'] > task['version']
     with api.app.state.store.read() as c:
         assert not c.execute("SELECT 1 FROM jobs WHERE bot='cmo'").fetchone()
@@ -164,7 +165,9 @@ def test_destination_board_review_preflight_uses_fresh_github_and_refuses_atomic
     fresh.update(head=HEAD, conclusion='success')
     allowed = api.post('/api/v2/tasks/' + task['id'], headers=headers(), json=body)
     assert allowed.status_code == 200, allowed.text
-    assert allowed.json()['task']['step']['name'] in ('Review 1', 'Review 2')
+    resumed = allowed.json()['task']
+    assert resumed['step']['name'] in ('Review 1', 'Review 2')
+    assert not resumed.get('blocked_since') and not resumed.get('blocked_reason')
 
 
 def test_fresh_github_snapshot_head_and_checks_are_used_and_races_refuse(api, monkeypatch):

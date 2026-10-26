@@ -326,6 +326,7 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await page.locator('#task-modal [data-prop="step"]').click();
     await page.locator('#task-modal [data-prop-pick="dev-blocked"]').click();
     await page.locator('.task-block-reason [data-cancel]').click();
+    await page.locator('.task-block-reason').waitFor({state: 'detached'});
     assert.equal(await page.locator('.task-block-reason').count(), 0);
     await page.locator('#task-modal [data-prop="step"]').click();
     await page.locator('#task-modal [data-prop-pick="dev-blocked"]').click();

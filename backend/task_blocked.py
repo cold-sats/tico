@@ -110,8 +110,10 @@ def hold(c, task_id, reason, kind='dependency'):
     from . import hubdb as H, review_gate
     reason = str(reason)[:1000]
     row = H.task(c, task_id)
+    # A refused move into Engineering still holds a task on its original board.
+    # Ordinary dependency holds stay scoped to Engineering's recovery rules.
     if (not row or row['status'] not in (*H.ACTIVE_STATUSES, 'review')
-            or not review_gate.engineering(c, row)):
+            or kind != 'gate' and not review_gate.engineering(c, row)):
         return
     if row.get('blocked_since'):
         # Retain the first hold time and resume step when another gate also holds it.
