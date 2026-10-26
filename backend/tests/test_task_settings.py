@@ -33,7 +33,10 @@ def test_task_settings_pages_keep_live_triggers_and_exclude_non_task_events(api)
     assert found[task["id"]]["task_trigger"] == "open"
     assert found[other["id"]]["task_trigger"] is None
     assert found["task_done"]["task_trigger"] == "finished"
-    assert found["default_note"]["task_trigger"] == "open"
+    # Delivery filters and engine fallbacks do nothing to a task; a filter with task words still shows.
+    for engine in ("default_note", "own_write", "caller_quiet", "no_run", "duplicate_drop", "same_state"):
+        assert found[engine]["task_trigger"] is None, engine
+    assert found["bot_to_bot"]["task_trigger"] == "open"
 
 
 def test_task_settings_routines_preserve_actual_state_and_do_not_run_jobs(api):

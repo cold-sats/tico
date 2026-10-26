@@ -29,6 +29,15 @@ function taskSettingsTrigger(r) {
   if (r.event === 'step_entered') return 'step';
   return ['task_done', 'task_declined', 'batch_completion'].includes(r.event) ? 'finished' : 'open';
 }
+// A rule row borrows its event's words from the general built-in, never from a filter or a narrower case of it.
+const TASK_SETTINGS_EVENT_WORDS = {pr_checks_done: 'every check on a pull request head finished'};
+function taskSettingsEventWords(event) {
+  if (TASK_SETTINGS_EVENT_WORDS[event]) return TASK_SETTINGS_EVENT_WORDS[event];
+  const rank = {wake: 0, note: 1, always: 2, batch: 3, awaited: 4, pr_checks: 5};
+  const found = (TASK_SETTINGS?.rules.rules || []).filter(row => row.scope_kind === 'builtin' && row.event === event && row.group in rank)
+    .sort((a, b) => rank[a.group] - rank[b.group])[0];
+  return found?.words || event.replaceAll('_', ' ');
+}
 function taskSettingsSentence(r, type) {
   if (r.task_action) return r.task_action;
   if (r.scope_kind === 'type') type = TASK_TYPES.find(t => t.id === r.scope_id);
@@ -42,8 +51,7 @@ function taskSettingsSentence(r, type) {
   const moment = {assignment: `${subject} is assigned, reassigned or handed back`, due: `${subject} is due`, snooze: `${subject}'s snooze ends`,
     step_entered: `${subject} enters ${ruleList(r.when?.step).join(' or ') || 'a step'}`} [r.event];
   const conditions = r.built_in ? [] : ruleWhenWords({...r.when, ...(moment ? {step: undefined} : {})});
-  const known = TASK_SETTINGS?.rules.rules.find(row => row.scope_kind === 'builtin' && row.event === r.event);
-  const words = r.words || known?.words || r.event.replaceAll('_', ' ');
+  const words = r.words || taskSettingsEventWords(r.event);
   return `When ${moment || words}${conditions.length ? ', if ' + conditions.join(' and ') : ''}, ${action}.`;
 }
 function taskSettingsRow(r, type) {
@@ -60,7 +68,7 @@ function taskSettingsRow(r, type) {
     ${profile ? `<p class="settings-cell-note">From its ${esc(profile)} profile</p>` : ''}</div>
     <div class="task-setting-meta"><span class="pill">${esc(source)}</span><span class="pill">${esc(r.task_effect || (quiet ? 'Quiet' : 'Wakes'))}</span>
       <span title="Last 7 days">${esc(usage)}</span><span>${state}</span>
-      ${change ? `<a class="ghost" role="switch" aria-label="Change action on or off" aria-checked="${on !== false}" href="${esc(link)}">${on === false ? 'Switch on' : 'Switch off'}</a><a class="ghost" href="${esc(link)}">Edit</a>` : ''}</div></article>`;
+      ${change ? `<a class="ghost" aria-label="${on === false ? 'Switch on' : 'Switch off'} in the editor" href="${esc(link)}">${on === false ? 'Switch on' : 'Switch off'}</a><a class="ghost" href="${esc(link)}">Edit</a>` : ''}</div></article>`;
 }
 function taskSettingsAdd(section, step = '') {
   if (!taskSettingsMayAdd()) return '';
@@ -79,7 +87,8 @@ function taskSettingsPaint() {
     const render = list => list.map(r => taskSettingsRow(r, type)).join('') || '<p class="muted">Nothing happens</p>';
     let body = render(mine);
     if (key === 'step') body = mine.filter(r => r.task_action && !r.when?.step).map(r => taskSettingsRow(r, type)).join('') + (type.steps || []).map(step => `<div class="task-setting-step" data-task-step="${esc(step.name)}"><h4>${esc(step.name)}</h4>${render(mine.filter(r => (!r.task_action || r.when?.step) && (!r.when?.step || ruleList(r.when.step).includes(step.name))))}${taskSettingsAdd(key, step.name)}</div>`).join('');
-    if (key === 'finished') body = ['Done', 'Declined', 'Closed'].map(name => `<div class="task-setting-step"><h4>${name}</h4>${render(mine.filter(r => !r.event || (name === 'Declined' ? ['task_declined'] : name === 'Closed' ? ['task_done', 'batch_completion'] : ['task_done', 'batch_completion']).includes(r.event)))}</div>`).join('');
+    // Built-in effects with no event run on all three, so they show once above the blocks.
+    if (key === 'finished') body = mine.filter(r => !r.event).map(r => taskSettingsRow(r, type)).join('') + ['Done', 'Declined', 'Closed'].map(name => `<div class="task-setting-step"><h4>${name}</h4>${render(mine.filter(r => (name === 'Declined' ? ['task_declined'] : ['task_done', 'batch_completion']).includes(r.event)))}</div>`).join('');
     return `<section class="task-setting-section" data-task-trigger="${key}"><h3><span class="muted">Trigger</span> ${esc(title)}</h3><p>${esc(intro.replace('{type}', type ? type.name + ' task' : 'task'))}</p>${body}${key === 'step' ? '' : taskSettingsAdd(key)}</section>`;
   };
   const footer = new Map();

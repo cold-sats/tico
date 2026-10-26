@@ -11,15 +11,15 @@ BUILTINS = (
     ("review_pr", "created", "Refuse a Review 1 or Review 2 subtask with no linked pull request, failing checks, an unreadable current version, or no passing test evidence for the current code."),
     ("review_duplicate", "created", "Refuse a second open Review 1, Review 2 or QA subtask of the same kind for the same pull request head. Security subtasks are not checked."),
     ("private_default", "created", 'Make it private if the requester\'s or owner\'s "private tasks" default is on.'),
-    ("public_text", "created", "Refuse public roadmap text from a bot that no person approved; the bot files it privately and asks for publication."),
+    ("public_text", "created", "Refuse a bot's new task that carries public roadmap text while bots need a person's approval to publish. The bot must file it without that text, then ask for publication."),
     ("ask_check", "created", "Check the title and text for asks a person must answer first; note any problem on the task."),
     ("qa_tag", "created", 'Add the "qa" tag when its changed files need QA (Dev and Engineering types).'),
     ("conversation", "created", 'Open its own conversation for a bot owner, and say "Started task" in the chat it came from.'),
     ("queue", "created", 'Put it at the bottom of its owner\'s queue and of its step (top, if filed with "top").'),
     ("created_wake", "created", 'Wake its owner: "New task from …". A bot\'s own task waits until the turn that filed it ends.'),
-    ("human_wait", "created", "If it waits on a person, say so once in the bot's main chat."),
+    ("human_wait", "created", "If a bot's task gets a subtask for a person, say once in that bot's main chat that it waits on them. A top-level task for a person says nothing."),
     ("roadmap", "step", "Move the linked Product roadmap item: Building, Ready to ship, Shipped (and back); only Engineering and Dev types linked to a roadmap item."),
-    ("review_gate", "step", "Before entering Review 1 or Review 2 with a linked pull request, require passing checks or passing test evidence for the current code; refuse failed tests or an unreadable pull request."),
+    ("review_gate", "step", "Before it enters Review 1 or Review 2 with a linked pull request, refuse the move if its checks are failing or the pull request cannot be read, and require a passing test receipt for the current code. Checks still running do not refuse it; a failed test at that code always does."),
     ("questions", "finished", 'Drop its open questions to people (and its subtasks\'), except the requester\'s "is this done?" question.'),
     ("approvals", "finished", "Drop any yes/no approval it was waiting on."),
     ("completion", "finished", "Tell the bot that asked for it: at once if it is waiting on this result (Wakes); otherwise in its next batch of finished tasks (Quiet). Closes it accepted itself, and its own tasks, send nothing."),
@@ -45,6 +45,9 @@ JOBS = {
 }
 
 NON_TASK = frozenset(("routine", "schedule", "next_run", "background_done", "*", "digest", "feed", "backlog", "release_now"))
+# Delivery filters and engine fallbacks decide how news reaches a bot; they do nothing to a task, so the card
+# leaves them out. A filter with its own task words (RULE_WORDS) still shows.
+ENGINE_GROUPS = frozenset(("filter", "system"))
 
 # These replace the generic engine description with the limits of the task path it describes.
 RULE_WORDS = {
@@ -67,8 +70,8 @@ def trigger(event):
 
 def describe_rule(row):
     out = {**row, "task_trigger": trigger(row["event"])}
-    if row.get("scope_kind") == "builtin" and row["event"] == "*":
-        out["task_trigger"] = "open"
+    if row.get("scope_kind") == "builtin" and row.get("group") in ENGINE_GROUPS and row["id"] not in RULE_WORDS:
+        out["task_trigger"] = None
     if row.get("scope_kind") == "builtin" and row["id"] == "step_entered":
         out["task_trigger"] = "open"
     if row.get("scope_kind") == "builtin" and row["id"] in RULE_WORDS:

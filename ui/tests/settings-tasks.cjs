@@ -26,6 +26,9 @@ const FLOOR_422 = 'Person message always wakes the bot: a rule cannot make it wa
 const builtins = [
   {id: 'builtin:person_message', built_in: true, scope_kind: 'builtin', scope_id: '', group: 'always', event: 'person_message',
     words: 'a person messages it', then: 'wake', enabled: true, runs_7d: 14, no_op_rate_7d: 0.1},
+  // A narrower filter on the same event comes first, as on the server; a team rule must not borrow its words.
+  {id: 'builtin:own_write', built_in: true, scope_kind: 'builtin', scope_id: '', group: 'filter', event: 'comment', task_trigger: null,
+    words: 'the bot\'s own write caused it', then: 'ignore', enabled: true, runs_7d: 0, no_op_rate_7d: null},
   {id: 'builtin:comment', built_in: true, scope_kind: 'builtin', scope_id: '', group: 'wake', event: 'comment',
     words: 'a comment on its task', then: 'wake', enabled: true, runs_7d: 30, no_op_rate_7d: 0.6},
 ];
@@ -147,6 +150,9 @@ const settingRow = (page, id) => card(page).locator(`[data-task-setting="${id}"]
     assert.match(await settingRow(page, 'r-due').innerText(), /Bot: Ops/);
     assert.match(await settingRow(page, 'task-setting-dedupe').innerText(), /Always on/);
     assert.equal(await settingRow(page, 'task-setting-dedupe').locator('a').count(), 0);
+    assert.match(await settingRow(page, 'r-team').innerText(), /When a comment on its task/);
+    assert.equal(await settingRow(page, 'task-setting-questions').count(), 1, 'a finish row that runs on all three shows once');
+    assert.equal(await card(page).getByRole('switch').count(), 0, 'the switch opens the editor, so it is a link');
     await card(page).locator('select').selectOption('dev');
     assert.deepEqual(await card(page).locator('[data-task-step] h4').allTextContents(), TYPES[1].steps.map(s => s.name));
     assert.match(await settingRow(page, 'r-type').innerText(), /wake its owner/);
