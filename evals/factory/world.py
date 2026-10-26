@@ -147,6 +147,12 @@ class World:
         self.scheduler.tick()
         with self.store.transaction() as c:
             flush_wakes(c)
+        if getattr(self, "github_reads", False):
+            # With the GitHub App connected the app's loop also retries refused review moves and reads gate holds
+            # afresh (backend/app.py); both read GitHub, so without the App there is nothing for them to do.
+            from backend import move_retry, task_blocked
+            move_retry.tick(self.app.state.github_app, force=True)
+            task_blocked.fresh(self.app.state.github_app, force=True)
 
     def retry_moves(self):
         """The server's retry of refused review moves (backend/move_retry.py), which the app runs beside its GitHub
@@ -274,6 +280,68 @@ class World:
             return
         self.prs[number]["merged"] = True
         self.hook("pull_request", self.pr_payload(number, "closed", merged=True))
+
+    # ------------------------------------------------------------------ fake GitHub reads (opt in)
+    def connect_github(self):
+        """Answer the GitHub App's reads from this fake GitHub, as a hub with the App connected does: a review move
+        then reads each PR's head and checks afresh, and the scheduler pass retries refused moves and reads gate holds.
+        Only the HTTP boundary is faked (the App's row, its token mint and its calls), as backend/tests do. While
+        `github_fault` is set ("timeout", or an HTTP status such as 502 or 429), every read and token mint fails that
+        way. Without this call the hub has no App and the gate reads the webhook cache, as every other scenario does."""
+        import re
+        from types import SimpleNamespace
+        from backend import task_blocked
+        from backend.store import Problem
+        service = self.app.state.github_app
+        self.github_reads, self.github_fault = True, None
+        self.github_failed = []          # (when, fault) per read or mint that failed
+        task_blocked._fresh["seen"].clear()
+        task_blocked._fresh["tried"].clear()
+        token = {"until": None}
+
+        def down():
+            if not self.github_fault:
+                return
+            self.github_failed.append((self.now(), self.github_fault))
+            if self.github_fault == "timeout":   # what GitHubApp._call raises when httpx times out
+                raise Problem("github_unreachable", "GitHub could not be reached; try again shortly", 502,
+                              retryable=True, extra={"timed_out": True})
+            return int(self.github_fault)
+
+        def mint(repos, permissions, **kw):
+            # An installation token lasts an hour, so a long outage reaches the mint as well as the reads.
+            if not token["until"] or token["until"] <= self.now():
+                if status := down():
+                    raise Problem("github_token", f"GitHub would not issue an installation token (HTTP {status})",
+                                  502, extra={"github_status": status})
+                token["until"] = self.now() + dt.timedelta(hours=1)
+            return "sim-token", token["until"].strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def answer(status, payload):
+            return SimpleNamespace(status_code=status, json=lambda: payload, headers={}, text=json.dumps(payload))
+
+        def call(method, path, **kw):
+            if status := down():
+                return answer(status, {"message": "Server Error" if status >= 500 else "Too Many Requests"})
+            if found := re.fullmatch(rf"/repos/{REPO}/pulls/(\d+)", path):
+                pr = self.prs.get(int(found[1]))
+                return answer(200, {"head": {"sha": pr["head"]}, "merged": pr["merged"]}) if pr else answer(404, {})
+            if found := re.fullmatch(rf"/repos/{REPO}/commits/(\w+)/(check-runs|statuses)", path):
+                if found[2] == "statuses":
+                    return answer(200, [])
+                runs = []
+                for number, pr in self.prs.items():
+                    head, passed = pr.get("ci") or (None, None)
+                    if pr["head"] == found[1] or head == found[1]:
+                        done = head == found[1]
+                        runs.append({"id": number * 1000, "name": "tests", "status": "completed" if done else "in_progress",
+                                     "conclusion": ("success" if passed else "failure") if done else None})
+                return answer(200, {"check_runs": runs})
+            return answer(404, {"message": "Not Found"})
+
+        service.row = lambda c=None: {"org": REPO.split("/")[0], "installation_id": 1, "app_id": 1}
+        service.mint = mint
+        service._call = call
 
     # ------------------------------------------------------------------ board reads (no turn, no side effects)
     def tickets(self):
