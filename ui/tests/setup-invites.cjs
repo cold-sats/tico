@@ -159,7 +159,7 @@ const REFUSED = {error: {code: 'invite_failed', detail: "Tico's sign-in mail cou
 
     // Create password: a refusal is a red line on the row, in words; a made account's password shows once, then is gone.
     accountPassword = true;
-    await page.goto('https://tico-ui.test/#/settings/people');
+    await page.reload();   // the address already names People, so going to it again would not redraw
     await row('ben').waitFor();
     await menuAct('ben', 'password');
     await page.locator('#set-people [data-field-err]', {hasText: 'already has a Tico account; use Invite.'}).waitFor();
