@@ -377,7 +377,8 @@ async function ruleEditor(rule, preset = null) {
   // Until the form exists, the steps come from the rule's own scope (or the filtered one a new rule starts in).
   let steps = () => ruleStepsFor(rule?.scope_kind || kind, base.scope_id ?? (kind === f.kind ? f.id : ''));
   const message = ['*', ...(listing.events || [])];
-  const pendingTaskTrigger = e => e.startsWith('task.') && !message.includes(e);
+  const supportedMessageEvents = new Set(message);
+  const pendingTaskTrigger = e => e.startsWith('task.') && !supportedMessageEvents.has(e);
   if (!message.includes(event0) && !isSrc(event0)) message.push(event0);
   const events = message.map(e => opt(e, (RULE_FLOOR.has(e) ? 'Always: ' : '') + ruleEventWords(e), event0)).join('')
     + (sourceless.length ? `<optgroup label="No task">${sourceless.map(e => opt(e, cap(ruleEventWords(e)), event0)).join('')}</optgroup>` : '');
