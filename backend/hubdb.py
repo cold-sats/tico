@@ -5482,6 +5482,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     # The bot that manages the task's type may change its labels whatever the type's `bots` setting
     # (_label_writer decides which); nothing else on the task becomes its to change.
     mine = mine or labels_only and is_bot(actor) and task_private_readable(conn, actor, row) and type_manager(conn, row) == actor_id(actor)
+    requested_status = status
     state_change = status is not None or type is not None or step is not None
     if state_change and actor != KEEPER:
         # A reviewer comments and gives a verdict; the Builder moves the ticket.
@@ -5519,6 +5520,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             status = None
     closing_step = status == "closed" and step is not None
     self_wait = []
+    if state_change and effective == 'waiting' and row.get('blocked_since') and (
+            requested_status not in (None, 'waiting') or step is not None and step_id != step and step != 'Blocked'):
+        self_wait.append('Task remains Blocked: ' + (row.get('blocked_reason') or 'a hold is still outstanding'))
     if closing_step:
         _task_close_allowed(conn, actor, row, note, mover)
     if waiting_on is not None:

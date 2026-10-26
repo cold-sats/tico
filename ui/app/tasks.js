@@ -41,9 +41,9 @@ const taskParentId = t => taskParent(t)?.id ? String(taskParent(t).id) : '';
 const taskBlockers = t => taskRels(t, 'blocks', 'in');
 // The related count a board card shows: everything but its parent (subtasks have their own ring).
 const taskRelCount = t => Object.entries(t?.relations || {}).reduce((n, [kind, rows]) => n + (kind === 'parent' ? 0 : rows.length), 0);
-function taskBlockedReason(t) {
+function taskBlockedReason(t, source = document.activeElement) {
   return new Promise(resolve => {
-    const opener = document.activeElement, dialog = document.createElement('dialog');
+    const opener = source, dialog = document.createElement('dialog');
     dialog.className = 'tmodal task-block-reason';
     dialog.innerHTML = `<form class="tmodal-body"><h2>Block task</h2>
       <label>What is it waiting for?<textarea name="reason" required maxlength="1000" rows="3">${esc(t.blocked_reason || '')}</textarea></label>

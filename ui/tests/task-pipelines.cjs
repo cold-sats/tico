@@ -310,6 +310,15 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await page.setViewportSize({width: 1200, height: 900});
     // Owner reason entry is cancellable and sends the reason with the step move.
     Object.assign(held, {step_id: 'dev-building', step: dev.steps[2], status: 'doing', blocked_since: null, blocked_reason: null});
+    await page.evaluate(task => {
+      TASKS_ST.tasks = TASKS_ST.tasks.map(t => t.id === task.id ? task : t);
+      tasksRender(TASKS_ST);
+      document.activeElement?.blur();
+    }, held);
+    await drag('tdev-held', '#task-body [data-col="dev-blocked"] .bcol-body');
+    await page.locator('.task-block-reason [data-cancel]').click();
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.openTask), 'tdev-held',
+      'cancelling a dragged Blocked move restores focus to its card');
     await page.evaluate(task => taskModalShow(task), held);
     await page.waitForFunction(() => document.querySelector('#task-modal [data-prop="step"]')?.textContent.includes('In Progress'));
     await page.locator('#task-modal [data-prop="step"]').click();

@@ -35,7 +35,7 @@ def ensure_steps(c):
         # Upgrade active builds without restarting their age at server startup.
         c.execute("UPDATE tasks SET building_started_at=coalesce((SELECT max(ts) FROM task_events e WHERE e.task_id=tasks.id AND e.field='step' AND e.new=tasks.step_id),created) "
                   "WHERE type_id=? AND status='doing' AND building_started_at IS NULL AND building_seconds=0 "
-                  "AND created LIKE '____-__-__T%' AND step_id IN (SELECT id FROM task_steps WHERE name IN ('In Progress','Building','Doing'))", (typ[0],))
+                  "AND created LIKE '____-__-__T%'", (typ[0],))
 
 
 def backfill(c):
@@ -67,8 +67,7 @@ def transition(c, row, effective, step_id, note, at, manual=False):
     from . import hubdb as H
     if 'blocked_since' not in row:
         return  # old, deliberately minimal hubdb fixtures
-    step = H._one(c, 'SELECT name FROM task_steps WHERE id=?', (step_id,))
-    building = effective == 'doing' and step and step['name'] in ('In Progress', 'Building', 'Doing')
+    building = effective == 'doing'
     elapsed = clocks(row, at)['building_seconds']
     c.execute('UPDATE tasks SET building_seconds=?,building_started_at=? WHERE id=?',
               (elapsed, at if building else None, row['id']))
@@ -76,7 +75,7 @@ def transition(c, row, effective, step_id, note, at, manual=False):
         if not row.get('blocked_since'):
             reason = str(note or '').strip().splitlines()[0] if str(note or '').strip() else 'Waiting on a hold'
             reason = reason[:1000]
-            kind = 'dependency' if not manual and H.waiting_for(c, row) else 'manual'
+            kind = 'manual' if manual else 'dependency' if H.waiting_for(c, row) else 'stranded'
             c.execute('UPDATE tasks SET blocked_since=?,blocked_reason=?,blocked_kind=?,blocked_from_step=?,blocked_from_status=? WHERE id=?',
                       (at, reason, kind, row.get('step_id'), row.get('status') or 'open', row['id']))
             H._task_event(c, row['id'], H.KEEPER, 'blocked_since', None, at, reason)
@@ -122,7 +121,7 @@ def hold(c, task_id, reason, kind='dependency'):
 def reconcile(c, task_id):
     from . import hubdb as H, review_gate
     row = H.task(c, task_id)
-    if not row or not row.get('blocked_since') or row.get('blocked_kind') == 'manual':
+    if not row or not row.get('blocked_since') or row.get('blocked_kind') in ('manual', 'stranded'):
         return
     waiting = wait(c, row)
     if row.get('blocked_kind') == 'gate':
