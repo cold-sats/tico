@@ -428,11 +428,17 @@ def reports_tools(c, attempt_id, config):
 
 
 # Match operations Tico can name, rather than treating every shell or file edit as an outside action.
-OUTSIDE_ACTION = re.compile(
-    r"\b(?:gh\s+pr\s+merge|gh\s+release\s+create|npm\s+publish|"
-    r"(?:hub\s+)?approval\s+consume|(?:hub\s+)?(?:mail|email)\s+send|"
-    r"(?:hub\s+)?webhook\s+send|stripe\s+(?:payments|payment_intents)\s+(?:create|confirm))\b", re.I)
-OUTSIDE_TOOLS = frozenset({"send_email", "send_mail", "merge_pull_request", "publish_release", "make_payment"})
+OUTSIDE_ACTIONS = tuple((label, re.compile(pattern, re.I)) for label, pattern in (
+    ('merge pull request', r"\bgh\s+pr\s+merge\b"),
+    ('publish release', r"\bgh\s+release\s+create\b"),
+    ('publish package', r"\bnpm\s+publish\b"),
+    ('consume approval', r"\b(?:hub\s+)?approval\s+consume\b"),
+    ('send email', r"\b(?:hub\s+)?(?:mail|email)\s+send\b"),
+    ('send webhook', r"\b(?:hub\s+)?webhook\s+send\b"),
+    ('make payment', r"\bstripe\s+(?:payments|payment_intents)\s+(?:create|confirm)\b"),
+))
+OUTSIDE_TOOLS = {'send_email': 'send email', 'send_mail': 'send email', 'merge_pull_request': 'merge pull request',
+                 'publish_release': 'publish release', 'make_payment': 'make payment'}
 
 
 def restart_reported(c, attempt_id):
@@ -445,23 +451,28 @@ def restart_reported(c, attempt_id):
 
 def outside_actions(c, job, started, finished):
     actions = set()
-    # Retain start evidence even when a later tool update replaces its command summary with output.
-    evidence = [json.loads(row[0] or '{}') for row in c.execute(
-        "SELECT payload_json FROM attempt_events WHERE attempt_id=? AND kind='tool' ORDER BY seq",
-        (job['attempt_id'],))]
-    for call in evidence:
-        name = str(call.get('tool') or call.get('name') or '')
-        if name.split('__')[-1] in OUTSIDE_TOOLS:
-            actions.add(name)
+    # Tool output may mention a command without executing it. Prefer the invocation's start summary and
+    # keep only operation labels: arguments and output must never enter widely visible hold reasons.
+    evidence = {}
+    for row in c.execute("SELECT seq,payload_json FROM attempt_events WHERE attempt_id=? AND kind='tool' ORDER BY seq",
+                         (job['attempt_id'],)):
+        call = json.loads(row['payload_json'] or '{}')
+        key = call.get('item_id') or f"seq:{row['seq']}"
+        first = evidence.get(key)
+        is_start = call.get('status', call.get('state')) in ('started', 'running', 'in_progress')
+        if first is None or is_start:
+            evidence[key] = call
+    for call in evidence.values():
+        name = str(call.get('tool') or call.get('name') or '').split('__')[-1]
+        if name in OUTSIDE_TOOLS:
+            actions.add(OUTSIDE_TOOLS[name])
         summary = str(call.get('summary') or '')
-        match = OUTSIDE_ACTION.search(summary)
-        if match:
-            actions.add(summary[:120])
+        actions.update(label for label, pattern in OUTSIDE_ACTIONS if pattern.search(summary))
     # A merged linked PR is evidence even when its shell call's summary was abbreviated.
-    for row in c.execute("SELECT l.url FROM task_links l JOIN turns t ON t.task_id=l.task_id "
+    for row in c.execute("SELECT 1 FROM task_links l JOIN turns t ON t.task_id=l.task_id "
                          "WHERE t.id=? AND l.kind='pr' AND l.pr_merged_at BETWEEN ? AND ?",
                          (job['attempt_id'], started or job['created'], finished or H.now())):
-        actions.add('merge ' + row['url'])
+        actions.add('merge pull request')
     return sorted(actions)
 
 
@@ -487,6 +498,8 @@ def retry_facts(c, job, started, finished):
     outside = outside_actions(c, job, started, finished) if restart else []
     return {'calls': calls, 'acted': acted, 'consumed': consumed, 'reported': reported, 'starts': starts,
             'restart': restart, 'outside': outside, 'approval_kinds': sorted({a['kind'] for a in approvals}),
+            # Explicit restart policy holds only named irreversible effects or consumed approvals. A silent
+            # host alone is not such an effect; the continuation must check prior work before proceeding.
             'safe': not consumed and (not outside if restart else reported and not acted)}
 
 # Tool calls that only read: a run that made nothing else repeats nothing when it runs again. Claude's and Codex's

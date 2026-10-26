@@ -1372,13 +1372,15 @@ def test_restart_with_named_merge_is_held_immediately_and_review_names_it(api):
         # The command is recorded at tool start, so a lost result cannot hide an outside effect.
         c.execute("UPDATE attempt_events SET payload_json=json_set(payload_json,'$.summary',?) "
                   "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='started'",
-                  ('gh pr merge 42 --squash', attempt['id']))
+                  ('gh pr merge 42 --squash --body private-marker-42', attempt['id']))
     assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
     review = get(api, 'bots/ops/execution-review')['jobs'][0]
-    assert 'gh pr merge 42' in review['reason'] and review['stopped'] == 'changed'
+    assert 'merge pull request' in review['reason'] and review['stopped'] == 'changed'
+    assert 'private-marker-42' not in review['reason'] and '--squash' not in review['reason']
     with api.app.state.store.read() as c:
         tasks = c.execute("SELECT body FROM tasks WHERE owner='bot:botops'").fetchall()
-    assert len(tasks) == 1 and 'gh pr merge 42' in tasks[0]['body']
+    assert len(tasks) == 1 and 'merge pull request' in tasks[0]['body']
+    assert 'private-marker-42' not in tasks[0]['body'] and '--squash' not in tasks[0]['body']
 
 
 def test_saved_dismiss_finishes_review_before_main_lane_frees_and_preserves_save_time(api, monkeypatch):
@@ -1419,4 +1421,29 @@ def test_restart_report_after_lease_expiry_still_resumes_without_waiting_for_res
                  'text': 'Runner restarted during execution'}, machine['token'])
     assert filed['filed'] is True
     post(api, f"attempts/{other['id']}/complete", {'outcome': 'completed', 'last_seq': 0, 'text': 'Finished.'}, machine['token'])
+    assert [d['state'] for d in sweep(api)] == ['queued']
+
+
+def test_restart_with_incomplete_tool_reporting_keeps_explicit_restart_policy(api):
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [('Read', None)], hop=True)
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    ready(api, machine, ['ops'])
+    resumed = claim(api, machine)
+    assert resumed['recovery'] == {'resume_session': True}
+    assert 'Check what already happened first' in resumed['message']['body']
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM tasks WHERE owner='bot:botops'").fetchone()
+
+
+def test_restart_uses_start_evidence_and_does_not_hold_internal_shell_writes(api):
+    add_recovery_reviewer(api)
+    machine, message, attempt = restarted_mid_turn(api, [('Bash', None)])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempt_events SET payload_json=json_set(payload_json,'$.summary',?) "
+                  "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='started'",
+                  ('hub task create --title report', attempt['id']))
+        c.execute("UPDATE attempt_events SET payload_json=json_set(payload_json,'$.summary',?) "
+                  "WHERE attempt_id=? AND kind='tool' AND json_extract(payload_json,'$.status')='completed'",
+                  ('The instructions mention npm publish and hub mail send', attempt['id']))
     assert [d['state'] for d in sweep(api)] == ['queued']
