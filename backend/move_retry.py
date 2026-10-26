@@ -17,7 +17,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import hubdb as H
+from . import access as Access, hubdb as H
 
 log = logging.getLogger(__name__)
 
@@ -150,8 +150,11 @@ def retry(store, service, row, detail):
             return False            # something else changed it while GitHub was read; the next pass looks again
         c.execute("SAVEPOINT move_retry")
         try:
+            # The install owner's receipts count as they do on a person's move (backend/app.py).
+            settings = getattr(service, "settings", None)
             H.task_update(c, H.KEEPER, row["id"], step=detail["step"], review_prs=snapshots,
-                          review_reader=detail.get("by") or H.KEEPER)
+                          review_reader=detail.get("by") or H.KEEPER,
+                          receipt_owner=Access.load_owner(c, settings)["email"] if settings else None)
         except H.Refused as exc:
             c.execute("ROLLBACK TO move_retry")
             c.execute("RELEASE move_retry")
