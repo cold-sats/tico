@@ -56,10 +56,11 @@ def recognise_many(line):
     """
     found = []
     for sentence in re.split(r"[.!?]\s+", line):
-        parts = re.split(r";\s*|,\s+(?=(?:tests?|CI)\b)|\s+(?:and|but|after|while)\s+", sentence, flags=re.I)
+        parts = re.split(r"[;,]\s*|\s+(?:and|but|after|while)\s+", sentence, flags=re.I)
         clauses = []
         for part in parts:
-            if clauses and (not SHA.search(part) or not SHA.search(clauses[-1])):
+            if clauses and (not SHA.search(part) or not SHA.search(clauses[-1])
+                            or re.search(r"\bbase\b", clauses[-1], re.I) and not HEAD.search(clauses[-1])):
                 clauses[-1] += "; " + part
             else:
                 clauses.append(part)
