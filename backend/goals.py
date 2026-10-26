@@ -27,7 +27,7 @@ from . import people as P
 COLOURS = ("red", "yellow", "green")
 STATUSES = COLOURS + ("done", "dropped")
 AUTO_STATUSES = COLOURS + ("gray",)       # what the arithmetic may say; gray is no data
-LIVE = ("red", "yellow", "green")         # statuses a goal is still worked under; None is proposed
+LIVE = ("red", "yellow", "green")         # statuses a goal is still worked under; None is unscored
 COMPANY = "company"                       # the owner of a company goal
 GOAL_MANAGER = "goal-manager"             # the built-in bot that keeps the KPIs and sets the automatic colours
 AUTO_ACTOR = "bot:" + GOAL_MANAGER        # who an automatic status says set it
@@ -246,8 +246,8 @@ def _bet(conn, actor, bet_id):
 
 
 def create(conn, actor, title, owner, parent_id=None, body="", top=False, bet_id=None):
-    """A new goal. With a parent it is proposed: `status` is NULL until whoever owns the parent sets
-    its first colour. With none it is only unlinked."""
+    """A new goal starts uncoloured until its data supplies an automatic colour or a person sets one.
+    A parent links it to the goal it supports; with none it is simply unlinked."""
     H._writer(conn, actor)
     title = str(title or "").strip()
     if not title:
@@ -642,11 +642,11 @@ def score(conn, row, at=None):
 
 def apply_auto(conn, goal_id, at=None):
     """Set a goal's automatic colour, unless a person set one. A goal a person set only gets a
-    visible suggestion when the arithmetic disagrees, never a change. Done, dropped and proposed goals
+    visible suggestion when the arithmetic disagrees, never a change. Done and dropped goals
     are left alone. Nothing at all while the owner has the CEO Bot's regular checks off (backend/ceo_bot.py `checks`):
     turning them back on works every colour out again. Returns what happened, or None."""
     row = goal(conn, goal_id)
-    if not row or row["status"] in ("done", "dropped") or (row["status"] is None and row["parent_id"]):
+    if not row or row["status"] in ("done", "dropped"):
         return None
     if not ceo_bot.checks(conn):
         return None
