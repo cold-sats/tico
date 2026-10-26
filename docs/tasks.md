@@ -556,6 +556,8 @@ hub task update <task-id> --step "Blocked" --note "Waiting for a test machine"
 ```
 
 A refused software review gate, an open dependency or a person/milestone wait also blocks the task.
+Review, QA and Security check children keep the ticket in its pipeline step; only an explicit
+dependency on one of those checks holds it.
 The card and task show what it waits for and since when. When an automatic hold clears, the task
 returns to the step it left, without advancing through the refused gate. An owner-declared hold
 is cleared by moving back to a working step. The active Building clock pauses while blocked;

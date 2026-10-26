@@ -5735,7 +5735,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if sets:
         conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
     if person and status == "waiting":
-        conn.execute("UPDATE tasks SET blocked_kind='dependency',blocked_reason=? WHERE id=?", ("Waiting on " + person_name(conn, person), task_id))
+        conn.execute("UPDATE tasks SET blocked_kind='dependency',blocked_reason=? WHERE id=? AND coalesce(blocked_kind,'')<>'manual'", ("Waiting on " + person_name(conn, person), task_id))
     if roles:
         # After the rest is saved, so who may be added is checked against the new owner and privacy;
         # the checks above already said this actor may change the task.
@@ -6177,9 +6177,15 @@ def wait_detail(conn, row):
         open_ask = next((a for a in asks if a["id"] not in answered), None)
         if open_ask:
             return {"why": "an unanswered question", "on": open_ask["to_actor"]}
-    child = _one(conn, f"SELECT owner FROM tasks WHERE id IN ({TR.CHILD_IDS}) AND status NOT IN {live} "
-                       "ORDER BY created, id LIMIT 1", (row["id"],))
-    if child:
+    from . import review_gate
+    engineering = review_gate.engineering(conn, row)
+    children = _rows(conn.execute(f"SELECT owner,title FROM tasks WHERE id IN ({TR.CHILD_IDS}) AND status NOT IN {live} "
+                                  "ORDER BY created,id", (row["id"],)))
+    for child in children:
+        # Pipeline checks are work at the current step, not dependencies preventing it.
+        # An explicit blocked_by relation below still holds on any such child.
+        if engineering and review_gate.GATE_CHILD.match(str(child.get("title") or "").strip()):
+            continue
         return {"why": "an open child task", "on": child["owner"]}
     blocker = TR.live_blocker(conn, row["id"], ACTIVE_STATUSES)
     if blocker:

@@ -244,3 +244,66 @@ def test_sweep_discovers_person_wait_and_keeps_private_age_alert_private(api):
         H.task_update(c, 'human:ana', answer['id'], status='done')
         task_blocked.sweep(c, H.now())
         assert H.task(c, task['id'])['step_id'] == task['step_id']
+
+
+@pytest.mark.parametrize('title', ['Review 1: PR #412', 'QA: PR #412', 'Security: PR #412'])
+def test_pipeline_child_keeps_review_and_allows_fix_move(api, title):
+    from datetime import datetime, timezone
+    from backend.scheduler import Scheduler
+    from backend import task_blocked, task_relations as TR
+    task = ticket(api, f'Tests: head {HEAD}: 9 passed, 0 failed')
+    assert move(api, task).status_code == 200
+    store = api.app.state.store
+    with store.transaction() as c:
+        child = H.task_create(c, task['owner'], title, 'Check the current candidate.', 'bot:cmo', parent_id=task['id'])
+        c.execute("INSERT INTO task_steps(id,type_id,name,position,status) VALUES('fixes',?,'Review 1 Fixes',3,'doing')", (task['type_id'],))
+        review_step = H.task(c, task['id'])['step_id']
+    Scheduler(store, api.app.state.execution).tick(datetime.now(timezone.utc))
+    with store.transaction() as c:
+        row = H.task(c, task['id'])
+        assert row['step_id'] == review_step and row['status'] == 'review'
+        # Repair a hold persisted before this upgrade, even while its review remains open.
+        task_blocked.hold(c, task['id'], 'Waiting on an open child task')
+        task_blocked.reconcile(c, task['id'])
+        assert H.task(c, task['id'])['step_id'] == review_step
+        H.task_update(c, task['owner'], task['id'], step='fixes')
+        assert H.task(c, task['id'])['step_id'] == 'fixes'
+        person = H.task_create(c, 'human:ana', 'Choose a machine', 'Choose one.', 'human:ana', parent_id=task['id'])
+        task_blocked.sweep(c, H.now(), task_ids=[task['id']])
+        assert H.task(c, task['id'])['status'] == 'waiting', 'a check child must not hide another child wait'
+        H.task_update(c, 'human:ana', person['id'], status='done')
+        # An explicit dependency on that same child remains a real hold.
+        TR.add_blocker(c, H.KEEPER, task['id'], child['id'])
+        assert H.task(c, task['id'])['status'] == 'waiting'
+
+
+def test_person_wait_does_not_replace_owner_manual_hold(api):
+    from backend import task_blocked
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, task['owner'], task['id'], step='Blocked', note='Waiting for a machine')
+        H.task_comment(c, task['owner'], task['id'], 'Which machine?', ask={'questions': [
+            {'id': 'machine', 'header': '', 'question': 'Which machine?',
+             'options': [{'label': 'A'}, {'label': 'B'}], 'multi': False, 'other': True}], 'who': 'human:ana'})
+        H.task_update(c, task['owner'], task['id'], status='waiting', waiting_on='human:ana')
+        assert H.task(c, task['id'])['blocked_kind'] == 'manual'
+        H.supersede_asks(c, task['id'])
+        H.task_update(c, task['owner'], task['id'], waiting_on='')
+        task_blocked.reconcile(c, task['id'])
+        assert H.task(c, task['id'])['blocked_kind'] == 'manual'
+        assert H.task(c, task['id'])['blocked_reason'] == 'Waiting for a machine'
+
+
+def test_scheduler_does_not_write_check_an_unheld_engineering_task(api, monkeypatch):
+    from datetime import datetime, timezone
+    from backend.scheduler import Scheduler
+    from backend import task_blocked
+    task = ticket(api)
+    called = []
+    original = task_blocked.sweep
+    def record(c, at, task_ids=None):
+        called.extend(task_ids or [])
+        return original(c, at, task_ids)
+    monkeypatch.setattr(task_blocked, 'sweep', record)
+    Scheduler(api.app.state.store, api.app.state.execution).tick(datetime.now(timezone.utc))
+    assert task['id'] not in called

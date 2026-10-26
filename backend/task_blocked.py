@@ -118,11 +118,11 @@ def hold(c, task_id, reason, kind='dependency'):
     bump(c, row)
 
 
-def reconcile(c, task_id):
+def reconciliation(c, row):
+    """Read the needed action before taking the writer, then recheck under it."""
     from . import hubdb as H, review_gate
-    row = H.task(c, task_id)
     if not row or not row.get('blocked_since') or row.get('blocked_kind') in ('manual', 'stranded'):
-        return
+        return None
     waiting = wait(c, row)
     if row.get('blocked_kind') == 'gate':
         gate = H._json(row.get('blocked_gate_json'), {}) or {}
@@ -134,21 +134,56 @@ def reconcile(c, task_id):
             detail = H._json(pr.get('detail_json'), {}) or {}
             if ((gate.get('kind') == 'ci' or detail.get('head_sha') != gate.get('head'))
                     and (pr.get('updated') or '') <= gate.get('at', '')):
-                return
+                return None
         if review_gate.problem(c, row, row['owner'], require_pr=True):
-            return
+            return None
         if waiting:
-            c.execute("UPDATE tasks SET blocked_kind='dependency',blocked_reason='Waiting on a dependency',updated=? WHERE id=?", (H.now(), task_id))
-            bump(c, row)
-    if waiting:
-        return
-    if row.get('blocked_kind') == 'worktree' and H.unlinked_pushes(c, task_id):
+            return 'dependency'
+    if waiting or row.get('blocked_kind') == 'worktree' and H.unlinked_pushes(c, row['id']):
+        return None
+    return 'resume'
+
+
+def reconcile(c, task_id):
+    from . import hubdb as H
+    row = H.task(c, task_id)
+    action = reconciliation(c, row)
+    if action == 'dependency':
+        c.execute("UPDATE tasks SET blocked_kind='dependency',blocked_reason='Waiting on a dependency',updated=? WHERE id=?", (H.now(), task_id))
+        bump(c, row)
+    if action != 'resume':
         return
     previous = H._one(c, 'SELECT * FROM task_steps WHERE id=? AND type_id=?', (row.get('blocked_from_step'), row.get('type_id')))
     # Restoring the pre-hold step is not retrying the refused destination.
     H._set_status(c, H.KEEPER, row, row.get('blocked_from_status') or 'open',
                   step=previous['id'] if previous else None, note='Hold cleared')
     bump(c, row)
+
+
+def alert_target(c, row, at):
+    from . import hubdb as H
+    if not row.get('blocked_since') or seconds(row['blocked_since'], at) < 4 * 3600:
+        return None
+    manager = H.type_manager(c, row)
+    target = H.bot_actor(manager) if manager else row['requester']
+    if target == row['owner'] or not H.task_private_readable(c, target, row):
+        return None
+    if H.is_bot(target) and (H.bot(c, H.actor_id(target)) or {}).get('state') != 'active':
+        return None
+    if c.execute("SELECT 1 FROM events WHERE action='task.blocked_age' AND target=? AND json_extract(detail_json,'$.since')=?", (row['id'], row['blocked_since'])).fetchone():
+        return None
+    return target
+
+
+def candidates(c, at):
+    """Discover only actual hold changes or due alerts in a read snapshot."""
+    from . import hubdb as H
+    rows = H._rows(c.execute("SELECT t.* FROM tasks t JOIN task_types ty ON ty.id=t.type_id "
+                            "WHERE ty.role='engineering' AND t.status IN ('open','doing','review','ready') "
+                            "UNION SELECT * FROM tasks WHERE blocked_since IS NOT NULL"))
+    return [row['id'] for row in rows if (
+        (not row.get('blocked_since') and wait(c, row))
+        or reconciliation(c, row) or alert_target(c, row, at))]
 
 
 def sweep(c, at, task_ids=None):
@@ -167,17 +202,10 @@ def sweep(c, at, task_ids=None):
     for row in H._rows(c.execute('SELECT t.* FROM tasks t WHERE blocked_since IS NOT NULL' + scope, args)):
         reconcile(c, row['id'])
         row = H.task(c, row['id'])
-        if not row.get('blocked_since') or seconds(row['blocked_since'], at) < 4 * 3600:
-            continue
-        manager = H.type_manager(c, row)
-        target = H.bot_actor(manager) if manager else row['requester']
-        if target == row['owner'] or not H.task_private_readable(c, target, row):
-            continue
-        if H.is_bot(target) and (H.bot(c, H.actor_id(target)) or {}).get('state') != 'active':
+        target = alert_target(c, row, at)
+        if not target:
             continue
         key = row['blocked_since']
-        if c.execute("SELECT 1 FROM events WHERE action='task.blocked_age' AND target=? AND json_extract(detail_json,'$.since')=?", (row['id'], key)).fetchone():
-            continue
         H._wake(c, row, target, f"Blocked over 4 hours: {row['title']}\n{row['blocked_reason']}\nSince {key}",
                 refs={'news': 'task_blocked_age'}, quiet_bots=False)
         H.event(c, H.KEEPER, 'task.blocked_age', row['id'], {'since': key})

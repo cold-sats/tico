@@ -578,15 +578,12 @@ class Scheduler:
                 with self.store.transaction() as c:
                     from . import run_diagnostics
                     run_diagnostics.sweep(c, stamp(at))
-                # Holds include review, person and approval waits that deliberately
+                # Holds include person and approval waits that deliberately
                 # never enter the stall candidate list. Reconcile them independently,
                 # with one short transaction per task so runner writes can progress.
                 from . import task_blocked
                 with self.store.read_transaction() as c:
-                    blocked_ids = [r[0] for r in c.execute(
-                        "SELECT t.id FROM tasks t JOIN task_types ty ON ty.id=t.type_id "
-                        "WHERE ty.role='engineering' AND t.status IN ('open','doing','review','ready') "
-                        "UNION SELECT id FROM tasks WHERE blocked_since IS NOT NULL")]
+                    blocked_ids = task_blocked.candidates(c, stamp(at))
                 for task_id in blocked_ids:
                     with locked('blocked_check:' + task_id) as c:
                         task_blocked.sweep(c, stamp(at), task_ids=[task_id])
