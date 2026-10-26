@@ -168,6 +168,10 @@ def test_archive_restore_preserves_kpi_history_and_marks_it_on_goals(api):
     assert line["archived_at"] == archived["archived_at"]
     assert line["status"] is None and line["spark"] == []
     assert line["reason"] == f"Archived {K.day(archived['archived_at'])}, not counting"
+    tree_goal = next(g for g in get(api, "goals/tree")["goals"] if g["id"] == goal["id"])
+    assert next(k for k in tree_goal["kpis"] if k["id"] == kpi["id"])["status"] is None
+    with api.app.state.store.read() as c:
+        assert K.goal_views(c, [goal["id"]])[goal["id"]] == []
     with api.app.state.store.read() as c:
         actions = [r["action"] for r in c.execute(
             "SELECT action FROM events WHERE target=? AND action LIKE 'kpi.%' ORDER BY ts", (kpi["id"],))]

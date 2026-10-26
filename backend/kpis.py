@@ -417,8 +417,9 @@ def view(record, rows, links=None, at=None):
     return base
 
 
-def goal_views(conn, goal_ids, at=None):
-    """{goal id: [KPI views with their link and status]} for many goals in a few queries."""
+def goal_views(conn, goal_ids, at=None, include_archived=False):
+    """{goal id: [KPI views with their link and status]} in a few queries. Goal panels may include
+    archived links as uncoloured reminders; arithmetic and other consumers keep active measures only."""
     goal_ids = list(dict.fromkeys(goal_ids))
     out = {g: [] for g in goal_ids}
     rows = []
@@ -433,7 +434,8 @@ def goal_views(conn, goal_ids, at=None):
     records = {}
     for start in range(0, len(real), 400):
         chunk = real[start:start + 400]
-        for row in conn.execute(f"SELECT * FROM kpis WHERE id IN ({','.join('?' * len(chunk))})", chunk):
+        active = "" if include_archived else " AND archived_at IS NULL"
+        for row in conn.execute(f"SELECT * FROM kpis WHERE id IN ({','.join('?' * len(chunk))})" + active, chunk):
             records[row["id"]] = dict(row)
     data = effective_many(conn, real)
     for r in rows:

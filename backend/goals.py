@@ -91,7 +91,7 @@ def history(conn, goal_id):
 
 def kpis(conn, goal_id):
     """The goal's KPIs: each one's fields and latest reading, its link with the target, and its status."""
-    return K.goal_views(conn, [goal_id])[goal_id]
+    return K.goal_views(conn, [goal_id], include_archived=True)[goal_id]
 
 
 def kpi(conn, kpi_id):
@@ -557,7 +557,7 @@ def score(conn, row, at=None):
         return fallback
     if views:
         return {"status": "gray", "basis": "kpis", "reason": views[0]["reason"]}
-    measures = K.goal_views(conn, [row["id"]], at)[row["id"]]
+    measures = K.goal_views(conn, [row["id"]], at, include_archived=True)[row["id"]]
     if len(measures) == 1 and measures[0].get("archived_at"):
         return {"status": "gray", "basis": "kpis",
                 "reason": f"Its only measure was archived on {K.day(measures[0]['archived_at'])}"}
