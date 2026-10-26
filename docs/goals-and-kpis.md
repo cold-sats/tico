@@ -93,8 +93,8 @@ A goal's colour is set automatically:
 3. **Gray, "no data"**, when there is not enough to go on. If the goal's only measure was archived, the note reads
    "Its only measure was archived on <date>" instead. A goal nothing has scored yet has no colour at all.
 
-The automatic colour is worked out again whenever a reading, a target, a link, an archive or restore, or a check-in changes, whenever the CEO
-Bot runs its status pass, and once an hour, because data goes stale as time passes.
+The automatic colour is worked out again whenever a reading, a target, a link, an archive or restore, or a check-in changes,
+whenever the CEO Bot runs its status pass, and once an hour, because data goes stale as time passes.
 
 ### A human can override
 
