@@ -43,7 +43,7 @@ LOCAL_FILES = 3
 def named_files(args):
     """The test files a pytest command line names (a file or a node id in one); a directory names none of them."""
     return {arg.split('::')[0] for arg in args if not arg.startswith('-') and arg.split('::')[0].endswith('.py')
-            and Path(arg.split('::')[0]).name.startswith('test_')}
+            and arg.split('::')[0].rsplit('/', 1)[-1].startswith('test_')}
 
 
 def reexec():
