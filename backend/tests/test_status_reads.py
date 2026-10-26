@@ -228,6 +228,4 @@ def test_status_task_reads_skip_finished_tasks_and_keep_the_same_rows(api, monke
                                  "bot:" + slugs[(n + 1) % 6], private=False)
             c.execute("UPDATE tasks SET status=? WHERE id=?", ("done" if n % 2 else "closed", task["id"]))
     after, more = read()
-    # Each finished row read would cost several steps (40 rows: hundreds). SQLite's own step count can drift by
-    # one or two between identical reads (CI saw 3312 against 3311), so allow that much and no more.
-    assert after == before and abs(more - steps) <= 5
+    assert after == before and more == steps
