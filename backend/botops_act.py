@@ -195,8 +195,9 @@ DO = _routes(
     # are direct unless the owner's rule says otherwise (TIGHTENED).
     ("POST", rf"(runners|computers)/{_S}/(restart|inbox-only|logins|screen)"), ("POST", rf"(runners|computers)/{_S}/logins/{_S}/cancel"),
     ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"), ("PUT", rf"usage/pools/(company|groups/{_S})"),
-    # The Tico AI Gateway off or back to automatic is a provider change too (the owner's, which the route checks). Saving
-    # its key is a secret, refused in the request; checking it changes nothing.
+    # The Tico AI Gateway address, off or back to automatic is a provider change too (the owner's, which the route
+    # checks). Saving its key is a secret, refused in the request; checking it changes nothing.
+    ("PUT", r"providers/gateway"),
     ("DELETE", r"providers/gateway"), ("POST", r"providers/gateway/automatic"),
     # A message or chat to a bot stays in the team; a message to a person is a card (`classify`).
     ("POST", rf"chat/{_S}"),
@@ -218,7 +219,8 @@ DO = _routes(
 
 # Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is
 # still direct: app.py checks it against what is set.
-GATEWAY = _routes(("DELETE", r"providers/gateway"), ("POST", r"providers/gateway/automatic"))
+GATEWAY = _routes(("PUT", r"providers/gateway"), ("DELETE", r"providers/gateway"),
+                  ("POST", r"providers/gateway/automatic"))
 TIGHTENED = _routes(("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
                     ("PUT", rf"usage/pools/(company|groups/{_S})")) + GATEWAY
 LIMITS = re.compile(API + rf"usage/limits(/{_S})?")
@@ -358,6 +360,7 @@ SUMMARIES = [
     ("POST", re.compile(API + r"enrollments"), "Make a one-time code to add a computer: it shows here once you confirm"),
     ("PUT", RULES, "Change the team's rules"),
     ("PUT", re.compile(API + r"providers"), "Change the team's AI providers"),
+    ("PUT", re.compile(API + r"providers/gateway"), "Change the Tico AI Gateway address"),
     ("DELETE", re.compile(API + r"providers/gateway"), "Turn off the Tico AI Gateway (its saved key is forgotten)"),
     ("POST", re.compile(API + r"providers/gateway/automatic"), "Connect the Tico AI Gateway automatically again"),
     ("PUT", re.compile(API + rf"usage/(limits(/{_S})?|pools/.+)"), "Change a spending limit"),
