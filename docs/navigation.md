@@ -1,7 +1,7 @@
 # Navigation
 
-The current paths in Tico. Settings is under your email and opens on General; each tab has its own address
-(`#/settings/people`, `#/settings/gateway`) to bookmark or share, and a tab you can't see opens General instead.
+The current paths in Tico. Settings is under your email and opens on General; each tab has its own address,
+shown in the address bar while the tab is open (`#/settings/people`, `#/settings/gateway`), to bookmark or share, and a tab you can't see opens General instead.
 Tools is in the sidebar.
 Controls appear when your rights allow the action.
 

@@ -3,6 +3,9 @@
 //    with nothing said, which is how "Picks and services" once opened Updates;
 //  - #/settings/gateway opens Gateway, #/settings/models opens Computers with the Models card in view, and the two links
 //    between them go there;
+//  - while a tab is shown the address bar names it (#/settings/<tab>), so it can be copied or shared: opening an address
+//    shows its tab's own, picking another tab follows without a history step, a reload reopens it, and a redraw
+//    (route() called again, as a routine change does) keeps Settings and the rules narrowed by ?task=;
 //  - a first visit opens General; a tab this person can't see opens General with "That page is for admins", and an
 //    unknown one opens General without it;
 //  - a routine's On switch shows on its row without expanding, and a refused change puts the server's reason in red on
@@ -71,10 +74,12 @@ async function open(browser, {role = 'owner', hash = '#/settings', refuse = fals
   return {page, context, errors, dialogs, writes};
 }
 const selected = page => page.locator('#settings-tabs [aria-selected=true]').getAttribute('data-settings-tab');
+// Opens an address and waits for Settings to write its tab's address back (an address already in the bar reroutes).
 const go = async (page, hash) => {
-  await page.evaluate(h => { location.hash = h; }, hash);
-  await page.waitForFunction(() => location.hash === '#/settings');
+  await page.evaluate(h => { SETTINGS_ADDRESS = ''; if (location.hash === h) route(); else location.hash = h; }, hash);
+  await page.waitForFunction(() => S.route === SETTINGS && SETTINGS_ADDRESS && location.hash === SETTINGS_ADDRESS);
 };
+const address = page => page.evaluate(() => location.hash);
 
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
@@ -102,16 +107,50 @@ const go = async (page, hash) => {
       assert.equal(await selected(page), 'devices');
       await page.locator('#settings-models').waitFor();
       await page.locator('#settings-models a[href="#/settings/gateway"]').click();
-      await page.waitForFunction(() => location.hash === '#/settings' && SETTINGS_TAB === 'gateway');
+      await page.waitForFunction(() => location.hash === '#/settings/gateway' && SETTINGS_TAB === 'gateway');
       await page.locator('[data-gateway-key-link]').click();
-      await page.waitForFunction(() => location.hash === '#/settings' && SETTINGS_TAB === 'devices');
+      await page.waitForFunction(() => location.hash === '#/settings/devices' && SETTINGS_TAB === 'devices');
       await page.waitForFunction(() => { const r = document.querySelector('#settings-models')?.getBoundingClientRect(); return r && r.top < innerHeight && r.bottom > 0; });
 
       // A Settings address survives a refresh in a new tab: the address, not the last tab, decides.
       const fresh = await context.newPage();
       await fresh.goto('https://tico-ui.test/#/settings/recurring');
-      await fresh.waitForFunction(() => typeof SETTINGS_TAB !== 'undefined' && SETTINGS_TAB === 'recurring' && location.hash === '#/settings');
+      await fresh.waitForFunction(() => typeof SETTINGS_TAB !== 'undefined' && SETTINGS_TAB === 'recurring' && location.hash === '#/settings/recurring');
       await fresh.close();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    {
+      // The address bar names the tab shown, so it can be copied, bookmarked or shared.
+      const {page, context, errors} = await open(browser, {hash: '#/settings/gateway'});
+      await page.waitForFunction(() => SETTINGS_TAB === 'gateway');
+      assert.equal(await address(page), '#/settings/gateway', 'an opened tab keeps its address');
+      const steps = await page.evaluate(() => history.length);
+      await page.locator('#settings-tabs [data-settings-tab=bots]').click();
+      await page.waitForFunction(() => location.hash === '#/settings/bots');
+      assert.equal(await selected(page), 'bots');
+      assert.equal(await page.evaluate(() => history.length), steps, 'a tab change adds no history step');
+      await page.reload();
+      await page.locator('#settings-tabs [data-settings-tab=bots][aria-selected=true]').waitFor();
+      assert.equal(await address(page), '#/settings/bots', 'a reload reopens the same tab');
+      // Other names and sections show the address of the tab they open.
+      await go(page, '#/settings/models');
+      assert.equal(await address(page), '#/settings/devices');
+      await go(page, '#/settings/computers');
+      assert.equal(await address(page), '#/settings/devices');
+      // Rules narrowed to one task keep that in the address, and a redraw keeps Settings, the tab and the narrowing.
+      await go(page, '#/settings/rules?task=t1');
+      assert.equal(await address(page), '#/settings/rules?task=t1');
+      await page.evaluate(() => route());
+      assert.deepEqual(await page.evaluate(() => [S.route, SETTINGS_TAB, RULES_FOR, location.hash]),
+        ['#/settings', 'recurring', 'task:t1', '#/settings/rules?task=t1']);
+      // Leaving Settings and coming back by Back reopens the tab the address names.
+      await page.evaluate(() => { location.hash = '#/settings/health'; });
+      await page.waitForFunction(() => location.hash === '#/settings/health' && SETTINGS_TAB === 'health');
+      await page.evaluate(() => { location.hash = '#/updates'; });
+      await page.waitForFunction(() => S.route === '#/updates');
+      await page.goBack();
+      await page.waitForFunction(() => S.route === SETTINGS && SETTINGS_TAB === 'health' && location.hash === '#/settings/health');
       assert.deepEqual(errors, []);
       await context.close();
     }
@@ -122,6 +161,7 @@ const go = async (page, hash) => {
       assert.equal(await selected(page), 'general');
       assert.equal(await page.locator('#settings-denied').isVisible(), true);
       assert.match(await page.locator('#settings-denied').innerText(), /That page is for admins/);
+      assert.equal(await address(page), '#/settings/general', 'the address names the tab shown, not the one refused');
       await go(page, '#/settings/nothing-here');
       assert.equal(await selected(page), 'general');
       assert.equal(await page.locator('#settings-denied').isVisible(), false, 'an unknown address says nothing about admins');

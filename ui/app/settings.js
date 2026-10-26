@@ -76,6 +76,8 @@ const harnessesWith = test => HARNESS_ROWS.filter(row => row.capabilities && tes
 const SETTINGS_TAB_KEY = 'tico.settings.tab';
 // Remembered per browser tab so a reload lands where the person was; a first visit opens General.
 let SETTINGS_TAB = (() => { try { return sessionStorage.getItem(SETTINGS_TAB_KEY) || 'general'; } catch { return 'general'; } })();
+// The address the shown tab writes (settingsAddress) so it can be copied, bookmarked or shared; route() reads it as Settings.
+let SETTINGS_ADDRESS = '';
 // Every tab's address (`#/settings/<tab>`), and the other names people use for one. A known tab this person
 // can't see opens General with a line saying so; an unknown name just opens General.
 const SETTINGS_TABS = ['general', 'people', 'bots', 'ceo', 'devices', 'repos', 'tasks', 'inbox', 'inbound', 'recurring',
@@ -312,6 +314,7 @@ function settingsShow(tab) {
   const denied = $('#settings-denied');
   if (denied) denied.hidden = !SETTINGS_DENIED;
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
+  settingsAddress();
   if (['health', 'history', 'recurring', 'webhooks', 'listening', 'inbound', 'gateway', 'billing'].includes(SETTINGS_TAB)) $('#settings-more').open = true;
   const tasks = $('#settings-tasks');
   if (tasks) tasks.hidden = SETTINGS_TAB !== 'tasks';
@@ -370,6 +373,14 @@ function settingsShow(tab) {
   if (webhooksPane) { webhooksPane.hidden = SETTINGS_TAB !== 'webhooks'; if (SETTINGS_TAB === 'webhooks' && !formBusy(webhooksPane)) void renderSettingsWebhooks(); }
   const listeningPane = $('#settings-listening');
   if (listeningPane) { listeningPane.hidden = SETTINGS_TAB !== 'listening'; if (SETTINGS_TAB === 'listening' && !formBusy(listeningPane)) void renderSettingsListening(); }
+}
+// While Settings is the page, the address bar names the tab shown: #/settings/<tab>, or #/settings/rules?task=<id> while
+// the rules are narrowed to one task's or bot's. It replaces the entry: no hashchange, no new history step.
+function settingsAddress() {
+  if (S.route !== SETTINGS) return;
+  const f = SETTINGS_TAB === 'recurring' && RULES_FOR ? rulesFor() : null;
+  SETTINGS_ADDRESS = f ? `${SETTINGS}/rules?${f.kind}=${encodeURIComponent(f.id)}` : `${SETTINGS}/${SETTINGS_TAB}`;
+  if (location.hash !== SETTINGS_ADDRESS) history.replaceState(history.state, '', SETTINGS_ADDRESS);
 }
 // On a phone the tabs are one row that scrolls sideways (styles/settings.css); bring the current one into view.
 // Only the row scrolls: scrollIntoView would also move the page, which a refresh must not do.

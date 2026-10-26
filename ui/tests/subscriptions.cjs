@@ -159,7 +159,7 @@ async function computers(browser) {
   // An old link to Subscriptions opens Computers.
   await page.evaluate(() => settingsShow('bots'));
   await page.evaluate(() => { location.hash = '#/settings/subscriptions'; });
-  await page.waitForFunction(() => location.hash === '#/settings' && SETTINGS_TAB === 'devices');
+  await page.waitForFunction(() => location.hash === '#/settings/devices' && SETTINGS_TAB === 'devices');
   await page.locator('#set-machines .machine-name[data-computer-open=r1]').click();
   const detail = page.locator('#set-machines dialog.computer-detail[open]');
   // One connection per AI tool, the computer's own login: the named subscriptions it still reports are not shown.
