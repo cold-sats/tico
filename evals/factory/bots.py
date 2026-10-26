@@ -441,10 +441,13 @@ class Lead(Bot):
     def sweep(self):
         w, board = self.world, self.world.board
         told = []
+        # A snoozed ticket is off the board the lead reads until its date (docs/tasks.md, Snoozing a task).
+        snoozed = {r["id"] for r in w.sql("SELECT id FROM tasks WHERE snoozed_until>?", (w.H.now(),))}
         for t in w.tickets():
             step = board.step(t["step"])
             # Only work its owner holds: a ticket queued for a start or out for a check moves without the owner.
-            if not step or not step.work or not str(t["owner"]).startswith("bot:") or t["status"] != "doing":
+            if not step or not step.work or not str(t["owner"]).startswith("bot:") or t["status"] != "doing" \
+                    or t["id"] in snoozed:
                 continue
             limit = step.wake_after_hours or 2
             if w.idle_hours(t["id"]) < limit:

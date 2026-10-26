@@ -18,6 +18,7 @@
  "review_changes": 25.0,
  "silent_reviewer": 25.4,
  "skip_qa": 36.0,
+ "snoozed_ticket": 25.1,
  "stale_head": 25.1,
  "stuck_ticket": 25.2
 }
