@@ -53,11 +53,12 @@ def one_review_per_round(run):
 
 
 def max_at_check(slack=0.5):
-    """No ticket waits at a check step longer than its timeout (plus `slack` hours for the sweep to act)."""
+    """No check keeps a ticket waiting longer than its timeout (plus `slack` hours for the sweep to act): from the
+    ticket reaching the step to its verdict, its skipped round or its merge wake."""
     def check(run):
         long = []
         for t in run.final:
-            spans = run.w.step_spans(t["id"], until=run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+            spans = run.w.check_waits(t["id"], until=run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
             for name, span in spans:
                 step = run.w.board.step(name)
                 if step and step.check and span > step.check.timeout_hours + slack:
@@ -99,22 +100,27 @@ def lead_heard_of(word):
     return check
 
 
-def stuck_told(hours):
-    """Every ticket that sat still for `hours` past its first step was named to Head of Engineering in a notice."""
-    def check(run):
-        told = " ".join(r["body"] or "" for r in run.w.sql(
-            "SELECT body, refs_json FROM messages WHERE to_actor='bot:engineering-lead'"))
-        refs = " ".join(r["refs_json"] or "" for r in run.w.sql(
-            "SELECT refs_json FROM messages WHERE to_actor='bot:engineering-lead'"))
-        stuck = []
-        for t in run.final:
-            spans = run.w.step_spans(t["id"], until=run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
-            if any(span >= hours and not run.w.board.step(name).merged and not run.w.board.step(name).assign
-                   for name, span in spans if run.w.board.step(name)) and t["id"] not in refs and t["title"] not in told \
-                    and t["id"] not in {tid for _, tid in run.w.stuck_told}:
-                stuck.append(t["title"])
-        return not stuck, ", ".join(stuck[:6])
-    return check
+def late_told(run):
+    """Every ticket late at a step was named to Head of Engineering: the step's late hours (the product's default for
+    a working step, backend/step_age.LATE_HOURS) and one scheduler pass more. Sooner, a quiet ticket is its owner's
+    to hear of (a status check), and a check that runs long is its timeout's."""
+    from backend.step_age import LATE_HOURS
+    rows = run.w.sql("SELECT body, refs_json FROM messages WHERE to_actor='bot:engineering-lead'")
+    told = " ".join((r["body"] or "") + (r["refs_json"] or "") for r in rows)
+    named = {tid for _, tid in run.w.stuck_told}
+    slack = 2 * run.scenario.tick_minutes / 60
+    late = []
+    for t in run.final:
+        spans = run.w.step_spans(t["id"], until=run.end.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+        for name, span in spans:
+            step = run.w.board.step(name)
+            hours = step and not step.merged and (getattr(step, "late_hours", None)
+                                                  or (LATE_HOURS if step.status == "doing" else None))
+            if hours and span >= hours + slack and t["id"] not in told and t["title"] not in told \
+                    and t["id"] not in named:
+                late.append(t["title"])
+                break
+    return not late, ", ".join(late[:6])
 
 
 def lead_only_scheduled(run):
@@ -155,8 +161,9 @@ def hourly_spend_under(cap):
         for r in runs:
             hour = r["started"][:13]
             per[hour[11:13] + ":00"] += r["est_cost_usd"] or 0
+            # Finished strictly before: a run ending in the same tick as this claim may end after it.
             spent = sum(x["est_cost_usd"] or 0 for x in runs if x["started"][:13] == hour and x["finished"]
-                        and x["finished"] <= r["started"] and x is not r)
+                        and x["finished"] < r["started"] and x is not r)
             if spent >= cap:
                 late.append(f"{r['started'][11:16]} (${spent:.2f} spent)")
         return not late, (f"peak hour ${max(per.values() or [0]):.2f}; "
@@ -243,7 +250,7 @@ QUEUE_CHECKS = [("no turns on stale notices", QUEUE, no_stale_turns)]
 BOARD_CHECKS = [("tickets assigned by the board", ASSIGN, no_fallbacks(["assigned"])),
                 ("the board moves tickets itself", "verdict and merge rules", no_fallbacks(["moved to", "merged by hand"]))]
 REVIEW_TIMEOUT = [("no ticket waits past a check's timeout", TIMEOUT, max_at_check())]
-HOE_CHECKS = [("every stuck ticket named to Head of Engineering", HOE, stuck_told(2)),
+HOE_CHECKS = [("every late ticket named to Head of Engineering", HOE, late_told),
               ("Head of Engineering runs on its schedule only", HOE, lead_only_scheduled)]
 
 

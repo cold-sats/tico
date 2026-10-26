@@ -336,6 +336,22 @@ class World:
             out.append((row["name"], span.total_seconds() / 3600))
         return out
 
+    def check_waits(self, task_id, until=None):
+        """[(step name, hours)] per stay at a step, each ended by the first thing that settles it: leaving the step, a
+        verdict move, a skipped round or a merge wake. Read for check steps: what follows a settled check (the owner's
+        merge) is the owner's time, not the check's."""
+        rows = self.sql("SELECT e.ts, e.field, s.name FROM task_events e LEFT JOIN task_steps s ON s.id=e.new "
+                        "WHERE e.task_id=? AND e.field IN ('step','verdict_move','round_skipped','merge_wake') "
+                        "ORDER BY e.ts, e.rowid", (task_id,))
+        out, stay = [], None
+        for row in rows + [{"ts": until or self.H.now(), "field": "end", "name": None}]:
+            if stay:
+                out.append((stay[0], (self.H.parse_ts(row["ts"]) - self.H.parse_ts(stay[1])).total_seconds() / 3600))
+                stay = None
+            if row["field"] == "step":
+                stay = (row["name"], row["ts"])
+        return out
+
     def idle_hours(self, task_id, until=None):
         """Hours since the task last changed, as of `until` (default now)."""
         row = self.sql("SELECT updated FROM tasks WHERE id=?", (task_id,))[0]

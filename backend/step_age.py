@@ -16,7 +16,8 @@ LATE_HOURS.
   not one of those, so it goes through. The same skips apply (H.stall_skip): a live session, an open question, a snooze,
   a due date, a blocker, a subtask, or an owner whose profile has no stall checks.
 - LATE_HOURS at the step: the type's manager (Head of Engineering), or else the owner's manager, gets one notice to
-  unblock or reroute it. It is a `blocker` wake, which a Lead's profile lets through at once.
+  unblock or reroute it. It is a `blocker` wake, which a Lead's profile lets through at once. A manager who wrote in
+  the ticket's room or changed it in the last SEEN_HOURS already knows how it stands: the notice waits until then.
 
 Each ticket runs in its own savepoint (batch_work.isolated). One that raises is rolled back alone: its wakes and its
 sent markers go with it, the failure is logged, and it is looked at again on the next pass, while the rest of the
@@ -31,6 +32,7 @@ STATUS_HOURS = 2
 LATE_HOURS = 4
 STATUS_EVENT = "task.step_status"
 LATE_EVENT = "task.step_late"
+SEEN_HOURS = 1
 
 
 def _timed_steps(c):
@@ -82,6 +84,15 @@ def _activity(c, row):
     return max(x for x in (row.get("updated"), row.get("checkpoint_at"), said) if x)
 
 
+def _seen_by(c, row, who, at):
+    """Whether `who` wrote in the ticket's room or changed it in the last SEEN_HOURS: they know how it stands."""
+    since = H.shift(at, seconds=-SEEN_HOURS * 3600)
+    return bool(c.execute("SELECT 1 FROM messages WHERE conversation_id=? AND from_actor=? AND created>? "
+                          "AND deleted_at IS NULL UNION ALL SELECT 1 FROM task_events WHERE task_id=? AND actor=? "
+                          "AND ts>? LIMIT 1", (row.get("conversation_id") or "", who, since, row["id"], who,
+                                               since)).fetchone())
+
+
 def _done(c, action, row, since):
     return bool(c.execute(f"SELECT 1 FROM events WHERE action=? AND target=? AND json_extract(detail_json,'$.since')=? "
                           "LIMIT 1", (action, row["id"], since)).fetchone())
@@ -128,6 +139,8 @@ def _row(c, row, start, at, parked, timed=None):
         landed.append("asked")
     if late_hours and _hours(at, start) >= late_hours and not _done(c, LATE_EVENT, row, start):
         to = _manager(c, row)
+        if to and _seen_by(c, row, to, at):
+            return landed   # the manager has just been at it: a later sweep tells them if it stays late
         hours = int(_hours(at, start))
         sent = (H._wake(c, row, to, f"Late: {name} has been at {step} for {hours} h (owner {H.actor_id(owner)}). "
                       "Unblock it, reroute it to another builder, or tell the owner what it waits on.",

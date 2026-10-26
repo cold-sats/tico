@@ -158,10 +158,10 @@ class Bot:
         w.post(f"attempts/{attempt['id']}/complete", body, token=w.runner["token"])
 
     def stale(self, task, message):
-        """Whether the notice was out of date when the bot read it: its task had already finished, its CI news was
+        """Whether Tico's notice was out of date when the bot read it: its task had already finished, its CI news was
         for a head the PR has moved past, or it had moved to another step after the notice was written."""
-        if not task:
-            return False
+        if not task or message.get("from_actor") not in (None, "keeper"):
+            return False   # a colleague's comment is theirs to judge; the claim's cleanup is for Tico's own notices
         if task["status"] in ("done", "closed", "declined"):
             return True
         head = (message.get("refs") or {}).get("pr_head")
@@ -390,13 +390,15 @@ class Architect(Bot):
 
 class Lead(Bot):
     """Head of Engineering: on its hourly sweep (a routine) it looks for stuck tickets and gets each moving the way a
-    lead does: it tells the owner, with what it sees. It never moves a ticket itself. Any other wake is noise."""
+    lead does: it tells the owner, with what it sees, flagged as needing action (a plain comment from one bot to another
+    waits for the owner's next run). It never moves a ticket itself. Any other wake is noise."""
 
     def act(self, task, message):
         refs = message.get("refs") or {}
         if refs.get("step_late") and task["status"] not in FINISHED and str(task["owner"]).startswith("bot:"):
             self.world.post(f"tasks/{task['id']}/comments", {"text": f"@{task['owner'][4:]} this ticket is late at "
-                                                                     f"{self.world.step_of(task)}: what does it wait on?"},
+                                                                     f"{self.world.step_of(task)}: what does it wait on?",
+                                                                     "needs_action": True},
                             token=self.token)
             return "asked the owner of a late ticket"
         if refs.get("step_backlog"):
@@ -434,13 +436,15 @@ class Lead(Bot):
         told = []
         for t in w.tickets():
             step = board.step(t["step"])
-            if not step or step.merged or board.finished(t["step"]) or not str(t["owner"]).startswith("bot:"):
+            # Only work its owner holds: a ticket queued for a start or out for a check moves without the owner.
+            if not step or not step.work or not str(t["owner"]).startswith("bot:") or t["status"] != "doing":
                 continue
-            limit = step.wake_after_hours or (step.check.timeout_hours if step.check else 2)
+            limit = step.wake_after_hours or 2
             if w.idle_hours(t["id"]) < limit:
                 continue
             w.post(f"tasks/{t['id']}/comments", {"text": f"@{t['owner'][4:]} this ticket has sat at {step.name} for "
-                                                          f"{w.idle_hours(t['id']):.1f} h: what moves it on?"},
+                                                          f"{w.idle_hours(t['id']):.1f} h: what moves it on?",
+                                                          "needs_action": True},
                    token=self.token)
             w.stuck_told.append((w.now(), t["id"]))
             told.append(t["title"])
