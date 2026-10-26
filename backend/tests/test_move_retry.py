@@ -114,9 +114,9 @@ def unreadable(api, monkeypatch, cause=None):
                            'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'} for pr in prs}
     real = review_gate.reject
 
-    def reject(c, actor, row, kind, head, pr, text, *rest):
+    def reject(c, actor, row, kind, head, pr, text, *rest, **options):
         try:
-            real(c, actor, row, kind, head, pr, text, *rest)
+            real(c, actor, row, kind, head, pr, text, *rest, **options)
         except H.Refused as exc:
             exc.review_gate.update(cause or {})
             raise
