@@ -1137,6 +1137,9 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     conversation = H.conversation(c, message["conversation_id"])
     task_id = H.message_task_id(message, conversation)
     task = H.task(c, task_id) if task_id else None
+    if (task and task['owner'] == 'bot:' + job['bot'] and auto_tasks.put_back_held(c, task)
+            and not (message.get('refs') or {}).get('run_now')):
+        return 'task_wait'
     if (task and task['owner'] == 'bot:' + job['bot'] and message['from_actor'] == H.KEEPER
             and not (message.get("refs") or {}).get("run_now")):
         if why := auto_tasks.refusal(c, task, followed, woken=True):

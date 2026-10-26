@@ -124,7 +124,7 @@ LIVE_STATUSES = ACTIVE_STATUSES + ("done",)                # not closed, not dec
 # one goes to its type's closed step (`_task_state`, `retire_held_steps`). The Product roadmap keeps its public Declined.
 HELD_STATUSES = ("waiting", "declined")
 STEP_STATUSES = tuple(s for s in TASK_STATUSES if s not in HELD_STATUSES)
-OWNER_STATUSES = ("doing", "waiting", "review", "done", "declined")  # what the owner may set
+OWNER_STATUSES = ("open", "doing", "waiting", "review", "done", "declined")  # what the owner may set
 # `ready` is a fact the hub learns (the PR merged), not a claim a bot makes: movers and the
 # keeper set it, an owning bot does not.
 # The product lane is retired. Old rows may still say 'product' (so it is
@@ -2593,7 +2593,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
             # questions. A done task still asks its requester to accept what it delivered, with structured questions.
             if ended and ended["status"] in TASK_ENDED and not (ended["status"] == "done" and refs.get("questions")
                                                                and target == ended["requester"]):
-                refuse(conn, actor, "lint", f"task {ended['id']} is {ended['status']}; reopen it or ask on an open task")
+                refuse(conn, actor, "lint", f"task {ended['id']} is {ended['status']}; {task_reopen_hint(actor, ended)}")
 
     # rules 4 and 7: what a person has to read
     if is_bot(actor) and is_human(target) and kind in ("say", "notice"):
@@ -3405,6 +3405,16 @@ def type_delete(conn, actor, type_id, mover=None):
     return row
 
 
+def task_reopen_hint(actor, row):
+    """Name a next move the caller is allowed to make; closure retains its own authority."""
+    closer = row.get('closed_by') or row['requester']
+    if row['status'] == 'closed' and is_bot(actor) and (actor != row['requester'] or is_human(closer)):
+        return f"ask {actor_id(closer)} to reopen it, or file a new task"
+    if actor == row['owner'] or is_human(actor) or actor == row['requester'] and row['status'] == 'closed':
+        return f"reopen it with `hub task update {row['id']} --status doing`, or file a new task"
+    return "ask the owner to reopen it with " + f"`hub task update {row['id']} --status doing`, or file a new task"
+
+
 def _task_state(conn, actor, row, status=None, type=None, step=None):
     """Resolve the step before checking permissions on its effective status."""
     typ = type_get(conn, type if type is not None else row.get("type_id") or GENERAL_TYPE)
@@ -3426,6 +3436,10 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         chosen = next((s for s in reversed(typ["steps"]) if s["status"] == "closed"), None)
     else:
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
+        if effective == 'open' and row.get('status') in ('doing', 'waiting', 'done'):
+            from .review_gate import engineering
+            if engineering(conn, {**row, 'type_id': typ['id']}):
+                chosen = next((s for s in typ['steps'] if s['name'] == 'On Deck' and s['status'] == 'open'), chosen)
         if not chosen and effective == "waiting":
             # Waiting is not a column: the task stays in the working step it is in, or starts at the first.
             chosen = (current if current and current["status"] in ACTIVE_STATUSES
@@ -3441,6 +3455,7 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
     if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
             and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
             and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)
+            and not (actor == row.get('owner') and row['status'] == 'done' and effective in ('open', 'doing'))
             and not (effective == "closed" and _closes_by_hand(actor))):
         # Naming the task keeps a bot's refusals on different tickets distinct, so working a board is not
         # counted as retrying one refused write (rule 8); a retry on the same task still is.
@@ -5431,7 +5446,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 step_rank=None, number=None, title=None, private=None, waiting_on=None, roles=None, visibility=None, public_title=None,
                 public_summary=None, approval_id=None, size=None, clear_size=False, review_prs=None, verdict=None,
                 verdict_head=None):
-    """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
+    """Rule 5. The owner may set open|doing|waiting|review|done|declined and a note; it may not close.
 
     `lane` and `labels` are a mover's to change (`mover` says whether this actor is one; the
     keeper always is). A parent or a blocker is a relation: task_relations.relate.
@@ -5495,7 +5510,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                    f"your verdict (hub task done {check['id']} --verdict approve|changes --head <sha>); the Builder "
                    "moves the ticket.")
     if not mine and not mover and actor != KEEPER:
-        refuse(conn, actor, "identity", f"{task_id} is not yours to change")
+        refuse(conn, actor, "identity", f"{task_id} is not yours to change; ask the owner to set doing or open, "
+               "or file a new task")
     type_id = row.get("type_id") or GENERAL_TYPE
     if state_change:
         type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
@@ -5529,7 +5545,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             and (status is not None and status != "closed" or note is not None and note != row.get("note")
                  or owner is not None)):
         refuse(conn, actor, "close",
-               f"{actor_id(closer)} closed this task, so it stays closed unless they reopen it; "
+               f"{actor_id(closer)} closed this task, so it stays closed; {task_reopen_hint(actor, row)}; "
                "add anything new as a comment (hub task comment)")
     if status is not None and not closing_step:
         if status not in TASK_STATUSES:
@@ -5539,6 +5555,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         if actor == row["owner"] and not is_human(actor) and status not in OWNER_STATUSES:
             refuse(conn, actor, "close",
                    f"the owner may set {'|'.join(OWNER_STATUSES)}, not {status}")
+        if (status == 'open' and row['status'] != 'open' and actor == row['owner'] and is_bot(actor)
+                and not str(note or '').strip()):
+            refuse(conn, actor, 'lint', 'Putting your task back to open requires a note: '
+                   f'hub task update {task_id} --status open --note "why it goes back"')
         if status == "ready" and is_bot(actor):
             refuse(conn, actor, "close", "ready to ship is set when the pull request merges, not by the bot")
         # A bot parking a task it asked itself for has nobody to answer it unless it has filed
@@ -7184,7 +7204,7 @@ def task_run_now(conn, actor, task_id):
     if not is_bot(row["owner"]):
         refuse(conn, actor, "run-now", "only a bot's task runs; a person does it themselves")
     if row["status"] not in ACTIVE_STATUSES:
-        refuse(conn, actor, "run-now", f"the task is {row['status']}; reopen it first")
+        refuse(conn, actor, "run-now", f"the task is {row['status']}; {task_reopen_hint(actor, row)}")
     if why := setup_hold(conn, row["owner"]):
         raise Refused("run-now", why)       # not a refused write: nothing to count against the caller
     if row.get("next_run"):
@@ -7434,7 +7454,7 @@ def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None):
         row = task(conn, task_id)
         if row and row["status"] in TASK_ENDED:
             # It would only be withdrawn: nothing acts on an ended task's approvals.
-            refuse(conn, actor, "lint", f"task {task_id} is {row['status']}; reopen it or ask on an open task")
+            refuse(conn, actor, "lint", f"task {task_id} is {row['status']}; {task_reopen_hint(actor, row)}")
         if row and is_human(row["owner"]):
             owner = row["owner"]
     if kind == "support" and is_human(actor):
