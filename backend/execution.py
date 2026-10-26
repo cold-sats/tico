@@ -3916,7 +3916,7 @@ class Execution:
         # Judged while the bot works on anything else (an always-busy bot never had a free lane, so its stopped runs and
         # the work fenced behind them waited forever, Dev 488); it waits only for a live run that may be doing the same
         # work: one that took this job or folded in its message, one on the same task (a chat with no task: the same
-        # conversation), or one in the same task session (a subtask's turn runs in its session root's lane).
+        # conversation), or one in the same session lane, including a shared main lane.
         rows = c.execute("SELECT j.*, a.started, a.finished, a.state AS attempt_state, a.result_json, "
                          "a.stop_requested, a.job_id AS attempt_job, "
                          "r.decision AS pending_decision, r.note AS review_note, r.actor AS reviewer, "
@@ -3927,7 +3927,7 @@ class Execution:
                          f"OR tt.task_id={task_sql} "
                          f"OR ({task_sql} IS NULL AND EXISTS(SELECT 1 FROM attempt_conversations ac "
                          "WHERE ac.attempt_id=t.id AND ac.conversation_id=m.conversation_id)) "
-                         f"OR (t.lane=a.lane AND (a.lane<>'{sessions.MAIN_LANE}' OR r.job_id IS NOT NULL))) LIMIT 1) AS blocking_attempt "
+                         "OR t.lane=a.lane) LIMIT 1) AS blocking_attempt "
                          "FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
                          "LEFT JOIN job_recovery r ON r.job_id=j.id AND r.attempt_id=j.attempt_id "
                          "LEFT JOIN messages m ON m.id=j.message_id LEFT JOIN conversations cv ON cv.id=m.conversation_id "

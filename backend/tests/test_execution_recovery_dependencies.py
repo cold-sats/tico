@@ -10,14 +10,15 @@ from backend.tests.test_execution_review import (add_recovery_reviewer, restarte
 from backend.tests.test_login_holds import at, signed_in, two_bots, limit
 
 
-@pytest.mark.parametrize('identity', ['task', 'lane'])
+@pytest.mark.parametrize('identity', ['task', 'lane', 'main'])
 def test_overlap_wait_is_visible_and_reviewed_within_five_minutes_of_freeing(api, monkeypatch, identity):
     add_recovery_reviewer(api)
     machine, message, attempt = restarted_mid_turn(api, [('Bash', None)], restart=False)
     other = rival(api, machine, attempt)
     with api.app.state.store.transaction() as c:
-        if identity == 'lane':
-            c.execute("UPDATE attempts SET lane='task:shared' WHERE id IN (?,?)", (attempt['id'], other['id']))
+        if identity in ('lane', 'main'):
+            lane = 'main' if identity == 'main' else 'task:shared'
+            c.execute("UPDATE attempts SET lane=? WHERE id IN (?,?)", (lane, attempt['id'], other['id']))
         else:
             task = H.task_create(c, 'human:ana', 'Shared work', 'Finish this.', 'bot:ops')
             c.execute('UPDATE turns SET task_id=? WHERE id IN (?,?)', (task['id'], attempt['id'], other['id']))
