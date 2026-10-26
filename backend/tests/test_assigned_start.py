@@ -512,3 +512,67 @@ def test_folded_attempt_provenance_still_excludes_unstarted_recovery(api, clock)
     cancel(api)
     advance(api, clock, 1)
     assert sweep(api) == []
+
+
+def test_bad_candidate_does_not_pin_recovery_cursor_or_hide_later_tasks(api, clock, monkeypatch):
+    task_bot(api, lanes=True)
+    tasks = [new_task(api, 'Row isolation ' + str(n)) for n in range(3)]
+    cancel(api)
+    advance(api, clock, 1)
+    ordered = sorted(t['id'] for t in tasks)
+    monkeypatch.setattr(A, 'SCAN_LIMIT', 2)
+    original = A.auto_tasks.waiting
+
+    def one_bad(c, row, *args, **kwargs):
+        if row['id'] == ordered[0]:
+            raise ValueError('Synthetic malformed task wait')
+        return original(c, row, *args, **kwargs)
+
+    monkeypatch.setattr(A.auto_tasks, 'waiting', one_bad)
+    cursor, failures = [''], []
+    with api.app.state.store.read() as c:
+        assert A.due(c, H.now(), cursor=cursor, failures=failures) == [ordered[1]]
+        assert cursor == [ordered[1]]
+        assert failures == [{'assigned_start': ordered[0], 'error': 'ValueError'}]
+        assert A.due(c, H.now(), cursor=cursor, failures=failures) == [ordered[2]]
+
+
+@pytest.mark.parametrize('excluded', ['attempted', 'waiting'])
+def test_overdue_pages_past_more_than_two_hundred_ineligible_recoveries(api, clock, monkeypatch, excluded):
+    machine = task_bot(api, lanes=True)
+    carrier = new_task(api, 'Provenance carrier')
+    attempt = claim(api, machine)
+    wanted = new_task(api, 'Still unstarted behind the filtered page')
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<250) "
+                  "INSERT INTO tasks(id,title,body,requester,owner,status,lane,rank,created,updated,conversation_id) "
+                  "SELECT printf('00000000-0000-4000-8000-%012d',x),'Earlier recovery','','human:ana','bot:ops',"
+                  "'open','company',x,?,?,? FROM n", (H.now(), H.now(), carrier['conversation_id']))
+        ids = [r[0] for r in c.execute("SELECT id FROM tasks WHERE id LIKE '00000000-%'")]
+        if excluded == 'attempted':
+            H.event(c, H.KEEPER, 'task.next-run.carried', attempt['id'], {'tasks': ids})
+        else:
+            c.executemany("UPDATE tasks SET waiting_on='human:ana' WHERE id=?", [(tid,) for tid in ids])
+    advance(api, clock, 1)
+    with store.transaction() as c:
+        c.execute("UPDATE bot_config SET reports_to='human:ana' WHERE bot='ops'")
+        for tid in ids + [wanted['id']]:
+            row = H.task(c, tid)
+            H.event(c, H.KEEPER, A.EVENT, tid, {'assignment': row['owner'] + ':' + row['created'],
+                    'assigned_at': row['created'], 'rewoken_at': H.now(), 'refusal': None})
+    advance(api, clock, 2)
+    calls = []
+    original = A.privacy.attempt_tasks
+
+    def counted(c, aid):
+        calls.append(aid)
+        return original(c, aid)
+
+    monkeypatch.setattr(A.privacy, 'attempt_tasks', counted)
+    with store.read() as c:
+        assert [r['id'] for r in A.overdue(c, limit=1)] == [wanted['id']]
+        assert len(calls) == 1
+    assert wanted['id'] in {r['id'] for r in get(api, 'needs-you')['items']}
+    check = next(x for x in get(api, 'health')['checks'] if x['id'] == 'assigned_not_started')
+    assert [r['task'] for r in check['items']] == [wanted['id']]

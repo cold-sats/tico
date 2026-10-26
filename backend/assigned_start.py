@@ -15,7 +15,7 @@ SCAN_LIMIT = 200
 CURSOR_KEY = "assignment-recovery-cursor"
 
 
-def candidates(c, at=None, task_ids=None, recorded=None, *, after="", scanned=None, visible="1", manager_actor=None):
+def candidates(c, at=None, task_ids=None, recorded=None, *, after="", scanned=None, visible="1", manager_actor=None, attempts=None, on_error=None):
     if task_ids is not None and not task_ids:
         return
     at = at or H.now()
@@ -41,7 +41,7 @@ def candidates(c, at=None, task_ids=None, recorded=None, *, after="", scanned=No
         params.extend((manager_actor, H.actor_id(manager_actor)))
     # One page bounds Python wait/provenance work, including pages with no eligible wake.
     # The scheduler persists the last inspected id, so held/started rows cannot starve later work.
-    attempts = {}
+    attempts = {} if attempts is None else attempts
     visibility = f" AND t.id IN (SELECT id FROM tasks WHERE ({visible}))" if visible != "1" else ""
     rows = H._rows(c.execute("SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug "
                                  "WHERE t.status='open' AND b.state IN ('active','paused','quarantined') AND t.created<=? "
@@ -51,42 +51,53 @@ def candidates(c, at=None, task_ids=None, recorded=None, *, after="", scanned=No
     for row in rows:
         if scanned is not None:
             scanned[:] = [row['id']]
-        assignment = c.execute("SELECT id,ts FROM task_events WHERE task_id=? AND field='owner' "
-                               "ORDER BY ts DESC,rowid DESC LIMIT 1", (row['id'],)).fetchone()
-        key, since = (assignment['id'], assignment['ts']) if assignment else (row['owner'] + ':' + row['created'], row['created'])
-        if since > cutoff:
-            continue
-        saved = next((H._json(r['detail_json'], {}) for r in c.execute(
-            "SELECT detail_json FROM events WHERE target=? AND action=? ORDER BY ts DESC",
-            (row['id'], EVENT)) if H._json(r['detail_json'], {}).get('assignment') == key), None)
-        # Most reads need only one side of the ledger. Skip the other before wait/provenance checks.
-        if recorded is False and saved:
-            continue
-        if recorded is True and (not saved or saved['rewoken_at'] > H.shift(at, hours=-ESCALATE_HOURS)):
-            continue
-        if auto_tasks.waiting(c, row, starting=True):
-            continue
-        # Include folded inputs and next-run carried work, not just the job's original task.
-        bot = H.actor_id(row['owner'])
-        if bot not in attempts:
-            touched = {}
-            for attempt in c.execute("SELECT id,created FROM attempts WHERE bot=? AND created>=? ORDER BY created DESC",
-                                     (bot, earliest)).fetchall():
-                for tid in privacy.attempt_tasks(c, attempt['id']):
-                    touched.setdefault(tid, attempt['created'])
-            attempts[bot] = touched
-        if attempts[bot].get(row['id'], '') >= since:
-            continue
-        yield row, key, since, saved
+        try:
+            assignment = c.execute("SELECT id,ts FROM task_events WHERE task_id=? AND field='owner' "
+                                   "ORDER BY ts DESC,rowid DESC LIMIT 1", (row['id'],)).fetchone()
+            key, since = (assignment['id'], assignment['ts']) if assignment else (row['owner'] + ':' + row['created'], row['created'])
+            if since > cutoff:
+                continue
+            saved = next((H._json(r['detail_json'], {}) for r in c.execute(
+                "SELECT detail_json FROM events WHERE target=? AND action=? ORDER BY ts DESC",
+                (row['id'], EVENT)) if H._json(r['detail_json'], {}).get('assignment') == key), None)
+            # Most reads need only one side of the ledger. Skip the other before wait/provenance checks.
+            if recorded is False and saved:
+                continue
+            if recorded is True and (not saved or saved['rewoken_at'] > H.shift(at, hours=-ESCALATE_HOURS)):
+                continue
+            if auto_tasks.waiting(c, row, starting=True):
+                continue
+            # Include folded inputs and next-run carried work, not just the job's original task.
+            bot = H.actor_id(row['owner'])
+            floor, touched = attempts.get(bot, ("9999", {}))
+            if earliest < floor:
+                for attempt in c.execute("SELECT id,created FROM attempts WHERE bot=? AND created>=? AND created<? ORDER BY created DESC",
+                                         (bot, earliest, floor)).fetchall():
+                    for tid in privacy.attempt_tasks(c, attempt['id']):
+                        touched.setdefault(tid, attempt['created'])
+                attempts[bot] = earliest, touched
+            if touched.get(row['id'], '') >= since:
+                continue
+            yield row, key, since, saved
+        except Exception as exc:
+            if on_error is None:
+                raise
+            on_error(row, exc)
 
 
-def due(c, at, limit=50, cursor=None):
+def due(c, at, limit=50, cursor=None, failures=None):
     """Read outside the scheduler write lock; each selected row is rechecked in its own transaction."""
     out = []
     after = cursor[0] if cursor else ""
     if cursor is not None:
         cursor[:] = [""]
-    for row, _, _, saved in candidates(c, at, recorded=False, after=after, scanned=cursor):
+
+    def failed(row, exc):
+        logging.getLogger(__name__).exception('Assignment recovery selection failed for one task')
+        if failures is not None:
+            failures.append({'assigned_start': row['id'], 'error': type(exc).__name__})
+
+    for row, _, _, saved in candidates(c, at, recorded=False, after=after, scanned=cursor, on_error=failed):
         if not saved and H.bot(c, H.actor_id(row['owner']))['state'] == 'active':
             out.append(row['id'])
             if len(out) >= limit:
@@ -134,11 +145,22 @@ def sweep(c, at=None, task_ids=None):
     return woke
 
 
-def overdue(c, at=None, *, visible="1", manager_actor=None):
+def overdue(c, at=None, *, visible="1", manager_actor=None, limit=200):
+    """Page past ineligible ledger rows; cap alert output, not the pre-filter candidate window."""
     at = at or H.now()
-    for row, _, since, saved in candidates(c, at, recorded=True, visible=visible, manager_actor=manager_actor):
-        if saved and saved['rewoken_at'] <= H.shift(at, hours=-ESCALATE_HOURS):
+    after, count, attempts = "", 0, {}
+    while count < limit:
+        scanned = [""]
+        for row, _, since, saved in candidates(c, at, recorded=True, visible=visible,
+                                               manager_actor=manager_actor, after=after,
+                                               scanned=scanned, attempts=attempts):
             yield {**row, 'assigned_at': since, 'rewoken_at': saved['rewoken_at'], 'rewake_refusal': saved.get('refusal')}
+            count += 1
+            if count >= limit:
+                return
+        if not scanned[0]:
+            return
+        after = scanned[0]
 
 
 def manager(c, row):
