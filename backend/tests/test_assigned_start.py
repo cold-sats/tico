@@ -95,6 +95,8 @@ def test_still_unstarted_health_and_manager_needs_you_show_task_and_actual_reaso
     assert 'Publish the daily report' in check['summary'] and 'auto_start_off' in check['summary']
     card = next(x for x in get(api, 'needs-you')['items'] if x['id'] == task['id'])
     assert card['assigned_not_started'] and 'auto_start_off' in card['note']
+    assert card['title'].startswith('Assigned, not started: ')
+    assert get(api, 'tasks/' + task['id'])['task']['title'] == 'Publish the daily report'
     assert task['id'] not in {i['id'] for i in get(api, 'needs-you', token='ben-test')['items']}
     # A successful claim clears both read-time lists immediately.
     set_cap(api, 1)
@@ -165,6 +167,23 @@ def test_scheduler_restart_recovers_once_and_rehearsal_never_recovers(api, clock
         Scheduler(store, api.app.state.execution).tick(H.parse_ts(H.now()))
     with store.read() as c:
         assert c.execute('SELECT count(*) FROM events WHERE action=? AND target=?', (A.EVENT, task['id'])).fetchone()[0] == 1
+
+
+def test_recovery_selection_is_bounded_and_rechecks_waits_under_the_write_lock(api, clock):
+    task_bot(api, lanes=True)
+    tasks = [new_task(api, 'Assigned item ' + str(n)) for n in range(4)]
+    cancel(api)
+    advance(api, clock, 1)
+    store = api.app.state.store
+    with store.read() as c:
+        selected = A.due(c, H.now(), limit=2)
+    assert len(selected) == 2
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET waiting_on='human:ana' WHERE id=?", (selected[0],))
+        assert A.sweep(c, H.now(), selected) == [selected[1]]
+        assert A.sweep(c, H.now(), []) == []
+    with store.read() as c:
+        assert len(A.due(c, H.now())) == 2
 
 
 def test_five_deck_tickets_progress_under_three_task_cap_without_lead_turns(api):

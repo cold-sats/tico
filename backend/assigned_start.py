@@ -10,12 +10,16 @@ WAKE_HOURS = 1
 ESCALATE_HOURS = 2
 
 
-def candidates(c, at=None):
+def candidates(c, at=None, task_ids=None):
+    if task_ids is not None and not task_ids:
+        return
     at = at or H.now()
     cutoff = H.shift(at, hours=-WAKE_HOURS)
+    scope = f" AND t.id IN ({','.join('?' for _ in task_ids)})" if task_ids else ''
     for row in H._rows(c.execute("SELECT t.* FROM tasks t JOIN bots b ON t.owner='bot:'||b.slug "
+                                 "JOIN conversations cv ON cv.id=t.conversation_id "
                                  "WHERE t.status='open' AND b.state IN ('active','paused','quarantined') AND t.created<=? "
-                                 "ORDER BY t.created,t.id", (cutoff,))):
+                                 + scope + " ORDER BY t.created,t.id", (cutoff, *(task_ids or ())))):
         if auto_tasks.waiting(c, row, starting=True):
             continue
         assignment = c.execute("SELECT id,ts FROM task_events WHERE task_id=? AND field='owner' "
@@ -33,10 +37,21 @@ def candidates(c, at=None):
         yield row, key, since, saved
 
 
-def sweep(c, at=None):
+def due(c, at, limit=50):
+    """Read outside the scheduler write lock; each selected row is rechecked in its own transaction."""
+    out = []
+    for row, _, _, saved in candidates(c, at):
+        if not saved and H.bot(c, H.actor_id(row['owner']))['state'] == 'active':
+            out.append(row['id'])
+            if len(out) >= limit:
+                break
+    return out
+
+
+def sweep(c, at=None, task_ids=None):
     at = at or H.now()
     woke = []
-    for row, key, since, saved in candidates(c, at):
+    for row, key, since, saved in candidates(c, at, task_ids):
         if saved:
             continue
         if H.bot(c, H.actor_id(row['owner']))['state'] != 'active':

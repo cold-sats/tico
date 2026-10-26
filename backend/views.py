@@ -1421,7 +1421,7 @@ def needs_items(c, auth, who, task_view, older=None, count_only=False):
     for row in assigned_start.overdue(c):
         if (assigned_start.manager(c, row) == who.actor and row['id'] not in listed
                 and _readable(auth, c, who, row['id'])):
-            raw['tasks'].append({**row, 'assigned_not_started': True,
+            raw['tasks'].append({**row, 'assigned_not_started': True, 'title': 'Assigned, not started: ' + row['title'],
                                  'note': assigned_start.description(c, row, auth.settings)})
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
     from . import ask_deadlines, team_rules

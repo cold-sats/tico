@@ -348,9 +348,12 @@ class Scheduler:
             quiet_work.due(c, stamp(at), failures)
         from . import assigned_start
         if not self.store.settings.rehearsal:
-            with locked("assigned_start") as c:
-                with isolated(c, "assigned_start", "all", failures):
-                    assigned_start.sweep(c, stamp(at))
+            with self.store.read() as c:
+                unstarted = assigned_start.due(c, stamp(at))
+            for task_id in unstarted:
+                with locked("assigned_start:" + task_id) as c:
+                    with isolated(c, "assigned_start", task_id, failures):
+                        assigned_start.sweep(c, stamp(at), [task_id])
             from . import queue_refusals
             with locked("queue_refusals") as c:
                 with isolated(c, "queue_refusals", "all", failures):

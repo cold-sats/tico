@@ -561,7 +561,7 @@ def _waiting(c, online_ids, settings=None):
                                       bot_claimable(c, settings, where[0], slug, oldest=slug in busy))
             # A running turn only explains this queue when it holds the queued lane. Free task
             # lanes still get the claim's actual refusal, even while another lane runs.
-            idle = not ((refused == 'lane_held' and slug in busy) or (not refused and where[0] in full))
+            idle = where[0] not in full and not (refused == 'lane_held' and slug in busy)
             if idle and not refused:
                 if not (first and first < (person_cutoff if person else cutoff)):
                     continue        # the job the claim would take is young: the older ones wait behind it or are held
