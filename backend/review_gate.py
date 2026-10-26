@@ -110,17 +110,19 @@ def mint_failure(exc, repo):
     retryable = timeout
     if isinstance(exc, Problem):
         code = exc.code
-        status = exc.extra.get("github_status", exc.status)
+        # A transport failure has no GitHub HTTP response; 502 is Tico's own envelope status.
+        status = exc.extra.get("github_status", None if code == "github_unreachable" else exc.status)
         auth = code in {"github_app_key", "github_key_missing", "github_not_installed", "github_not_connected",
                         "github_app_permissions"}
         auth |= code == "github_unavailable" and exc.detail in {
             MISSING_KEY, "The stored GitHub App key could not be decrypted"}
-        timeout |= code == "github_timeout" or exc.extra.get("timed_out") is True
+        timeout |= exc.extra.get("timed_out") is True
         retryable |= exc.retryable
     elif isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
     auth |= status in (401, 403)
-    retryable = not auth and (retryable or status in (408, 429) or isinstance(status, int) and 500 <= status < 600)
+    retryable = not auth and (timeout or retryable or status in (408, 429)
+                             or isinstance(status, int) and 500 <= status < 600)
     # Only fixed-format diagnostic fields are safe to include; never copy Problem.detail.
     cause = []
     if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
@@ -132,7 +134,7 @@ def mint_failure(exc, repo):
     if not cause:
         cause.append(type(exc).__name__)
     action = "the GitHub App could not sign in" if auth else "GitHub token request failed"
-    return {"error": True, "why": f"{action} for {repo} ({'; '.join(cause)})", "retryable": bool(retryable)}
+    return {"error": True, "why": f"{action} for {repo}: {'; '.join(cause)}", "retryable": bool(retryable)}
 
 
 def snapshot(service, prs):

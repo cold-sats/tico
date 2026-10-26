@@ -332,6 +332,7 @@ class GitHubApp:
                 return http.request(method, path, **kw)
         except httpx.HTTPError as exc:
             raise Problem("github_unreachable", "GitHub could not be reached; try again shortly", 502,
+                          retryable=True,
                           extra={"timed_out": True} if isinstance(exc, httpx.TimeoutException) else None) from None
 
     def exchange(self, code):
@@ -354,7 +355,8 @@ class GitHubApp:
         r = self._call("GET", "/app/installations", params={"per_page": 100},
                        headers={"Authorization": "Bearer " + token})
         if r.status_code >= 300:
-            raise Problem("github_installations", "GitHub would not list the app's installations", 502)
+            raise Problem("github_installations", "GitHub would not list the app's installations", 502,
+                          extra={"github_status": r.status_code})
         found = next((i for i in r.json() if str((i.get("account") or {}).get("login", "")).lower() == row["org"].lower()), None)
         with self.store.transaction() as c:
             c.execute("UPDATE github_app SET installation_id=? WHERE id='app'", (found["id"] if found else None,))
@@ -497,8 +499,11 @@ class GitHubApp:
                           extra={"github_status": r.status_code})
         if r.status_code in (403, 404, 422) and repos:
             if diagnose:
-                raise self._unreachable(installation, repos, r.status_code)
-            raise Problem('github_repo_not_accessible', 'GitHub could not reach the requested repositories', 409)
+                problem = self._unreachable(installation, repos, r.status_code)
+                problem.extra["github_status"] = r.status_code
+                raise problem
+            raise Problem('github_repo_not_accessible', 'GitHub could not reach the requested repositories', 409,
+                          extra={"github_status": r.status_code})
         if r.status_code == 401:
             raise Problem("github_app_key", "GitHub rejected the App's key (" + (said or "HTTP 401") + "). " + RECONNECT, 502,
                           extra={"github_status": r.status_code})
