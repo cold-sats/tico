@@ -178,6 +178,11 @@ def alert_target(c, row, at):
     from . import hubdb as H
     if not row.get('blocked_since') or seconds(row['blocked_since'], at) < 4 * 3600:
         return None
+    from . import review_gate
+    # The same scope as hold() and reconciliation(): an ordinary waiting task on another board is no engineering
+    # hold, while a refused move into Engineering (a gate hold) still is.
+    if row.get('blocked_kind') != 'gate' and not review_gate.engineering(c, row):
+        return None
     manager = H.type_manager(c, row)
     target = H.bot_actor(manager) if manager else row['requester']
     if target == row['owner'] or not H.task_private_readable(c, target, row):

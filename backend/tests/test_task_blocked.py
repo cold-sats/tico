@@ -202,6 +202,39 @@ def test_blocked_time_pauses_build_clock_and_age_alert_is_once(api, monkeypatch)
         assert task_blocked.clocks(H.task(c, task['id']), at)['building_seconds'] == 7200
 
 
+def test_age_alert_skips_a_waiting_task_on_another_board(api, monkeypatch):
+    """The four-hour alert belongs to engineering holds: an ordinary task on another board that waits on its
+    own subtask gets no Blocked alert to its type manager."""
+    from backend import review_gate, task_blocked
+    at = '2026-10-26T01:00:00.000000Z'
+    monkeypatch.setattr(H, 'now', lambda: at)
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, 'human:ana', 'Plan the offsite', 'Book a venue.', 'bot:cpo')
+        assert not review_gate.engineering(c, task)
+        c.execute('UPDATE task_types SET manager=? WHERE id=?', ('cmo', task['type_id']))
+        H.task_create(c, 'bot:cpo', 'Choose a venue', 'Choose one.', 'human:ana', parent_id=task['id'])
+        H.task_update(c, 'bot:cpo', task['id'], status='waiting', note='Waiting on Ana to choose a venue')
+        held = H.task(c, task['id'])
+        assert held['blocked_since'] and held['blocked_kind'] == 'dependency'
+        at = '2026-10-26T06:00:00.000000Z'
+        assert task['id'] not in task_blocked.candidates(c, at)
+        task_blocked.sweep(c, at)
+        assert H.task(c, task['id'])['blocked_since'] == held['blocked_since']
+        assert c.execute("SELECT count(*) FROM events WHERE action='task.blocked_age' AND target=?", (task['id'],)).fetchone()[0] == 0
+
+
+def test_owner_blocked_move_is_a_manual_hold_that_never_reopens(api):
+    """The write's hint must match what happens: the owner's own Blocked move is a manual hold, which the stranded
+    sweep leaves alone, so it gets no "goes back to open" warning."""
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        parked = H.task_update(c, task['owner'], task['id'], step='Blocked', note='Waiting for a machine')
+        assert H.task(c, task['id'])['blocked_kind'] == 'manual'
+        assert not any('goes back to open' in w for w in parked.get('warnings') or [])
+        H.sweep_stranded(c, at=H.shift(H.now(), hours=48))
+        assert H.task(c, task['id'])['status'] == 'waiting'
+
+
 def test_fresh_ci_refusal_cannot_be_cleared_by_older_cached_green(api):
     from backend import review_gate, task_blocked
     task = ticket(api, f'Tests: head {HEAD}: 9 passed, 0 failed')

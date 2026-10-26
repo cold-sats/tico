@@ -5591,8 +5591,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                        "in a note, file the child task, blocker or approval first, name the person with --on, "
                        "or keep working")
             # A note naming what it waits on parks it, but a note wakes nobody (bots parked tasks "waiting on
-            # BotOps" that BotOps never heard of): the hint goes back with the write.
-            self_wait = [f"nothing this task waits on is recorded, so it goes back to open in "
+            # BotOps" that BotOps never heard of): the hint goes back with the write. The owner's own move to the
+            # Blocked step is a manual hold (the same rule as _set_status), which never reopens by itself.
+            durable = step is not None and step in (step_id, "Blocked") and actor == row["owner"]
+            self_wait = self_wait if durable else [f"nothing this task waits on is recorded, so it goes back to open in "
                          f"{STRANDED_GRACE_HOURS} hours: file a subtask for whoever must act (hub task create "
                          f"--parent {task_id} --owner <bot or person>), relate a blocker, name the person with --on, "
                          "or set --due for when to look again"]
