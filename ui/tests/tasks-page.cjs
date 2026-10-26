@@ -820,6 +820,27 @@ async function bulk(browser) {
   assert.deepEqual(taskWrites(posts).slice(-2).map(x => x.body.note), [undefined, undefined]);
   assert.equal(posts.filter(x => x.p.startsWith('/api/v2/tasks/t-copy/')).length, 0, 'not sent as a comment either');
   assert.equal(await page.evaluate(() => TASK_DRAFTS.get('t-copy')), 'Half a thought about headl', 'the draft stays for its task');
+  // Select all: from one picked row to every row shown, sent as one bulk change. Needs you is no server filter (it is
+  // the server's queue for you), so the change names the tasks shown.
+  await page.locator('#task-bulk [data-bulk="clear"]').click();
+  await box('tt-triage').click();
+  await page.locator('#task-bulk [data-bulk="all"]').click();
+  const shown = await page.locator('#task-body [data-task-key]').evaluateAll(rows => rows.filter(r => r.getClientRects().length).map(r => r.dataset.taskKey).filter(k => k.startsWith('t')));
+  assert(shown.length > 1);
+  assert.equal(await page.locator('.tl-bulk-n').innerText(), `All ${shown.length} matching`);
+  let sent = null;
+  await page.route('**/api/v2/task-bulk', route => {
+    sent = route.request().postDataJSON();
+    return route.fulfill({contentType: 'application/json', body: JSON.stringify({dry_run: false, matched: shown.length, cap: 200,
+      changed: shown.length, unchanged: 0, skipped: 0, tasks: {changed: [], skipped: []}})});
+  });
+  const writesBefore = taskWrites(posts).length;
+  await page.locator('#task-bulk [data-bulk="tags"]').click();
+  await page.locator('#task-filter-pop .tl-menu-new input').fill('q4');
+  await page.locator('#task-filter-pop .tl-menu-new input').press('Enter');
+  await page.waitForFunction(n => document.querySelector('.tl-bulk-msg')?.textContent === `${n} tagged q4`, shown.length);
+  assert.deepEqual(sent, {filter: {ids: shown.map(k => k.slice(1))}, action: 'tags', add: ['q4']});
+  assert.equal(taskWrites(posts).length, writesBefore, 'one call, not one per task');
   assert.deepEqual(errors, []);
   console.log('bulk: ok');
   await page.close();

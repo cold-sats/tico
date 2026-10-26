@@ -395,10 +395,11 @@ CREATE INDEX IF NOT EXISTS slack_task_completion_notices ON messages(
 SCHEMA += SLACK_SCHEMA
 
 
-def refused(c, identity, exc):
-    """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
-    c.execute("ROLLBACK TO domain_write")
-    c.execute("RELEASE domain_write")
+def refused(c, identity, exc, savepoint="domain_write"):
+    """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it. `savepoint` is the
+    write undone: the whole request's, or one task's of a bulk change (app.py task_bulk), which goes on to the next."""
+    c.execute("ROLLBACK TO " + savepoint)
+    c.execute("RELEASE " + savepoint)
     from . import ceo_acts
     if isinstance(exc, ceo_acts.Proposed):
         # Not a mistake to count toward quarantine: what stays the owner's becomes their proposal instead.

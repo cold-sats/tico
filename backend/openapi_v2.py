@@ -216,6 +216,11 @@ STABLE = [
      "full. A full read has an ETag: If-None-Match answers 304 when nothing changed", "TaskList"),
     ("/api/v2/tasks", "post", "Tasks", "createTask", "Create a task", "TaskResult"),
     ("/api/v2/tasks/dry-run", "post", "Tasks", "checkTask", "The checks a create would fail; writes nothing", None),
+    ("/api/v2/task-bulk", "post", "Tasks", "bulkChangeTasks",
+     "One change to every task a filter selects (filter takes the listTasks filters, and ids); action is step, status, "
+     "owner, tags (add, remove) or close. Each task changes as updateTask would change it: a task the caller may not "
+     "change is skipped with its reason, the rest still change. At most 200 tasks: a filter matching more is refused "
+     "(422 too_many). dry_run makes every change and undoes it, so its counts are the real ones", "TaskBulkResult"),
     ("/api/v2/tasks/labels", "get", "Tasks", "listTaskLabels", "Labels in use (ETag: If-None-Match answers 304 when unchanged)", None),
     ("/api/v2/tasks/{tid}", "get", "Tasks", "getTask", "A task with its history, comments and messages", "TaskDetail"),
     ("/api/v2/tasks/{tid}", "post", "Tasks", "updateTask",
@@ -829,6 +834,11 @@ SCHEMAS = {
                                "applies; read in full"}},
                     required=["tasks", "next_offset", "cursor"], actors=ACTORS),
     "TaskResult": obj({"task": ref("Task")}),
+    "TaskBulkResult": obj({"dry_run": "b", "matched": "i", "cap": "i", "changed": "i", "unchanged": "i", "skipped": "i",
+                           "tasks": obj({"changed": items(obj({"id": "s", "number": {"type": ["integer", "null"]}, "title": "s"})),
+                                         "skipped": items(obj({"id": "s", "number": {"type": ["integer", "null"]}, "title": "s",
+                                                               "code": "s", "reason": "s"}))},
+                                        )}),
     "RanOn": obj({"segments": items(obj({"model": "n", "provider": "n", "runtime": "n", "harness": "n", "effort": "n",
                                          "family": "n"})),
                   "task_model": {"type": ["object", "null"], "description": "For a turn in a task's own session on a bot "
