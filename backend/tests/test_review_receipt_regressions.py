@@ -124,6 +124,24 @@ def test_two_heads_in_one_line_keep_their_own_outcomes():
     assert test_receipts.at_head({'id': 't', 'note': text}, OLD)[0] == 'failed'
 
 
+@pytest.mark.parametrize('result,status', [
+    ('9 passed; 2 failures were fixed', 'passed'),
+    ('9 passed; 2 failures were repaired', 'passed'),
+    ('9 passed; 2 failing tests were fixed', 'passed'),
+    ('9 passed; 2 errors are repaired', 'passed'),
+    ('9 passed; 2 failing tests have been resolved', 'passed'),
+    ('9 passed; 2 failed tests had already been corrected', 'passed'),
+    ('9 passed; 2 failing tests were fixed; 1 failed', 'failed'),
+    ('9 passed; 2 failures were not fixed', 'failed'),
+    ('9 passed; the earlier failure is recurring', 'failed'),
+    ('9 passed; the previous error is still present', 'failed'),
+    ('9 passed; 2 failures were fixed; the earlier failure is recurring', 'failed'),
+])
+def test_qa_repair_phrases_preserve_unresolved_and_recurring_failures(result, status):
+    note = f'Tests at head {HEAD}: {result}'
+    assert test_receipts.at_head({'id': 't', 'note': note}, HEAD)[0] == status
+
+
 def test_dev505_original_note_does_not_claim_a_current_failure():
     # Exact opening sentence of the refused 03:37Z note, not the rewritten receipt.
     head = 'e06bfdf7ec6bdbd1772fb16102fee40715536e92'

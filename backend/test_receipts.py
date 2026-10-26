@@ -17,10 +17,15 @@ REMOVED = ("deleted_at", "hidden_at", "superseded_at")
 # only the phrase: a separate "2 failed" in the same receipt must still block.
 _FAILURE = r"(?:fail(?:s|ing|ed|ures?)?|errors?)"
 _FIX = r"(?:fix(?:ed|ing)|repair(?:ed|ing)|resolv(?:ed|ing)|correct(?:ed|ing))"
+# A historical subject can still describe a failure that is happening now.
+CURRENT_FAILURE = re.compile(
+    rf"\b{_FAILURE}\s+(?:tests?\s+)?(?:(?:is|are|has|have|been|now|still)\s+){{0,4}}"
+    r"(?:recurring|recurs|persisting|persists|present)\b", re.I)
 HISTORY = re.compile(
     rf"\b(?:earlier|previous|historical|old)\s+(?:test\s+)?{_FAILURE}\b|"
     rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|test|fixture|[0-9]+)\s+){{0,5}}{_FAILURE}\b|"
-    rf"\b{_FAILURE}\s+(?:(?:is|was|has|been|now|already)\s+){{0,4}}{_FIX}\b", re.I)
+    rf"\b{_FAILURE}\s+(?:tests?\s+)?"
+    rf"(?:(?:is|was|were|are|has|have|had|been|now|already)\s+){{0,5}}{_FIX}\b", re.I)
 
 
 CONTINUATION = re.compile(rf"^\s*[0-9]+\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b", re.I)
@@ -41,7 +46,7 @@ def _recognise(line, test_context=False):
         historical = re.match(r"(?:earlier|previous|historical|old)\b", match[0], re.I)
         return match[0] if counted and historical else ""
     result = HISTORY.sub(history, outcome)
-    status = ("failed" if FAIL.search(result) else "unrecognised" if PLAN.search(result)
+    status = ("failed" if CURRENT_FAILURE.search(outcome) or FAIL.search(result) else "unrecognised" if PLAN.search(result)
               else "passed" if PASS.search(result) else "unrecognised")
     return {"head": head, "status": status, "text": line}
 
