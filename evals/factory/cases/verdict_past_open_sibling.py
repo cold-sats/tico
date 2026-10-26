@@ -40,9 +40,8 @@ def _file(run, w):
             child = child.get("task", child)
         else:
             # Ana manages the builders: she may say whom their ticket waits on, which files the ask as her subtask.
-            asked = w.post("tasks/" + t["id"], {"version": w.task(t["id"])["version"], "status": "waiting",
-                                                "waiting_on": "ana", "note": ASK})
-            child = asked.get("asked_in") or (asked.get("task") or {}).get("asked_in") or {}
+            w.update(t["id"], status="waiting", waiting_on="ana", note=ASK)
+            child = next((c for c in reversed(w.checks(t["id"])) if c["owner"] == "human:ana"), {})
         run.asked[t["id"]] = {"child": child.get("id"), "title": child.get("title"), "at": w.now()}
 
 
