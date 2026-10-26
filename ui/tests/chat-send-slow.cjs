@@ -113,9 +113,9 @@ async function check(engine) {
       return subscribed.href === expected.href;
     }, allowSignedOut);
     // Support starts its first read from a delayed load callback. An empty reads set
-    // does not mean that callback has fired: a reload can otherwise cancel its fetch
-    // in WebKit and report an access-control page error. Observe the real response
-    // for each document, including its body, before exercising sends or navigating.
+    // does not mean that callback has fired. Observe the real response for each
+    // document, including its body, so reloads cannot interrupt that startup read.
+    // The original WebKit access-control error's exact mechanism is still unproven.
     const loaded = async navigate => {
       const support = page.waitForResponse(response => response.request().method() === 'GET' &&
         new URL(response.url()).pathname === '/api/v2/support/tickets');
