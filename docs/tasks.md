@@ -575,6 +575,36 @@ work, not permission for the assignee bot to accept its own result.
 Completed work does not block a new task with the same requester, owner and title; unfinished
 duplicates are still refused, ignoring case and extra spaces, on create and on rename alike.
 
+## Changing many tasks at once
+
+Select tasks in the list (their boxes, Shift for a range) and the bar at the foot of the list offers **Status**,
+**Owner**, **Tags** and **Close**. **Select all** in that bar takes every task the list shows; on the board, the
+check-box button in a column's header selects every card in the column. A selection made that way is a filter, and
+the change goes to the server once: `POST /api/v2/task-bulk`. A step column is its type, its step and the open
+statuses a board shows; the list is its type and the open statuses, with an Owner, Asked by or Tag chip when only
+one is picked. A view the server cannot filter the same way (Needs you, a person's plate, Done, a search, a Team or
+Repo chip, a fold that hides some rows) sends the ids it shows instead, up to 100. Tasks picked one by one are
+changed one update each, as before. Close can be undone for ten seconds either way.
+
+```sh
+hub task bulk step "Legal review" --where-type Marketing --where-step Draft --where-label launch --dry-run
+hub task bulk close --where-owner me --where-status waiting --note "Not needed this quarter"
+hub task bulk tags --add q4 --remove backlog --where-label backlog
+hub task bulk status open --where-label q4 --where-status closed
+```
+
+`POST /api/v2/task-bulk` takes a `filter` with the filters of `GET /api/v2/tasks` (`owner`, `requester`, `status`,
+`lane`, `label`, `type`, `step`, `number`, `updated_since`, `member`, `role`, `snoozed`, and `ids`, a list of up to
+100 task ids or numbers), one `action` (`step`, `status`, `owner`, `tags` with `add` and `remove`, or `close`), an
+optional `note` and `dry_run`. `hub_task_bulk` takes the same. The filter must name something: an empty one, or an
+owner or requester who is nobody, is refused rather than read as every task. Each matching task is changed by the
+same update a single change makes, with the caller's own rights: its events, wakes and refusals are that task's.
+A task the caller may not change is skipped with the reason and the rest still change; a task already that way
+counts as `unchanged`. The answer gives `matched`, `changed`, `unchanged` and `skipped`, and names the tasks changed
+and skipped. One call changes at most 200 tasks; more matches than that refuse the whole call (`too_many`), so
+narrow the filter. `dry_run` makes every change, counts it and undoes it: nothing is saved, told or woken. Tasks
+cannot be archived or forked: those are not task actions, in bulk or one at a time.
+
 ## Types bots work on
 
 Every bot can read company-visible tasks subject to existing bot activity restrictions. Types

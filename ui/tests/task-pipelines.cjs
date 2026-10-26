@@ -103,6 +103,17 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
         }
         return json({task, children: [], parent: null, comments: [], events: [], messages: [], mover: me.mover});
       }
+      // A bulk change by filter: this mock runs the filter, refuses the one task the caller may not change, and changes the rest.
+      if (p === '/api/v2/task-bulk' && req.method() === 'POST') {
+        const body = req.postDataJSON(), f = body.filter; posted.push({path: p, body});
+        const picked = tasks.filter(task => f.ids ? f.ids.includes(task.id)
+          : task.type_id === f.type && task.step_id === f.step && f.status.split(',').includes(task.status));
+        const skipped = picked.filter(task => task.id === 'brief'), changed = picked.filter(task => task.id !== 'brief');
+        for (const task of changed) Object.assign(task, {status: body.action === 'close' ? 'closed' : body.status || task.status, version: task.version + 1});
+        const row = task => ({id: task.id, number: 1, title: task.title});
+        return json({dry_run: false, matched: picked.length, cap: 200, changed: changed.length, unchanged: 0, skipped: skipped.length,
+          tasks: {changed: changed.map(row), skipped: skipped.map(task => ({...row(task), code: 'identity', reason: 'not yours to change'}))}});
+      }
       if (p === '/api/v2/conversations') return json({conversations: []});
       if (p.endsWith('/messages')) return json({messages: []});
       if (p === '/api/v2/models') return json({models: [], harnesses: []});
@@ -264,6 +275,21 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await page.waitForFunction(() => location.hash.includes('owner=me') && !document.querySelector('#task-body .bcard'));
     await page.keyboard.press('q');
     await page.waitForFunction(() => document.querySelectorAll('#task-body .bcard').length === 4);
+    // Select all in this column: a step column is one server filter, and the bulk menu sends it once; a task the
+    // server skips stays selected and named, the rest change.
+    await page.locator('#task-body [data-col="legal"] [data-board-select]').click();
+    assert.equal(await page.locator('.tl-bulk-n').innerText(), 'All 2 in Legal review');
+    assert.deepEqual(await page.locator('#task-body .bcard.sel').evaluateAll(cards => cards.map(c => c.dataset.taskKey).sort()), ['tbrief', 'tplan']);
+    await page.locator('#task-bulk [data-bulk="close"]').click();
+    await page.waitForFunction(() => /1 closed, 1 not changed: Brief the agency/.test(document.querySelector('.tl-bulk-msg')?.textContent || ''));
+    assert.deepEqual(posted.filter(item => item.path === '/api/v2/task-bulk').map(item => item.body), [{action: 'close',
+      filter: {type: 'marketing', step: 'legal', status: 'open,doing,waiting,review,ready', lane: 'company'}}]);
+    assert.equal(posted.filter(item => /\/api\/v2\/tasks\/(plan|brief)$/.test(item.path) && item.body.close).length, 0, 'not one call per task');
+    assert.deepEqual(await page.locator('#task-body .bcard.sel').evaluateAll(cards => cards.map(c => c.dataset.taskKey)), ['tbrief']);
+    await page.locator('#task-bulk [data-bulk="clear"]').click();
+    Object.assign(tasks.find(task => task.id === 'plan'), {status: 'review'});
+    await page.evaluate(() => tasksLoad(TASKS_ST));
+    await page.waitForFunction(() => document.querySelectorAll('#task-body .bcard').length === 4 && document.querySelector('#task-bulk').hidden);
     await page.locator('[data-task-type="general"]').click();
     await page.waitForFunction(() => location.hash.includes('type=general'));
     assert.equal(await page.locator('#task-body .bcol').count(), 5, 'General has its own working columns and a finished strip');
@@ -315,6 +341,8 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
       assert.deepEqual(await page.locator('#task-body .bcol h2').allTextContents(), ['On Deck', 'Blocked', 'In Progress', 'Review 1']);
       assert.equal(await page.locator('[data-col="dev-blocked"] [data-task-key="tdev-held"]').count(), 1);
       assert.equal(await page.locator('[data-col="dev-building"] .bcard').count(), 0);
+      assert.equal(await page.locator('[data-col="dev-blocked"] [data-board-select]').isVisible(), true, 'select all in a column at every width');
+      assert.equal(await page.locator('[data-col="dev-building"] [data-board-select]').count(), 0, 'an empty column has nothing to select');
       assert.match(await page.locator('[data-task-key="tdev-held"] .bcard-blocked').innerText(), /Waiting for a test machine <script>.*since/);
       assert.equal(await page.locator('[data-task-key="tdev-held"] script').count(), 0);
       await page.locator('[data-open-task="tdev-held"]').click();

@@ -266,6 +266,48 @@ class TaskUpdate(Contract):
         return self
 
 
+class TaskFilter(Contract):
+    """The tasks a bulk change applies to: the filters `GET /api/v2/tasks` takes, with the same meanings."""
+    owner: ID | None = None
+    requester: ID | None = None
+    status: str | None = Field(default=None, max_length=200)     # comma-separated, as the list takes it
+    lane: Lane | None = None
+    label: str | None = Field(default=None, max_length=200)      # a tag's key
+    type: ID | None = None
+    step: str | None = Field(default=None, min_length=1, max_length=200)
+    number: TaskNumber | None = None
+    updated_since: str | None = Field(default=None, max_length=100)
+    member: ID | None = None
+    role: str | None = Field(default=None, max_length=100)
+    snoozed: Literal["hide", "only", "all"] | None = None
+    ids: list[ID] | None = Field(default=None, min_length=1, max_length=100)
+
+
+class TaskBulk(Contract):
+    """One change to every task `filter` selects (`POST /api/v2/task-bulk`): `action` names it and its one field
+    carries the value: `step` (id or name), `status`, `owner`, `add` or `remove` (tags, for `tags`), or none for
+    `close`. `note` goes with each task's change, as on a single update."""
+    filter: TaskFilter
+    action: Literal["step", "status", "owner", "tags", "close"]
+    step: str | None = Field(default=None, min_length=1, max_length=200)
+    status: Literal["open", "doing", "waiting", "review", "ready", "done", "declined"] | None = None
+    owner: ID | None = None
+    add: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
+    remove: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=20)
+    note: str | None = Field(default=None, max_length=20_000)
+    dry_run: bool = False
+
+    @model_validator(mode="after")
+    def one_change(self):
+        given = {name for name in ("step", "status", "owner") if getattr(self, name) is not None}
+        if self.add or self.remove:
+            given.add("tags")
+        if given != ({self.action} if self.action != "close" else set()):
+            takes = {"step": "step", "status": "status", "owner": "owner", "tags": "add or remove", "close": "no value"}
+            raise ValueError(f"action {self.action} takes {takes[self.action]} and nothing else")
+        return self
+
+
 class TaskStepInput(Contract):
     public_name: str | None = Field(default=None, max_length=200)      # "" keeps the step off public pages
     id: ID | None = None

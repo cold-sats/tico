@@ -104,7 +104,7 @@ function taskPipelineBoard(items, state, head = '') {
   while (lead < working.length && working[lead].status === 'open') lead++;
   const backlog = working.slice(0, lead), folds = taskBoardFolds(state, type, backlog.length);
   const inStep = step => items.filter(item => item.task.step_id === step.id);
-  const stepColumn = step => ({id: step.id, name: step.name, drop: step.id, items: inStep(step)});
+  const stepColumn = step => ({id: step.id, name: step.name, drop: step.id, items: inStep(step), scope: {type: type.id, step: step.id}});
   const strip = (fold, run, drop, name) => ({id: 'fold-' + fold, fold, drop, items: [], name: run.length === 1 ? run[0].name : name,
     hint: run.map(step => step.name).join(', '), count: fold === 'backlog' ? run.reduce((n, step) => n + inStep(step).length, 0) : ''});
   const columns = [];
