@@ -559,7 +559,7 @@ def _waiting(c, online_ids, settings=None):
             # runs, interrupted work awaiting review, ...) is said with that reason, not "slow".
             refused, first, person = (('company_limit', None, False) if company_stopped else
                                       bot_claimable(c, settings, where[0], slug))
-            if slug in busy and not refused:
+            if slug in busy and refused in (None, 'lane_held'):
                 # Keep claim priority for age checks; only use oldest-job diagnostics when
                 # that free-lane job is actually refused.
                 diagnostic = bot_claimable(c, settings, where[0], slug, oldest=True)
