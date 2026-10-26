@@ -28,7 +28,7 @@ function v2TaskRow(t, slug, showStatus = true, below = '') {
   const other = slug && actorSlug(taskRequester(t)) === slug ? t.owner : taskRequester(t);
   const age = taskAge(t);
   return `<div class="trow${showStatus ? '' : ' status-in-heading'}" data-task-detail="${esc(t.id)}" data-task-version="${esc(t.version || '')}"><div class="trow-head">
-      ${showStatus ? `<span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>${taskStatusText(t)}` : ''}
+      ${showStatus ? `<span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: t.blocked_since ? 'Blocked' : 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>${taskStatusText(t)}` : ''}
       <a class="ttl" data-task-detail-open href="#/task/${encodeURIComponent(t.id)}" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${age}`)}">${esc(t.title || '')}</a>${prStateBadge(t.pr_state)}
       <span class="tags">${actorChip(other)}</span>${actorAvatarOnly(t.owner)}
       <span class="muted tnum" title="${esc(taskAgeTitle(t))}">${esc(age)}</span></div>${below ? `<div class="trow-waits muted">${esc(below)}</div>` : ''}</div>`;
@@ -315,6 +315,7 @@ document.addEventListener('click', async ev => {
 });
 // What a blocked task waits on: the person or bot it names, else the first line of its note.
 function botTaskWaitsOn(t) {
+  if (t.blocked_since) return taskBlockedLine(t);
   if (t.waiting_on) return `Waits on ${actorPerson(t.waiting_on) === S.me?.id ? 'you' : actorLabel(t.waiting_on)}`;
   const line = String(t.note || '').split('\n').map(s => s.trim()).find(Boolean);
   return line ? (line.length > 140 ? line.slice(0, 139) + '…' : line) : 'Waits on: not said';
@@ -351,8 +352,8 @@ function botTasksRender(slug, owned) {
   const mine = owned.tasks || [];
   const newest = (a, b) => String(b.created || '').localeCompare(String(a.created || ''));
   // Doing is the full list: every open task the bot holds, of every type, newest first. The other tabs are views into it.
-  const active = mine.filter(t => V2_ACTIVE.includes(String(t.status))).sort(newest);
-  const blocked = active.filter(t => t.status === 'waiting');
+  const blocked = mine.filter(t => t.status === 'waiting' && !needed.has(String(t.id))).sort(newest);
+  const active = mine.filter(t => ['open', 'doing'].includes(String(t.status)) && !needed.has(String(t.id))).sort(newest);
   // Done Recently: the bot's own work finished in the last two weeks, most recently done first. A routine's runs (a
   // sweep every 30 minutes) are not work a person asked for; they live under Recurring.
   const doneAt = t => String(t.done_at || t.closed_at || t.updated || '');

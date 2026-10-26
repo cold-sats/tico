@@ -72,6 +72,8 @@ def refusal(c, row, config, woken=False):
     """Why this open task is not started now, or None. `woken` is a start a wake rule already decided (a claimed job,
     or the attempt it becomes): the profile's `pulls` only limits what Tico starts by itself, so it does not veto
     that, while waits, the off switch and the task cap still do."""
+    if row and row.get("blocked_since") and (row.get("blocked_kind") == "gate" or waiting(c, row, starting=True)):
+        return "task_wait"
     if not startable(c, row):
         return None
     if waiting(c, row, starting=True):

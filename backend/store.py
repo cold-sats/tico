@@ -408,6 +408,9 @@ def refused(c, identity, exc):
     if getattr(exc, "review_gate", None):
         from . import review_gate
         review_gate.notify(c, identity.actor, exc.review_gate)
+    if notice := getattr(exc, "task_hold", None):
+        from .task_blocked import hold
+        hold(c, notice["task"], notice["reason"], notice["kind"])
     # Preserve refusal auditing, but never a partial domain operation.
     token = H.PRIVATE_WRITE.set(getattr(exc, 'private', False))
     try:

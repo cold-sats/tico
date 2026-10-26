@@ -18,7 +18,7 @@ const task = (id, title, over = {}) => ({id, title, body: 'Details.', owner: 'bo
   lane: 'company', rank: null, labels: [], tags: [], links: [], parts: {total: 0, done: 0}, version: 1, created: ago(600), updated: ago(60), ...over});
 const TASKS = [
   task('t-own', 'Ship the release notes'),
-  task('t-waits', 'Turn on the screen default', {status: 'waiting', waiting_on: 'human:ana', created: ago(480)}),
+  task('t-waits', 'Turn on the screen default', {status: 'waiting', waiting_on: 'human:ben', blocked_reason: 'Waiting for the test machine', blocked_since: ago(480), created: ago(480)}),
   task('t-roadmap', 'Plan the import page', {status: 'open', type_id: 'roadmap', created: ago(30)}),
   task('t-roadmap-done', 'Write the import spec', {status: 'done', type_id: 'roadmap', done_at: ago(1440), created: ago(3 * 1440)}),
   task('t-qa', 'Run the release check', {owner: 'bot:qa', requester: 'bot:lead'}),
@@ -131,7 +131,12 @@ async function open(browser, viewport, colorScheme, server) {
       release();
       await page.waitForFunction(() => document.querySelector('#cnt-c3')?.textContent.trim() === '1');
       assert.equal(await rail.locator('.bot-rail-loading').isHidden(), true);
-      assert.deepEqual(await tabTexts(), ['Needs You', 'Doing 3', 'Blocked 1', 'Assigned to Others 1'], at);
+      assert.deepEqual(await tabTexts(), ['Needs You', 'Doing 2', 'Blocked 1', 'Assigned to Others 1'], at);
+      await pill('Blocked').click();
+      assert.deepEqual(await rail.locator('#t-blocked .ttl').allInnerTexts(), ['Turn on the screen default']);
+      assert.match(await rail.locator('#t-blocked .trow-waits').innerText(), /Waiting for the test machine.*since/);
+      await pill('Doing').click();
+      assert.deepEqual((await rail.locator('#t-open .ttl').allInnerTexts()).sort(), ['Plan the import page', 'Ship the release notes']);
       assert.deepEqual(await order(), ['tasks', 'updates', 'files', 'routines']);
       await pill('Assigned to Others').click();
       assert.deepEqual(await rail.locator('#t-c3 .trow .ttl').allInnerTexts(), ['Run the release check']);
@@ -155,10 +160,10 @@ async function open(browser, viewport, colorScheme, server) {
       await dialog.waitFor();
       await dialog.locator('[data-filter-name]').fill('Busy');
       await dialog.getByRole('button', {name: 'Save'}).click();
-      assert.deepEqual((await tabTexts()).slice(0, 2), ['Needs You', 'Busy 3']);
+      assert.deepEqual((await tabTexts()).slice(0, 2), ['Needs You', 'Busy 2']);
       await rail.locator('#bot-sidebar-cancel').click();
       assert.equal(server.puts.length, 0);
-      assert.deepEqual(await tabTexts(), ['Needs You', 'Doing 3', 'Blocked 1', 'Assigned to Others 1']);
+      assert.deepEqual(await tabTexts(), ['Needs You', 'Doing 2', 'Blocked 1', 'Assigned to Others 1']);
       assert.equal(await widget('files').getAttribute('data-off'), null);
 
       // Edit again: hide Files, move Routines up by keyboard and Updates down by dragging its handle, set Tasks' height

@@ -280,6 +280,49 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await pickStep('filed', 'Filed');
     assert.equal(await page.locator('.task-outcome').count(), 0, 'closed-to-closed step move adds no result prompt');
     await page.locator('#task-modal [data-modal-close]').click();
+    // Blocked is a real engineering column, before the active build, on desktop and phone.
+    const dev = types.find(type => type.id === 'dev-tickets');
+    dev.steps = [
+      {id: 'dev-deck', name: 'On Deck', status: 'open'},
+      {id: 'dev-blocked', name: 'Blocked', status: 'waiting'},
+      {id: 'dev-building', name: 'In Progress', status: 'doing'},
+      {id: 'dev-review', name: 'Review 1', status: 'review'},
+    ].map((step, position) => ({...step, position, type_id: dev.id}));
+    const held = {...tasks[0], id: 'dev-held', title: 'Build the export', type_id: dev.id,
+      type: {id: dev.id, name: dev.name}, step_id: 'dev-blocked', step: dev.steps[1], status: 'waiting',
+      blocked_reason: 'Waiting for a test machine <script>', blocked_since: '2026-10-02T10:00:00Z'};
+    tasks.push(held);
+    for (const width of [1200, 375]) {
+      await page.setViewportSize({width, height: 900});
+      await page.evaluate(() => { location.hash = '#/tasks?view=board&type=dev-tickets'; });
+      await page.waitForFunction(() => TASKS_ST?.type === 'dev-tickets' && document.querySelector('[data-task-key="tdev-held"]'));
+      assert.deepEqual(await page.locator('#task-body .bcol h2').allTextContents(), ['On Deck', 'Blocked', 'In Progress', 'Review 1']);
+      assert.equal(await page.locator('[data-col="dev-blocked"] [data-task-key="tdev-held"]').count(), 1);
+      assert.equal(await page.locator('[data-col="dev-building"] .bcard').count(), 0);
+      assert.match(await page.locator('[data-task-key="tdev-held"] .bcard-blocked').innerText(), /Waiting for a test machine <script>.*since/);
+      assert.equal(await page.locator('[data-task-key="tdev-held"] script').count(), 0);
+      await page.locator('[data-open-task="tdev-held"]').click();
+      await page.locator('#task-peek .task-wait').waitFor();
+      assert.match(await page.locator('#task-peek .task-wait').innerText(), /Waiting for a test machine <script>.*since/);
+      assert.equal(await page.locator('#task-peek .tstatus').innerText(), 'Blocked');
+      await page.locator('#task-peek [data-modal-close]').click();
+    }
+    await page.setViewportSize({width: 1200, height: 900});
+    // Owner reason entry is cancellable and sends the reason with the step move.
+    Object.assign(held, {step_id: 'dev-building', step: dev.steps[2], status: 'doing', blocked_since: null, blocked_reason: null});
+    await page.evaluate(task => taskModalShow(task), held);
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-prop="step"]')?.textContent.includes('In Progress'));
+    await page.locator('#task-modal [data-prop="step"]').click();
+    await page.locator('#task-modal [data-prop-pick="dev-blocked"]').click();
+    await page.locator('.task-block-reason [data-cancel]').click();
+    assert.equal(await page.locator('.task-block-reason').count(), 0);
+    await page.locator('#task-modal [data-prop="step"]').click();
+    await page.locator('#task-modal [data-prop-pick="dev-blocked"]').click();
+    await page.locator('.task-block-reason textarea').fill('Waiting for Ana to bring the machine');
+    await page.locator('.task-block-reason button[type="submit"]').click();
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-prop="step"]')?.textContent.includes('Blocked'));
+    assert(posted.some(item => item.path.endsWith('/dev-held') && item.body.step === 'dev-blocked' && item.body.note === 'Waiting for Ana to bring the machine'));
+    await page.locator('#task-modal [data-modal-close]').click();
     await page.evaluate(() => pageSettings());
     await page.locator('[data-settings-tab=tasks]').click();
     await page.locator('#settings-tags [href="#/tag/release-2026-10-02"]').waitFor();
