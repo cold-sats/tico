@@ -437,7 +437,8 @@ def run(args, who=None):
                 payload["relations"] = [{"task": args.parent, "kind": "parent"}]
             if getattr(args, "private", None) is not None:
                 payload["private"] = args.private
-            for field in ("type", "step", "number", "qa", "change_paths", "qa_not_checkable_live"):
+            for field in ("type", "step", "number", "qa", "change_paths", "qa_not_checkable_live", "model", "effort",
+                          "harness"):
                 if getattr(args, field, None) is not None:
                     payload[field] = (getattr(args, field) == "yes") if field == "qa" else getattr(args, field)
             if args.label:
@@ -465,6 +466,8 @@ def run(args, who=None):
             return client.get("tasks/" + ids[0])
         if sub == "run":
             return post(f"tasks/{args.id}/run-now", {})
+        if sub == "model":
+            return post(f"tasks/{args.id}/model", {"model": args.model, "effort": args.effort, "harness": args.harness})
         if sub == "defer":
             return post(f"tasks/{args.id}/defer", {"after": args.after, "at": args.at,
                                                    "next_run": bool(args.next_run), "handled": bool(args.handled)})

@@ -830,6 +830,32 @@ such a subtask shows no session.
 definition API) keeps every subtask its own session; unset or `parent` is the default. A runner from before this
 change keys every task, subtasks included, on its own session, and Tico gives it lanes the same way.
 
+### A task on a model you choose
+
+A person who manages a bot can give it one task on another model, for example a review on a stronger model than the
+bot's daily work:
+
+```sh
+hub task create --owner frontend-reviewer --title "Review PR 812" --body "https://github.com/..." \
+  --model claude-fable-5-1 --effort xhigh
+hub task model <id> codex:gpt-6.1-sol --effort high     # change it while the task is open
+hub task model <id>                                    # back on the bot's own model
+```
+
+The API takes `model`, `effort` and `harness` on task create, and `POST /api/v2/tasks/{id}/model` changes or clears
+them; the MCP tools are `hub_task_create` and `hub_task_model`. `model` is a model id or `runtime:model`; effort and
+harness default to the model's own and must be ones it offers.
+
+- Only a person who manages the bot names one, as for the bot's own model; BotOps does it only as that person. A bot
+  never names one, for itself or another bot.
+- The task's turns run on that model in a session of the task's own, like a check subtask's (below): the bot's
+  repository, tools and credentials, no fallback to another provider. A usage limit on the model holds that task until
+  its reset and does not move it to the company's check order. The bot's chats and other tasks keep its own model.
+- It is ordinary work, not a check: it finishes without a verdict and wakes no one with "Review done".
+- A change reaches the task's next turn; a turn already running keeps its model. A check subtask's model stays its
+  filer's and cannot be changed here. Handed to another bot, the task runs on that bot's own model.
+- Task detail shows it as `check_model` with role `task`, and its history names who chose it.
+
 ### A subtask on a check model
 
 A bot can have another model look at its work without a second bot:

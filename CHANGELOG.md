@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Run one task on a model you choose.** When you give a bot you manage a task, you can name the model, effort and harness that task runs on. The bot's chats and other tasks keep their own model. Change it, or put it back on the bot's own, while the task is open ([A task on a model you choose](docs/tasks.md#a-task-on-a-model-you-choose)).
+
 ## [0.4.12] - 2026-10-26
 
 ### Added

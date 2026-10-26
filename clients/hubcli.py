@@ -967,6 +967,10 @@ def parser():
     s.add_argument("--type", help="task type id or name; defaults to General")
     s.add_argument("--step", help="step id or name in the type")
     s.add_argument("--number", type=int, help="movers: keep an imported ticket's number")
+    s.add_argument("--model", help="for a bot you manage: run this one task on this model instead of the bot's "
+                   "(a model id or runtime:model, e.g. claude-fable-5-1); its chats and other tasks keep their own")
+    s.add_argument("--effort", help="with --model: the reasoning effort that model offers")
+    s.add_argument("--harness", help="with --model: a harness that model offers")
     s.set_defaults(fn="task create")
     types = task.add_parser("type", help="manage task types (movers only)").add_subparsers(dest="type_sub")
     bots_help = ("what every bot may do with the type's tasks: parties (only the bots on each task), "
@@ -1226,6 +1230,13 @@ def parser():
     s = task.add_parser("run", help="start a bot's task now, as the task")
     s.add_argument("id")
     s.set_defaults(fn="task run")
+    s = task.add_parser("model", help="for a bot you manage: the model one open task runs on from its next turn")
+    s.add_argument("id")
+    s.add_argument("model", nargs="?", default="",
+                   help="a model id or runtime:model; leave it out to put the task back on the bot's own model")
+    s.add_argument("--effort", help="the reasoning effort that model offers")
+    s.add_argument("--harness", help="a harness that model offers")
+    s.set_defaults(fn="task model")
     s = task.add_parser("snooze", help="set a task aside until a date: off the lists, Needs you and stall wakes "
                         "until then, when its owner bot is woken once")
     s.add_argument("id")

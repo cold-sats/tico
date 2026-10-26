@@ -212,7 +212,8 @@ def is_check(c, row):
     and other work handed out while its ticket sits in a review step are ordinary tasks, and so is a person's own
     child whatever its title: "Security: confirm the vendor contract" finishes when the person finishes it."""
     owner = str(row.get("owner") or "")
-    if H.is_bot(owner) and H.check_model(c, row["id"], owner[len("bot:"):]):
+    check = H.check_model(c, row["id"], owner[len("bot:"):]) if H.is_bot(owner) else None
+    if check and check["role"] != "task":       # a task given on a model of its own is ordinary work
         return True
     if H.is_human(owner):
         return False

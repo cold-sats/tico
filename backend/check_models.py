@@ -3,13 +3,18 @@
 The subtask stays the bot's own. Its turns run on the named runtime and model, in a session of their own, and
 read only the subtask's room. Only the runtime, model, harness and effort change: the bot's repository, tools,
 isolation and credentials are its own, so a check never runs with more than the bot has. When the bot finishes
-it, the parent's owner is woken on the parent with the verdict (hubdb._subtask_wake)."""
+it, the parent's owner is woken on the parent with the verdict (hubdb._subtask_wake).
+
+The same path runs a task a person gave a bot on the model they named for it (`TASK`, `named`): that task's turns run
+on that model, effort and harness while the bot's chats and other tasks keep its own."""
 from . import hubdb as H
 from . import providers
 from .harnesses import runtime_of
 from .readiness import SIGNED_OUT, can_run
 
 ROLES = ("review", "check")
+# A task a person who manages the bot gave it on a model of their choosing (named): not a check of anyone's work.
+TASK = "task"
 
 
 class CheckModelError(ValueError):
@@ -106,12 +111,54 @@ def choose(c, settings, bot, spec, role, authors=()):
             "effort": str(row.get("default_effort") or ""), "role": role, **({"note": note} if note else {})}
 
 
-def record(c, actor, task_id, check):
+def named(c, settings, bot, spec, effort=None, harness=None):
+    """The model a person names for one task of `bot`'s, or CheckModelError: as a check's (an enabled provider, a
+    current model, a runtime the bot's computer does not report signed out), with an effort and a harness that model
+    offers. Its turns then run as a check's do (`apply`): that model, no fallback to another provider, a session of the
+    task's own."""
+    record_ = providers.load(c, settings)
+    runtime, model = parse(spec)
+    try:
+        runtime, model = providers.complete_choice(record_["enabled"], runtime, model)
+    except providers.ProviderError as exc:
+        raise CheckModelError("task_run_model", str(exc).replace("default model", "task's model")) from None
+    if not runtime:
+        raise CheckModelError("task_run_model", "Enable an AI provider in Settings before naming a task's model")
+    row = providers.MODEL_BY_ID.get(model) or {}
+    efforts = tuple(row.get("efforts") or ())
+    effort = str(effort or "").strip() or str(row.get("default_effort") or "")
+    if efforts and effort not in efforts:
+        raise CheckModelError("task_run_model", f"{model} takes the effort {', '.join(efforts)}, not {effort}")
+    harnesses = tuple(row.get("harnesses") or (runtime,))
+    harness = str(harness or "").strip() or next((h for h in harnesses if runtime_of(h) == runtime), harnesses[0])
+    if harness not in harnesses:
+        raise CheckModelError("task_run_model", f"{model} runs in {', '.join(harnesses)}, not {harness}")
+    can = can_run(c, bot, runtime, harness=harness, model=model)
+    if can.get("can_run") is False:
+        raise CheckModelError("runner_not_ready", can.get("problem") or f"{runtime} cannot run on this bot's computer")
+    return {"runtime": runtime, "model": model, "harness": harness, "effort": effort, "role": TASK}
+
+
+def record(c, actor, task_id, check, by=None):
+    """`actor` is the bot whose turns run on it (H.check_model); `by`, when someone else chose it, is who the task's
+    history names."""
     c.execute("INSERT INTO task_check_models(task_id,runtime,model,harness,effort,role,created_by,created) "
               "VALUES(?,?,?,?,?,?,?,?)", (task_id, check["runtime"], check["model"], check["harness"],
                                           check["effort"], check["role"], actor, H.now()))
-    H._task_event(c, task_id, actor, "check_model", None, f"{check['runtime']}:{check['model']}",
-                  check["role"] + (f"; {check['note']}" if check.get("note") else ""))
+    H._task_event(c, task_id, by or actor, "check_model", None, f"{check['runtime']}:{check['model']}",
+                  check["role"] + (f" at {check['effort']}" if check["role"] == TASK and check["effort"] else "")
+                  + (f"; {check['note']}" if check.get("note") else ""))
+
+
+def forget(c, actor, task_id):
+    """Put a task back on its bot's own model, from its next turn: the model named for it, and any move or usage
+    hold on that model, go. A turn already out keeps the model it was handed."""
+    found = H.check_model(c, task_id)
+    c.execute("DELETE FROM task_check_models WHERE task_id=?", (task_id,))
+    c.execute("DELETE FROM registry_metadata WHERE key IN (?,?)", ("check-moved:" + task_id, "check-limited:" + task_id))
+    if found:
+        H._task_event(c, task_id, actor, "check_model", f"{found['runtime']}:{found['model']}", None,
+                      "back on the bot's own model")
 
 
 def of(c, task_id, bot):
@@ -152,7 +199,10 @@ def move_on(c, settings, bot, task_id, check, runner_id):
     from .task_relations import parent_of
     first = H.check_model(c, task_id, bot)
     out = {x["runtime"] for x in out_of_quota_logins(c, settings) if x["runner_id"] == runner_id}
-    if not first or check["runtime"] not in out or not _default_login(c, bot, check, runner_id):
+    # A task's own model is the one a person named: a usage limit holds it, as any check's, rather than moving it onto
+    # the company's check order, which is for reviewing someone else's work.
+    if (not first or first["role"] == TASK or check["runtime"] not in out
+            or not _default_login(c, bot, check, runner_id)):
         return None
     authors = authors_of(c, settings, parent_of(c, task_id))
     order = providers.check_order(providers.load(c, settings))

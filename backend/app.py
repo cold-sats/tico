@@ -3423,6 +3423,26 @@ def create_app(settings=None):
         except check_models.CheckModelError as exc:
             raise Problem(exc.code, str(exc), 409 if exc.code == "runner_not_ready" else 422)
 
+    def task_run_model_rights(c, who, owner):
+        """Who may name, change or clear the model a bot's task runs on: a person who manages the bot."""
+        if not H.is_bot(owner) or who.role not in ("human", "owner") or not auth.bot_manager(c, who, H.actor_id(owner)):
+            raise Problem("forbidden", "Only a person who manages this bot names the model its task runs on", 403)
+
+    def task_run_model(c, who, owner, model, effort=None, harness=None):
+        """The model, effort and harness a person names for one task of a bot's (check_models.named), or Problem.
+        Naming one changes what the bot spends, so it takes the rights the bot's own model does: a person who
+        manages the bot (BotOps only as that person, through its request). A bot never names one for another."""
+        if not H.is_bot(owner):
+            raise Problem("task_run_model", "Only a bot's task runs on a model you name", 422)
+        bot = H.actor_id(owner)
+        from . import ceo_acts
+        ceo_acts.gate(c, who.actor, "cost", f"run a task of {bot}'s on another model")
+        task_run_model_rights(c, who, owner)
+        try:
+            return check_models.named(c, settings, bot, model, effort, harness)
+        except check_models.CheckModelError as exc:
+            raise Problem(exc.code, str(exc), 409 if exc.code == "runner_not_ready" else 422)
+
     def task_create(c, who, body, lint=True, asked=None, review_prs=None):
         """`asked`: the person a bot's question is put to (backend/media.py task_question). When the task is
         private they are its requester, so its two parties are the bot and them."""
@@ -3462,8 +3482,15 @@ def create_app(settings=None):
                                      "task without a parent, and do not wait for it.", 422)
         if parent_id:
             auth.task(c, who, parent_id)
-        check, unchecked = None, None
-        if body.check_model is not None or body.check_role is not None:
+        check, unchecked, run_model = None, None, None
+        if (body.effort or body.harness) and not body.model:
+            raise Problem("task_run_model", "Name the task's model along with its effort or harness", 422)
+        if body.model and (body.check_model is not None or body.check_role is not None):
+            raise Problem("task_run_model", "A task runs on its own model or on a check model, not both", 422)
+        if body.model:
+            # The model a person chose for this one task wins over a reviewer's default check model.
+            check = run_model = task_run_model(c, who, owner, body.model, body.effort, body.harness)
+        elif body.check_model is not None or body.check_role is not None:
             check = check_choice(c, who, body, owner, parent_id)
         else:
             check, unchecked = check_models.review_default(c, settings, owner, parent_id)
@@ -3492,7 +3519,7 @@ def create_app(settings=None):
                 # The same blocker already asked about: this task waits on that ask instead of reaching its owner.
                 joins = blocker_asks.open_ask(c, blocker_key, owner, parent_id)
             if joins:
-                owner, check, unchecked = who.actor, None, None
+                owner, check, unchecked, run_model = who.actor, None, None, None
         if body.goal_id and not G.goal(c, body.goal_id):
             raise Problem("not_found", "Unknown goal", 404)
         requester_actor = None
@@ -3538,8 +3565,9 @@ def create_app(settings=None):
         joined = blocker_asks.record(c, who.actor, row, blocker_key, joins, asked_of) if blocker_key else None
         if check:
             # A check is its owner's (check_models.of): one asked for is filed by its owner (check_choice), and a
-            # reviewer's default comes from its own setting.
-            check_models.record(c, owner, row["id"], check)
+            # reviewer's default comes from its own setting. A task's own model is the bot's too; its history names
+            # the person who chose it.
+            check_models.record(c, owner, row["id"], check, by=who.actor if run_model else None)
         elif body.check_model is None and body.check_role is None and unchecked:
             H._task_event(c, row["id"], who.actor, "check_model", None, None, unchecked)
         if handoff and owner == "bot:" + BOTOPS:
@@ -3686,6 +3714,38 @@ def create_app(settings=None):
             c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
             return {"task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who),
                     **({"warnings": warnings} if warnings else {})}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/model")
+    def task_model_set(request: Request, tid: str, body: M.TaskRunModel):
+        """Change the model one open task of a bot's runs on, or put it back on the bot's own (`model` empty), from its
+        next turn. The rights a task created with one takes (task_run_model). A check subtask's model is its filer's."""
+        def work(c):
+            who = request.state.identity
+            if body.on_behalf_of:
+                who = delegated_identity(c, who, body.on_behalf_of)
+            row = auth.task(c, who, auth.resolve_task(c, who, tid))
+            if row["status"] not in H.ACTIVE_STATUSES:
+                raise Problem("task_run_model", "Reopen the task before changing its model", 409)
+            current = H.check_model(c, row["id"])
+            if current and current["role"] != check_models.TASK:
+                raise Problem("task_run_model", "This is a check subtask: its model belongs to the bot that filed it", 409)
+            if (body.effort or body.harness) and not body.model:
+                raise Problem("task_run_model", "Name the task's model along with its effort or harness", 422)
+            if not body.model:
+                if not current:
+                    raise Problem("unchanged", "This task already runs on its bot's own model", 409)
+                task_run_model_rights(c, who, row["owner"])
+                check_models.forget(c, who.actor, row["id"])
+                return {"task_id": row["id"], "run_model": None}
+            chosen = task_run_model(c, who, row["owner"], body.model, body.effort, body.harness)
+            # One left by an earlier owner does not run (H.check_model); naming it again for this one is a change.
+            running = H.check_model(c, row["id"], H.actor_id(row["owner"]))
+            if running and all(running[k] == chosen[k] for k in ("runtime", "model", "harness", "effort")):
+                raise Problem("unchanged", "This task already runs on that model", 409)
+            check_models.forget(c, who.actor, row["id"])
+            check_models.record(c, row["owner"], row["id"], chosen, by=who.actor)
+            return {"task_id": row["id"], "run_model": H.check_model(c, row["id"])}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/run-now")

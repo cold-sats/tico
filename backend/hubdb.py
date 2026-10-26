@@ -4702,6 +4702,8 @@ def _subtask_wake(conn, actor, row, previous, note=None, quiet=False):
     a check still records its verdict only through its own owner."""
     terminal = ("done", "closed", "declined")
     check = is_bot(row["owner"]) and check_model(conn, row["id"], row["owner"][len("bot:"):])
+    # A task given on a model of its own (check_models.TASK) is ordinary work, not a check with a verdict.
+    check = check if check and check["role"] != "task" else None
     # Done or Declined carries a verdict; the bot closing its own check is a cancellation the parent need not hear.
     by_checker = bool(check and actor == row["owner"] and row["status"] in ("done", "declined"))
     by_worker = is_bot(actor) and task_represents(conn, actor, row["owner"]) and row["requester"] != row["owner"]

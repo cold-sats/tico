@@ -215,6 +215,20 @@ class TaskCreate(Contract):
     # A bot's own subtask run on another model, `<runtime>[:<model>]`, as a review or a check (backend/check_models.py).
     check_model: str | None = Field(default=None, max_length=120)
     check_role: Literal["review", "check"] | None = None
+    # The model a bot runs this one task on instead of its own, set by a person who manages the bot
+    # (backend/check_models.py `named`): a model id or `<runtime>:<model>`, with an effort and harness it offers.
+    model: str | None = Field(default=None, max_length=120)
+    effort: str | None = Field(default=None, max_length=20)
+    harness: str | None = Field(default=None, max_length=100)
+
+
+class TaskRunModel(Contract):
+    """POST /api/v2/tasks/{id}/model: the model one open task runs on from its next turn; `model` empty puts it back
+    on the bot's own."""
+    model: str = Field(default="", max_length=120)
+    effort: str | None = Field(default=None, max_length=20)
+    harness: str | None = Field(default=None, max_length=100)
+    on_behalf_of: ID | None = None
 
 
 class NoteCreate(Contract):

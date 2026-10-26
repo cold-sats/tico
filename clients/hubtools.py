@@ -596,6 +596,10 @@ def tag_update(api, args):
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
+       "model": _s("For a bot the person manages: run this one task on this model instead of the bot's (a model id "
+                   "from hub_bot_model, or runtime:model); its chats and other tasks keep their own"),
+       "effort": _s("With model: a reasoning effort that model offers"),
+       "harness": _s("With model: a harness that model offers"),
        "dry_run": {"type": "boolean", "default": False}},
       required=("owner", "title"), writes=True)
 def task_create(api, args):
@@ -604,7 +608,7 @@ def task_create(api, args):
     if args.get("parent"):
         body["relations"] = [{"task": args["parent"], "kind": "parent"}]
     for field in ("labels", "top", "links", "next_run", "request_id", "type", "step", "number", "check_model", "check_role", "visibility",
-                  "public_title", "public_summary"):
+                  "public_title", "public_summary", "model", "effort", "harness"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
     for field in ("qa", "change_paths", "qa_not_checkable_live", "blocker"):
@@ -677,6 +681,16 @@ def task_show_many(api, args):
       "For a person, the task's requester, or BotOps's sweep.", {"id": TASK_ID}, required=("id",))
 def task_run(api, args):
     return api.post(f"tasks/{args['id']}/run-now", {}, key=_key(args))
+
+
+@tool("hub_task_model", "Change the model one open task of a bot's runs on, from its next turn, or leave `model` "
+      "out to put it back on the bot's own. For a person who manages the bot; its chats and other tasks keep their own.",
+      {"id": TASK_ID, "model": _s("A model id from hub_bot_model, or runtime:model; empty for the bot's own"),
+       "effort": _s("A reasoning effort that model offers"), "harness": _s("A harness that model offers")},
+      required=("id",), writes=True)
+def task_model(api, args):
+    return api.post(f"tasks/{args['id']}/model", {"model": args.get("model") or "", "effort": args.get("effort"),
+                                                  "harness": args.get("harness")}, key=_key(args))
 
 
 @tool("hub_task_snooze", "Set a task aside until a date: it leaves the board, task lists and Needs you, and nothing "
