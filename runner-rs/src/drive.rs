@@ -304,6 +304,10 @@ impl Runner {
                 }
                 if kind == "turn_completed" {
                     outcome = if event["status"] == "interrupted" { "interrupted".into() } else { "completed".into() };
+                    if outcome == "interrupted" {
+                        // This is a host's acknowledged end, unlike losing its connection or timing out.
+                        self.state.append(aid, "diagnostic", &json!({"interruption_complete": true}))?;
+                    }
                     // A turn that gave the login up ends here, between a native goal's turns too; a goal that runs
                     // across turns is not continued once the lease is lost.
                     complete = yielding.is_some() || salvage.is_some() || !(goal_running && across_turns && outcome == "completed");

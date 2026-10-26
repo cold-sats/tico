@@ -261,12 +261,18 @@ that only read) and consumed no approval, is resumed once, each with a note in t
 record (`job.auto_reconcile` in the event log). A busy bot's runs are settled too: the scheduler waits only
 while a live run of the bot is on the same task (or the same chat, or the same task session). An operator can choose
 **Try again** or **Don’t retry** in Stopped runs; while such a run is still live, Tico saves the choice and applies it
-when that lane frees. BotOps’s review is done as soon as all its recovery choices are saved.
+when that lane frees. BotOps’s review is done as soon as all its recovery choices are saved. Tico records the live-work dependency
+in the recovery history and shows its ownership in Stopped runs. Within five minutes of that work ending, the
+scheduler re-evaluates the stopped job and records who owns recovery and why.
 When the computer reports a restart, a run resumes on the next scheduler sweep, including one that used a shell or
 edited files. Its recovery note gives the interruption time and tells it to check what already happened first;
 the same computer continues the same provider session. A consumed approval or a named irreversible outside action
 (merge, publish, send or payment) holds it for BotOps instead, and the review names the action. A second interruption
 is dismissed and BotOps is told. A lost lease without the computer’s restart report keeps the conservative rule above. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
+A known primary login reset keeps runnable jobs queued until that reset when no eligible fallback is ready;
+a new message does not start another attempt on the spent login. An interrupted fallback returns to this queue
+only when its host acknowledged the end, reported its tools completely, and recorded no output, tools or consumed
+approval. Missing telemetry or any output or possible effect keeps the safe review path.
 Other runs stay *owner review needed*, because Tico cannot see what a
 tool did on the Mac: BotOps is given the review unless the task is private, Settings names the held task and its owner to those
 who may read that task, the review lists each tool call the run made, and the bot's operator or
@@ -323,7 +329,8 @@ Every login a turn ran out on is held, an intermediate fallback's too, even when
 turn; a subscription profile that shares the computer's own sign-in counts as that one login; and only a run claimed
 after a hold began can end it by working, so a run that started earlier and finishes later does not. When it ends, one queued run goes first; the others on the login wait for
 its result, so a login sees one try per window however many runs wait. **Settings → Health** says whose login it is
-and when it resumes. A person's message to the bot written after the limit lets it try once at once (**Try now** also works while
+and when it resumes. When the provider gave no known reset time, a person's message written after the limit
+lets it try once at once. A known reset keeps new messages queued until then. **Try now** explicitly ends a hold (and also works while
 only the bot's own login is held and its work goes on on a fallback); a run that
 hits the limit again goes back to the hold. **Try now**, beside the warning on the bot's page and in its chat line for anyone who
 manages the bot (`POST /api/v2/bots/{bot}/limit/retry`, BotOps as the person who asked), ends the

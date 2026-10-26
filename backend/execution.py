@@ -450,9 +450,6 @@ OUTSIDE_TOOLS = {'send_email': 'send email', 'send_mail': 'send email', 'merge_p
                  'hub_release_now': 'publish release', 'hub_webhook_send': 'send webhook',
                  'hub_webhook_retry': 'send webhook', 'hub_webhook_recover': 'send webhook',
                  'hub_support_send': 'send support report'}
-# Tool names through which a run could have issued a merge even when its recorded summary says nothing
-# usable: a merge on the run's task only holds the run when the run itself reached a shell.
-MERGE_VECTOR_TOOLS = frozenset({'bash', 'sh', 'shell', 'exec', 'merge_pull_request'})
 
 
 def restart_reported(c, attempt_id):
@@ -482,15 +479,6 @@ def outside_actions(c, job, started, finished):
             actions.add(OUTSIDE_TOOLS[name])
         summary = str(call.get('summary') or '')
         actions.update(label for label, pattern in OUTSIDE_ACTIONS if pattern.search(summary))
-    # A merged linked PR is evidence even when its shell call's summary was abbreviated. The link is
-    # task-wide, so it only counts when this run itself reached a shell it could have merged through: a
-    # run that never left its reads is never held for another run's merge.
-    if any(str(call.get('tool') or call.get('name') or '').split('__')[-1].lower() in MERGE_VECTOR_TOOLS
-           for call in evidence.values()):
-        for row in c.execute("SELECT 1 FROM task_links l JOIN turns t ON t.task_id=l.task_id "
-                             "WHERE t.id=? AND l.kind='pr' AND l.pr_merged_at BETWEEN ? AND ?",
-                             (job['attempt_id'], started or job['created'], finished or H.now())):
-            actions.add('merge pull request')
     return sorted(actions)
 
 
@@ -504,11 +492,18 @@ def retry_facts(c, job, started, finished):
     calls = recorded_tools(c, job['attempt_id'])
     acted = sorted({call['tool'] for call in calls if call['tool'] not in READ_ONLY_TOOLS})
     window = (started or job['created'], finished or H.now())
-    # An approval belongs to the message it was requested for, not to the whole bot: another lane's
-    # approval consumed in the same window never holds this run.
-    approvals = c.execute("SELECT kind FROM approvals WHERE requested_by=? AND message_id=? "
-                          "AND consumed_at IS NOT NULL AND consumed_at BETWEEN ? AND ?",
-                          ('bot:' + job['bot'], job['message_id'], *window)).fetchall()
+    # New consumes name their attempt. Older receipts can use the originating message only when
+    # no competing attempt overlapped its consumption; another lane's approval never holds this run.
+    approvals = c.execute("SELECT kind FROM approvals WHERE requested_by=? "
+                          "AND consumed_at IS NOT NULL "
+                          "AND (EXISTS(SELECT 1 FROM events e WHERE e.action='approval.consume' AND e.target=approvals.id "
+                          "AND json_extract(e.detail_json,'$.attempt_id')=?) OR (NOT EXISTS "
+                          "(SELECT 1 FROM events e WHERE e.action='approval.consume' AND e.target=approvals.id "
+                          "AND json_extract(e.detail_json,'$.attempt_id') IS NOT NULL) AND consumed_at BETWEEN ? AND ? AND message_id=? AND NOT EXISTS "
+                          "(SELECT 1 FROM attempts other JOIN jobs oj ON oj.id=other.job_id "
+                          "WHERE oj.message_id=approvals.message_id AND other.id<>? "
+                          "AND other.started<=approvals.consumed_at AND coalesce(other.finished,?)>=approvals.consumed_at)))",
+                          ('bot:' + job['bot'], job['attempt_id'], *window, job['message_id'], job['attempt_id'], H.now())).fetchall()
     consumed = len(approvals)
     reported = reports_tools(c, job['attempt_id'], declared)
     # A message folded into another job's run counts that run as one of its own starts.
@@ -517,11 +512,15 @@ def retry_facts(c, job, started, finished):
                        (job['id'], job['message_id'])).fetchone()[0]
     restart = restart_reported(c, job['attempt_id'])
     outside = outside_actions(c, job, started, finished) if restart else []
+    result = c.execute("SELECT result_json FROM attempts WHERE id=?", (job['attempt_id'],)).fetchone()
+    result = json.loads(result[0] or '{}') if result else {}
+    fallback_unknown = result.get('outcome') == 'interrupted' and result.get('primary_held') and result.get('fallback')
     return {'calls': calls, 'acted': acted, 'consumed': consumed, 'reported': reported, 'starts': starts,
             'restart': restart, 'outside': outside, 'approval_kinds': sorted({a['kind'] for a in approvals}),
             # Explicit restart policy holds only named irreversible effects or consumed approvals. A silent
             # host alone is not such an effect; the continuation must check prior work before proceeding.
-            'safe': not consumed and (not outside if restart else reported and not acted)}
+            'fallback_unknown': bool(fallback_unknown),
+            'safe': not fallback_unknown and not consumed and (not outside if restart else reported and not acted)}
 
 # Tool calls that only read: a run that made nothing else repeats nothing when it runs again. Claude's and Codex's
 # own names. A subagent's launch is listed because its own calls are reported and judged one by one. A shell command
@@ -819,6 +818,37 @@ def hop_failed(c, attempt_id, result, began, ended):
     return hop is not None and after <= SILENT_KINDS
 
 
+def empty_fallback_interruption(c, settings, row, result):
+    """An acknowledged terminal interruption with complete telemetry, before any output or effects."""
+    field = login_holds.field
+    hold = own_login_hold(c, settings, row['bot'])
+    if not (hold.get('reset') and field(result, 'outcome') == 'interrupted' and field(result, 'primary_held')
+            and field(result, 'fallback') and not field(result, 'text')
+            and (hold.get('until') or '') > H.now()):
+        return False
+    job = c.execute("SELECT * FROM jobs WHERE id=?", (row['job_id'],)).fetchone()
+    facts = retry_facts(c, job, row['started'], H.now())
+    if facts['consumed'] or facts['calls'] or not facts['reported'] or field(result, 'pushes'):
+        return False
+    # Full streamed output is uploaded before complete(). A host's explicit end event establishes that
+    # the stream ended; a dropped connection, lost lease or timeout cannot supply this receipt.
+    terminal = False
+    for event in c.execute("SELECT kind,payload_json FROM attempt_events WHERE attempt_id=? ORDER BY seq", (row['id'],)):
+        payload = json.loads(event['payload_json'] or '{}')
+        if event['kind'] in ('delta', 'message', 'tool'):
+            return False
+        if event['kind'] == 'tokens':
+            output = payload.get('output', (payload.get('usage') or {}).get('output'))
+            if output != 0:
+                return False
+        if event['kind'] == 'diagnostic' and payload.get('interruption_complete') is True:
+            terminal = True
+    usage = field(result, 'usage')
+    spent = [usage, *(field(usage, 'segments') or [])] if usage else []
+    return terminal and not (field(result, 'tokens_out') or 0) and not any(
+        field(part, 'output_tokens') for part in spent)
+
+
 def fallback_mark(config):
     """The fallback a bot names, as a hold remembers it failed (login_holds.after_turn `hopped`): naming another
     one, or none, lets the bot try again."""
@@ -1070,7 +1100,8 @@ def primary_hold(c, settings, runner_id, bot, config, job_id=None, ctx=None):
     """Why the bot's own login takes no turn now ("held" or "probing"), or None."""
     _, profile, runtime = login_key(c, settings, runner_id, bot, config, ctx)
     why = login_wait(c, runner_id, profile, runtime, bot, job_id)
-    if why == "held" and person_wrote_since(c, bot, login_holds.get(c, runner_id, profile, runtime).get("since") or ""):
+    hold = login_holds.get(c, runner_id, profile, runtime)
+    if why == "held" and not hold.get("reset") and person_wrote_since(c, bot, hold.get("since") or ""):
         return None         # a person who writes has often just renewed the plan: one try (cooling_off)
     return why
 
@@ -3234,7 +3265,19 @@ class Execution:
             silent = False
         # What the bot says about a run the Gateway refused, in its words rather than as a crash.
         refused = gateway.run_status(tico_code, tico_error) if tico_code and not (limited or retryable or rejected) else ""
-        requeue = not rejected_acted if rejected else limited or retryable or silent or yielded
+        reset_wait = (not stopped and not check and empty_fallback_interruption(c, self.store.settings, row, body))
+        if reset_wait:
+            # Do not try this empty fallback again in the same primary hold window.
+            hold = own_login_hold(c, self.store.settings, row['bot'])
+            config_row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row['bot'],)).fetchone()
+            hold.setdefault('failed_fallback', {})[row['bot']] = fallback_mark(json.loads(config_row[0] or '{}'))
+            login_holds._save(c, hold)
+            H.event(c, H.KEEPER, 'job.reset_wait', row['job_id'],
+                    {'attempt_id': aid, 'owner': H.KEEPER, 'until': hold['until'],
+                     'reason': 'Fallback ended without output or effects; waiting for the primary login reset.'})
+        requeue = not rejected_acted if rejected else limited or retryable or silent or yielded or reset_wait
+        if body.outcome == 'interrupted' and body.primary_held and body.fallback and not reset_wait:
+            requeue = False  # a yield or limit flag cannot turn unknown fallback effects into a safe retry
         c.execute("UPDATE jobs SET state=? WHERE id=?",
                   ("completed" if body.outcome == "completed" else "cancelled" if stopped
                    else "queued" if requeue else "uncertain", row["job_id"]))
@@ -3505,6 +3548,10 @@ class Execution:
                           claimed=row["created"])
             H.event(c, H.KEEPER, "attempt.no_effect_retry", aid,
                     {"bot": row["bot"], "job_id": row["job_id"], "runtime": runtime})
+        elif reset_wait:
+            settle_status(c, row['bot'], 'limited',
+                          f"Fallback ended without output; queued work resumes at {hold['until'][11:16]} UTC",
+                          claimed=row['created'])
         elif yielded:
             # Paused at its hold cap so another turn could use the shared login: it is back in the queue and
             # continues next, so the bot is idle with the pause line, not crashed until the continuation starts.
@@ -3592,7 +3639,10 @@ class Execution:
             calls, acted = facts['calls'], facts['acted']
             # `stopped` is what the review card leads with (ui/app/settings.js executionReview), by the same rule the
             # sweep retries by: only a run `auto_reconcile` would call safe, on its first start, is 'read'.
-            if facts['restart'] and (facts['outside'] or facts['consumed']):
+            if facts['fallback_unknown']:
+                stopped = 'unknown'
+                reason = 'BotOps must review this interrupted fallback: its output or effects cannot be ruled out.'
+            elif facts['restart'] and (facts['outside'] or facts['consumed']):
                 stopped = 'changed'
                 named = ', '.join([*facts['outside'],
                                    *(['consumed approval (' + ', '.join(facts['approval_kinds']) + ')'] if facts['consumed'] else [])])
@@ -3629,6 +3679,12 @@ class Execution:
                 stopped = 'read'
                 reason = ("The run stopped after only reading, so trying it again repeats nothing." if calls else
                           "The run stopped before it used any tool, so trying it again repeats nothing.")
+            wait = c.execute("SELECT action,detail_json FROM events WHERE target=? AND action IN "
+                             "('job.recovery_wait','job.recovery_ready','job.held') ORDER BY rowid DESC LIMIT 1",
+                             (row['attempt_id'],)).fetchone()
+            if wait:
+                owner = 'BotOps' if wait['action'] == 'job.held' else 'Tico'
+                reason += ' ' + owner + ' owns recovery. ' + json.loads(wait['detail_json']).get('reason', '')
             jobs.append({'id':row['id'], 'attempt_id':row['attempt_id'], 'readable':readable,
                          'task':{'id':task['id'],'title':task['title'],'status':task['status'],'owner':task['owner'],
                                  'owner_name':owner_name(c, task['owner'])} if task and readable else None,
@@ -3864,25 +3920,35 @@ class Execution:
         rows = c.execute("SELECT j.*, a.started, a.finished, a.state AS attempt_state, a.result_json, "
                          "a.stop_requested, a.job_id AS attempt_job, "
                          "r.decision AS pending_decision, r.note AS review_note, r.actor AS reviewer, "
-                         "coalesce(a.finished, j.created) <= ? AS aged "
-                         "FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
-                         "LEFT JOIN job_recovery r ON r.job_id=j.id AND r.attempt_id=j.attempt_id "
-                         "LEFT JOIN messages m ON m.id=j.message_id LEFT JOIN conversations cv ON cv.id=m.conversation_id "
-                         "WHERE j.state='uncertain' AND j.attempt_id IS NOT NULL "
-                         "AND (coalesce(a.finished, j.created) <= ? "
-                         "OR a.state='interrupted' OR (json_extract(a.result_json,'$.outcome')='interrupted' "
-                         "AND json_extract(a.result_json,'$.text')='Runner restarted during execution') "
-                         "OR r.job_id IS NOT NULL) "
-                         "AND NOT EXISTS(SELECT 1 FROM attempts t LEFT JOIN turns tt ON tt.id=t.id "
+                         "coalesce(a.finished, j.created) <= ? AS aged, "
+                         "(SELECT t.id FROM attempts t LEFT JOIN turns tt ON tt.id=t.id "
                          "WHERE t.bot=j.bot AND t.state IN ('leased','running') AND (t.job_id=j.id "
                          "OR t.id IN (SELECT attempt_id FROM attempt_inputs WHERE message_id=j.message_id) "
                          f"OR tt.task_id={task_sql} "
                          f"OR ({task_sql} IS NULL AND EXISTS(SELECT 1 FROM attempt_conversations ac "
                          "WHERE ac.attempt_id=t.id AND ac.conversation_id=m.conversation_id)) "
-                         f"OR (t.lane=a.lane AND (a.lane<>'{sessions.MAIN_LANE}' OR r.job_id IS NOT NULL)))) "
-                         "ORDER BY j.created", (cutoff, cutoff)).fetchall()
+                         f"OR (t.lane=a.lane AND (a.lane<>'{sessions.MAIN_LANE}' OR r.job_id IS NOT NULL))) LIMIT 1) AS blocking_attempt "
+                         "FROM jobs j LEFT JOIN attempts a ON a.id=j.attempt_id "
+                         "LEFT JOIN job_recovery r ON r.job_id=j.id AND r.attempt_id=j.attempt_id "
+                         "LEFT JOIN messages m ON m.id=j.message_id LEFT JOIN conversations cv ON cv.id=m.conversation_id "
+                         "WHERE j.state='uncertain' AND j.attempt_id IS NOT NULL "
+                         "ORDER BY j.created", (cutoff,)).fetchall()
         for row in rows:
             with isolated(c, "auto_reconcile", row["id"]):
+                prior = c.execute("SELECT action,detail_json FROM events WHERE target=? AND action IN "
+                                  "('job.recovery_wait','job.recovery_ready') AND json_extract(detail_json,'$.job_id')=? ORDER BY rowid DESC LIMIT 1",
+                                  (row['attempt_id'], row['id'])).fetchone()
+                if row['blocking_attempt']:
+                    detail = {'job_id': row['id'], 'owner': H.KEEPER, 'blocking_attempt': row['blocking_attempt'],
+                              'reason': 'Tico is waiting for live work on the same task or session lane and re-evaluates when it ends.'}
+                    if not prior or prior['action'] != 'job.recovery_wait' or json.loads(prior['detail_json']) != detail:
+                        H.event(c, H.KEEPER, 'job.recovery_wait', row['attempt_id'], detail)
+                    continue
+                freed = bool(prior and prior['action'] == 'job.recovery_wait')
+                if freed:
+                    H.event(c, H.KEEPER, 'job.recovery_ready', row['attempt_id'],
+                            {'job_id': row['id'], 'owner': H.KEEPER,
+                             'reason': 'Live task or session lane is free; Tico is re-evaluating recovery.'})
                 if row['pending_decision']:
                     decided.append(self._decide(c, row, row['attempt_id'], row['pending_decision'],
                                                 row['review_note'], row['reviewer'], saved=True))
@@ -3894,7 +3960,7 @@ class Execution:
                 if not held or facts['restart']:
                     calls, acted, safe = facts['calls'], facts['acted'], facts['safe']
                 started = facts['starts']
-                if not row['aged'] and not facts['restart'] and not (safe and started <= 1):
+                if not row['aged'] and not freed and not facts['restart'] and not (safe and started <= 1):
                     continue  # the usual wait: a person may look first
                 msg = H.message(c, row['message_id'])
                 conv = H.conversation(c, msg['conversation_id']) if msg else None
@@ -3958,7 +4024,9 @@ class Execution:
                     # Held: running it again could repeat an outside action.
                     if not held and row['attempt_id']:
                         H.event(c, H.KEEPER, 'job.held', row['attempt_id'], {'job_id': row['id'], 'tools': acted,
-                                   'outside_actions': facts['outside'], 'consumed_approval': bool(facts['consumed'])})
+                                   'outside_actions': facts['outside'], 'consumed_approval': bool(facts['consumed']),
+                                   'owner': H.bot_actor(H.FLEET_MAINTAINER),
+                                   'reason': 'Review required before repeating possible effects.'})
                         if privacy.message_readable(c, 'bot:' + H.FLEET_MAINTAINER, msg):
                             self._hand_to_maintainer(c, row, msg, task,
                                                      [*facts['outside'], *(['consumed approval (' + ', '.join(facts['approval_kinds']) + ')']
