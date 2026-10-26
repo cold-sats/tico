@@ -5583,7 +5583,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                    f"ask {actor_id(row.get('closed_by') or row['requester'])} to reopen it, or file a new task"
                    if row['status'] == 'closed' else "ask the owner to set doing or open, or file a new task"))
     type_id = row.get("type_id") or GENERAL_TYPE
-    queue_return = (requested_status == 'open' and actor == row['owner']
+    queue_return = (requested_status == 'open' and step is None and actor == row['owner']
                     and row['status'] in ('doing', 'waiting', 'review', 'done'))
     if queue_return and is_bot(actor) and not str(note or '').strip():
         refuse(conn, actor, 'lint', 'Putting your task back to open requires a note: '

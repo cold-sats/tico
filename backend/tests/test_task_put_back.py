@@ -180,7 +180,7 @@ def test_put_back_from_blocked_keeps_queue_destination_and_hold(api, monkeypatch
     with api.app.state.store.transaction() as c:
         with pytest.raises(H.Refused) as refused:
             H.task_update(c, 'bot:ops', task['id'], status='open')
-        assert refused.value.code == 'lint'
+        assert refused.value.rule == 'lint'
         H.task_update(c, 'bot:ops', task['id'], status='open', note='Return this work to the queue.')
     result = get(api, 'tasks/' + task['id'])['task']
     with api.app.state.store.transaction() as c:
