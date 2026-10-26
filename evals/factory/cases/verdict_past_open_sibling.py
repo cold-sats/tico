@@ -89,7 +89,7 @@ def _watch_results(run, w, team):
                                                                     E.roots_on(runner)),
                               str(c.execute("SELECT refs_json FROM messages WHERE id=?", (job["message_id"],)).fetchone()[0])[:150])
                     bc = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (r["bot"],)).fetchone()
-                    print("  BOT", E.claim_refusal(c, w.app.state.execution.settings, runner, r["bot"], bc[0], False, ready)[0])
+                    print("  BOT", E.claim_refusal(c, w.store.settings, runner, r["bot"], bc[0], False, ready)[0])
 
 
 def _watch_settled(run, w):
