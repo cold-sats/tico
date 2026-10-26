@@ -2357,7 +2357,7 @@ def _reach(conn, actor, target, allow_planned=False, allow_held=False):
 def _takes_tasks(conn, actor, target, title=None, parent=None, routine=False):
     """A bot a person syncs in from another platform reads only its chat with them, so a task for it would
     sit open with nobody to work it: it is refused with what to do instead. So is a task its profile says it does
-    not take (backend/profiles.py): none for a Responder, only review and QA subtasks for a Reviewer, only its
+    not take (backend/profiles.py): none for a Responder, only review and QA requests for a Reviewer, only its
     watcher's for a Monitor. `title` and `parent` say what is being filed; `routine` is a routine's own run."""
     if not is_bot(target) or not _has_table(conn, "bot_config"):
         return
@@ -2370,8 +2370,8 @@ def _takes_tasks(conn, actor, target, title=None, parent=None, routine=False):
                "never sees tasks. Write to it in its chat, or give this task to a bot that runs in Tico.")
     if row:
         from . import profiles
-        found = profiles.refusal(row["display_name"] or actor_id(target), _json(row["config_json"], {}) or {},
-                                 actor, title, parent, routine)
+        found = profiles.refusal(conn, row["display_name"] or actor_id(target), _json(row["config_json"], {}) or {},
+                                 actor, title, parent, routine, owner=target)
         if found:
             refuse(conn, actor, *found)
 
@@ -5393,11 +5393,12 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     # (execution.job_refusal): the filing turn may finish it first, and the claim then cancels the notice
     # rather than start a turn that finds nothing left to do (Dev 359).
     filed_in = RUN.get() if is_bot(target) and target == actor else ""
-    # A review, QA or Security child is a request to a reviewer: its own event, so a rule can wake reviewers apart
+    # A review, QA or Security request has its own event, so a rule can wake reviewers apart
     # from other assignments.
-    # Any other is an assignment, named so that rewording the notice never turns it into a note (`news` keeps it
-    # holdable: a task a bot files for itself still waits for the filing turn).
-    gate_child = {"wake": "review_request"} if parent and review_gate.GATE_CHILD.match(str(title).strip()) \
+    # Any other is an assignment, named so that rewording the notice never turns it into a note.
+    # Both events retain filed_in above: execution.filer_live holds a self-filed task independently of news/wake.
+    from . import profiles
+    gate_child = {"wake": "review_request"} if profiles.is_review_task(conn, task(conn, row["id"])) \
         else {"news": "assignment"}
     _wake(conn, task(conn, row["id"]), target, f"New task from {actor}: {title}",
           {**({"reconcile": reconcile} if reconcile else {}), **({"filed_in": filed_in} if filed_in else {}),
@@ -6221,14 +6222,14 @@ def wait_detail(conn, row):
         open_ask = next((a for a in asks if a["id"] not in answered), None)
         if open_ask:
             return {"why": "an unanswered question", "on": open_ask["to_actor"]}
-    from . import review_gate
+    from . import profiles, review_gate
     engineering = review_gate.engineering(conn, row)
-    children = _rows(conn.execute(f"SELECT owner,title FROM tasks WHERE id IN ({TR.CHILD_IDS}) AND status NOT IN {live} "
+    children = _rows(conn.execute(f"SELECT id,owner,title FROM tasks WHERE id IN ({TR.CHILD_IDS}) AND status NOT IN {live} "
                                   "ORDER BY created,id", (row["id"],)))
     for child in children:
         # Pipeline checks are work at the current step, not dependencies preventing it.
         # An explicit blocked_by relation below still holds on any such child.
-        if engineering and is_bot(child["owner"]) and review_gate.GATE_CHILD.match(str(child.get("title") or "").strip()):
+        if engineering and is_bot(child["owner"]) and profiles.is_review_task(conn, child, parent_id=row["id"]):
             continue
         return {"why": "an open child task", "on": child["owner"]}
     blocker = TR.live_blocker(conn, row["id"], ACTIVE_STATUSES)
