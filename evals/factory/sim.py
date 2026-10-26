@@ -110,15 +110,15 @@ class Run:
             return self
 
     def release(self, w, i):
-        """The Release Manager ships every few hours: each ticket at a release step moves to the next step. Done as a
-        person, so it costs no bot turn."""
+        """The Release Manager bot ships every few hours: each ticket at a release step moves to the next step. Its
+        moves cost no turn here: the run measures the engineering queue, not the release."""
         if i % int(self.scenario.release_every_hours * 60 / self.scenario.tick_minutes) != 0 or i == 0:
             return
         board = w.board
         for t in w.tickets():
             step = board.step(t["step"])
             if step and step.release:
-                w.update(t["id"], step=board.steps[board.steps.index(step) + 1].name)
+                w.update(t["id"], token="release-test", step=board.steps[board.steps.index(step) + 1].name)
 
     def assign(self, w, team):
         """An unowned ticket at an assigning step waits for the board to give it to a bot of that role. After 30
@@ -180,7 +180,15 @@ class Run:
             out.append(f"{t['title']} @ {t['step']} ({t['status']}, {t['owner']})"
                        + (f" blocked: {t['blocked_since']}" if t["blocked_since"] else ""))
             for c in self.w.checks(t["id"]):
-                out.append(f"  {c['title']}: {c['owner']} {c['status']} verdict={c['verdict']}")
+                out.append(f"  {c['title']}: {c['owner']} {c['status']} verdict={c['verdict']} head={str(c['verdict_head'])[:7]}")
+            for e in self.w.sql("SELECT e.ts, e.actor, e.field, coalesce(s.name, e.new) new, e.note FROM task_events e "
+                                "LEFT JOIN task_steps s ON s.id=e.new WHERE e.task_id=? AND e.field IN ('step','verdict_move',"
+                                "'round_skipped','step_skipped','allocated','merge_wake','verdict_wait') ORDER BY e.ts, e.rowid",
+                                (t["id"],)):
+                out.append(f"  {e['ts'][11:16]} {e['actor'][:14]:14} {e['field']:13} {str(e['new'])[:60]} {str(e['note'] or '')[:60]}")
+            pr = self.w.pr_of(t["id"])
+            if pr:
+                out.append(f"  PR #{pr} head={self.w.prs[pr]['head'][:7]} ci={self.w.ci_state(pr)} merged={self.w.prs[pr]['merged']}")
             for j in self.w.sql("SELECT j.bot, j.state, j.held, j.wake_class, m.refs_json FROM jobs j "
                                 "JOIN messages m ON m.id=j.message_id WHERE json_extract(m.refs_json,'$.task') IN "
                                 "(SELECT ? UNION SELECT from_task FROM task_relations WHERE to_task=? AND kind='parent') "

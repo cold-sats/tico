@@ -10,6 +10,9 @@ A step's `flow` (all keys optional):
   recorded on the ticket.
 - `timeout_hours`: a check open this long is closed unanswered and the round is skipped (the ticket goes on as if it
   had passed with no comments).
+- `status_hours`, `late_hours`: at a working step, a ticket quiet this long gets its bot owner one status check, and
+  one this long at the step gets its manager one notice (backend/step_age.py). An engineering type's working steps
+  have 2 and 4 without a setting.
 - `can_hold`: false on steps a ticket is never put on hold from (a merged change is reverted or fixed forward).
 - `assign`: {"pool": [bot slugs], "slots": n}: tickets here go to the least busy pool bot with a free slot
   (backend/task_allocator.py).
@@ -21,7 +24,9 @@ import json
 from . import hubdb as H
 
 MERGE = "merge"
-KEYS = ("on_pass", "on_fail", "after_green", "on_merge", "skip_tag", "timeout_hours", "can_hold", "gate", "assign")
+KEYS = ("on_pass", "on_fail", "after_green", "on_merge", "skip_tag", "timeout_hours", "status_hours", "late_hours",
+        "can_hold", "gate", "assign")
+HOURS = ("timeout_hours", "status_hours", "late_hours")
 STEP_KEYS = ("on_pass", "on_fail", "after_green")
 SEEDED = "step_flow.seeded"
 MAX_TIMEOUT_HOURS = 24 * 14
@@ -58,11 +63,13 @@ def clean(c, actor, raw, existing):
             out[key] = str(flow[key]).strip()
     if flow.get("skip_tag") not in (None, ""):
         out["skip_tag"] = str(flow["skip_tag"]).strip().lower()
-    if flow.get("timeout_hours") not in (None, ""):
-        hours = flow["timeout_hours"]
+    for key in HOURS:
+        if flow.get(key) in (None, ""):
+            continue
+        hours = flow[key]
         if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 < hours <= MAX_TIMEOUT_HOURS:
-            H.refuse(c, actor, "kind", f"A step's timeout is a number of hours above 0, at most {MAX_TIMEOUT_HOURS}")
-        out["timeout_hours"] = hours
+            H.refuse(c, actor, "kind", f"A step's {key} is a number of hours above 0, at most {MAX_TIMEOUT_HOURS}")
+        out[key] = hours
     if flow.get("assign") is not None:
         from . import task_allocator
         out["assign"] = task_allocator.clean(c, actor, flow["assign"])

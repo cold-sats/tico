@@ -340,13 +340,13 @@ def test_a_check_finished_with_no_verdict_is_feedback_and_goes_to_on_fail(api):
     assert [m["refs"].get(V.HANDOFF) for m in builder_jobs(api)] == ["verdict"], [(m["refs"], m["body"][:200]) for m in builder_jobs(api)]
 
 
-def test_an_unanswered_check_past_its_steps_timeout_is_closed_and_the_round_skipped(api):
+def test_a_ticket_past_its_check_steps_timeout_has_its_check_closed_and_the_round_skipped(api):
     task = ticket(api)
     review = check(api, task)
     with api.app.state.store.transaction() as c:
         assert V.timeouts(c) == [], "not an hour yet"
         later = H.parse_ts(H.now()) + __import__("datetime").timedelta(minutes=61)
-        assert V.timeouts(c, later.strftime("%Y-%m-%dT%H:%M:%S.%fZ")) == [review["id"]]
+        assert V.timeouts(c, later.strftime("%Y-%m-%dT%H:%M:%S.%fZ")) == [task["id"]]
         assert H.task(c, review["id"])["status"] == "closed"
     assert step(api, task) == "Review 1 Fixes", "the round is skipped as if it passed"
 

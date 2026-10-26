@@ -45,6 +45,8 @@ it.
 - At a limit, every bot it covers takes no new job until the period turns over or the limit is raised. The job stays queued, the bot
   reads "Paused: over its hourly limit" (its own) or "Paused: the team is over its hourly limit" on its page and in Tasks, and a run
   already going finishes. A group's or the team's total is shown only to the owner and administrators.
+- A limit is a ceiling, not a trip wire: a run going counts at its bot's average run cost until it finishes, and a new run
+  starts only when its own average still fits. The first run of a period with nothing spent or going always starts.
 - What counts is the estimate of the runs the bots finished that started in the UTC clock hour, the UTC day, the week from Monday
   00:00 UTC, or the UTC month. Subscription runs count their API-equivalent unless the team turns off "Count subscription runs" (in
   the default limit), for every level.

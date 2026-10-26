@@ -128,7 +128,7 @@ class Bot:
         if TRACE:
             print(f"{record['at']:%H:%M} {self.slug:16} {record['news'] or '-':18} {record['kind']:7}{'*' if record['stale'] else ' '}"
                   f"{(self.world.title(record['task']) if record['task'] else '')[:28]:28} {record['action'] or ''}"
-                  + ("" if record["task"] else f" [{record['text'][:90]}]"))
+                  + ("" if record["task"] and not record["stale"] else f" [{record['text'][:90]}]"))
         return record
 
     def finish(self, attempt, outcome, limited=False, resets=None, tokens=None):
@@ -143,12 +143,16 @@ class Bot:
         w.post(f"attempts/{attempt['id']}/complete", body, token=w.runner["token"])
 
     def stale(self, task, message):
-        """Whether the notice was out of date when the bot read it: its task had already finished, or had moved to
-        another step after the notice was written."""
+        """Whether the notice was out of date when the bot read it: its task had already finished, its CI news was
+        for a head the PR has moved past, or it had moved to another step after the notice was written."""
         if not task:
             return False
         if task["status"] in ("done", "closed", "declined"):
             return True
+        head = (message.get("refs") or {}).get("pr_head")
+        if head:   # CI news is about a head, not a step: it is out of date once the PR moved on
+            pr = self.world.pr_of(task["id"])
+            return bool(pr) and self.world.prs[pr]["head"] != head
         moved = self.world.step_entered_at(task["id"], claimed_by="bot:" + self.slug)
         return bool(moved and message.get("created") and message["created"] < moved)
 
@@ -183,7 +187,7 @@ class Builder(Bot):
             fixes = board.fixes_for(step.name)
             return self.fix(task, step, fixes, pr) if fixes else self.build(task, step, pr)
         if step.check:
-            return self.at_check(task, step, pr)
+            return self.at_check(task, step, pr, message)
         return None
 
     def build(self, task, step, pr):
@@ -246,11 +250,16 @@ class Builder(Bot):
         pushed = self.world.prs[pr].get("pushed")
         return not pushed or (entered and pushed < entered)
 
-    def at_check(self, task, step, pr):
-        """Waiting on a check. The builder merges when the check passed at the head and CI is green and the step's
-        pass is the merge; a pass the board did not act on, or a skip tag the board ignored, the builder moves on."""
+    def at_check(self, task, step, pr, message=None):
+        """Waiting on a check. The builder merges when Tico says the merge is next (a pass, a skip or a skipped
+        round), or when the check passed at the head and CI is green; a pass the board did not act on, or a skip tag
+        the board ignored, the builder moves on by hand."""
         w = self.world
         check = step.check
+        if check.passed == MERGE and pr and ((message or {}).get("refs") or {}).get("handoff") == "merge":
+            return self.merge(task, pr)
+        if check.passed == MERGE and pr and w.cleared(task["id"]):
+            return self.merge(task, pr)
         if check.skip_tag and check.skip_tag in labels(task):
             return self.merge(task, pr, fallback="skip tag ignored at " + step.name) if check.passed == MERGE else \
                 self.fallback(task, check.passed, "skip tag ignored at " + step.name)

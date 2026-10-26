@@ -353,6 +353,19 @@ def merged(c, row):
     return move(c, row, target, "its pull request merged")
 
 
+def new_head(c, row):
+    """The ticket's pull request has a new head while it sits at a check step: when no check of that step is still
+    open, file one for the new head (the step's pool); an open one judges whatever head is current when it runs."""
+    row = _ticket(c, H.task(c, row["id"]))
+    step = row and F.step(c, row.get("step_id"))
+    if not step or not F.is_check(step) or F.skip_target(c, row, step):
+        return None
+    if any(t["status"] in H.ACTIVE_STATUSES for t in _checks(c, row, step)):
+        return None
+    from . import check_pools
+    return check_pools.entered(c, H.KEEPER, row)
+
+
 def skip(c, row):
     """The ticket is at a step whose skip tag it carries: on to the step's `on_pass`, as if its check passed. The
     skip is recorded on the ticket."""
@@ -369,27 +382,38 @@ def skip(c, row):
 
 
 def timeouts(c, at=None):
-    """Close each open check older than its step's `timeout_hours` and skip that round: the ticket goes on as if the
-    check passed with no comments. Returns the checks closed."""
+    """Skip the round of each ticket at a check step past the step's `timeout_hours` with no verdict Tico acted on
+    there: its open checks are closed and the ticket goes on as if the check passed with no comments. The clock starts
+    when the ticket entered the step, so a check left open, one judged on an old head and one closed unanswered all end
+    the same way. Returns the tickets moved on."""
     at = H.parse_ts(at or H.now())
-    closed = []
-    for row in c.execute("SELECT r.from_task AS check_id, r.to_task AS ticket_id FROM task_relations r "
-                         "JOIN tasks t ON t.id=r.from_task WHERE r.kind='parent' AND t.status IN (%s)"
-                         % ",".join("?" * len(H.ACTIVE_STATUSES)), tuple(H.ACTIVE_STATUSES)).fetchall():
-        check, ticket = H.task(c, row["check_id"]), _ticket(c, H.task(c, row["ticket_id"]))
-        step = ticket and F.check_step(c, check, ticket)
-        hours = F.of(step).get("timeout_hours") if step else None
-        if not hours or ticket.get("step_id") != step["id"] or ticket["owner"] == check["owner"]:
+    skipped = []
+    timed = [dict(r) for r in c.execute("SELECT * FROM task_steps WHERE flow_json LIKE '%timeout_hours%'")]
+    for step in timed:
+        hours = F.of(step).get("timeout_hours")
+        if not hours or not F.is_check(step):
             continue
-        if (at - H.parse_ts(check["created"])).total_seconds() < hours * 3600:
-            continue
-        head = str(_judged_head(c, check) or "").lower()
-        H.task_close(c, H.KEEPER, check["id"], note=f"Unanswered for {hours:g} h; Tico closed it and skipped this round.")
-        if head:
-            H._task_event(c, ticket["id"], H.KEEPER, "round_skipped", None, f"{step['id']}:{head}", check["id"])
-        out = _passed(c, H.task(c, ticket["id"]), step, f"{step['name']} went unanswered for {hours:g} h; "
-                                                        "Tico skipped the round")
-        if out.get("handoff"):
-            H._wake(c, ticket, ticket["owner"], out["say"], {HANDOFF: out["handoff"]})
-        closed.append(check["id"])
-    return closed
+        for (ticket_id,) in c.execute(f"SELECT id FROM tasks WHERE step_id=? AND status IN "
+                                      f"({','.join('?' * len(H.ACTIVE_STATUSES))})",
+                                      (step["id"], *H.ACTIVE_STATUSES)).fetchall():
+            ticket = _ticket(c, H.task(c, ticket_id))
+            entered = c.execute("SELECT ts FROM task_events WHERE task_id=? AND field='step' AND new=? "
+                                "ORDER BY ts DESC,rowid DESC LIMIT 1", (ticket_id, step["id"])).fetchone()
+            if not ticket or not entered or (at - H.parse_ts(entered[0])).total_seconds() < hours * 3600:
+                continue
+            if c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field IN ('round_skipped','step_skipped') "
+                         "AND ts>=? LIMIT 1", (ticket_id, entered[0])).fetchone():
+                continue        # skipped already: the merge, its builder's to do, is what it waits for
+            for check in _checks(c, ticket, step):
+                if check["status"] in H.ACTIVE_STATUSES:
+                    H.task_close(c, H.KEEPER, check["id"],
+                                 note=f"Unanswered for {hours:g} h; Tico closed it and skipped this round.")
+            head = next((_head(p) for p in _prs(c, ticket) if _head(p)), "")
+            H._task_event(c, ticket_id, H.KEEPER, "round_skipped", None, f"{step['id']}:{head}",
+                          f"{step['name']}: no usable verdict in {hours:g} h")
+            out = _passed(c, H.task(c, ticket_id), step, f"{step['name']} had no usable verdict for {hours:g} h; "
+                                                         "Tico skipped the round")
+            if out.get("handoff"):
+                H._wake(c, ticket, ticket["owner"], out["say"], {HANDOFF: out["handoff"]})
+            skipped.append(ticket_id)
+    return skipped

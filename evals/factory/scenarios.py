@@ -145,17 +145,17 @@ def every_major_planned(run):
     return not bad, ", ".join(bad[:6])
 
 
-def hourly_spend_under(cap, slack=2.0):
-    """The cap stops new runs, not running ones: a single hour may go over by what was already running (up to
-    `slack` times the cap), but busy hours average no more than the cap."""
+def hourly_spend_under(cap, slack=1.3):
+    """The cap is a ceiling: a run starts only when its bot's average still fits, so an hour goes over only by what its
+    runs cost above their average (up to `slack` times the cap), and busy hours average no more than the cap."""
     def check(run):
-        per = Counter()
-        for r in run.turns():
-            per[r["at"].strftime("%H:00")] += run.cost([r])
+        per = Counter()   # Tico's own estimate of each run, by the hour it started, as the cap counts it
+        for r in run.w.sql("SELECT started, est_cost_usd FROM turns WHERE est_cost_usd IS NOT NULL"):
+            per[r["started"][11:13] + ":00"] += r["est_cost_usd"]
         busy = [v for v in per.values() if v > cap / 2]
         average = sum(busy) / len(busy) if busy else 0
         over = {h: round(v, 2) for h, v in per.items() if v > cap * slack}
-        return not over and average <= cap * 1.1, (f"peak hour ${max(per.values() or [0]):.2f}, busy-hour average "
+        return not over and average <= cap, (f"peak hour ${max(per.values() or [0]):.2f}, busy-hour average "
                                                      f"${average:.2f}" + (f", over: {over}" if over else ""))
     return check
 

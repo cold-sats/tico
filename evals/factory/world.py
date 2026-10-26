@@ -67,7 +67,9 @@ class World:
         (registry / "hub-access.yaml").write_text(json.dumps({"owner": "ana@acme.example"}))
         settings = Settings(db_path=self.tmp / "hub.db", registry_dir=registry, github_webhook_secret=SECRET,
                             release_commit="", release_repo=REPO,
-                            test_identities={"ana-test": Identity("human:ana", "owner", "ana@acme.example")})
+                            test_identities={"ana-test": Identity("human:ana", "owner", "ana@acme.example"),
+                                             # The Release Manager ships between its turns, outside the sim's queue.
+                                             "release-test": Identity("bot:release-manager", "bot", agent="hermes")})
         self.app = create_app(settings)
         self.client = TestClient(self.app)
         self.client.__enter__()
@@ -80,6 +82,9 @@ class World:
             for slug, config in bots.items():
                 c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES(?,?,?,?)",
                           (slug, encode(config), "engineering", "ana"))
+            if "release-manager" in bots:   # signed in as an agent, as an external Release Manager is
+                c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) "
+                          "VALUES('release-manager','hermes','x-release',?,'human:ana')", (H.now(),))
             c.execute("INSERT INTO registry_metadata VALUES('onboarding',?)",
                       (encode({"completed": "2026-01-01T00:00:00Z"}),))
             self.dev = H.type_create(c, H.KEEPER, self.board.name,
@@ -129,7 +134,11 @@ class World:
                 beat()
 
     def scheduler_pass(self):
+        """The server's background pass: the scheduler tick, and the GitHub wakes the app's loop sends."""
+        from backend.github import flush_wakes
         self.scheduler.tick()
+        with self.store.transaction() as c:
+            flush_wakes(c)
 
     def heartbeat(self, ready):
         self.post("runners/heartbeat", {"version": "test", "platform": "test",
@@ -261,6 +270,12 @@ class World:
         return sum(1 for t in self.tickets() if t["owner"] == "bot:" + slug and t["step"] in work
                    and t["status"] not in ("done", "closed", "declined"))
 
+    def cleared(self, task_id):
+        """Whether Tico let the ticket pass its current step without a check: a skip tag or a skipped round."""
+        entered = self.step_entered_at(task_id) or ""
+        return bool(self.sql("SELECT 1 FROM task_events WHERE task_id=? AND field IN ('step_skipped','round_skipped') "
+                             "AND ts>=? LIMIT 1", (task_id, entered)))
+
     def fallback(self, who, task_id, what):
         self.fallbacks.append((self.now(), who, self.title(task_id), what))
 
@@ -302,9 +317,11 @@ class World:
 
     def step_entered_at(self, task_id, claimed_by=None):
         """When the task last changed step before this moment: the claim that just happened starts an On Deck task
-        (as `keeper`), and that is no reason to call the notice stale."""
-        found = self.sql("SELECT max(ts) ts FROM task_events WHERE task_id=? AND field='step' AND ts<?",
-                         (task_id, self.H.now()))
+        (as `keeper`), and that is no reason to call the notice stale. Nor is a hold clearing: the ticket goes back
+        to its step because of the news the notice brings."""
+        hold = next((st["id"] for st in self.dev["steps"] if st["name"] == self.board.hold_step), "")
+        found = self.sql("SELECT max(ts) ts FROM task_events WHERE task_id=? AND field='step' AND ts<? "
+                         "AND coalesce(old,'')<>?", (task_id, self.H.now(), hold))
         return found[0]["ts"] if found else None
 
     def step_spans(self, task_id, until=None):

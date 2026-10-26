@@ -293,6 +293,12 @@ class Rule5Tasks(HubCase):
         self.assertEqual(len(self.finished(secret, SEO)), 1)
         self.assertFalse(self.finished(secret, ANALYTICS))
 
+    def test_a_person_finishing_a_bots_task_with_nothing_said_does_not_wake_it(self):
+        row = H.task_create(self.conn, ANA, "Ship the overview", "x", SEO)
+        H.task_update(self.conn, ANA, row["id"], status="done")
+        [told] = self.finished(row, SEO)
+        self.assertTrue(json.loads(told["refs_json"]).get("quiet"), "no run for a finished task with no note")
+
     def test_an_answer_goes_back_to_the_bot_that_asked_and_clears_the_wait(self):
         row = H.task_create(self.conn, CMO, "Pick the hero image", "Two drafts.", SEO)
         H.task_update(self.conn, SEO, row["id"], status="waiting", waiting_on="ana", note="Pick one image.")

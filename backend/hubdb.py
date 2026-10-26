@@ -6074,9 +6074,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
             if not who or who in told or not is_bot(who) or not bot_reads_task(conn, who, after):
                 continue
             told.add(who)
+            # A bot's own task finished with nothing said asks nothing of it: it hears quietly, with no run. A note
+            # is the person talking to it, and a bot that asked on it or owns its parent has work waiting on it.
+            idle = (who == after["owner"] and not (note and not quiet) and who not in askers
+                    and who != (parent or {}).get("owner"))
             _wake(conn, after, who, _marked_done(conn, actor, after["title"]) + (f"\n{note}" if note and not quiet else "")
                   + (f"\nStill open: {'; '.join(still_open)}" if still_open else ""), {"news": "task_done"},
-                  quiet_bots=True)
+                  quiet_bots=True, quiet=idle)
     if status == "review" and row["status"] != "review" and actor != after["requester"]:
         # Review is the requester's turn. Nothing else tells a bot that asked for the work, so
         # without this a handoff between bots waits until someone notices.
