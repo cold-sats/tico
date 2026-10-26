@@ -19,11 +19,10 @@ _FAILURE = r"(?:fail(?:s|ing|ed|ures?)?|errors?)"
 _FIX = r"(?:fix(?:ed|ing)|repair(?:ed|ing)|resolv(?:ed|ing)|correct(?:ed|ing))"
 HISTORY = re.compile(
     rf"\b(?:earlier|previous|historical|old)\s+(?:test\s+)?{_FAILURE}\b|"
-    rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|test|fixture)\s+){{0,4}}{_FAILURE}\b|"
+    rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|test|fixture|[0-9]+)\s+){{0,5}}{_FAILURE}\b|"
     rf"\b{_FAILURE}\s+(?:(?:is|was|has|been|now|already)\s+){{0,4}}{_FIX}\b", re.I)
 
 
-COUNTED_FAILURE = re.compile(rf"\b[1-9][0-9]*\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}{_FAILURE}\b", re.I)
 CONTINUATION = re.compile(rf"^\s*[0-9]+\s+(?:(?:earlier|previous|historical|old|test)\s+){{0,3}}(?:{_FAILURE}|pass(?:ed)?|skip(?:ped)?)\b", re.I)
 
 
@@ -35,8 +34,14 @@ def _recognise(line, test_context=False):
         return None
     head = match[1].lower() if match else shas[0][0].lower() if len(shas) == 1 else None
     outcome = ZERO.sub("", line)
-    result = HISTORY.sub("", outcome)
-    status = ("failed" if COUNTED_FAILURE.search(outcome) or FAIL.search(result) else "unrecognised" if PLAN.search(result)
+    def history(match):
+        # "2 earlier failed" is still a counted outcome. Repair phrases such
+        # as "2 failures now fixed" describe a repair even when they have counts.
+        counted = re.search(r"\b[1-9][0-9]*\s+$", outcome[:match.start()])
+        historical = re.match(r"(?:earlier|previous|historical|old)\b", match[0], re.I)
+        return match[0] if counted and historical else ""
+    result = HISTORY.sub(history, outcome)
+    status = ("failed" if FAIL.search(result) else "unrecognised" if PLAN.search(result)
               else "passed" if PASS.search(result) else "unrecognised")
     return {"head": head, "status": status, "text": line}
 

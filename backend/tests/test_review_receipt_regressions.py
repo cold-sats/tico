@@ -99,6 +99,8 @@ def test_one_green_pr_does_not_supply_another_prs_receipt(api, monkeypatch):
     (f'Tests at head {HEAD}: 9 passed after fixing the earlier failure', 'passed'),
     (f'Tests at head {HEAD}: 9 passed; fixed the failure at head {OLD}', 'passed'),
     (f'Tests at head {HEAD}: 9 passed; the earlier error is now repaired', 'passed'),
+    (f'Tests at head {HEAD}: 9 passed; 2 failures now fixed', 'passed'),
+    (f'Tests at head {HEAD}: 9 passed after fixing 2 earlier failures', 'passed'),
     (f'Tests at head {HEAD}: 9 passed; tests at head {OLD}: 2 failed', 'passed'),
     (f'Tests at head {HEAD}: 9 passed, failure at head {OLD}', 'passed'),
     (f'Tests: base {OLD}, head {HEAD}: 9 passed', 'passed'),
