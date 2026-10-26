@@ -174,8 +174,8 @@ def test_nonparty_person_with_task_edit_rights_counts(api, permission):
             c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('owner',?)",
                       (json.dumps({'email': 'editor@example.test'}),))
         elif permission == 'delegate':
-            c.execute('INSERT INTO task_delegations(task_id,delegate,expires) VALUES(?,?,?)',
-                      (task['id'], 'human:editor', '2099-01-01T00:00:00Z'))
+            c.execute('INSERT INTO task_delegations(task_id,delegate,requested_by,expires) VALUES(?,?,?,?)',
+                      (task['id'], 'human:editor', task['requester'], '2099-01-01T00:00:00Z'))
         H.task_comment(c, 'human:editor', task['id'], f'Tests: head {HEAD}: 9 passed', wake=False)
     response = move(api, task)
     assert response.status_code == 200, response.text
