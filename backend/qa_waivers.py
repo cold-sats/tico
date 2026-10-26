@@ -56,15 +56,15 @@ def _reviews(c, row, head):
 
 
 def _qa_failed(c, row, head):
-    """The QA subtask that failed this exact head, or None: a waiver stands in for a missing QA result, never
-    for a failed one."""
+    """The QA subtask that failed this exact head, or one with no named head, or None: a waiver stands in for a
+    missing QA result, never for a failed one, and a fail that names no head may be this one's."""
     from . import hubdb as H
     from . import task_relations as TR
     for child_id in TR.child_ids(c, row["id"]):
         child = H.task(c, child_id) or {}
         judged = str(child.get("verdict_head") or "").lower()
         if (QA_KIND.match(str(child.get("title") or "").strip()) and child.get("verdict") in ("fail", "changes")
-                and judged and head.startswith(judged)):
+                and (not judged or head.startswith(judged))):
             return child
     return None
 
@@ -86,7 +86,8 @@ def _checks(pr, detail):
 
 def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=False):
     """Record a QA waiver by `actor`, a person who owns the ticket or manages it (`manager`, decided by the route
-    from the caller's rights). `snapshots` is a fresh GitHub read of the ticket's open pull requests
+    from the caller's rights). The caller must already have refused a bot acting for that person (the route's
+    `person_only`): `actor` alone cannot tell the two apart. `snapshots` is a fresh GitHub read of the ticket's open pull requests
     (review_gate.snapshot); None means the GitHub App is not connected, and then no waiver can be recorded: the
     webhook-built link counts a skipped check as passing and a re-run's pass replaces an earlier failure."""
     from . import hubdb as H
@@ -149,7 +150,8 @@ def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=Fa
     if (blocked := _reviews(c, row, head)):
         _refuse(c, actor, row, f"QA waiver refused: {blocked}. Code reviews stay mandatory.")
     if (failed := _qa_failed(c, row, head)):
-        _refuse(c, actor, row, f"QA waiver refused: QA recorded {failed['verdict']} at {head[:12]} (task "
+        at = str(failed.get("verdict_head") or "")[:12] and head[:12] or "no named head"
+        _refuse(c, actor, row, f"QA waiver refused: QA recorded {failed['verdict']} at {at} (task "
                                f"{failed['id']}). A waiver stands in for a missing QA result, not a failed one: fix "
                                "it and push, then ask QA again.")
     pr = matched
@@ -157,7 +159,7 @@ def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=Fa
         _refuse(c, actor, row, f"QA is already waived for {head[:12]} on this ticket.", "duplicate")
     record = {"head": head, "step": QA_STEP, "pr": pr["url"]}
     H._task_event(c, row["id"], actor, FIELD, None, json.dumps(record, sort_keys=True), reason)
-    if H.is_bot(row["owner"]) and row["owner"] != actor:
+    if row["owner"] != actor:
         H._wake(c, row, row["owner"], f"{H.actor_id(actor)} waived QA for {pr['url']} at head {head}: {reason}\n\n"
                 "This is a waiver, not a QA pass: no QA verdict was recorded. CI and both reviews stay required, "
                 "and the waiver covers this exact head only.", refs={"qa_waiver": head})

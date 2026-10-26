@@ -115,7 +115,8 @@ def shown(api, row):
 
 
 @pytest.mark.parametrize('owner,token,actor', [('human:ben', 'ben-test', 'human:ben'),   # the ticket's owner
-                                               ('cpo', 'ana-test', 'human:ana')])          # a manager
+                                               ('cpo', 'ana-test', 'human:ana'),           # a manager
+                                               ('human:ben', 'ana-test', 'human:ana')])    # a manager, a person's ticket
 def test_owner_or_manager_waives_the_current_qa_step_on_the_exact_head(api, owner, token, actor):
     row = ticket(api, owner=owner)
     r = waive(api, row, token)
@@ -140,7 +141,8 @@ def test_owner_or_manager_waives_the_current_qa_step_on_the_exact_head(api, owne
     assert qa['verdict'] is None and qa['verdict_head'] is None and qa['status'] == 'doing'
     with api.app.state.store.read() as c:
         told = c.execute("SELECT to_actor, body FROM messages WHERE json_extract(refs_json,'$.qa_waiver')=?", (HEAD,)).fetchall()
-    assert [(m[0], 'not a QA pass' in m[1]) for m in told] == ([('bot:cpo', True)] if owner == 'cpo' else [])
+    # The owner hears once, unless the owner waived it.
+    assert [(m[0], 'not a QA pass' in m[1]) for m in told] == ([] if owner == actor else [(detail['task']['owner'], True)])
 
 
 @pytest.mark.parametrize('owner,token,why', [('human:ben', 'cara-test', 'owner or a manager'),
@@ -282,6 +284,10 @@ def test_a_qa_failure_at_the_head_is_not_waivable(api):
     failed = child(api, row, 'QA: PR #412 retry', verdict='fail', head=HEAD[:12])
     r = waive(api, row)
     assert r.status_code == 422 and 'QA recorded fail at aaaaaaaaaaaa' in r.text and failed['id'] in r.text, r.text
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET verdict_head=? WHERE id=?', (None, failed['id']))  # a fail naming no head
+    r = waive(api, row)
+    assert r.status_code == 422 and 'QA recorded fail at no named head' in r.text, r.text
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE tasks SET verdict_head=? WHERE id=?', (NEW, failed['id']))   # it failed an earlier head
     assert waive(api, row).status_code == 200
