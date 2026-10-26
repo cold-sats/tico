@@ -78,6 +78,18 @@ def _watch_results(run, w, team):
                 row = w.sql("SELECT status, step_id, blocked_since, blocked_kind, blocked_reason, waiting_on, snoozed_until "
                             "FROM tasks WHERE id=?", (ticket,))[0]
                 print("HELD", w.now(), r, row, w.step_of(row))
+                from backend import execution as E
+                with w.store.read() as c:
+                    runner = c.execute("SELECT * FROM runners WHERE id=?", (w.runner["runner_id"],)).fetchone()
+                    ready = E.readiness_document(runner["readiness_json"])
+                    for job in c.execute("SELECT * FROM jobs WHERE bot=? AND state='queued' ORDER BY created",
+                                         (r["bot"],)).fetchall():
+                        job = dict(job)
+                        print("  JOB", job["created"], E.job_refusal(c, job, {}, ready, set(), E.lanes_on(runner),
+                                                                    E.roots_on(runner)),
+                              str(c.execute("SELECT refs_json FROM messages WHERE id=?", (job["message_id"],)).fetchone()[0])[:150])
+                    bc = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (r["bot"],)).fetchone()
+                    print("  BOT", E.claim_refusal(c, w.app.state.settings, runner, r["bot"], bc[0], False, ready)[0])
 
 
 def _watch_settled(run, w):
