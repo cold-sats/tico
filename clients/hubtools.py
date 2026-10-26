@@ -685,8 +685,8 @@ def task_snooze(api, args):
 
 @tool("hub_task_waive_qa", "A person waives a Dev ticket's current In QA step for one exact pull request head, with a "
       "reason: the ticket's owner or a manager. Recorded in its history as a waiver, never as a QA pass; refused unless "
-      "the head is the open pull request's current head with every hosted check passed and Review 2 approving it. CI, "
-      "Review 1, Review 2 and release approval cannot be waived, and a bot cannot waive QA.",
+      "the head is the open pull request's current head with every hosted check passed and Review 1 and Review 2 "
+      "each approving it. CI, Review 1, Review 2 and release approval cannot be waived, and a bot cannot waive QA.",
       {"id": TASK_ID, "head": _s("The pull request's current head: the full 40-character commit sha"),
        "reason": _s("Why QA is waived, in plain words")},
       required=("id", "head", "reason"), writes=True)

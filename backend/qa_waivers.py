@@ -3,9 +3,9 @@
 A waiver is not a QA verdict. It never sets a verdict on the QA subtask or anywhere else; it is a `qa_waiver` task
 event on the Dev ticket, so task history shows who waived QA, why, at which head and step, and when. Only the In QA
 step can be waived. CI, Review 1, Review 2 and release approval stay mandatory: a waiver needs every hosted check
-green on that head, read from GitHub at the time, and the ticket's reviews finished, with Review 2 approving that
-exact head. A waiver does not override QA: a QA `fail` at that head refuses it. A push gives a new head, and a
-waiver for the old head does not cover it (`current`).
+green on that head, read from GitHub at the time, and the ticket's reviews finished, with Review 1 and Review 2
+each approving that exact head. A waiver does not override QA: a QA `fail` at that head refuses it. A push gives a
+new head, and a waiver for the old head does not cover it (`current`).
 """
 import json
 import re
@@ -27,8 +27,8 @@ def _refuse(c, actor, row, text, rule="qa_waiver"):
 
 def _reviews(c, row, head):
     """What stops the ticket's reviews from covering `head`, or None. Every ticket has Review 1 and Review 2
-    (docs/software-factory.md). Review 1 may have asked for changes that Review 1 Fixes made; Review 2 judged
-    the updated change and is the review that must approve this exact head."""
+    (docs/software-factory.md), and each slot's latest review must approve this exact head: a `changes` verdict
+    is cleared only by that reviewer's approve at the fixed head."""
     from . import hubdb as H
     from . import task_relations as TR
     latest = {}
@@ -46,16 +46,12 @@ def _reviews(c, row, head):
         child = latest.get(name)
         if not child or not child.get("verdict"):
             return f"{name} has no recorded verdict on this ticket"
-    second = latest["Review 2"]
-    judged = str(second.get("verdict_head") or "").lower()
-    if second["verdict"] != "approve":
-        return f"Review 2 asked for changes at {judged[:12] or 'an unknown head'}"
-    if not judged or not head.startswith(judged):
-        return f"Review 2 approved {judged[:12] or 'no named head'}, not {head[:12]}; ask Review 2 for a verdict on this head"
-    for name in REVIEW_KINDS:
-        child = latest[name]
-        if child["verdict"] == "changes" and head.startswith(str(child.get("verdict_head") or "-").lower()):
-            return f"{name} asked for changes at {head[:12]}"
+        judged = str(child.get("verdict_head") or "").lower()
+        if child["verdict"] != "approve":
+            return f"{name} asked for changes at {judged[:12] or 'an unknown head'}"
+        if not judged or not head.startswith(judged):
+            return (f"{name} approved {judged[:12] or 'no named head'}, not {head[:12]}; ask {name} for a verdict "
+                    "on this head")
     return None
 
 

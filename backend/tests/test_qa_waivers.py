@@ -173,7 +173,7 @@ def test_a_different_head_is_refused_and_a_new_push_voids_the_waiver(api):
     green(api)
     # The old head's waiver does not stand for the new head, and the new head has no review approving it.
     r = waive(api, row, head=NEW)
-    assert r.status_code == 422 and 'Review 2 approved aaaaaaaaaaaa, not bbbbbbbbbbbb' in r.text, r.text
+    assert r.status_code == 422 and 'Review 1 approved aaaaaaaaaaaa, not bbbbbbbbbbbb' in r.text, r.text
     r = waive(api, row)
     assert r.status_code == 422 and 'not the current head' in r.text, r.text
 
@@ -193,16 +193,20 @@ def test_checks_not_green_are_refused_and_named(api, checks, why):
                                          (((None, None), ('approve', HEAD)), 'Review 1 has no recorded verdict'),
                                          ((('approve', HEAD), ('changes', HEAD)), 'Review 2 asked for changes'),
                                          ((('approve', HEAD), ('approve', NEW)), 'Review 2 approved bbbbbbbbbbbb'),
-                                         ((('changes', HEAD), ('approve', HEAD)), 'Review 1 asked for changes')])
+                                         ((('changes', HEAD), ('approve', HEAD)), 'Review 1 asked for changes'),
+                                         # Review 2's approval of the head never stands in for Review 1's.
+                                         ((('changes', NEW), ('approve', HEAD)), 'Review 1 asked for changes'),
+                                         ((('approve', NEW), ('approve', HEAD)), 'Review 1 approved bbbbbbbbbbbb')])
 def test_required_reviews_not_approving_the_head_are_refused(api, reviews, why):
     row = ticket(api, reviews=reviews)
     r = waive(api, row)
     assert r.status_code == 422 and why in r.text and 'Code reviews stay mandatory' in r.text, r.text
 
 
-def test_review_1_changes_fixed_and_review_2_approving_the_head_allows_it(api):
-    """Review 1 asked for changes on an earlier head; Review 1 Fixes made them and Review 2 approved this head."""
+def test_review_1_re_asked_and_approving_the_fixed_head_allows_it(api):
+    """Review 1 asked for changes on an earlier head; its re-ask approved the fixed head, and so did Review 2."""
     row = ticket(api, reviews=(('changes', NEW), ('approve', HEAD)))
+    child(api, row, 'Review 1: PR #412 delta', verdict='approve', head=HEAD)
     assert waive(api, row).status_code == 200
 
 
