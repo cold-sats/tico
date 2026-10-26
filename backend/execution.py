@@ -3815,9 +3815,13 @@ class Execution:
         line people read when the note itself is written to the bot. A deferred choice stays held until its lane is idle."""
         job_id = row['id']
         state = 'uncertain' if deferred else 'queued' if decision == 'resume' else 'cancelled'
+        # A deferred choice applied once its lane is idle keeps the time it was made: that is when it was decided.
         c.execute("INSERT INTO job_recovery VALUES(?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET "
+                  "created=CASE WHEN job_recovery.attempt_id=excluded.attempt_id AND "
+                  "job_recovery.decision=excluded.decision AND job_recovery.actor=excluded.actor "
+                  "THEN job_recovery.created ELSE excluded.created END,"
                   "attempt_id=excluded.attempt_id,decision=excluded.decision,note=excluded.note,"
-                  "actor=excluded.actor,created=excluded.created",
+                  "actor=excluded.actor",
                   (job_id,attempt_id,decision,note,actor,H.now()))
         if decision == 'dismiss' and not deferred:
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),row['message_id']))
