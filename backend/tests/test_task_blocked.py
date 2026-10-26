@@ -165,6 +165,22 @@ def test_note_only_wait_reopens_but_explicit_owner_hold_stays(api):
         assert H.task(c, task['id'])['blocked_kind'] == 'manual'
 
 
+@pytest.mark.parametrize('kind', ['gate', 'worktree'])
+def test_stranded_sweep_leaves_gate_and_worktree_holds_to_reconciliation(api, kind):
+    """Only reconciliation knows when a gate or worktree hold clears (fresh CI, no unlinked pushes): the stranded
+    sweep must neither reopen one nor overwrite its note with "nothing is outstanding"."""
+    from backend import task_blocked
+    task = ticket(api)
+    with api.app.state.store.transaction() as c:
+        task_blocked.hold(c, task['id'], 'Review refused: CI failing', kind)
+        held = H.task(c, task['id'])
+        assert held['status'] == 'waiting' and held['blocked_kind'] == kind
+        assert H.sweep_stranded(c, H.shift(H.now(), hours=H.STRANDED_GRACE_HOURS + 1)) == []
+        after = H.task(c, task['id'])
+        assert (after['status'], after['note'], after['blocked_kind'], after['blocked_since']) == (
+            'waiting', held['note'], kind, held['blocked_since'])
+
+
 def test_review_fix_steps_accrue_active_building_time(api, monkeypatch):
     from backend import task_blocked
     task = ticket(api)
