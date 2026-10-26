@@ -128,7 +128,6 @@ function systemRoutinesPaint() {
   systemRoutinesBind(el);
 }
 function systemRoutineReplace(job) {
-  taskSettingsChanged();
   if (!SYSTEM_ROUTINES || !job) return;
   SYSTEM_ROUTINES.jobs = SYSTEM_ROUTINES.jobs.map(j => j.key === job.key ? job : j);
 }
@@ -138,6 +137,7 @@ async function systemRoutineWrite(key, send, status) {
   try {
     const out = await send();
     systemRoutineReplace(out.job);
+    taskSettingsChanged();
     note = out.running ? 'Running…' : '';
     if (!out.running) toast('Saved');
     again = !!out.running;

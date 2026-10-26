@@ -1,6 +1,7 @@
 /* Task settings is a projection of the Rules and system routine listings, never an editor. */
 'use strict';
 let TASK_SETTINGS = null, TASK_SETTINGS_TYPE = '', TASK_SETTINGS_LOADING = null;
+let TASK_SETTINGS_VERSION = 0;
 let RULES_OPEN = null;
 const TASK_SETTING_SECTIONS = [
   ['created', "When it's created", 'Tico does these the moment a {type} is filed.'],
@@ -92,6 +93,7 @@ function taskSettingsPaint() {
 }
 async function taskSettingsLoad() {
   if (TASK_SETTINGS_LOADING) return TASK_SETTINGS_LOADING;
+  const version = TASK_SETTINGS_VERSION;
   TASK_SETTINGS_LOADING = (async () => {
     const el = $('#set-task-settings'); if (!el) return;
     try {
@@ -105,15 +107,20 @@ async function taskSettingsLoad() {
         if (!(page.next_offset > offset)) throw new Error('Could not read the complete rules list');
         offset = page.next_offset;
       } while (true);
-      TASK_SETTINGS = {rules: listing, jobs}; taskSettingsPaint();
+      if (version === TASK_SETTINGS_VERSION) { TASK_SETTINGS = {rules: listing, jobs}; taskSettingsPaint(); }
     } catch (e) { el.innerHTML = `<p class="err" role="status">${esc(e.message || 'Could not load task settings')}</p><button type="button">Try again</button>`; el.querySelector('button').onclick = () => taskSettingsLoad(); }
-  })().finally(() => { TASK_SETTINGS_LOADING = null; });
+  })().finally(() => {
+    TASK_SETTINGS_LOADING = null;
+    if (version !== TASK_SETTINGS_VERSION) void taskSettingsLoad();
+  });
   return TASK_SETTINGS_LOADING;
 }
 function taskSettingsChanged() {
+  const loaded = TASK_SETTINGS || TASK_SETTINGS_LOADING;
+  TASK_SETTINGS_VERSION++;
   TASK_SETTINGS = null;
   // The card remains mounted while Rules is open; update it before a person returns to Tasks.
-  void (TASK_SETTINGS_LOADING || Promise.resolve()).then(() => taskSettingsLoad());
+  if (loaded) void taskSettingsLoad();
 }
 async function taskSettingsOpenEditor() {
   if (!RULES_OPEN || !RULES) return;

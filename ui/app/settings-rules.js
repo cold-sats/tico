@@ -489,7 +489,7 @@ async function ruleEditor(rule, preset = null) {
     dialog.querySelector('[data-rule-target]').onchange = restep;
     restep();
   }
-  const done = () => { dialog.close(); rulesPaint(); toast('Saved'); taskSettingsChanged(); };
+  const done = () => { dialog.close(); rulesPaint(); toast('Saved'); };
   form.onsubmit = async ev => {
     ev.preventDefault(); const button = form.querySelector('[type="submit"]'); button.disabled = true; error.textContent = '';
     try {
@@ -518,6 +518,7 @@ async function ruleEditor(rule, preset = null) {
     del.disabled = true; error.textContent = '';
     try {
       await post('/v2/rules/' + encodeURIComponent(rule.id) + '/delete', {expected_revision: rule.revision});
+      taskSettingsChanged();
       RULES.rules = RULES.rules.filter(r => r.id !== rule.id); done();
     } catch (e) { error.textContent = e.message || 'Could not delete the rule'; del.disabled = false; }
   };
