@@ -724,7 +724,29 @@ def runnable(c, method, path, body):
     return body
 
 
-def create_proposal(c, settings, who, room, proposer, summary, method, path, body, asked=None, what=None):
+def refuse_unrunnable(routes, method, path, body):
+    """Refuse a card's body the route itself would refuse, as a direct call is (422, field names and reasons, never the
+    value): a card keeps its body and shows it back, so a field the route has no place for (a key sent with a
+    providers change) would otherwise be stored and echoed. An unknown field is refused even where the model ignores
+    extras. A route that reads its own body has no model to check here; secret names are still checked by the caller."""
+    from fastapi.routing import APIRoute
+    from pydantic import BaseModel
+    route = next((r for r in routes or () if isinstance(r, APIRoute) and method in r.methods
+                  and r.path_regex.fullmatch(path or "")), None)
+    field = getattr(route, "body_field", None)
+    if field is None:
+        return
+    _, errors = field.validate(body, {}, loc=("body",))
+    model = field.field_info.annotation
+    if not errors and isinstance(model, type) and issubclass(model, BaseModel) and isinstance(body, dict):
+        known = {n for name, f in model.model_fields.items() for n in (name, f.alias) if n}
+        errors = [{"loc": ("body", k), "msg": "Extra inputs are not permitted"} for k in body if k not in known]
+    if errors:
+        raise Problem("validation", "; ".join(".".join(str(part) for part in e["loc"]) + ": " + e["msg"]
+                                              for e in errors), 422)
+
+
+def create_proposal(c, settings, who, room, proposer, summary, method, path, body, asked=None, what=None, routes=None):
     """One pending action for `who` to confirm, and its card in `room`, written by the bot that proposed it.
 
     The Assistant proposes what its turn may not do on its own; BotOps proposes what a person asked it for
@@ -749,6 +771,8 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
         body = {"actions": [{**s, "body": runnable(c, s["method"], s["path"], s["body"])} for s in batch_steps(body)]}
     else:
         body = runnable(c, method, path, body)
+    if routes is not None:
+        refuse_unrunnable(routes, method, path, body)
     require_addressed(c, who, path, body)
     if who.via == "assistant" and not who.confirmed and approvals_in(path, body):
         require_named_approval(c, who, asked)
@@ -1577,7 +1601,7 @@ def install(app, store, auth, mutate, onboarding):
                               "sign-in, enrollment or this assistant)", 422)
             room = chat_room(c, settings, who)
             return create_proposal(c, settings, who, room, "assistant", body.summary, body.method, body.path, body.body,
-                                   request.headers.get("x-tico-on-behalf-of"))
+                                   request.headers.get("x-tico-on-behalf-of"), routes=request.app.routes)
         return mutate(request, body, work)
 
     def expiring(c):

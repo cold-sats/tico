@@ -99,6 +99,23 @@ def test_a_secret_in_a_gateway_key_or_slack_tokens_is_refused(api, botops):
     assert botops_act.secret_in_request("POST", "routines/ops:x", {"key": "daily"}) is None
 
 
+def test_a_body_the_route_refuses_gets_no_card_and_its_value_goes_nowhere(api, botops):
+    # ProvidersUpdate has no `key`: a direct call is refused, and a card must not keep or echo what was refused.
+    put(api, "access/rules", {"botops_direct": False})
+    before = get(api, "providers")
+    ana = turn(api, botops, person="ana-test", text="Turn on OpenAI with my key")
+    refused = act(api, ana, "PUT", "providers", {"enabled": ["openai"], "expected_revision": before["revision"],
+                                                 "key": "sk-not-for-cards"})
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "validation", refused.text
+    assert "sk-not-for-cards" not in refused.text
+    with api.app.state.store.read() as c:
+        rows = json.dumps([dict(r) for r in c.execute("SELECT * FROM assistant_actions")]
+                          + [dict(r) for r in c.execute("SELECT * FROM messages")], default=str)
+        events = json.dumps([dict(r) for r in c.execute("SELECT * FROM events")], default=str)
+    assert "sk-not-for-cards" not in rows + events
+    assert get(api, "providers")["enabled"] == before["enabled"]
+
+
 def test_a_computers_code_is_only_on_the_persons_card(api, botops):
     ana = turn(api, botops, person="ana-test", text="Add a computer for me")
     answer = act(api, ana, "POST", "enrollments", {"operator": "ana"})

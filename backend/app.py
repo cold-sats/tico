@@ -4788,7 +4788,8 @@ def create_app(settings=None):
         and the answer BotOps reports back instead of asking them to go to Settings. `what`: the card's title, when the
         route that asks already said in plain words what confirming does (never a bot's words)."""
         room = rooms.chat_room(c, auth, acting, BOTOPS)
-        card = create_proposal(c, settings, acting, room, BOTOPS, summary, method, path, body, what=what)
+        card = create_proposal(c, settings, acting, room, BOTOPS, summary, method, path, body, what=what,
+                               routes=app.routes)
         return {"proposed": True, "needs_confirm": True, **card,
                 "detail": "This needs " + ((H.human(c, H.actor_id(acting.actor)) or {}).get("name") or "the person")
                 + "'s own OK. A Confirm card is in their chat with BotOps; nothing has changed yet."}

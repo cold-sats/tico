@@ -408,7 +408,8 @@ What only an owner or an admin may ask for is refused at once for a member, not 
 routes give back a secret's value, and BotOps acting for a person is refused them (`403 person_only`, with where the person
 does it): revealing a stored credential, making someone a password, making a personal API token and making a SCIM token.
 A secret in a request body is refused too (`422 secret_in_request`), including the Gateway's `key` and Slack's
-`bot_token` and `app_token`.
+`bot_token` and `app_token`. A body the route itself would refuse, an unknown field included, gets the route's own
+`422` and no card: a card never stores or shows back what its route has no place for.
 
 If a friendly tool refuses for permissions, BotOps retries the same action with `hub_api` before handing work back. Both use the same rights.
 
