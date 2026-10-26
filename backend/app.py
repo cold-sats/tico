@@ -3586,7 +3586,7 @@ def create_app(settings=None):
                 **({"warning": note} if note else {}), **({"warnings": row["warnings"]} if row.get("warnings") else {})}
 
     def review_preflight(who, tid, step=None, child_title=None, status=None, task_type=None):
-        from . import review_gate
+        from . import review_gate, step_flow
         # None is reserved for a genuinely unconfigured GitHub integration.
         # If a skipped preflight becomes applicable during mutation, fail closed.
         if child_title is not None and not review_gate.REVIEW.match(child_title):
@@ -3615,7 +3615,7 @@ def create_app(settings=None):
                     named = current
                 else:
                     named = next((s for s in typ["steps"] if s["status"] == effective), None)
-                if not named or named["name"] not in ("Review 1", "Review 2"):
+                if not named or not step_flow.gated(c, named["id"]):
                     return {}
             if not review_gate.engineering(c, row):
                 return {}
