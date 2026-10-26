@@ -93,7 +93,7 @@ def recognise_many(line):
             else:
                 clauses.append(part)
         for clause in clauses:
-            context = TEST.search(sentence) or SHA.search(sentence) and COUNTED_FAILURE.search(sentence)
+            context = TEST.search(sentence) or (SHA.search(sentence) and COUNTED_FAILURE.search(sentence))
             if receipt := _recognise(clause, test_context=bool(context)):
                 found.append({**receipt, "text": line})
     return found
