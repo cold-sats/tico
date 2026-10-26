@@ -509,7 +509,7 @@ a Responder with tasks, and a Doer whose runs for a week all did nothing.
 
 A human is normally the browser sign-in (Cloudflare Access). A **personal API token** is the
 same human from a script, a cron job or another computer, with no browser: any human (the owner may
-limit it to admins, Settings > Humans) opens **Connect an external agent** beside their email
+limit it to admins, Settings > People) opens **Connect an external agent** beside their email
 (or **Settings → Computers → API tokens**), gives the
 token a label and a life (90 days unless changed, a year at most), and copies it once; it is
 not shown again and only its hash is kept. Then:

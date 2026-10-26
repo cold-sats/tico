@@ -60,7 +60,8 @@ const logo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQV
     await page.waitForFunction(() => document.querySelector('#settings-team-icon-change').disabled);
     await page.evaluate(async () => { await loadSettings(); route(); });
     assert.equal(await page.locator('#settings-team').isVisible(),true);
-    await page.waitForFunction(() => document.querySelector('#settings-team-icon-status').textContent === 'Team icon saved');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => t.textContent === 'Saved'));
+    assert.equal(await status.innerText(), '', 'no error left under the icon');
     assert.equal(writes.length,2);
     assert.equal(writes[0].key,writes[1].key);
     assert.deepEqual(writes[0].body,logo);
@@ -83,7 +84,8 @@ const logo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQV
     await page.waitForFunction(() => document.querySelector('#settings-team-icon-status').textContent.includes('Could not confirm'));
     const pending = writes.at(-1).key;
     await input.setInputFiles({name:'retry.png',mimeType:'image/png',buffer:logo});
-    await page.waitForFunction(() => document.querySelector('#settings-team-icon-status').textContent === 'Team icon saved');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => t.textContent === 'Saved'));
+    assert.equal(await status.innerText(), '', 'no error left under the icon');
     assert.equal(writes.at(-1).key,pending);
     role = 'human';
     await page.reload();

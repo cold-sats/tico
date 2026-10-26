@@ -297,7 +297,7 @@ Ana can review all mailboxes; other humans see only mailboxes granted by the ros
 channel history is owner-only in this view.
 
 **How do I add a human or a bot?**
-A human: **Settings → Humans → Add manually** (an owner or admin), or sync them from the team's
+A human: **Settings → People → Add manually** (an owner or admin), or sync them from the team's
 directory there; behind Cloudflare Access, also allow the address in its policy ([Humans](people.md)). A
 bot: **Settings > Bots > Add from template**, or ask BotOps to build it. Open the bot and press **Set up** to finish its
 first conversation. See [Creating bots](creating-bots.md) for custom Instructions and manual setup.
