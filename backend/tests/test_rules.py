@@ -286,6 +286,40 @@ def test_a_rule_never_changes_a_private_task_its_writer_cannot_read(api):
         assert H.task_labels(H.task(c, task["id"])) == ["urgent"]
 
 
+def test_an_edited_rule_uses_its_action_writer_without_changing_its_creator(api):
+    setup(api)
+    with api.app.state.store.transaction() as c:
+        H.tag_create(c, "human:ana", "urgent", mover=True)
+        hidden = H.task_create(c, "bot:cpo", "Private work", "Not for ben", "bot:cpo", private=True)
+        assert H.task_private_readable(c, "human:ana", hidden)
+        assert not H.task_private_readable(c, "human:ben", hidden)
+    row = rule_row(api, token="ana-test", then="action", params={"action": "note"})["rule"]
+    edited = post(api, f"rules/{row['id']}", {"expected_revision": row["revision"],
+                  "params": {"action": "add_tag", "tag": "urgent"}}, token="ben-test")["rule"]
+    assert edited["created_by"] == "human:ana" and edited["action_by"] == "human:ben"
+    edited = post(api, f"rules/{row['id']}", {"expected_revision": edited["revision"],
+                  "note": "Routing policy"}, token="ana-test")["rule"]
+    assert edited["action_by"] == "human:ben", "a metadata edit does not lend the creator's access back"
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM jobs")
+        msg = news(c, hidden)
+        assert H.task_labels(H.task(c, hidden["id"])) == []
+        assert jobs(c, "cpo") == 1 and msg["refs"]["rule"] == R.FAIL_OPEN
+        assert actions(c, row["id"]) == []
+        # An upgraded revised rule with no recorded action writer cannot borrow its creator's access either.
+        c.execute("UPDATE rules SET action_by=NULL WHERE id=?", (row["id"],))
+        R.ensure_schema(c)
+        c.execute("DELETE FROM jobs")
+        news(c, hidden)
+        assert H.task_labels(H.task(c, hidden["id"])) == [] and jobs(c, "cpo") == 1
+    saved = post(api, f"rules/{row['id']}", {"expected_revision": edited["revision"],
+                 "when": {"actor": "keeper"}}, token="ana-test")["rule"]
+    assert saved["created_by"] == "human:ana" and saved["action_by"] == "human:ana"
+    with api.app.state.store.transaction() as c:
+        news(c, hidden)
+        assert H.task_labels(H.task(c, hidden["id"])) == ["urgent"]
+
+
 def test_tag_actions_add_and_remove_once_and_cannot_retrigger_their_rule(api):
     setup(api)
     with api.app.state.store.transaction() as c:

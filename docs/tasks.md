@@ -477,6 +477,10 @@ on, or already off, changes nothing. With a `tag` condition this makes label-dri
 `when {"tag": "billing"}` → `assign {"owner": "finance"}`. What an action writes is judged as news and never starts
 another rule's action, so a rule cannot retrigger itself.
 
+The person who last saved a rule's action, conditions, event, or enabled it supplies its private-task access;
+the original creator stays in its audit record. An older edited rule with no recorded action writer wakes the bot
+instead of changing a private task until someone saves its action again.
+
 **Events without a task.** Some events are not a message to a bot and have no task: `webhook.received` (an incoming
 webhook was accepted) and `tico.notice`. A rule names one as its `event`
 (or a prefix such as `webhook.*`) and `hub event-types` lists them. Rules on these events are judged by `judge_event`,
