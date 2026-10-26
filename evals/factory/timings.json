@@ -1,0 +1,23 @@
+{
+ "architect": 31,
+ "backlog_30": 73,
+ "bulk_triage": 38,
+ "computer_off": 44,
+ "design_board": 19,
+ "engineering_budget": 40,
+ "fallback_model_stop": 33,
+ "flaky_ci": 33,
+ "forgetful_builder": 25,
+ "garbled_reviews": 33,
+ "happy_path": 33,
+ "merged_outside": 27,
+ "merged_stale_blocker": 27,
+ "off_script": 35,
+ "qa_mixed": 44,
+ "quota_outage": 48,
+ "review_changes": 33,
+ "silent_reviewer": 34,
+ "skip_qa": 41,
+ "stale_head": 34,
+ "stuck_ticket": 25
+}
