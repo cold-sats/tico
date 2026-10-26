@@ -226,4 +226,19 @@ def tick(service, store=None, at=None, force=False):
         except Exception:
             # One ticket's failure must not hold back the others; it is due again on the next pass.
             log.exception("move retry failed for %s", row["id"])
+            _delay_after_failure(store, row)
     return moved
+
+
+def _delay_after_failure(store, row):
+    """A retry that raised instead of being refused remembered nothing, so an outage row would read GitHub again
+    on every pass for up to RETRY_FOR. Wait OUTAGE_EVERY like a refused retry before trying it again."""
+    try:
+        with store.transaction() as c:
+            found = remembered(c, H.task(c, row["id"]))
+            if not found:
+                return
+            last, _detail = found
+            c.execute("UPDATE task_events SET new=json_set(new,'$.at',?) WHERE rowid=?", (H.now(), last["rowid"]))
+    except Exception:
+        log.exception("move retry delay failed for %s", row["id"])
