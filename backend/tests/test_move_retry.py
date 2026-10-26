@@ -235,6 +235,48 @@ def test_a_retry_that_raises_waits_five_minutes_before_reading_github_again(api,
     assert devops_tasks(api) == []
 
 
+def test_a_permission_failure_after_a_temporary_one_asks_devops_once(api, monkeypatch):
+    """The first refusal was temporary; a later retry is refused for access. That retry asks DevOps, and the
+    retries after it reuse the ask."""
+    from backend.store import Problem
+    task = ticket(api, RECEIPT)
+    unreadable(api, monkeypatch, 'temporary')
+    assert move(api, task).status_code == 422
+    assert devops_tasks(api) == []
+
+    def refused(repos, scopes):
+        raise Problem('github_app_permissions', 'synthetic permission refusal', 409)
+
+    monkeypatch.setattr(api.app.state.github_app, 'mint', refused)
+    assert move_retry.tick(api.app.state.github_app, at=later(6), force=True) == []
+    assert devops_tasks(api) == ['GitHub cannot be read for review moves']
+    assert move_retry.tick(api.app.state.github_app, at=later(12), force=True) == []
+    assert move_retry.tick(api.app.state.github_app, at=later(18), force=True) == []
+    assert len(retries(api, task)) == 4 and devops_tasks(api) == ['GitHub cannot be read for review moves']
+
+
+def test_a_retry_that_raises_on_a_receipt_refusal_waits_five_minutes_then_moves(api, monkeypatch):
+    """A refusal that is not an outage is due when its inputs change; a retry of it that raises must still wait
+    before it is tried again, not stay due on every pass."""
+    from backend import review_gate
+    task = ticket(api)
+    assert move(api, task).status_code == 422
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET note=? WHERE id=?', (RECEIPT, task['id']))
+    real, calls = review_gate.snapshot, []
+
+    def crash(service, prs):
+        calls.append(1)
+        raise RuntimeError('synthetic snapshot crash')
+
+    monkeypatch.setattr(review_gate, 'snapshot', crash)
+    assert move_retry.tick(api.app.state.github_app, at=later(1), force=True) == [] and len(calls) == 1
+    assert move_retry.tick(api.app.state.github_app, at=later(5), force=True) == [] and len(calls) == 1
+    monkeypatch.setattr(review_gate, 'snapshot', real)
+    assert move_retry.tick(api.app.state.github_app, at=later(7), force=True) == [task['id']]
+    assert step(api, task) == 'Review 1'
+
+
 def test_one_tickets_failing_retry_does_not_hold_back_the_others(api, monkeypatch):
     rows = [({'id': 'broken'}, {}), ({'id': 'fine'}, {})]
     monkeypatch.setattr(move_retry, 'pending', lambda c, at: rows)
