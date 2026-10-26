@@ -553,6 +553,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn only_an_acknowledged_interruption_records_the_terminal_recovery_receipt() {
+        for status in ["interrupted", "completed"] {
+            let (url, _) = lapsed_hub().await;
+            let (runner, dir) = runner_at(&url);
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let host = Host::Claude(ClaudeHost::new("acme", vec![], tx.clone()));
+            tx.send(json!({"kind": "turn_completed", "thread_id": "th-1", "turn_id": "turn-1", "status": status})).unwrap();
+            let drove = drive_turn(&runner, &host, &mut rx, &flags(true), "th-1").await.unwrap();
+            assert_eq!(drove.outcome, status);
+            let events = runner.state.pending("acme-late").unwrap();
+            assert_eq!(events.iter().any(|e| e["kind"] == "diagnostic" && e["payload"]["interruption_complete"] == true),
+                       status == "interrupted");
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    #[tokio::test]
     async fn run_diagnostics_timeout_names_the_limit_and_tail_uses_a_separate_capped_row() {
         let (runner, dir) = runner_at("http://127.0.0.1:9");
         runner.state.record(&json!({"id": "diagnostics"})).unwrap();
