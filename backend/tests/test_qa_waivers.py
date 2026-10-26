@@ -59,6 +59,14 @@ def child(api, ticket, title, status='done', verdict=None, head=None):
     return r.json()['task']
 
 
+def green(api, row, checks=None):
+    """As check webhooks leave a link: its summary and each check by name."""
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE task_links SET checks='passing', detail_json=json_set(detail_json,'$.checks',json(?)) "
+                  "WHERE task_id=? AND kind='pr'",
+                  (json.dumps(checks or {'check:python': 'passing', 'check:browser': 'skipped'}), row['id']))
+
+
 def ticket(api, owner='cpo', step='In QA', checks=None, reviews=(('approve', HEAD), ('approve', HEAD))):
     with api.app.state.store.read() as c:
         typ = H.type_get(c, 'Dev tickets')
@@ -67,9 +75,7 @@ def ticket(api, owner='cpo', step='In QA', checks=None, reviews=(('approve', HEA
     assert r.status_code == 200, r.text
     row = r.json()['task']
     hook(api, 'pull_request', pr_event('opened', head={'sha': HEAD}))
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE task_links SET detail_json=json_set(detail_json,'$.checks',json(?)) WHERE task_id=? AND kind='pr'",
-                  (json.dumps(checks or {'check:python': 'passing', 'check:browser': 'skipped'}), row['id']))
+    green(api, row, checks)
     for name, (verdict, head) in zip(('Review 1: PR #412', 'Review 2: PR #412'), reviews):
         if verdict:
             child(api, row, name, verdict=verdict, head=head)
@@ -140,6 +146,10 @@ def test_a_different_head_is_refused_and_a_new_push_voids_the_waiver(api):
     assert waive(api, row).status_code == 200
     hook(api, 'pull_request', pr_event('synchronize', head={'sha': NEW}))
     assert [w['current'] for w in shown(api, row)['task']['qa_waivers']] == [False]
+    # The push left its checks pending: nothing can be waived until they pass.
+    r = waive(api, row, head=NEW)
+    assert r.status_code == 422 and 'Hosted checks stay mandatory' in r.text, r.text
+    green(api, row)
     # The old head's waiver does not stand for the new head, and the new head has no review approving it.
     r = waive(api, row, head=NEW)
     assert r.status_code == 422 and 'Review 2 approved aaaaaaaaaaaa, not bbbbbbbbbbbb' in r.text, r.text
