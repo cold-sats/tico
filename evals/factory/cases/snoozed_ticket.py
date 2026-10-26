@@ -109,16 +109,18 @@ def snooze_over_once(run):
 
 
 def unsnooze_wakes_once(run):
-    """Unsnoozing early wakes the owner once, and that run takes the parked ticket off its first step."""
-    _, _, early = run.snoozed.get(run.parked, (None, None, None))
+    """Unsnoozing early wakes the owner once, and that run takes the parked ticket off its first step, long before
+    the date it was snoozed to. The run may wait for the owner's turn in hand to end."""
+    _, until, early = run.snoozed.get(run.parked, (None, None, None))
     if not early:
         return False, "the parked ticket was not unsnoozed"
     woke = notices(run, run.parked, "Unsnoozed:")
-    ran = owner_turns(run, run.parked, early, early + at(1))
+    ran = owner_turns(run, run.parked, early, until)
     moved = run.w.sql("SELECT 1 FROM task_events WHERE task_id=? AND field='step' AND ts>=?",
                       (run.parked, early.strftime("%Y-%m-%dT%H:%M:%S.%fZ")))
     ok = len(woke) == 1 and woke[0]["woke"] and bool(ran) and bool(moved)
-    return ok, f"{len(woke)} unsnooze notices, {len(ran)} owner runs in the hour after, " + \
+    return ok, f"{len(woke)} unsnooze notices, " + \
+        (f"owner ran on it {(ran[0]['at'] - early).total_seconds() / 60:.0f} min after, " if ran else "no owner run, ") + \
         ("moved on" if moved else "still at its first step")
 
 
