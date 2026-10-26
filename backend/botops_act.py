@@ -333,7 +333,7 @@ def own_powers(body):
     return isinstance(body, dict) and any(body.get(name) is not None for name in OWN_POWER_RULES)
 
 
-def card_for_person(method, path, body=None, rules=None, lowers=None):
+def card_for_person(method, path, body=None, rules=None, lowers=None, *, force_confirm=False):
     """Whether BotOps acting for a person answers with a Confirm card in their chat instead of making the change: the
     routes that always need their own tap (ALWAYS, a team rule on BotOps' own powers), the CONFIRM routes and, when
     the team turned `botops_direct` off, providers and limits (TIGHTENED) unless `lowers()` says the change only lowers
@@ -341,6 +341,8 @@ def card_for_person(method, path, body=None, rules=None, lowers=None):
     path, method = normalize(path), str(method or "").upper()
     if not path or method in ("GET", "HEAD", "OPTIONS"):
         return False
+    if force_confirm:
+        return True
     match = lambda routes: any(m == method and p.fullmatch(path) for m, p in routes)
     if match(ALWAYS) or match(CONFIRM):
         return True

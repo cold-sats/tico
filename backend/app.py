@@ -4770,7 +4770,15 @@ def create_app(settings=None):
                 scope = rest[len("usage/pools/"):]
                 return usage_limits.pool_only_lowers(c, "company" if scope == "company" else "group:" + scope.split("/", 1)[-1], body)
             return usage_limits.only_lowers(c, rest[len("usage/limits/"):] if rest.startswith("usage/limits/") else None, body)
-        if not path or not botops_act.card_for_person(method, path, body, rules, lowers):
+        # A Gateway URL change sends the configured key to the proposed address as a connection check.
+        # Require the owner's tap whenever a key is configured, even when botops_direct is on.
+        gateway_key_address_change = (
+            method == "PUT" and path == botops_act.API + "providers/gateway"
+            and isinstance(body, dict) and bool(body.get("url"))
+            and gateway_connection.connected(c, settings)
+        )
+        if not path or not botops_act.card_for_person(method, path, body, rules, lowers,
+                                                       force_confirm=gateway_key_address_change):
             return None
         # Told at once, not handed a card that fails on the tap.
         who_may = ("the owner" if botops_act.owner_only(method, path, body) and acting.role != "owner"

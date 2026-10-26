@@ -188,10 +188,17 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         original.active(KEY, 0.1)
         proposed.active(KEY, 0.2)
         save(api, original)
+        original.calls.clear()  # exclude the setup probe; count only calls caused by BotOps or the owner's tap
         put(api, "access/rules", {"botops_direct": False})
         ana = turn(api, botops, person="ana-test", text="Change the Gateway address")
         current = get(api, "providers/gateway")
         request = {"url": proposed.url, "expected_revision": current["revision"]}
+
+        secret = act(api, ana, "PUT", "providers/gateway", {**request, "key": KEY})
+        assert secret.status_code == 422 and secret.json()["error"]["code"] == "secret_in_request", secret.text
+        assert KEY not in secret.text and proposed.calls == []
+        with api.app.state.store.read() as c:
+            assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
 
         pending = act(api, ana, "PUT", "providers/gateway", request)
         assert pending.status_code == 200 and pending.json()["needs_confirm"], pending.text
@@ -218,14 +225,17 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         post(api, f"assistant/actions/{card['action']['id']}/confirm", {}, token="ana-test", expected=409)
         assert proposed.calls == [("/v1/gateway/key", KEY)]
 
-        # Turning direct changes back on preserves the existing direct path for the owner.
+        # A saved key makes every address change a card, even when direct provider changes are enabled.
         put(api, "access/rules", {"botops_direct": True})
         current = get(api, "providers/gateway")
-        direct = act(api, ana, "PUT", "providers/gateway",
-                     {"url": original.url, "expected_revision": current["revision"]})
-        assert direct.status_code == 200 and "needs_confirm" not in direct.json(), direct.text
+        direct_rule_card = act(api, ana, "PUT", "providers/gateway",
+                               {"url": original.url, "expected_revision": current["revision"]})
+        assert direct_rule_card.status_code == 200 and direct_rule_card.json()["needs_confirm"], direct_rule_card.text
+        assert get(api, "providers/gateway")["url"] == proposed.url
+        assert original.calls == []
+        assert confirm(api, direct_rule_card.json(), "ana-test")["action"]["status"] == "done"
         assert get(api, "providers/gateway")["url"] == original.url
-        assert original.calls == [("/v1/gateway/key", KEY), ("/v1/gateway/key", KEY)]
+        assert original.calls == [("/v1/gateway/key", KEY)]
 
         # A non-owner cannot use the card path even when direct changes are disabled.
         finish(api, botops, ana)
@@ -237,7 +247,6 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         assert refused.status_code == 403 and "Only the owner" in refused.json()["error"]["detail"]
         assert get(api, "providers/gateway")["url"] == original.url
         assert proposed.calls == [("/v1/gateway/key", KEY)]
-        assert KEY not in everything(api)
         with api.app.state.store.read() as c:
             visible = json.dumps([dict(r) for r in c.execute("SELECT body_json,result_json FROM assistant_actions")]
                                  + [dict(r) for r in c.execute("SELECT body,refs_json FROM messages")])
