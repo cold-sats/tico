@@ -174,3 +174,37 @@ def test_botops_lists_a_seats_candidates_but_the_pick_is_the_persons_tap(api, bo
     with api.app.state.store.read() as c:
         assert {r["slug"] for r in c.execute("SELECT slug FROM bots")} == before
         assert not c.execute("SELECT filled_by FROM seats WHERE id=?", (seat["id"],)).fetchone()[0]
+
+
+def test_a_client_that_sends_no_header_gets_the_same_card_or_refusal(api, botops):
+    """An older `hub` sends no delegation header: BotOps still acts for the person who asked, so each family of
+    routes answers with her card (or the plain refusal), never BotOps' own 403 or an unconfirmed change."""
+    local(api)
+    row = jira(api)
+    seat = post(api, "seats", {"title": "Support lead", "reports_to": "coo"})
+    put(api, "usage/limits/ops", {"daily_usd": 10})
+    put(api, "access/rules", {"botops_direct": False})
+    revision = get(api, "providers")["revision"]
+    ana = turn(api, botops, person="ana-test", text="Do these for me")
+    cards = (("POST", "access/owner", {"person": "ben", "expected_revision": get(api, "access")["owner"]["revision"],
+                                       "confirm": True}),
+             ("POST", "enrollments", {"operator": "ana"}),
+             ("POST", "system/update", {"version": "9.9.9"}),
+             ("PUT", "access/rules", {"botops_manages_bots": False}),
+             ("POST", f"seats/{seat['id']}/hire", {"template": "support"}),
+             ("PUT", "providers", {"enabled": ["openai"], "expected_revision": revision}),
+             ("PUT", "usage/limits/ops", {"daily_usd": 50}),
+             ("POST", "access/people/cara", {"role": "admin"}),
+             ("POST", f"credentials/{row['id']}/grants", {"subject": "human:cara"}))
+    for method, path, body in cards:
+        answer = act(api, ana, method, path, body, ref=None)
+        assert answer.status_code == 200 and answer.json().get("needs_confirm"), (path, answer.text)
+        card_in_chat(api, answer.json(), "ana")
+    refused = act(api, ana, "POST", f"credentials/{row['id']}/reveal", {}, ref=None)
+    assert refused.status_code == 403 and refused.json()["error"]["code"] == "person_only", refused.text
+    assert JIRA not in refused.text
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM enrollments WHERE consumed_at IS NULL").fetchone()[0] == 0
+        assert c.execute("SELECT daily_usd FROM usage_limits WHERE bot='ops'").fetchone()[0] == 10
+    assert api.app.state.auth.owner_email == "ana@acme.example"
+    assert "cara@acme.example" not in api.app.state.auth.bot_admins

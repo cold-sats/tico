@@ -465,6 +465,10 @@ def default_delegable(method, path, body=None):
         return classify(method, path, body) == "do"
     if not path or OWN.fullmatch(path):
         return False
+    # The person's own card or plain refusal (`card_for_person`, `person_only`) reaches a client that sends no
+    # header too, not BotOps' own 403.
+    if any(m == str(method).upper() and p.fullmatch(path) for m, p in ALWAYS) or person_only(method, path):
+        return True
     return classify(method, path, body) in ("do", "confirm")
 
 
