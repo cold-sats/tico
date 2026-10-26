@@ -36078,6 +36078,18 @@
               }
             ],
             "title": "Check Limit"
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow"
           }
         },
         "additionalProperties": false,
