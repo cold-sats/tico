@@ -427,25 +427,67 @@ def reports_tools(c, attempt_id, config):
 
 
 
+# Match operations Tico can name, rather than treating every shell or file edit as an outside action.
+OUTSIDE_ACTION = re.compile(
+    r"\b(?:gh\s+pr\s+merge|gh\s+release\s+create|npm\s+publish|"
+    r"(?:hub\s+)?approval\s+consume|(?:hub\s+)?(?:mail|email)\s+send|"
+    r"(?:hub\s+)?webhook\s+send|stripe\s+(?:payments|payment_intents)\s+(?:create|confirm))\b", re.I)
+OUTSIDE_TOOLS = frozenset({"send_email", "send_mail", "merge_pull_request", "publish_release", "make_payment"})
+
+
+def restart_reported(c, attempt_id):
+    """Only the computer's terminal restart report relaxes generic tool uncertainty; a lost lease does not."""
+    row = c.execute("SELECT state,result_json FROM attempts WHERE id=?", (attempt_id,)).fetchone()
+    result = json.loads(row['result_json'] or '{}') if row else {}
+    return bool(row and row['state'] in ('interrupted', 'expired') and result.get('outcome') == 'interrupted'
+                and result.get('text') == 'Runner restarted during execution')
+
+
+def outside_actions(c, job, started, finished):
+    actions = set()
+    # Retain start evidence even when a later tool update replaces its command summary with output.
+    evidence = [json.loads(row[0] or '{}') for row in c.execute(
+        "SELECT payload_json FROM attempt_events WHERE attempt_id=? AND kind='tool' ORDER BY seq",
+        (job['attempt_id'],))]
+    for call in evidence:
+        name = str(call.get('tool') or call.get('name') or '')
+        if name.split('__')[-1] in OUTSIDE_TOOLS:
+            actions.add(name)
+        summary = str(call.get('summary') or '')
+        match = OUTSIDE_ACTION.search(summary)
+        if match:
+            actions.add(summary[:120])
+    # A merged linked PR is evidence even when its shell call's summary was abbreviated.
+    for row in c.execute("SELECT l.url FROM task_links l JOIN turns t ON t.task_id=l.task_id "
+                         "WHERE t.id=? AND l.kind='pr' AND l.pr_merged_at BETWEEN ? AND ?",
+                         (job['attempt_id'], started or job['created'], finished or H.now())):
+        actions.add('merge ' + row['url'])
+    return sorted(actions)
+
+
 def retry_facts(c, job, started, finished):
     """What a held run did, judged once for both the sweep that retries a safe one by itself (`auto_reconcile`) and
     the review card that recommends a person's choice (`review_jobs`), so the two can never disagree: its recorded
     calls, the ones that can change things, approvals it used up, whether its host's silence proves anything, how
-    many times it has started, and `safe` for a run that only read on a host that reports every call."""
+    many times it has started, and named outside actions that can hold a computer-reported restart."""
     config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (job['bot'],)).fetchone()
     declared = json.loads(config[0]) if config else {}
     calls = recorded_tools(c, job['attempt_id'])
     acted = sorted({call['tool'] for call in calls if call['tool'] not in READ_ONLY_TOOLS})
     window = (started or job['created'], finished or H.now())
-    consumed = c.execute("SELECT count(*) FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
-                         "AND consumed_at BETWEEN ? AND ?", ('bot:' + job['bot'], *window)).fetchone()[0]
+    approvals = c.execute("SELECT kind FROM approvals WHERE requested_by=? AND consumed_at IS NOT NULL "
+                          "AND consumed_at BETWEEN ? AND ?", ('bot:' + job['bot'], *window)).fetchall()
+    consumed = len(approvals)
     reported = reports_tools(c, job['attempt_id'], declared)
     # A message folded into another job's run counts that run as one of its own starts.
     starts = c.execute("SELECT count(*) FROM attempts WHERE started IS NOT NULL AND (job_id=? OR id IN "
                        "(SELECT attempt_id FROM attempt_inputs WHERE message_id=?))",
                        (job['id'], job['message_id'])).fetchone()[0]
+    restart = restart_reported(c, job['attempt_id'])
+    outside = outside_actions(c, job, started, finished) if restart else []
     return {'calls': calls, 'acted': acted, 'consumed': consumed, 'reported': reported, 'starts': starts,
-            'safe': reported and not acted and not consumed}
+            'restart': restart, 'outside': outside, 'approval_kinds': sorted({a['kind'] for a in approvals}),
+            'safe': not consumed and (not outside if restart else reported and not acted)}
 
 # Tool calls that only read: a run that made nothing else repeats nothing when it runs again. Claude's and Codex's
 # own names. A subagent's launch is listed because its own calls are reported and judged one by one. A shell command
@@ -2314,6 +2356,7 @@ class Execution:
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
                             "login_class": login_class(c, task, msg, routine),
+                            "recovery": {"resume_session": restart_reported(c, row["attempt_id"])} if recovery else None,
                             "computer_label": runner["label"], "computer_logins_v1": True,
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
@@ -3515,7 +3558,18 @@ class Execution:
             calls, acted = facts['calls'], facts['acted']
             # `stopped` is what the review card leads with (ui/app/settings.js executionReview), by the same rule the
             # sweep retries by: only a run `auto_reconcile` would call safe, on its first start, is 'read'.
-            if acted:
+            if facts['restart'] and (facts['outside'] or facts['consumed']):
+                stopped = 'changed'
+                named = ', '.join([*facts['outside'],
+                                   *(['consumed approval (' + ', '.join(facts['approval_kinds']) + ')'] if facts['consumed'] else [])])
+                reason = f"The computer restarted after the run recorded {named}; check this outside action before resuming."
+            elif facts['restart'] and facts['starts'] <= 1:
+                stopped = 'read'
+                reason = "The computer reported a restart; no consumed approval or named irreversible outside action holds this run."
+            elif facts['restart'] and facts['starts'] > 1:
+                stopped = 'twice'
+                reason = "The run stopped the same way more than once, so Tico won't run it again."
+            elif acted:
                 stopped = 'changed'
                 reason = (f"The run stopped after using a tool that can change things ({', '.join(acted)}). Tico "
                           "cannot tell whether it finished, so retrying automatically could repeat the action.")
@@ -3529,7 +3583,7 @@ class Execution:
                           "enough detail for Tico to prove that retrying automatically is safe.")
             elif facts['starts'] > 1:
                 stopped = 'twice'
-                reason = "The run only read, but it stopped the same way more than once, so Tico won't run it again."
+                reason = "The run stopped the same way more than once, so Tico won't run it again."
             else:
                 stopped = 'read'
                 reason = ("The run stopped after only reading, so trying it again repeats nothing." if calls else
@@ -3566,23 +3620,38 @@ class Execution:
         busy = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') AND lane="
                          "coalesce((SELECT lane FROM attempts WHERE id=?),'main')",
                          (row['bot'], row['attempt_id'])).fetchone()
-        return self._decide(c, row, body.attempt_id, body.decision, note, who.actor, deferred=bool(busy))
+        result = self._decide(c, row, body.attempt_id, body.decision, note, who.actor, deferred=bool(busy))
+        return result
 
-    def _decide(self, c, row, attempt_id, decision, note, actor, *, action='job.reconcile', shown=None, deferred=False):
+    def _finish_recovery_review(self, c, bot):
+        """The review owns saving choices, not waiting for their lanes to become idle."""
+        # Reviewing ends when the choices are durably saved, even if their lane is still busy.
+        if not c.execute("SELECT 1 FROM jobs j WHERE j.bot=? AND j.state='uncertain' AND NOT EXISTS "
+                         "(SELECT 1 FROM job_recovery r WHERE r.job_id=j.id AND r.attempt_id=j.attempt_id)",
+                         (bot,)).fetchone():
+            for task in c.execute("SELECT id FROM tasks WHERE owner=? AND title=? "
+                                  "AND status IN ('open','doing','waiting','review','ready')",
+                                  (H.bot_actor(H.FLEET_MAINTAINER), f"Review {bot}'s stopped runs held for a check")).fetchall():
+                H.task_update(c, H.KEEPER, task['id'], status='done', quiet=True,
+                              note='Recovery decisions saved. Tico applies deferred choices when the lane frees.')
+
+    def _decide(self, c, row, attempt_id, decision, note, actor, *, action='job.reconcile', shown=None, deferred=False, saved=False):
         """Record one decision on an uncertain job: resume queues it again, dismiss releases it. `shown` is the
         line people read when the note itself is written to the bot. A deferred choice stays held until its lane is idle."""
         job_id = row['id']
         state = 'uncertain' if deferred else 'queued' if decision == 'resume' else 'cancelled'
-        c.execute("INSERT INTO job_recovery VALUES(?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET "
-                  "attempt_id=excluded.attempt_id,decision=excluded.decision,note=excluded.note,"
-                  "actor=excluded.actor,created=excluded.created",
-                  (job_id,attempt_id,decision,note,actor,H.now()))
+        if not saved:
+            c.execute("INSERT INTO job_recovery VALUES(?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET "
+                      "attempt_id=excluded.attempt_id,decision=excluded.decision,note=excluded.note,"
+                      "actor=excluded.actor,created=excluded.created",
+                      (job_id,attempt_id,decision,note,actor,H.now()))
         if decision == 'dismiss' and not deferred:
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),row['message_id']))
         c.execute("UPDATE jobs SET state=? WHERE id=?", (state,job_id))
         H.event(c, actor, action, job_id, {'attempt_id':attempt_id, 'decision':decision, 'note':note,
                                            **({'deferred': True} if deferred else {}),
                                            **({'shown':shown} if shown else {})})
+        self._finish_recovery_review(c, row['bot'])
         if not c.execute("SELECT 1 FROM jobs WHERE bot=? AND state='uncertain'", (row['bot'],)).fetchone():
             settle_status(c, row['bot'], 'idle', 'Stopped run reviewed')
         return {'job_id':job_id, 'state':state, **({'deferred': True} if deferred else {})}
@@ -3723,6 +3792,10 @@ class Execution:
           nothing. This needs a host that reports its tool calls (`reports_tools`); a run from a
           host that does not is silent either way, so it is held like one that acted.
 
+        A computer-reported restart resumes on the next sweep even after a shell or local edit, unless a consumed
+        approval or a named merge, publish, send or payment requires review. Its note gives the interruption time
+        and asks it to check existing effects first. Lost leases without that report retain the conservative rule.
+
         Any other run, one that used a tool that can change things or whose host cannot say what it
         did, stays held for its operator or BotOps to review (`review_jobs`), because the hub cannot
         see what a tool did on the Mac and running it again could repeat an outside action. BotOps is
@@ -3756,29 +3829,31 @@ class Execution:
                          "LEFT JOIN messages m ON m.id=j.message_id LEFT JOIN conversations cv ON cv.id=m.conversation_id "
                          "WHERE j.state='uncertain' AND j.attempt_id IS NOT NULL "
                          "AND (coalesce(a.finished, j.created) <= ? "
-                         "OR a.state='interrupted' OR r.job_id IS NOT NULL) "
+                         "OR a.state='interrupted' OR (json_extract(a.result_json,'$.outcome')='interrupted' "
+                         "AND json_extract(a.result_json,'$.text')='Runner restarted during execution') "
+                         "OR r.job_id IS NOT NULL) "
                          "AND NOT EXISTS(SELECT 1 FROM attempts t LEFT JOIN turns tt ON tt.id=t.id "
                          "WHERE t.bot=j.bot AND t.state IN ('leased','running') AND (t.job_id=j.id "
                          "OR t.id IN (SELECT attempt_id FROM attempt_inputs WHERE message_id=j.message_id) "
                          f"OR tt.task_id={task_sql} "
                          f"OR ({task_sql} IS NULL AND EXISTS(SELECT 1 FROM attempt_conversations ac "
                          "WHERE ac.attempt_id=t.id AND ac.conversation_id=m.conversation_id)) "
-                         f"OR (t.lane=a.lane AND a.lane<>'{sessions.MAIN_LANE}'))) "
+                         f"OR (t.lane=a.lane AND (a.lane<>'{sessions.MAIN_LANE}' OR r.job_id IS NOT NULL)))) "
                          "ORDER BY j.created", (cutoff, cutoff)).fetchall()
         for row in rows:
             with isolated(c, "auto_reconcile", row["id"]):
                 if row['pending_decision']:
                     decided.append(self._decide(c, row, row['attempt_id'], row['pending_decision'],
-                                                row['review_note'], row['reviewer']))
+                                                row['review_note'], row['reviewer'], saved=True))
                     continue
                 held = row['attempt_id'] and c.execute("SELECT 1 FROM events WHERE action='job.held' AND target=?",
                                                        (row['attempt_id'],)).fetchone()
                 calls, acted, safe = [], [], False
                 facts = retry_facts(c, row, row['started'], row['finished'])
-                if not held:
+                if not held or facts['restart']:
                     calls, acted, safe = facts['calls'], facts['acted'], facts['safe']
                 started = facts['starts']
-                if not row['aged'] and not (safe and started <= 1):
+                if not row['aged'] and not facts['restart'] and not (safe and started <= 1):
                     continue  # the usual wait: a person may look first
                 msg = H.message(c, row['message_id'])
                 conv = H.conversation(c, msg['conversation_id']) if msg else None
@@ -3841,11 +3916,14 @@ class Execution:
                 if not safe:
                     # Held: running it again could repeat an outside action.
                     if not held and row['attempt_id']:
-                        H.event(c, H.KEEPER, 'job.held', row['attempt_id'], {'job_id': row['id'], 'tools': acted})
+                        H.event(c, H.KEEPER, 'job.held', row['attempt_id'], {'job_id': row['id'], 'tools': acted,
+                                   'outside_actions': facts['outside'], 'consumed_approval': bool(facts['consumed'])})
                         if privacy.message_readable(c, 'bot:' + H.FLEET_MAINTAINER, msg):
-                            self._hand_to_maintainer(c, row, msg, task, acted)
+                            self._hand_to_maintainer(c, row, msg, task,
+                                                     [*facts['outside'], *(['consumed approval (' + ', '.join(facts['approval_kinds']) + ')']
+                                                                           if facts['consumed'] else [])] or acted)
                     continue
-                if (row['attempt_state'] == 'expired' and row['started'] and row['finished']
+                if (not facts['restart'] and row['attempt_state'] == 'expired' and row['started'] and row['finished']
                         and row['finished'] > H.shift(H.now(), seconds=-RESULT_GRACE)):
                     # Its lease lapsed but its runner never said the turn stopped: the finished turn may still come
                     # in (`settles_late`), and running it again now would answer the request twice.
@@ -3855,6 +3933,12 @@ class Execution:
                 note = (f"Resumed automatically: the interrupted run {did} and consumed no approval before it "
                         "stopped, so running it again repeats nothing. If this conversation already holds your "
                         "earlier partial work, check what already happened, then continue from there.")
+                if facts['restart']:
+                    at = (row['finished'] or H.now())[11:16]
+                    note = (f"You were interrupted at {at} UTC by a computer restart. "
+                            "Check what already happened first, then continue in this provider session. "
+                            "No consumed approval or named irreversible outside action was recorded. " +
+                            (note if not acted else ''))
                 decided.append(self._decide(c, row, row['attempt_id'], 'resume', note, H.KEEPER,
                                             action='job.auto_reconcile'))
         for bot, said in limit_said.items():
@@ -3896,10 +3980,15 @@ class Execution:
         if row['bot'] == maintainer or not H.bot(c, maintainer):
             return
         title = f"Review {row['bot']}'s stopped runs held for a check"
-        if c.execute("SELECT 1 FROM tasks WHERE title=? AND status IN ('open','doing','waiting','review','ready')",
-                     (title,)).fetchone():
+        existing = c.execute("SELECT id,body FROM tasks WHERE title=? AND owner=? "
+                             "AND status IN ('open','doing','waiting','review','ready')",
+                             (title, H.bot_actor(maintainer))).fetchone()
+        did = f"recorded {', '.join(acted)}" if acted else "ran on a host that does not report its tool calls"
+        if existing:
+            if row['id'] not in existing['body']:
+                H.task_update(c, H.KEEPER, existing['id'], quiet=True,
+                              body=existing['body'] + f"\nAnother stopped run (job {row['id']}) {did}.")
             return
-        did = f"used {', '.join(acted)}" if acted else "ran on a host that does not report its tool calls"
         about = f" on the task \"{task['title']}\" (owner {owner_name(c, task['owner'])})" if task else ""
         # The request's words stay out: this task is company-wide, and the review shows them only to readers of
         # the conversation they came from.
@@ -3908,7 +3997,8 @@ class Execution:
                           f"A run of {row['bot']}{about} (job {row['id']}) stopped after it {did}, so Tico holds it "
                           "rather than repeat a possible outside action.\n"
                           f"Read GET bots/{row['bot']}/execution-review (the request, its tool calls and saved output), check what "
-                          "already happened, then resume or dismiss each held run with POST jobs/<id>/reconcile.",
+                          "already happened, then resume or dismiss each held run with POST jobs/<id>/reconcile. "
+                          "The review is done once all choices are saved; Tico applies deferred choices when the lane frees.",
                           H.bot_actor(maintainer))
         except H.Refused:
             pass

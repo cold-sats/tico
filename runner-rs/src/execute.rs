@@ -1307,7 +1307,7 @@ impl Runner {
             // last turn (crate::rotate). A command (/compact) is for the thread it names, so it keeps it.
             let mut since: Option<String> = None;
             let mut left: Option<String> = None;
-            if let Some(prev) = previous.clone().filter(|_| !truthy(refs.get("command"))) {
+            if let Some(prev) = previous.clone().filter(|_| !truthy(refs.get("command")) && attempt["recovery"]["resume_session"] != true) {
                 if let Some(r) = crate::rotate::due(&config, self.state.session_size(&prev)?) {
                     log(&format!("Tico runner: {bot}: {}", r.diagnostic()));
                     let _ = self.state.append(&aid, "diagnostic", &json!({"text": r.diagnostic(), "rotated": r.report()}));
@@ -2822,6 +2822,9 @@ for line in sys.stdin:
                                  "lease_seconds": 120, "conversation": room, "task": task,
                                  "message": {"id": message, "from_actor": "human:ana@acme.example", "body": body, "refs": refs},
                                  "history": history, "config": {"runtime": "pi", "harness": "pi", "model": "kimi-k3", "rotate_at": rotate_at}});
+            if turns[n].0 == "recovery" {
+                attempt["recovery"] = json!({"resume_session": true});
+            }
             tokio::time::timeout(Duration::from_secs(60), runner.clone().execute(attempt)).await.expect("the turn did not end").unwrap();
         }
         server.abort();
@@ -2882,7 +2885,7 @@ for line in sys.stdin:
         let _controls = RunControls;
         let dir = std::env::temp_dir().join(format!("tico-confirm-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("projects/bot-ops")).unwrap();
-        let modes: String = turns.iter().map(|(mode, _)| format!("{mode}\n")).collect();
+        let modes: String = turns.iter().map(|(mode, _)| format!("{}\n", if *mode == "recovery" { "up" } else { mode })).collect();
         std::fs::write(dir.join("modes"), modes).unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../runner/tests/fixtures/pi/turn.jsonl");
         // The thread a command line names: Claude's --session-id or --resume, pi's --session-id.
@@ -2911,11 +2914,14 @@ for line in sys.stdin:
         let (runtime, model) = if claude { ("claude", "claude-opus-5-5") } else { ("pi", "kimi-k3") };
         let mut saved = vec![];
         for (n, (_, rotate_at)) in turns.iter().enumerate() {
-            let attempt = json!({"id": format!("a-confirm-{n}"), "job_id": format!("j{n}"), "bot": "ops", "token": "synthetic-turn",
+            let mut attempt = json!({"id": format!("a-confirm-{n}"), "job_id": format!("j{n}"), "bot": "ops", "token": "synthetic-turn",
                                  "lease_seconds": 120, "conversation": {"id": "c-watch", "kind": "task"},
                                  "task": {"id": "t-watch", "title": "Watch the Acme release", "requester": "human:ana@acme.example"},
                                  "message": {"id": format!("m{n}"), "from_actor": "human:ana@acme.example", "body": "Next", "refs": {}},
                                  "history": [], "config": {"runtime": runtime, "harness": runtime, "model": model, "rotate_at": rotate_at}});
+            if turns[n].0 == "recovery" {
+                attempt["recovery"] = json!({"resume_session": true});
+            }
             tokio::time::timeout(Duration::from_secs(60), runner.clone().execute(attempt)).await.expect("the turn did not end").unwrap();
             saved.push(runner.state.with(|c| c.query_row("SELECT thread FROM sessions WHERE bot='ops'", [], |r| r.get::<_, String>(0)).map(Some).or_else(|e| if e == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(e) })).unwrap());
         }
@@ -2945,6 +2951,16 @@ for line in sys.stdin:
             assert_eq!(told(&seen, "a-confirm-1"), (vec![json!(old)], vec![]), "Tico was told of a session that never came up (claude {claude})");
             assert_eq!(threads[2], old, "the next turn did not resume the old thread (claude {claude})");
             assert_eq!(told(&seen, "a-confirm-2"), (vec![json!(old)], vec![]));
+        }
+    }
+
+    #[tokio::test]
+    async fn restart_recovery_resumes_the_same_provider_session_even_when_rotation_is_due() {
+        for claude in [true, false] {
+            let (threads, saved, seen) = confirming_turns(claude, true, &[("up", 300), ("recovery", 300)]).await;
+            assert_eq!(threads[0], threads[1], "recovery rotated away from interrupted work");
+            assert_eq!(saved, vec![Some(threads[0].clone()); 2]);
+            assert_eq!(told(&seen, "a-confirm-1"), (vec![json!(threads[0])], vec![]));
         }
     }
 

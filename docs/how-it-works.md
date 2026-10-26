@@ -261,9 +261,12 @@ that only read) and consumed no approval, is resumed once, each with a note in t
 record (`job.auto_reconcile` in the event log). A busy bot's runs are settled too: the scheduler waits only
 while a live run of the bot is on the same task (or the same chat, or the same task session). An operator can choose
 **Try again** or **Don’t retry** in Stopped runs; while such a run is still live, Tico saves the choice and applies it
-when that run ends. When the runner itself reported the run interrupted
-(it restarted), such a run resumes at once; when the same computer picks it up again it continues
-the same provider session. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
+when that lane frees. BotOps’s review is done as soon as all its recovery choices are saved.
+When the computer reports a restart, a run resumes on the next scheduler sweep, including one that used a shell or
+edited files. Its recovery note gives the interruption time and tells it to check what already happened first;
+the same computer continues the same provider session. A consumed approval or a named irreversible outside action
+(merge, publish, send or payment) holds it for BotOps instead, and the review names the action. A second interruption
+is dismissed and BotOps is told. A lost lease without the computer’s restart report keeps the conservative rule above. **Unreleased:** safe runs held after a usage limit also recover automatically, as described below.
 Other runs stay *owner review needed*, because Tico cannot see what a
 tool did on the Mac: BotOps is given the review unless the task is private, Settings names the held task and its owner to those
 who may read that task, the review lists each tool call the run made, and the bot's operator or
