@@ -78,8 +78,10 @@ def silent_computer(api, seconds_ago):
         c.execute("UPDATE runners SET operator='riley' WHERE id=?", (runner,))
         c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('helper',?,1,?,'t')",
                   (runner, H.now()))
-        c.execute("INSERT INTO messages(id,from_actor,to_actor,kind,body,created) VALUES('m1','human:ana','bot:helper','chat','hi',?)",
-                  (H.now(),))       # queues its job
+        # A chat message in a conversation, as the product writes them: the trigger queues its job, and Pipeline counts it.
+        c.execute("INSERT INTO conversations(id,kind,participants_json,created) VALUES('cv1','chat','[]',?)", (H.now(),))
+        c.execute("INSERT INTO messages(id,conversation_id,from_actor,to_actor,kind,body,created) "
+                  "VALUES('m1','cv1','human:ana','bot:helper','chat','hi',?)", (H.now(),))       # queues its job
     heartbeat(api, runner, seconds_ago=seconds_ago, runtimes=SIGNED_IN)
     return runner
 

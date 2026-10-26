@@ -3,6 +3,7 @@ ones included unless asked, closed ones never; and a queued job that can never b
 
 import uuid
 
+from backend import health
 from backend import hubdb as H
 from backend import pipeline_stats
 from backend.pipeline_stats import cause_of
@@ -109,6 +110,31 @@ def test_a_queued_job_behind_an_unreviewed_interrupted_run_is_dead_not_queued(ap
     assert "ops" not in hidden["queues"] and hidden["failures"]["total"] == 0
     assert get(api, "pipeline?bot=ops", "cara-test", expected=404)["error"]["code"] == "not_found"
     assert stats(api, query="bot=ops")["queues"]["ops"]["dead"] == 1
+
+
+def test_health_and_pipeline_count_a_bots_queue_the_same_way(api):
+    board(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    task = post(api, "tasks", {"owner": "ops", "title": "Ship the fix", "body": "Please ship it."})
+    attempt = claim(api, r)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='interrupted', finished=?, result_json=? WHERE id=?",
+                  (H.now(), '{"text": "Runner restarted during execution"}', attempt["id"]))
+        c.execute("UPDATE jobs SET state='uncertain' WHERE id=?", (attempt["job_id"],))
+    post(api, f"tasks/{task['id']}/comments", {"text": "Any news?", "needs_action": True})
+    post(api, "chat/ops", {"text": "Separate question"})     # the one job that can start
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET created=? WHERE bot='ops' AND state='queued'", (H.shift(H.now(), hours=-2),))
+    pipe = stats(api, query="bot=ops")["queues"]["ops"]
+    assert pipe["queued"] == 1 and pipe["dead"] == 1
+
+    # Health's row for the bot carries Pipeline's split, not the sum of both: 1 queued, 1 behind the interrupted run.
+    with api.app.state.store.read() as c:
+        _, slow, stuck = health._waiting(c, {r["runner_id"]})
+    rows = [row for row in slow + stuck if row["bot"] == "ops"]
+    assert rows and all((row["queued"], row["dead"]) == (pipe["queued"], pipe["dead"]) for row in rows)
 
 
 def test_unreadable_newer_failures_never_hide_older_readable_ones(api, monkeypatch):
