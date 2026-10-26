@@ -146,7 +146,8 @@ async function open(browser, viewport, colorScheme, server) {
       assert.deepEqual(await rail.locator('#t-blocked .ttl').allInnerTexts(), ['Wait for QA']);
       assert.match(await rail.locator('#t-blocked .trow-waits').innerText(), /Waiting for the test machine.*since/);
       await pill('Doing').click();
-      assert.deepEqual((await rail.locator('#t-open .ttl').allInnerTexts()).sort(), ['Plan the import page', 'Ship the release notes']);
+      // Rows come a page (here one) at a time; the counts above already leave the blocked task out of Doing.
+      assert.deepEqual(await rail.locator('#t-open .ttl').allInnerTexts(), ['Ship the release notes'], at);
       assert.deepEqual(await order(), ['tasks', 'updates', 'files', 'routines']);
       await pill('Assigned to Others').click();
       assert.deepEqual(await rail.locator('#t-c3 .trow .ttl').allInnerTexts(), ['Run the release check']);
