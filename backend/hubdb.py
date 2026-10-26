@@ -3410,7 +3410,7 @@ def task_reopen_hint(actor, row):
     closer = row.get('closed_by') or row['requester']
     if row['status'] == 'closed' and is_bot(actor) and (actor != row['requester'] or is_human(closer)):
         return f"ask {actor_id(closer)} to reopen it, or file a new task"
-    if actor == row['owner'] or is_human(actor) or actor == row['requester'] and row['status'] == 'closed':
+    if actor == row['owner'] or is_human(actor) or (actor == row['requester'] and row['status'] == 'closed'):
         return f"reopen it with `hub task update {row['id']} --status doing`, or file a new task"
     return "ask the owner to reopen it with " + f"`hub task update {row['id']} --status doing`, or file a new task"
 
@@ -3436,7 +3436,7 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         chosen = next((s for s in reversed(typ["steps"]) if s["status"] == "closed"), None)
     else:
         chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
-        if effective == 'open' and row.get('status') in ('doing', 'waiting', 'done'):
+        if effective == 'open' and row.get('status') in ('doing', 'waiting', 'review', 'done'):
             from .review_gate import engineering
             if engineering(conn, {**row, 'type_id': typ['id']}):
                 chosen = next((s for s in typ['steps'] if s['name'] == 'On Deck' and s['status'] == 'open'), chosen)
@@ -3452,6 +3452,7 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
     # done or reopen would land it in whichever step shares that status. Working statuses (an ask's
     # waiting, a turn's doing) still change, as do filing onto the type and the keeper's own automation.
     # A person can always close one: closing takes it off the board, whatever its type.
+    # Its owner may also reopen a Done one with doing or open, which lands on that status's working step.
     if (typ.get("steps_only") and step is None and actor != KEEPER and row.get("status")
             and typ["id"] == (row.get("type_id") or GENERAL_TYPE) and effective != row["status"]
             and not (effective in ACTIVE_STATUSES and row["status"] in ACTIVE_STATUSES)
@@ -5510,8 +5511,10 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                    f"your verdict (hub task done {check['id']} --verdict approve|changes --head <sha>); the Builder "
                    "moves the ticket.")
     if not mine and not mover and actor != KEEPER:
-        refuse(conn, actor, "identity", f"{task_id} is not yours to change; ask the owner to set doing or open, "
-               "or file a new task")
+        # A closed task's closer reopens it, not its owner, so the hint names whoever can.
+        refuse(conn, actor, "identity", f"{task_id} is not yours to change; " + (
+            task_reopen_hint(actor, row) if row['status'] == 'closed'
+            else "ask the owner to set doing or open, or file a new task"))
     type_id = row.get("type_id") or GENERAL_TYPE
     if state_change:
         type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)

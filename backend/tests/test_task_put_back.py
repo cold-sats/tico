@@ -130,7 +130,8 @@ def test_dev_return_prefers_on_deck_over_backlog_and_owner_can_reopen_steps_only
     machine = task_bot(api, lanes=True)
     typ = post(api, 'task-types', {'name': 'Dev tickets', 'steps_only': True, 'steps': [
         {'name': 'Backlog', 'status': 'open'}, {'name': 'On Deck', 'status': 'open'},
-        {'name': 'In Progress', 'status': 'doing'}, {'name': 'Done', 'status': 'done'}]})['type']
+        {'name': 'In Progress', 'status': 'doing'}, {'name': 'Review 1', 'status': 'review'},
+        {'name': 'Done', 'status': 'done'}]})['type']
     task = post(api, 'tasks', {'owner': 'ops', 'title': 'Build requested feature',
                              'body': 'Build the requested feature.', 'type': typ['id'], 'step': 'On Deck'})
     with api.app.state.store.transaction() as c:
@@ -144,3 +145,7 @@ def test_dev_return_prefers_on_deck_over_backlog_and_owner_can_reopen_steps_only
     result = post(api, 'tasks/' + task['id'], {'version': result['version'], 'step': 'Done'}, attempt['token'])
     result = update(api, task, attempt['token'], 'open', 'Another input arrived.')
     assert result['step']['name'] == 'On Deck' and result['done_at'] is None
+    # A ticket pulled back from review is held as a queue return, so it must land where automatic starts look.
+    result = post(api, 'tasks/' + task['id'], {'version': result['version'], 'step': 'Review 1'}, attempt['token'])
+    result = update(api, task, attempt['token'], 'open', 'Review needs inputs that are not ready.')
+    assert result['step']['name'] == 'On Deck'
