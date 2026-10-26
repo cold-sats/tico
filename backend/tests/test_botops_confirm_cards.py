@@ -228,6 +228,7 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         assert original.calls == [("/v1/gateway/key", KEY), ("/v1/gateway/key", KEY)]
 
         # A non-owner cannot use the card path even when direct changes are disabled.
+        finish(api, botops, ana)
         put(api, "access/rules", {"botops_direct": False})
         ben = turn(api, botops, person="ben-test", text="Change the Gateway address")
         current = get(api, "providers/gateway")
