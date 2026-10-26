@@ -202,6 +202,10 @@ def test_put_back_from_blocked_keeps_queue_destination_and_hold(api, monkeypatch
         assert take(api, machine)['task']['id'] == task['id']
     else:
         monkeypatch.setattr(H, 'now', lambda: H.shift(returned, minutes=59))
+        with api.app.state.store.transaction() as c:
+            c.execute('UPDATE runners SET last_seen=?', (H.now(),))
         assert take(api, machine) is None
         monkeypatch.setattr(H, 'now', lambda: H.shift(returned, minutes=60))
+        with api.app.state.store.transaction() as c:
+            c.execute('UPDATE runners SET last_seen=?', (H.now(),))
         assert take(api, machine)['task']['id'] == task['id']
