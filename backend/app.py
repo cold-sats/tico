@@ -4770,12 +4770,13 @@ def create_app(settings=None):
                 scope = rest[len("usage/pools/"):]
                 return usage_limits.pool_only_lowers(c, "company" if scope == "company" else "group:" + scope.split("/", 1)[-1], body)
             return usage_limits.only_lowers(c, rest[len("usage/limits/"):] if rest.startswith("usage/limits/") else None, body)
-        # A Gateway URL change sends the configured key to the proposed address as a connection check.
-        # Require the owner's tap whenever a key is configured, even when botops_direct is on.
+        # A Gateway URL change sends the saved key to the proposed address as a connection check.
+        # Require the owner's tap whenever a key is saved, even when botops_direct is on. A key the server's
+        # environment sets can't be changed here at all, so that save is refused at once rather than carded.
         gateway_key_address_change = (
             method == "PUT" and path == botops_act.API + "providers/gateway"
             and isinstance(body, dict) and bool(body.get("url"))
-            and gateway_connection.connected(c, settings)
+            and gateway_connection.connected(c, settings) and not gateway_connection.env_key(settings)
         )
         if not path or not botops_act.card_for_person(method, path, body, rules, lowers,
                                                        force_confirm=gateway_key_address_change):

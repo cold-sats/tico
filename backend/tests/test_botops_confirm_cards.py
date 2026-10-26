@@ -253,6 +253,22 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         assert KEY not in visible
 
 
+def test_gateway_address_change_with_an_environment_key_is_refused_at_once(api, botops, monkeypatch):
+    from backend.tests.test_gateway_connection import KEY, fake_gateway, setup
+    setup(api, monkeypatch)
+    with fake_gateway() as proposed:
+        monkeypatch.setenv("TICO_GATEWAY_KEY", KEY)
+        put(api, "access/rules", {"botops_direct": True})
+        ana = turn(api, botops, person="ana-test", text="Change the Gateway address")
+        current = get(api, "providers/gateway")
+        answer = act(api, ana, "PUT", "providers/gateway", {"url": proposed.url, "expected_revision": current["revision"]})
+        # Told at once, not handed a card that fails on the tap; the key never reaches the address.
+        assert answer.status_code == 409 and answer.json()["error"]["code"] == "environment", answer.text
+        assert KEY not in answer.text and proposed.calls == []
+        with api.app.state.store.read() as c:
+            assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
+
+
 def test_a_computers_code_is_only_on_the_persons_card(api, botops):
     ana = turn(api, botops, person="ana-test", text="Add a computer for me")
     answer = act(api, ana, "POST", "enrollments", {"operator": "ana"})
