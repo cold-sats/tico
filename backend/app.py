@@ -1117,7 +1117,7 @@ def create_app(settings=None):
             value["pr_state"] = H.pr_state(value["links"])
             from .qa_waivers import waivers as qa_waivers_of
             # A person's QA waiver for an exact head: shown as a waiver, never as a QA verdict (backend/qa_waivers.py).
-            value["qa_waivers"] = qa_waivers_of(c, row)
+            value["qa_waivers"] = qa_waivers_of(c, row, value["links"])
             if parts is None:
                 counts = c.execute("SELECT COUNT(*), SUM(status IN ('done','closed')) FROM tasks WHERE id IN ("
                                    + TR.CHILD_IDS + ") AND (" + visible_sql + ")", (row["id"],)).fetchone()

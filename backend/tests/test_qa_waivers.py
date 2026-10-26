@@ -6,7 +6,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import hubdb as H, qa_waivers
+from backend import hubdb as H, qa_waivers, review_gate
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
@@ -19,8 +19,22 @@ STEPS = [{'name': n, 'status': s} for n, s in (('In Progress', 'doing'), ('Revie
          ('Pending Release', 'ready'), ('Done', 'done'))]
 
 
+class GitHub:
+    """What a fresh GitHub read of the pull request returns (review_gate.snapshot), as the route takes it: the head
+    and every check attempt, skips marked as skipped. `connected=False` is a company without the GitHub App."""
+    def __init__(self):
+        self.head, self.checks, self.connected = HEAD, {}, True
+
+    def snapshot(self, service, prs):
+        if not self.connected:
+            return None
+        return {pr['id']: {'head_sha': self.head, 'checks': dict(self.checks), 'at': H.now()} for pr in prs}
+
+
 @pytest.fixture
-def api(tmp_path):
+def api(tmp_path, monkeypatch):
+    github = GitHub()
+    monkeypatch.setattr(review_gate, 'snapshot', lambda service, prs: github.snapshot(service, prs))
     app = create_app(Settings(db_path=tmp_path / 'hub.db', github_webhook_secret=SECRET, release_commit='',
                               release_repo='ticoteam/tico', test_identities={
         'ana-test': Identity('human:ana', 'owner', 'ana@acme.example'),
@@ -28,6 +42,7 @@ def api(tmp_path):
         'cara-test': Identity('human:cara', 'human', 'cara@acme.example'),
         'bot-test': Identity('bot:cpo', 'bot', agent='hermes')}))
     with TestClient(app) as client:
+        client.github = github
         with app.state.store.transaction() as c:
             bots = {slug: {'name': slug, 'runtime': 'fake', 'status': 'active'} for slug in ('cpo', 'cmo')}
             people = [{'id': 'ana', 'email': 'ana@acme.example', 'team': 'leadership', 'primary_for': ['*']},
@@ -62,12 +77,9 @@ def child(api, ticket, title, status='done', verdict=None, head=None):
     return r.json()['task']
 
 
-def green(api, row, checks=None):
-    """As check webhooks leave a link: its summary and each check by name."""
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE task_links SET checks='passing', detail_json=json_set(detail_json,'$.checks',json(?)) "
-                  "WHERE task_id=? AND kind='pr'",
-                  (json.dumps(checks or {'check:python': 'passing', 'check:browser': 'skipped'}), row['id']))
+def green(api, checks=None):
+    """GitHub reports the checks at the current head: a pass, and a skip that is not one."""
+    api.github.checks = checks or {'check:python': 'passing', 'check:browser': 'skipped'}
 
 
 def ticket(api, owner='cpo', step='In QA', checks=None, reviews=(('approve', HEAD), ('approve', HEAD)),
@@ -79,7 +91,7 @@ def ticket(api, owner='cpo', step='In QA', checks=None, reviews=(('approve', HEA
     assert r.status_code == 200, r.text
     row = r.json()['task']
     hook(api, 'pull_request', pr_event('opened', head={'sha': HEAD}))
-    green(api, row, checks)
+    green(api, checks)
     for name, (verdict, head) in zip(('Review 1: PR #412', 'Review 2: PR #412'), reviews):
         if verdict:
             child(api, row, name, verdict=verdict, head=head)
@@ -153,11 +165,12 @@ def test_a_different_head_is_refused_and_a_new_push_voids_the_waiver(api):
     assert r.status_code == 422 and 'not the current head' in r.text, r.text
     assert waive(api, row).status_code == 200
     hook(api, 'pull_request', pr_event('synchronize', head={'sha': NEW}))
+    api.github.head, api.github.checks = NEW, {'check:python': 'pending'}
     assert [w['current'] for w in shown(api, row)['task']['qa_waivers']] == [False]
     # The push left its checks pending: nothing can be waived until they pass.
     r = waive(api, row, head=NEW)
     assert r.status_code == 422 and 'Hosted checks stay mandatory' in r.text, r.text
-    green(api, row)
+    green(api)
     # The old head's waiver does not stand for the new head, and the new head has no review approving it.
     r = waive(api, row, head=NEW)
     assert r.status_code == 422 and 'Review 2 approved aaaaaaaaaaaa, not bbbbbbbbbbbb' in r.text, r.text
@@ -167,7 +180,9 @@ def test_a_different_head_is_refused_and_a_new_push_voids_the_waiver(api):
 
 @pytest.mark.parametrize('checks,why', [({'check:python': 'failing', 'check:browser': 'passing'}, 'CI failing on'),
                                         ({'check:python': 'passing', 'check:browser': 'pending'}, 'CI still running'),
-                                        ({'check:python': 'skipped'}, 'no passing hosted check')])
+                                        ({'check:python': 'skipped'}, 'no passing hosted check'),
+                                        # A re-run passed, but the read keeps the failed attempt (filter=all).
+                                        ({'check:python (1)': 'failing', 'check:python (2)': 'passing'}, 'CI failing on')])
 def test_checks_not_green_are_refused_and_named(api, checks, why):
     row = ticket(api, checks=checks)
     r = waive(api, row)
@@ -218,3 +233,44 @@ def test_a_fresh_github_read_is_what_counts(api):
         failed = {link['id']: {'error': True, 'why': 'GitHub read failed: ConnectError'}}
         with pytest.raises(H.Refused, match='Cannot read the current head'):
             qa_waivers.waive(c, 'human:ana', row['id'], HEAD, 'Urgent', snapshots=failed, manager=True)
+
+
+@pytest.mark.parametrize('runs', [[('Unit tests', 'skipped')],                          # a skip-only head
+                                  [('Unit tests', 'failure'), ('Unit tests', 'success')]])  # a failure hidden by a re-run
+def test_without_the_github_app_check_webhooks_alone_never_allow_a_waiver(api, runs):
+    """The webhook-built link reads a skip as passing and lets a re-run's pass replace a failure, so with no fresh
+    GitHub read to tell them apart, a waiver is refused rather than trusting it."""
+    api.github.connected = False
+    row = ticket(api)
+    for name, conclusion in runs:
+        hook(api, 'check_run', {'repository': {'full_name': 'ticoteam/tico'}, 'check_run': {
+            'name': name, 'status': 'completed', 'conclusion': conclusion, 'head_sha': HEAD,
+            'pull_requests': [{'number': 412}]}})
+    assert shown(api, row)['task']['links'][0]['checks'] == 'passing'   # what the cache would have trusted
+    r = waive(api, row)
+    assert r.status_code == 422 and 'GitHub App is not connected' in r.text, r.text
+    assert shown(api, row)['task']['qa_waivers'] == []
+
+
+def test_every_open_pull_request_on_the_ticket_needs_green_checks(api):
+    row = ticket(api)
+    second = PR.rsplit('/', 1)[0] + '/413'
+    assert call(api, 'POST', f"tasks/{row['id']}/links", body={'url': second}).status_code == 200
+    with api.app.state.store.read() as c:
+        other = next(l for l in H.task_links(c, row['id']) if l['url'] == second)
+    real = api.github.snapshot
+    api.github.snapshot = lambda service, prs: {**real(service, prs), other['id']: {
+        'head_sha': NEW, 'checks': {'check:python': 'failing'}, 'at': H.now()}}
+    r = waive(api, row)
+    assert r.status_code == 422 and 'CI failing on ' + second in r.text, r.text
+
+
+def test_a_qa_failure_at_the_head_is_not_waivable(api):
+    """A waiver stands in for a QA result that is missing, not for one that failed."""
+    row = ticket(api)
+    failed = child(api, row, 'QA: PR #412 retry', verdict='fail', head=HEAD[:12])
+    r = waive(api, row)
+    assert r.status_code == 422 and 'QA recorded fail at aaaaaaaaaaaa' in r.text and failed['id'] in r.text, r.text
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE tasks SET verdict_head=? WHERE id=?', (NEW, failed['id']))   # it failed an earlier head
+    assert waive(api, row).status_code == 200

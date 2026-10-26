@@ -3,8 +3,9 @@
 A waiver is not a QA verdict. It never sets a verdict on the QA subtask or anywhere else; it is a `qa_waiver` task
 event on the Dev ticket, so task history shows who waived QA, why, at which head and step, and when. Only the In QA
 step can be waived. CI, Review 1, Review 2 and release approval stay mandatory: a waiver needs every hosted check
-green on that head and the ticket's reviews finished, with Review 2 approving that exact head. A push gives a new
-head, and a waiver for the old head does not cover it (`current`).
+green on that head, read from GitHub at the time, and the ticket's reviews finished, with Review 2 approving that
+exact head. A waiver does not override QA: a QA `fail` at that head refuses it. A push gives a new head, and a
+waiver for the old head does not cover it (`current`).
 """
 import json
 import re
@@ -14,6 +15,7 @@ FIELD = "qa_waiver"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 REVIEW_KINDS = ("Review 1", "Review 2")
 KIND = re.compile(r"^(Review [12])(?:\b|:)", re.I)
+QA_KIND = re.compile(r"^QA\b", re.I)
 # Steps that look waivable but never are in this scope (Chris's open question on reviews, task 558).
 MANDATORY = re.compile(r"\b(review|ci|checks?|approval)\b", re.I)
 
@@ -57,8 +59,23 @@ def _reviews(c, row, head):
     return None
 
 
-def _checks(pr, detail, cached):
-    """What stops the hosted checks on this pull request from counting as green, or None."""
+def _qa_failed(c, row, head):
+    """The QA subtask that failed this exact head, or None: a waiver stands in for a missing QA result, never
+    for a failed one."""
+    from . import hubdb as H
+    from . import task_relations as TR
+    for child_id in TR.child_ids(c, row["id"]):
+        child = H.task(c, child_id) or {}
+        judged = str(child.get("verdict_head") or "").lower()
+        if (QA_KIND.match(str(child.get("title") or "").strip()) and child.get("verdict") in ("fail", "changes")
+                and judged and head.startswith(judged)):
+            return child
+    return None
+
+
+def _checks(pr, detail):
+    """What stops the hosted checks on this pull request from counting as green, or None. `detail` is a fresh
+    GitHub read (review_gate.snapshot), which keeps a failed attempt after a passing re-run and marks skips."""
     checks = (detail or {}).get("checks") or {}
     def names(state):
         return sorted(k.removeprefix("check:").removeprefix("status:") for k, v in checks.items() if v == state)
@@ -68,15 +85,14 @@ def _checks(pr, detail, cached):
         return f"CI still running on {pr['url']}: {', '.join(names('pending'))}"
     if "passing" not in checks.values():
         return f"no passing hosted check is recorded on {pr['url']}"
-    if cached and pr.get("checks") not in ("passing", None):
-        return f"CI on {pr['url']} reads {pr.get('checks')}"
     return None
 
 
 def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=False):
     """Record a QA waiver by `actor`, a person who owns the ticket or manages it (`manager`, decided by the route
     from the caller's rights). `snapshots` is a fresh GitHub read of the ticket's open pull requests
-    (review_gate.snapshot); None means the integration is unconfigured, so the webhook-built link stands in."""
+    (review_gate.snapshot); None means the GitHub App is not connected, and then no waiver can be recorded: the
+    webhook-built link counts a skipped check as passing and a re-run's pass replaces an earlier failure."""
     from . import hubdb as H
     from . import review_gate
     row = H.task(c, task_id)
@@ -107,24 +123,34 @@ def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=Fa
     prs = review_gate.links(c, row)
     if not prs:
         _refuse(c, actor, row, "The ticket has no open pull request linked, so there is no head to waive QA for.")
-    matched = None
+    if snapshots is None:
+        _refuse(c, actor, row, "QA waiver refused: hosted checks cannot be verified because the company's GitHub App "
+                               "is not connected, and check webhooks alone cannot tell a pass from a skipped check or "
+                               "a failure hidden by a re-run. Hosted checks stay mandatory.")
+    matched, reads = None, []
     for pr in prs:
-        detail = (snapshots.get(pr["id"]) or {"error": True, "why": "not read"}) if snapshots is not None \
-            else (H._json(pr.get("detail_json"), {}) or {})
+        detail = snapshots.get(pr["id"]) or {"error": True, "why": "not read"}
         if detail.get("error"):
             _refuse(c, actor, row, f"Cannot read the current head and CI of {pr['url']} "
                                    f"({detail.get('why') or 'GitHub read failed'}); retry.")
+        reads.append((pr, detail))
         if str(detail.get("head_sha") or "").lower() == head:
-            matched = (pr, detail)
+            matched = pr
     if not matched:
         known = ", ".join(sorted(review_gate.heads(c, row, snapshots))) or "unknown"
         _refuse(c, actor, row, f"{head[:12]} is not the current head of the ticket's pull request (now {known}). "
                                "A waiver covers one exact head; a new push needs a new QA result or a new waiver.")
-    pr, detail = matched
-    if (blocked := _checks(pr, detail, snapshots is None)):
-        _refuse(c, actor, row, f"QA waiver refused: {blocked}. Hosted checks stay mandatory.")
+    # Every open pull request on the ticket ships with it, so each one's checks must be green, not only the waived one.
+    for pr, detail in reads:
+        if (blocked := _checks(pr, detail)):
+            _refuse(c, actor, row, f"QA waiver refused: {blocked}. Hosted checks stay mandatory.")
     if (blocked := _reviews(c, row, head)):
         _refuse(c, actor, row, f"QA waiver refused: {blocked}. Code reviews stay mandatory.")
+    if (failed := _qa_failed(c, row, head)):
+        _refuse(c, actor, row, f"QA waiver refused: QA recorded {failed['verdict']} at {head[:12]} (task "
+                               f"{failed['id']}). A waiver stands in for a missing QA result, not a failed one: fix "
+                               "it and push, then ask QA again.")
+    pr = matched
     if any(w["head"] == head and w["step"] == QA_STEP for w in waivers(c, row)):
         _refuse(c, actor, row, f"QA is already waived for {head[:12]} on this ticket.", "duplicate")
     record = {"head": head, "step": QA_STEP, "pr": pr["url"]}
@@ -136,12 +162,13 @@ def waive(c, actor, task_id, head, reason, step=None, snapshots=None, manager=Fa
     return next(w for w in waivers(c, row) if w["head"] == head)
 
 
-def waivers(c, row):
+def waivers(c, row, links=None):
     """The ticket's recorded QA waivers, oldest first. `current` is whether the pull request it named is still at
-    the waived head (a merge at that head keeps it current; a push voids it)."""
+    the waived head (a merge at that head keeps it current; a push voids it). `links` saves a reread when the
+    caller has the ticket's links already."""
     from . import hubdb as H
     heads = {}
-    for link in H.task_links(c, row["id"]):
+    for link in H.task_links(c, row["id"]) if links is None else links:
         if link["kind"] == "pr":
             heads[link["url"]] = str((H._json(link.get("detail_json"), {}) or {}).get("head_sha") or "").lower()
     out = []
