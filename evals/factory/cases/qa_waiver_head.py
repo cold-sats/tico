@@ -146,7 +146,8 @@ def merged_on_pass_or_waiver(run):
         if not (passed or waived):
             bad.append(f"{t['title']} merged at {str(head)[:7]} with no QA pass or waiver there")
     if not on_waiver:
-        bad.append("no ticket merged on a waiver")
+        bad.append("no ticket merged on a waiver (ana: " + "; ".join(
+            f"{a['title']} {a['outcome'][:200]}" for a in getattr(run, "ana", [])) + ")")
     return not bad, ", ".join(bad[:6]) or f"{on_waiver} merged on a waiver"
 
 
