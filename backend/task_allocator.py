@@ -74,10 +74,12 @@ def allocate(c, at=None):
         for ticket_id, owner in waiting:
             if owner in owners:
                 continue
-            free = [(in_hand(c, s, step["type_id"], step), _open(c, s), s) for s in pool]
+            ticket = H.task(c, ticket_id)
+            free = [(in_hand(c, s, step["type_id"], step), _open(c, s), s) for s in pool
+                    if H.bot_reads_task(c, "bot:" + s, ticket)]
             free = [f for f in free if f[0] < rule["slots"]]
             if not free:
-                break
+                continue
             slug = min(free)[2]
             H.task_update(c, H.KEEPER, ticket_id, owner="bot:" + slug,
                           note=f"Tico gave this to {slug}: the least busy of the {step['name']} pool "
