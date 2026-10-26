@@ -60,7 +60,7 @@ def _answer(run, w):
 def _watch_results(run, w, team):
     """A check's verdict on a watched ticket, queued for its builder before the last tick, still queued while the
     builder sat idle through that tick: the claim held it back."""
-    rows = w.sql("SELECT j.bot, j.created, m.refs_json FROM jobs j JOIN messages m ON m.id=j.message_id "
+    rows = w.sql("SELECT j.bot, j.created, j.held, m.refs_json FROM jobs j JOIN messages m ON m.id=j.message_id "
                  "WHERE j.state='queued' AND json_extract(m.refs_json,'$.subtask') IS NOT NULL "
                  "AND json_extract(m.refs_json,'$.verdict') IS NOT NULL")
     for r in rows:
@@ -73,6 +73,11 @@ def _watch_results(run, w, team):
             continue
         if w.H.parse_ts(r["created"]) < w.now() - w.tick:
             run.violations["result_held"].append((w.now(), w.title(ticket)))
+            import os
+            if os.environ.get("SIM_TRACE") == "1":
+                row = w.sql("SELECT status, step_id, blocked_since, blocked_kind, blocked_reason, waiting_on, snoozed_until "
+                            "FROM tasks WHERE id=?", (ticket,))[0]
+                print("HELD", w.now(), r, row, w.step_of(row))
 
 
 def _watch_settled(run, w):
