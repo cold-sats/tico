@@ -1100,7 +1100,9 @@ def create_app(settings=None):
                 pipelines = H.type_list(c)
         typ = next((t for t in pipelines if t["id"] == row.get("type_id")), None)
         value["type"] = {"id": typ["id"], "name": typ["name"]} if typ else None
-        value["step"] = next((s for s in typ["steps"] if s["id"] == row.get("step_id")), None) if typ else None
+        step = next((s for s in typ["steps"] if s["id"] == row.get("step_id")), None) if typ else None
+        # A step's check pool is the type's setting (Settings > Tasks), not sent again on each of a board's tasks.
+        value["step"] = {k: v for k, v in step.items() if k not in ("check_pool", "check_limit")} if step else None
         if c is not None:
             value["relations"] = TR.grouped(c, [row["id"]], visible_sql)[row["id"]]
             value["roles"] = TRo.roles_of(c, row["id"])
@@ -1121,6 +1123,8 @@ def create_app(settings=None):
             value["links"] = H.task_links(c, row["id"])
             from .worktree_waits import for_task as worktree_waits_for
             value["worktree_waits"] = worktree_waits_for(c, row["id"])
+            from .check_pools import for_task as check_waits_for
+            value["check_waits"] = check_waits_for(c, row["id"])     # a check waiting for a free reviewer
             # What it waits for besides tasks: a pull request to merge, a release to be published (Dev 256).
             value["milestone_waits"] = milestone_waits.waits(c, row["id"])
             value["children_summary"] = H.children_summary(c, row["id"], visible_sql)
