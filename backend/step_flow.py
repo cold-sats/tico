@@ -182,7 +182,16 @@ def check_step(c, check, ticket=None):
     if s is None:
         parent = H.task(c, ticket_id)
         s = step(c, (parent or {}).get("step_id"))
-    return s if s and is_check(s) else None
+    if not s or not is_check(s):
+        return None
+    # Ordinary subtasks made during a check are independent work, never checks to expire or consume.
+    from .check_pools import CHECK_TITLE, kind
+    title = str(check.get("title") or "").strip()
+    named = kind(s["name"]).lower()
+    filed = c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='check_filed' AND new=? LIMIT 1",
+                      (ticket_id, check["id"])).fetchone()
+    return s if (filed or CHECK_TITLE.match(title) or title.lower() == named
+                 or title.lower().startswith(named + ":")) else None
 
 
 def can_hold(c, step_id):

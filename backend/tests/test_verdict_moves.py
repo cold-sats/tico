@@ -353,6 +353,40 @@ def test_a_ticket_past_its_check_steps_timeout_has_its_check_closed_and_the_roun
     assert step(api, task) == "Review 1 Fixes", "the round is skipped as if it passed"
 
 
+def test_a_check_timeout_keeps_unrelated_human_and_bot_subtasks_open(api):
+    from backend import step_flow
+    task = ticket(api)
+    review = check(api, task)
+    with api.app.state.store.transaction() as c:
+        children = [H.task_create(c, "bot:cpo", title, "Independent work.", owner,
+                                 parent_id=task["id"], lint=False) for title, owner in (
+            ("Approve the legal wording", "human:ana"), ("Draft the release copy", "bot:cmo"))]
+        later = H.shift(H.now(), minutes=61)
+        assert V.timeouts(c, later) == [task["id"]]
+        assert H.task(c, review["id"])["status"] == "closed"
+        for child in children:
+            assert H.task(c, child["id"])["status"] == "open"
+            assert step_flow.check_step(c, child) is None
+
+
+def test_allocator_never_grants_a_pool_bot_access_to_an_unreadable_private_task(api):
+    from backend import task_allocator
+    with api.app.state.store.transaction() as c:
+        typ = H.type_create(c, H.KEEPER, "Studio queue", [
+            {"name": "Inbox", "status": "open", "flow": {"assign": {"pool": ["cmo"], "slots": 4}}},
+            {"name": "Build", "status": "doing"}])
+        secret = H.task_create(c, "bot:cpo", "Review the sensitive plan", "Private details.", "bot:cpo",
+                               type=typ["id"], private=True, lint=False)
+        public = H.task_create(c, "human:ana", "Draft the public plan", "Company work.", "bot:cpo",
+                               type=typ["id"], private=False, lint=False)
+        assert not H.task_private_readable(c, "bot:cmo", secret)
+        assert task_allocator.allocate(c) == [(public["id"], "cmo")]
+        secret = H.task(c, secret["id"])
+        assert secret["owner"] == "bot:cpo"
+        assert not H.task_private_readable(c, "bot:cmo", secret)
+        assert H.task(c, public["id"])["owner"] == "bot:cmo"
+
+
 def test_a_merge_outside_the_flow_moves_the_ticket_to_the_merged_step_from_any_earlier_step(api):
     task = ticket(api, step="Review 1")
     hook(api, "pull_request", pr_event("closed", merged=True, merge_commit_sha="e" * 40, head={"sha": HEAD}))
