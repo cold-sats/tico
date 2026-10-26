@@ -21,9 +21,16 @@ _PAST = r"(?:earlier|previous|prior|historical|old)"
 # Where an earlier failure was seen ("seen at the prior head"). Only these words
 # may sit between the failure and its repair, so "2 failed tests need fixing"
 # and "2 failures were not fixed" stay failures.
-_SEEN = (rf"(?:(?:seen|found|reported|observed|at|on|in|from|the|a|an|last|{_PAST}|head|run|"
-         r"commit|build|CI|tests?)\s+){0,8}")
-_AUX = r"(?:(?:is|was|were|are|has|have|had|been|now|already)\s+){0,5}"
+_SEEN_WORD = (rf"(?:seen|found|reported|observed|at|on|in|from|the|a|an|last|{_PAST}|head|run|"
+              r"commit|build|CI|tests?)\s+")
+_SEEN = rf"(?:{_SEEN_WORD}){{0,8}}"
+_AUX_WORD = r"(?:is|was|were|are|has|have|had|been|now|already)\s+"
+_AUX = rf"(?:{_AUX_WORD}){{0,5}}"
+# After a where-seen gap the repair must be the clause's own verb ("have been
+# fixed."), so "2 failed on the commit fixing the parser" or "2 failed in the
+# repaired fixture" stays a failure.
+_SEEN_REPAIR = (rf"(?:{_SEEN_WORD}){{1,8}}(?:{_AUX_WORD}){{1,5}}(?:fixed|repaired|resolved|corrected)"
+                r"(?=\s*(?:[.;,:!?)]|$|\b(?:but|and)\b))")
 # A historical subject can still describe a failure that is happening now.
 CURRENT_FAILURE = re.compile(
     rf"\b{_FAILURE}\s+(?:tests?\s+)?"
@@ -32,7 +39,7 @@ CURRENT_FAILURE = re.compile(
     r"(?:recurring|recurs|recurred|reoccurred|returned|persisting|persists|persistent|present|happening|"
     r"(?:is|are)\s+(?:still\s+)?back)\b", re.I)
 HISTORY = re.compile(
-    rf"\b(?:{_PAST}\s+)?(?:test\s+)?{_FAILURE}\s+(?:tests?\s+)?{_SEEN}{_AUX}{_FIX}\b|"
+    rf"\b(?:{_PAST}\s+)?(?:test\s+)?{_FAILURE}\s+(?:tests?\s+)?(?:{_SEEN_REPAIR}|{_AUX}{_FIX}\b)|"
     rf"\b{_PAST}\s+(?:test\s+)?{_FAILURE}\b|"
     rf"\b{_FIX}\s+(?:(?:the|a|an|earlier|previous|prior|test|fixture|[0-9]+)\s+){{0,5}}{_FAILURE}\b", re.I)
 # A counted failure in a sentence that names its own head is a result at that
@@ -93,7 +100,7 @@ def recognise_many(line):
             else:
                 clauses.append(part)
         for clause in clauses:
-            context = TEST.search(sentence) or (SHA.search(sentence) and COUNTED_FAILURE.search(sentence))
+            context = TEST.search(sentence) or (SHA.search(clause) and COUNTED_FAILURE.search(clause))
             if receipt := _recognise(clause, test_context=bool(context)):
                 found.append({**receipt, "text": line})
     return found
