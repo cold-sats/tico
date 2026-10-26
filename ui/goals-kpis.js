@@ -54,8 +54,9 @@ function kpiSpark(values, status, w = 64, h = 18) {
 }
 
 // One KPI on one line: dot, name, latest value and its period, the target on the goal, a sparkline.
+// On a goal an archived link no longer counts, so it shows only that; the owner's archive list keeps the last reading.
 function kpiLine(k, {owner = false, goal = ''} = {}) {
-  if (k.archived_at) return `<li class="kpi-line kpi-archived-line muted" data-kpi="${esc(k.id)}"${goal ? ` data-kpi-goal="${esc(goal)}"` : ''} tabindex="0" role="button">
+  if (k.archived_at && goal) return `<li class="kpi-line kpi-archived-line muted" data-kpi="${esc(k.id)}" data-kpi-goal="${esc(goal)}" tabindex="0" role="button">
     <span class="kpi-name">${esc(k.name)}</span><span class="kpi-off">Archived ${esc(kpiDay(k.archived_at))}, not counting</span></li>`;
   const value = kpiFresh(k)
     ? `<span class="kpi-val tnum">${esc(kpiNum(k.latest.value, k.unit))}${KPI_QUALITY[k.latest.quality] ? ` <span class="kpi-q">${KPI_QUALITY[k.latest.quality]}</span>` : ''}<span class="muted"> · ${esc(kpiDay(k.latest.period_end))}</span></span>`

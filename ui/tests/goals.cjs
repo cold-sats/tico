@@ -281,6 +281,11 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     await panel.locator('.gp-history-list [data-kpi="k-retired"]').waitFor();
     assert.match(requests.join('\n'), /^GET \/api\/v2\/kpis$/m);
     assert.match(await panel.locator('.gp-history-list').innerText(), /Archived KPIs[\s\S]*Retired conversion/i);
+    const historyRow = panel.locator('.gp-history-list [data-kpi="k-retired"]');
+    assert.equal(await historyRow.evaluate(li => li.classList.contains('kpi-archived-line')), false, 'the archive list is not a goal');
+    assert.match(await historyRow.locator('.kpi-val').innerText(), /52%/, 'an archived KPI keeps its last reading in the archive list');
+    assert.equal(await historyRow.locator('.kspark').count(), 1, 'and its sparkline');
+    assert.ok(await historyRow.locator('.kpi-owner').innerText(), 'and its owner');
     await panel.locator('.gp-history-list [data-kpi="k-retired"]').click();
     await panel.locator('[data-kpi-archive]').waitFor();
     assert.equal(await panel.locator('[data-kpi-archive]').innerText(), 'Restore KPI');
