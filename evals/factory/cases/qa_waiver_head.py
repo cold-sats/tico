@@ -4,8 +4,9 @@ QA's first verdict is a fail; then its computers go off for five hours, and come
 Builders push nothing after an approval (so both reviews approve the head QA would judge), dispute a fail once by
 sending the same head back to QA, and ask Tico to waive QA themselves with their own token. While QA is off, ana
 waives each ticket that has waited half an hour at the QA step, once per ticket, through the real API with the
-company's GitHub App answering from the sim's GitHub. Each builder pushes once more on its first waived ticket
-instead of merging: that waiver no longer covers the new head, so the ticket waits for QA's verdict on it."""
+company's GitHub App answering from the sim's GitHub. One builder pushes once more on its first waived ticket
+instead of merging: that waiver no longer covers the new head, so the ticket waits for QA's verdict on it. The other
+builder merges on its waivers."""
 from contextlib import contextmanager
 
 from evals.factory.board import MERGE, dev_board
@@ -16,6 +17,7 @@ from evals.factory.world import Refusal
 WAIVER = "QA waiver"   # the product rules this scenario guards (backend/qa_waivers.py, docs/tasks.md)
 QA_DOWN_HOURS = 5
 WAIT_MINUTES = 30      # how long ana lets a ticket sit at QA before she waives it
+BUILDER = {"hold_approved": 1.0, "dispute_fail": 1.0, "try_waive": 1.0}
 
 
 def last_check(board):
@@ -217,9 +219,8 @@ def waiver_sets_no_verdict(run):
 SCENARIOS = [
     Scenario("qa_waiver_head", "QA is down for 5 h: a person waives it per head, a push voids the waiver, bots "
                                "can't waive, a failed head can't be waived.",
-             setup=lambda run, w, team: tickets(run, w, 5), board=slow_qa_board, during=qa_down_then_waive,
-             styles={"qa": {"fail": 1.0},
-                     "builder": {"hold_approved": 1.0, "dispute_fail": 1.0, "try_waive": 1.0, "push_after_waiver": 1}},
+             setup=lambda run, w, team: tickets(run, w, 6), board=slow_qa_board, during=qa_down_then_waive,
+             styles={"qa": {"fail": 1.0}, "builder-claude": {**BUILDER, "push_after_waiver": 1}, "builder": BUILDER},
              checks=standard(("merged heads have a QA pass or a person's waiver", WAIVER, merged_on_pass_or_waiver),
                              ("a push voids the waiver; the ticket goes back to QA", WAIVER, push_voids_waiver),
                              ("a bot's waiver is refused", WAIVER, bot_waiver_refused),
