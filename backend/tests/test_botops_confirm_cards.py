@@ -204,6 +204,8 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         assert pending.status_code == 200 and pending.json()["needs_confirm"], pending.text
         card = pending.json()
         card_in_chat(api, card, "ana")
+        # The owner sees the address the key would go to before tapping.
+        assert {"field": "url", "new": proposed.url} in card["action"]["diff"], card["action"]
         assert proposed.calls == []                         # the saved key has not reached the new address
         assert get(api, "providers/gateway")["url"] == original.url
         assert KEY not in json.dumps(card)
@@ -231,6 +233,7 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
         direct_rule_card = act(api, ana, "PUT", "providers/gateway",
                                {"url": original.url, "expected_revision": current["revision"]})
         assert direct_rule_card.status_code == 200 and direct_rule_card.json()["needs_confirm"], direct_rule_card.text
+        assert {"field": "url", "new": original.url} in direct_rule_card.json()["action"]["diff"]
         assert get(api, "providers/gateway")["url"] == proposed.url
         assert original.calls == []
         assert confirm(api, direct_rule_card.json(), "ana-test")["action"]["status"] == "done"
@@ -246,6 +249,8 @@ def test_gateway_address_change_with_saved_key_waits_for_the_owners_tap(api, bot
                       {"url": proposed.url, "expected_revision": current["revision"]})
         assert refused.status_code == 403 and "Only the owner" in refused.json()["error"]["detail"]
         assert get(api, "providers/gateway")["url"] == original.url
+        with api.app.state.store.read() as c:            # refused outright: no card in Ben's chat
+            assert c.execute("SELECT count(*) FROM assistant_actions WHERE owner='human:ben'").fetchone()[0] == 0
         assert proposed.calls == [("/v1/gateway/key", KEY)]
         with api.app.state.store.read() as c:
             visible = json.dumps([dict(r) for r in c.execute("SELECT body_json,result_json FROM assistant_actions")]
