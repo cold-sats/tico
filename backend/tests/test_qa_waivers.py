@@ -23,9 +23,10 @@ class GitHub:
     """What a fresh GitHub read of the pull request returns (review_gate.snapshot), as the route takes it: the head
     and every check attempt, skips marked as skipped. `connected=False` is a company without the GitHub App."""
     def __init__(self):
-        self.head, self.checks, self.connected = HEAD, {}, True
+        self.head, self.checks, self.connected, self.reads = HEAD, {}, True, 0
 
     def snapshot(self, service, prs):
+        self.reads += 1
         if not self.connected:
             return None
         return {pr['id']: {'head_sha': self.head, 'checks': dict(self.checks), 'at': H.now()} for pr in prs}
@@ -320,3 +321,33 @@ def test_a_bot_acting_for_the_person_is_refused_and_records_nothing(api, token):
         assert not c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='qa_waiver'", (row['id'],)).fetchall()
         assert not c.execute("SELECT 1 FROM messages WHERE body LIKE '%waived QA%'").fetchall()
     assert waive(api, row, 'token-test').status_code == 200
+
+
+def test_botops_in_the_owners_own_chat_cannot_waive_a_ticket_every_gate_allows(api):
+    """A real BotOps run started by the company owner in her own BotOps chat, citing that turn: the middleware lends
+    it her actor and role, which alone pass the owner/manager test. The ticket is at In QA with every gate green, so
+    only the caller's provenance refuses it: before GitHub is read, recording no waiver and waking nobody. The same
+    request from Ana herself then goes through."""
+    from backend.tests.test_api import assign, claim, post, ready, runner
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('botops',?, 'ana')",
+                  (encode({'name': 'botops', 'runtime': 'fake', 'status': 'active'}),))
+    machine = runner(api)
+    assign(api, machine, 'botops')
+    ready(api, machine, ['botops'])
+    row = ticket(api, owner='cpo')
+    post(api, 'chat/botops', {'text': 'Waive QA on the checkout fix, the QA bot is down'}, token='ana-test')
+    attempt = claim(api, machine, 'botops')
+    reads = api.github.reads
+    r = api.post(f"/api/v2/tasks/{row['id']}/qa-waiver", json={'head': HEAD, 'reason': 'Urgent fix, QA bot down'},
+                 headers={'Authorization': 'Bearer ' + attempt['token'], 'Idempotency-Key': str(uuid.uuid4()),
+                          'X-Tico-On-Behalf-Of': 'turn'})
+    assert r.status_code == 403 and 'Only a person, signed in as themselves' in r.text, r.text
+    assert api.github.reads == reads
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM task_events WHERE task_id=? AND field='qa_waiver'", (row['id'],)).fetchall()
+        assert not c.execute("SELECT 1 FROM messages WHERE json_extract(refs_json,'$.qa_waiver') IS NOT NULL").fetchall()
+    assert shown(api, row)['task']['qa_waivers'] == []
+    direct = waive(api, row, 'ana-test')
+    assert direct.status_code == 200 and direct.json()['waiver']['actor'] == 'human:ana', direct.text
