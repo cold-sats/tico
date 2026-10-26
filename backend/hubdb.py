@@ -5362,8 +5362,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     filed_in = RUN.get() if is_bot(target) and target == actor else ""
     # A review, QA or Security request has its own event, so a rule can wake reviewers apart
     # from other assignments.
-    # Any other is an assignment, named so that rewording the notice never turns it into a note (`news` keeps it
-    # holdable: a task a bot files for itself still waits for the filing turn).
+    # Any other is an assignment, named so that rewording the notice never turns it into a note.
+    # Both events retain filed_in above: execution.filer_live holds a self-filed task independently of news/wake.
     from . import profiles
     gate_child = {"wake": "review_request"} if profiles.is_review_task(conn, task(conn, row["id"])) \
         else {"news": "assignment"}

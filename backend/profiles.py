@@ -45,8 +45,9 @@ DIGEST_HOUR = 9                         # a lead's digest, in the team's time zo
 MATERIALISED = "profile"                # `created_by` of the rows a custom profile copied into the rules table
 # Traditional gate requests require a parent; explicit release QA can cover an entire release.
 REVIEW_TITLE = re.compile(r"^(Review [12]|QA|Security)\b", re.I)
-RELEASE_QA_TITLE = re.compile(r"^(?:(?:Post[- ](?:Release|Launch)|Release)\s+QA|Post[- ]Release\s+checks?)\b", re.I)
-ACCEPTANCE_TITLE = re.compile(r"\b(?:live acceptance|acceptance (?:checks?|tests?|testing|QA))\b", re.I)
+RELEASE_QA_TITLE = re.compile(
+    r"^(?:(?:Post[- ](?:Release|Launch)|Release)\s+QA(?:\s+(?:pass|sweep))?|Post[- ]Release\s+checks?)\s*(?::|$)", re.I)
+ACCEPTANCE_TITLE = re.compile(r"\blive acceptance\b", re.I)
 # The numbers a former Token saver bot keeps.
 TOKEN_SAVER_OPTIONS = {"batch_seconds": TOKEN_SAVER_SECONDS, "batch_scope": "bot", "sweep_seconds": 2 * 3600}
 

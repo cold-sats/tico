@@ -120,6 +120,7 @@ def test_a_reviewer_takes_review_children_only_and_wakes_for_its_request_and_peo
     ("Post Release QA pass: v1.2.3", None, False),
     ("Release QA: v1.2.3", None, False),
     ("Post Launch QA: runtime installation", None, False),
+    ("Post Release QA sweep", None, False),
     ("Post-release checks: shared question card", None, True),
     ("Hosting preview: carry remaining installed-build and live acceptance", None, True),
     ("Verify shipped behavior", "Post Release QA", True),
@@ -164,6 +165,10 @@ def test_release_qa_uses_one_classification_for_creation_pull_wake_and_health(ap
     ("Build the thing", False), ("QA: orphan review", False),
     ("Implement acceptance criteria", False), ("Implement acceptance criteria", True),
     ("Release checklist planning", False), ("Post-release documentation", True),
+    pytest.param("Release QA dashboard redesign", False, id="qa-dashboard"),
+    pytest.param("Release QA checklist planning", False, id="qa-planning"),
+    pytest.param("Post Release QA dashboard redesign", False, id="post-qa-dashboard"),
+    pytest.param("Add acceptance tests for CSV export", True, id="acceptance-implementation"),
 ])
 def test_ordinary_tasks_remain_outside_the_reviewer_profile(api, title, child):
     with api.app.state.store.transaction() as c:
