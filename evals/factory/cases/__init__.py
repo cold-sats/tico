@@ -8,3 +8,4 @@ from .github_read_outage import SCENARIOS as _github_read_outage; SCENARIOS += _
 from .qa_waiver_head import SCENARIOS as _qa_waiver_head; SCENARIOS += _qa_waiver_head
 from .receipt_wording import SCENARIOS as _receipt_wording; SCENARIOS += _receipt_wording
 from .snoozed_ticket import SCENARIOS as _snoozed_ticket; SCENARIOS += _snoozed_ticket
+from .verdict_past_open_sibling import SCENARIOS as _verdict_past_open_sibling; SCENARIOS += _verdict_past_open_sibling

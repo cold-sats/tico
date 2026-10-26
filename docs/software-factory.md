@@ -92,7 +92,8 @@ ticket stays at its step with a Waiting tag.
 - **A failure after release** goes back to QA Fixes for a hotfix, or the Release Manager rolls back.
 - **Reviewers and Security only comment.** They never move a ticket: a reviewer or Security bot that tries is refused
   and told to finish its review task with a verdict (`hub task done <id> --verdict approve|changes --head <sha>`). QA
-  gives `pass` or `fail`. The Builder is woken once with the verdict and the head it judged.
+  gives `pass` or `fail`. The Builder is woken once with the verdict and the head it judged, even while the ticket
+  waits on someone else's open subtask; a verdict given while the ticket is Blocked moves it once the hold clears.
 - **One check per head.** A ticket has one open Review 1, Review 2 or QA subtask for a pull request head; a second request
   for the same check on the same head is refused with the open one's id.
 - **Tico files the check.** Each check step has a pool of bots, set on the step in Settings → Tasks. Entering the step

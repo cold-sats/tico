@@ -191,6 +191,9 @@ def reconcile(c, task_id, snapshots=None):
     H._set_status(c, H.KEEPER, row, row.get('blocked_from_status') or 'open',
                   step=previous['id'] if previous else None, note='Hold cleared')
     bump(c, row)
+    # Back at a check step: a verdict given there during the hold moves the ticket now.
+    from . import verdict_moves
+    verdict_moves.resumed(c, task_id)
 
 
 FRESH_EVERY_S = 60                  # how often fresh() looks

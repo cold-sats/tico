@@ -4103,7 +4103,14 @@ def _answered(conn, actor, task_id, card, told=None):
         TR.remove_blocker(conn, KEEPER, row["id"], card["id"], keeper_note=f"answered: {card['title']}")
     row = task(conn, row["id"])
     if row["status"] == "waiting" and not waiting_for(conn, row):
-        _set_status(conn, KEEPER, row, "open", note=note)
+        # A board ticket held on the ask goes back to the step it left, as any hold that clears does; opening it would
+        # send it to the board's first open step and drop its place (a review it waited at, its verdict).
+        from . import task_blocked
+        if row.get("blocked_since"):
+            task_blocked.reconcile(conn, row["id"])
+            row = task(conn, row["id"])
+        if row["status"] == "waiting":
+            _set_status(conn, KEEPER, row, "open", note=note)
     conn.execute("UPDATE tasks SET note=?, version=version+1 WHERE id=?", (note, row["id"]))
     _task_event(conn, row["id"], KEEPER, "note", row.get("note"), note, "")
     if row["owner"] != told or TR.parent_of(conn, card["id"]) != row["id"]:
