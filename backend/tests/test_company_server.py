@@ -3,7 +3,6 @@ import asyncio
 import hashlib
 import json
 import re
-import threading
 import time
 from contextlib import nullcontext
 
@@ -274,7 +273,6 @@ def gateway_row(api):
 def test_a_linked_server_gets_its_gateway_key_from_its_company_and_loses_it_with_the_link(api, hq, monkeypatch):
     from backend import gateway_connection as GC
     deferred = []
-    monkeypatch.setattr(GC, "_auto_lock", threading.Lock())
     monkeypatch.setattr(GC, "check_later", lambda *args, **kwargs: deferred.append(args))
     gateway_setup(api, hq, monkeypatch)
     assert tick(api) is None and hq.seen == []                  # not linked, no invite: nothing to ask
