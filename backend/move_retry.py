@@ -27,8 +27,32 @@ CLEARS = {"ci": "the checks on the current head pass",
           "outage": "GitHub can be read again"}
 
 
+# What the gate's GitHub read reports about why it failed (backend/review_gate.py), kept with the remembered move.
+CAUSE = ("problem_code", "temporary", "devops", "upstream_status")
+
+
 def outage(text):
     return "cannot verify the current head and CI" in str(text or "")
+
+
+def route_now(notice):
+    """A GitHub read that failed for a reason only access can fix (permission, key, installation, repository
+    access) goes to DevOps on the first refusal. A temporary failure (timeout, 5xx, 429) never does: the timer
+    retries it. A refusal without a cause falls back to the twice-unreadable rule in retry()."""
+    if "devops" in notice:
+        return bool(notice["devops"])
+    return bool(notice.get("problem_code")) and notice.get("temporary") is False
+
+
+def _route(c, notice, row, twice=False):
+    from . import blockers
+    code = notice.get("problem_code")
+    where = str(notice.get("pr") or "github")
+    why = (f"Tico could not read the pull request head and checks at a review move, twice, "
+           f"{int(OUTAGE_EVERY.total_seconds() // 60)} minutes apart" if twice else
+           f"GitHub refused Tico's read of the pull request head and checks at a review move ({code})")
+    blockers.route(c, "github_read:" + (f"{code}:" if code else "") + where,
+                   "GitHub cannot be read for review moves", f"{why}: {notice.get('text')}", about=row)
 
 
 def hint(kind, text=""):
@@ -61,10 +85,15 @@ def remember(c, actor, notice):
         return
     detail = {"step": step, "kind": notice.get("kind"), "head": notice.get("head"), "by": str(actor),
               "outage": outage(notice.get("text")), "seen": fingerprint(c, row), "at": H.now(),
-              "tries": int(notice.get("tries") or 0), "state": "waiting"}
+              "tries": int(notice.get("tries") or 0), "state": "waiting",
+              **{key: notice[key] for key in CAUSE if key in notice}}
+    if notice.get("problem_code"):
+        detail["outage"] = True
     H._task_event(c, row["id"], H.KEEPER, FIELD, row.get("step_id"), json.dumps(detail, sort_keys=True),
                   "Tico retries this move when " + CLEARS["outage" if detail["outage"] else detail["kind"]]
                   if detail["kind"] in CLEARS else "")
+    if detail["outage"] and route_now(notice) and not detail["tries"]:
+        _route(c, notice, row)          # once per refused move; Tico's own retries reuse that ask
 
 
 def _latest(c, task_id):
@@ -120,14 +149,9 @@ def retry(store, service, row, detail):
             if getattr(exc, "review_gate", None):
                 review_gate.notify(c, H.KEEPER, notice)
             remember(c, H.KEEPER, notice)
-            if outage(notice.get("text")) and detail.get("outage"):
-                # Unreadable twice, OUTAGE_EVERY apart: not a blip.
-                from . import blockers
-                blockers.route(c, "github_read:" + str(notice.get("pr") or "github"),
-                               "GitHub cannot be read for review moves",
-                               f"Tico could not read the pull request head and checks at a review move, twice, "
-                               f"{int(OUTAGE_EVERY.total_seconds() // 60)} minutes apart: {notice.get('text')}",
-                               about=now_row)
+            if outage(notice.get("text")) and detail.get("outage") and not notice.get("problem_code"):
+                # Unreadable twice, OUTAGE_EVERY apart, and GitHub gave no cause: not a blip.
+                _route(c, notice, now_row, twice=True)
             return False
         c.execute("RELEASE move_retry")
         H._write_message(c, H.KEEPER, now_row["owner"],

@@ -38,7 +38,7 @@ def test_refused_for_missing_receipt_moves_itself_when_the_receipt_is_posted(api
     managed(api, task)
     refused = move(api, task)
     assert refused.status_code == 422
-    assert 'Tico retries this move itself when a passing test receipt' in refused.json()['detail']
+    assert 'Tico retries this move itself when a passing test receipt' in refused.text
     assert [r['step'] for r in retries(api, task)] == ['Review 1']
     # Nothing changed: no retry, no new refusal.
     assert tick(api) == [] and step(api, task) == 'In Progress'
@@ -60,7 +60,7 @@ def test_refused_for_failing_checks_moves_when_the_checks_pass(api):
         c.execute("UPDATE task_links SET detail_json=json_set(detail_json,'$.checks',json(?)) WHERE task_id=? AND kind='pr'",
                   (json.dumps({'python': 'failing'}), task['id']))
     refused = move(api, task)
-    assert refused.status_code == 422 and 'Tico retries this move itself when the checks' in refused.json()['detail']
+    assert refused.status_code == 422 and 'Tico retries this move itself when the checks' in refused.text
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE task_links SET detail_json=json_set(detail_json,'$.checks',json(?)) WHERE task_id=? AND kind='pr'",
                   (json.dumps({'python': 'passing'}), task['id']))
@@ -89,3 +89,80 @@ def test_hint_names_what_clears_each_refusal():
     assert 'checks on the current head pass' in move_retry.hint('ci', 'CI failing at head x')
     assert 'GitHub can be read again' in move_retry.hint('ci', 'cannot verify the current head and CI for x')
     assert move_retry.hint('other') == ''
+
+
+TEMPORARY = {'problem_code': 'github_unreachable', 'temporary': True, 'devops': False}
+PERMANENT = {'problem_code': 'github_app_permissions', 'temporary': False, 'devops': True}
+
+
+def unreadable(api, monkeypatch, cause=None):
+    """GitHub cannot be read at a review move; `cause` is what the gate's read reported about why. Returns a
+    switch that makes GitHub readable again."""
+    from datetime import datetime, timezone
+    from backend import review_gate
+    state = {'down': True}
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug, display_name, runtime, state) VALUES('devops-engineer','DevOps','fake','active')")
+
+    def snapshot(service, prs):
+        if state['down']:
+            return {pr['id']: {'error': True, 'why': 'GitHub did not answer'} for pr in prs}
+        return {pr['id']: {'head_sha': HEAD, 'checks': {'check:python': 'passing'},
+                           'at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'} for pr in prs}
+    real = review_gate.reject
+
+    def reject(c, actor, row, kind, head, pr, text, *rest):
+        try:
+            real(c, actor, row, kind, head, pr, text, *rest)
+        except H.Refused as exc:
+            exc.review_gate.update(cause or {})
+            raise
+    monkeypatch.setattr(review_gate, 'snapshot', snapshot)
+    monkeypatch.setattr(review_gate, 'reject', reject)
+    return lambda: state.update(down=False)
+
+
+def later(minutes):
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+
+def devops_tasks(api):
+    return owned_by(api, 'devops-engineer')
+
+
+def test_temporary_github_failure_retries_on_the_timer_and_never_asks_devops(api, monkeypatch):
+    task = ticket(api, RECEIPT)
+    back = unreadable(api, monkeypatch, TEMPORARY)
+    assert move(api, task).status_code == 422
+    assert move_retry.tick(api.app.state.github_app, at=later(1), force=True) == []   # inside the 5 minutes
+    for minutes in (6, 12):
+        assert move_retry.tick(api.app.state.github_app, at=later(minutes), force=True) == []
+    assert step(api, task) == 'In Progress' and devops_tasks(api) == []
+    assert retries(api, task)[-1]['problem_code'] == 'github_unreachable'
+    back()
+    assert move_retry.tick(api.app.state.github_app, at=later(18), force=True) == [task['id']]
+    assert step(api, task) == 'Review 1' and devops_tasks(api) == []
+
+
+def test_permission_failure_asks_devops_once_and_moves_when_github_reads_again(api, monkeypatch):
+    task = ticket(api, RECEIPT)
+    back = unreadable(api, monkeypatch, PERMANENT)
+    assert move(api, task).status_code == 422
+    assert devops_tasks(api) == ['GitHub cannot be read for review moves']    # on the first refusal
+    fresh = get(api, 'tasks/' + task['id'])['task']
+    assert move(api, fresh).status_code == 422                                # the builder tries again
+    assert move_retry.tick(api.app.state.github_app, at=later(6), force=True) == []
+    assert len(devops_tasks(api)) == 1                                        # the same ask, reused
+    back()
+    assert move_retry.tick(api.app.state.github_app, at=later(12), force=True) == [task['id']]
+    assert step(api, task) == 'Review 1'
+
+
+def test_unreadable_without_a_cause_asks_devops_only_when_it_repeats(api, monkeypatch):
+    task = ticket(api, RECEIPT)
+    unreadable(api, monkeypatch)
+    assert move(api, task).status_code == 422
+    assert devops_tasks(api) == []
+    assert move_retry.tick(api.app.state.github_app, at=later(6), force=True) == []
+    assert devops_tasks(api) == ['GitHub cannot be read for review moves']
