@@ -126,13 +126,31 @@ def job_queues(c, who, bots, now=None):
     count of a bot's waiting work, here and on its page (backend/bot_rows.py, views.attention), so the two never
     disagree. A job behind a run nobody reviewed (`execution.unfenced_sql`) is `dead`, a job its wake preset holds
     is `held`; only the rest is `queued`."""
-    from .execution import unfenced_sql
     privacy.snapshot(c)
     actor = privacy.actor(who)
     memo = {}
+
+    def readable(row):
+        return privacy.message_readable(c, actor, row, current=True) and (
+            not row["job_attempt"] or privacy.attempt_readable(c, actor, row["job_attempt"], memo))
+    out = _split(c, bots, now, readable)
+    for q in out.values():
+        del q["oldest_queued_at"], q["oldest_dead_at"]
+    return out
+
+
+def queue_counts(c, bots, now=None):
+    """job_queues' split over every job, with the oldest queued and dead job's time (`oldest_queued_at`,
+    `oldest_dead_at`). Health reads it, so the queued count it shows a bot is the one Pipeline shows an operator who may
+    read all of that bot's jobs."""
+    return _split(c, bots, now, None)
+
+
+def _split(c, bots, now, readable):
+    from .execution import unfenced_sql
     now = now or H.now()
-    out = {b: {"queued": 0, "held": 0, "dead": 0, "uncertain": 0, "oldest_queued_hours": None, "dead_ids": []}
-           for b in bots}
+    out = {b: {"queued": 0, "held": 0, "dead": 0, "uncertain": 0, "oldest_queued_hours": None, "oldest_queued_at": None,
+               "oldest_dead_at": None, "dead_ids": []} for b in bots}
     for part in H.chunks(list(out)):
         marks = ",".join("?" * len(part))
         for row in c.execute(
@@ -140,22 +158,23 @@ def job_queues(c, who, bots, now=None):
                 f"j.held AS job_held, j.attempt_id AS job_attempt, {unfenced_sql()} AS free FROM jobs j "
                 "JOIN messages m ON m.id=j.message_id JOIN conversations cv ON cv.id=m.conversation_id "
                 f"WHERE j.state IN ('queued','uncertain') AND j.bot IN ({marks}) ORDER BY j.created, j.id", part):
-            if not privacy.message_readable(c, actor, row, current=True) or (
-                    row["job_attempt"] and not privacy.attempt_readable(c, actor, row["job_attempt"], memo)):
+            if readable and not readable(row):
                 continue
             q = out[row["job_bot"]]
             if row["job_state"] == "uncertain":
                 q["uncertain"] += 1
             elif not row["free"]:
                 q["dead"] += 1
+                q["oldest_dead_at"] = q["oldest_dead_at"] or row["job_created"]
                 if len(q["dead_ids"]) < DEAD_IDS:
                     q["dead_ids"].append(row["job_id"])
             elif row["job_held"]:
                 q["held"] += 1
             else:
                 q["queued"] += 1
-                if q["oldest_queued_hours"] is None:
-                    q["oldest_queued_hours"] = hours(row["job_created"], now)
+                q["oldest_queued_at"] = q["oldest_queued_at"] or row["job_created"]
+    for q in out.values():
+        q["oldest_queued_hours"] = hours(q["oldest_queued_at"], now)
     return out
 
 

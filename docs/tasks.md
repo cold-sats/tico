@@ -675,7 +675,7 @@ tickets the board shows the caller: per working step the count, how many are sno
 since tickets entered the step, owners, whom they wait on (a bot, a person, something external or nothing) and their
 open pull requests. It also gives each bot the caller may read its running, queued, held, `dead` and uncertain jobs
 (a dead job is queued behind an interrupted run nobody has reviewed, so it never runs until that run is resumed or
-dismissed; a bot's page counts its queued work the same way) and failed runs since `since` by cause (quota, capacity, restart, timeout, crash, stopped); past
+dismissed; a bot's page and Health's queue line count its work the same way, and Health names each part) and failed runs since `since` by cause (quota, capacity, restart, timeout, crash, stopped); past
 5000 readable failures it stops, sets `truncated` and says in `complete_after` from when the counts are whole. Filters:
 `type` (default the engineering board), `owner`, `label`, `updated_since`, `snoozed=all|hide|only` (default all),
 `bot`, and `since` up to 7 days. Each bot also lists, in `decisions`, its stopped runs with a resume or dismiss
