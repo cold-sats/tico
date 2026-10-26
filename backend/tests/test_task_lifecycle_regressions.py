@@ -70,6 +70,9 @@ def test_declined_blocker_releases_waiter_with_one_wake_after_last_blocker(c):
     H.task_update(c, "bot:cpo", blockers[1]["id"], status="declined")
     assert not TR.blocker_ids(c, waiter["id"])
     assert wakes() == 1
+    notice = H._one(c, "SELECT refs_json FROM messages WHERE json_extract(refs_json,'$.blocker_done')=?",
+                    (blockers[1]["id"],))
+    assert H._json(notice["refs_json"], {})["blocker_status"] == "declined"
     H.task_update(c, "bot:cpo", blockers[1]["id"], status="declined")
     assert wakes() == 1
 
@@ -160,6 +163,26 @@ def test_milestone_wake_resumes_waiter_without_later_stranded_wake(c):
     assert c.execute("SELECT count(*) FROM messages").fetchone()[0] == count
 
 
+@pytest.mark.parametrize("retained", ["closed", "missing"])
+def test_milestone_resume_with_obsolete_step_notifies_owner_once(c, retained):
+    typ = H.type_create(c, "human:ana", "Delivery edge", [
+        {"name": "Ready", "status": "open"}, {"name": "Archived", "status": "closed"}], mover=True)
+    task = create(c, "Resume after merge", type=typ["id"], step="Ready")
+    step = typ["steps"][1]["id"] if retained == "closed" else None
+    c.execute("UPDATE tasks SET status='waiting',step_id=?,requester='bot:cpo' WHERE id=?", (step, task["id"]))
+    c.execute("INSERT INTO rules(id,scope_kind,scope_id,event,then_outcome,created_by,created,updated) "
+              "VALUES('resume-rule','team','','step_entered','wake','human:ana',?,?)", (AT, AT))
+    MW.add(c, "human:ana", H.task(c, task["id"]), "pr:https://github.com/acme/product/pull/2")
+    before = c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:cmo'").fetchone()[0]
+    other = c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:cpo'").fetchone()[0]
+    assert MW.happened(c, "pr_merged", "acme/product#2") == [task["id"]]
+    row = H.task(c, task["id"])
+    assert row["status"] == "open" and row["step_id"] == typ["steps"][0]["id"]
+    assert c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:cmo'").fetchone()[0] == before + 1
+    assert c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:cpo'").fetchone()[0] == other + 1
+    assert H.sweep_stranded(c, at=H.shift(AT, hours=3)) == []
+
+
 def test_milestone_keeps_waiting_when_another_wait_remains(c):
     task = create(c, "Build after both merges")
     H.task_update(c, "bot:cmo", task["id"], status="waiting")
@@ -171,14 +194,15 @@ def test_milestone_keeps_waiting_when_another_wait_remains(c):
     assert H.task(c, task["id"])["status"] != "waiting"
 
 
-def test_trashed_task_prevents_its_step_status_changing_before_restore(c):
+@pytest.mark.parametrize("edit", ["status", "remove"])
+def test_trashed_task_prevents_its_step_changing_before_restore(c, edit):
     typ = H.type_create(c, "human:ana", "Editorial", [{"name": "Write", "status": "doing"}], mover=True)
     task = create(c, "Write campaign", owner="human:ana", type=typ["id"], step="Write")
     result = TD.delete_tasks(c, [task["id"]], apply=True, actor="human:ana")
     assert result["applied"], result
     step = typ["steps"][0]
     with pytest.raises(H.Refused, match="step|trash"):
-        H.type_update(c, "human:ana", typ["id"], steps=[{**step, "status": "review"}], mover=True)
+        H.type_update(c, "human:ana", typ["id"], steps=[{**step, "status": "review"}] if edit == "status" else [], mover=True)
     result = TD.restore_tasks(c, [task["id"]], actor="human:ana")
     assert result["restored"] == [task["id"]], result
     restored = H.task(c, task["id"])

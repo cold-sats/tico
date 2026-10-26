@@ -3296,17 +3296,20 @@ def _type_steps(conn, actor, type_id, steps):
                       "position": raw.get("position") if raw.get("position") is not None else position,
                       "status": status, "public_name": str(raw.get("public_name") if raw.get("public_name") is not None else
                           existing.get(ident, {}).get("public_name", name))})
+    def in_use(ident):
+        return (_one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (ident,))
+                or _has_table(conn, "task_trash") and _one(conn,
+                    "SELECT 1 FROM task_trash WHERE purged_at IS NULL "
+                    "AND json_extract(rows_json,'$.rows.tasks[0].step_id')=? LIMIT 1", (ident,)))
+
     for row in clean:
         if (row["id"] in existing and row["status"] != existing[row["id"]]["status"]
-                and (_one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (row["id"],))
-                     or _has_table(conn, "task_trash") and _one(conn,
-                         "SELECT 1 FROM task_trash WHERE purged_at IS NULL "
-                         "AND json_extract(rows_json,'$.rows.tasks[0].step_id')=? LIMIT 1", (row["id"],)))):
+                and in_use(row["id"])):
             refuse(conn, actor, "in-use", "Move tasks off this step before changing its status, including tasks in the trash, or create a new step")
     removed = set(existing) - ids
     for ident in removed:
-        if _one(conn, "SELECT id FROM tasks WHERE step_id=? LIMIT 1", (ident,)):
-            refuse(conn, actor, "in-use", "Move tasks off this step before deleting it")
+        if in_use(ident):
+            refuse(conn, actor, "in-use", "Move tasks off this step before deleting it, including tasks in the trash")
     for ident in removed:
         conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
     # Temporary names let retained steps swap names without dropping referenced rows.
@@ -3491,7 +3494,7 @@ def steps_only(conn, row):
     return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
-def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
+def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *, skip_step_wake=()):
     """Every task status write keeps its type and step consistent, including old runners. A task
     that enters a step joins its end; one that lands on a numbered type without a number gets one."""
     type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
@@ -3530,7 +3533,7 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
     if step_id and row.get("step_id") != step_id and row.get("status") is not None:
         # A step entered is news a type's rules may route (QA Fixes to the Builder, In QA to QA, ...).
         from . import rules as wake_rule_engine
-        wake_rule_engine.step_entered(conn, actor, task(conn, row["id"]))
+        wake_rule_engine.step_entered(conn, actor, task(conn, row["id"]), skip=skip_step_wake)
     return effective
 
 
@@ -3945,8 +3948,9 @@ def _unblock(conn, done_task, told=()):
                   "AND json_extract(refs_json,'$.trigger_source')=? AND body LIKE 'Unblocked: %' LIMIT 1",
             (row["conversation_id"], row["id"], done_task["id"]))
         if row["status"] in ACTIVE_STATUSES and not waits and row["id"] not in told:
-            _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} is finished.",
-                  refs={"blocker_done": done_task["id"]}, source=done_task["id"])
+            outcome = "was declined" if done_task["status"] == "declined" else "is finished"
+            _wake(conn, row, row["owner"], f"Unblocked: {row['title']}\n{done_task['title']} {outcome}.",
+                  refs={"blocker_done": done_task["id"], "blocker_status": done_task["status"]}, source=done_task["id"])
 
 
 def _answered(conn, actor, task_id, card, told=None):

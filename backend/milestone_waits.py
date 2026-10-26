@@ -205,7 +205,7 @@ def _fire(c, wait, why):
         # Resume the retained working step without the generic assignment wake: the milestone tells it once.
         step = H._one(c, "SELECT status FROM task_steps WHERE id=?", (row.get("step_id"),))
         retained = row.get("step_id") if step and step["status"] in H.ACTIVE_STATUSES and step["status"] != "waiting" else None
-        H._set_status(c, H.KEEPER, row, "open", step=retained, note=why)
+        H._set_status(c, H.KEEPER, row, "open", step=retained, note=why, skip_step_wake=(row["owner"],))
         c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (row["id"],))
         row = H.task(c, row["id"])
     H._wake(c, row, row["owner"], f"Milestone: {row['title']}\n{why}",
