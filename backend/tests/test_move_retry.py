@@ -4,7 +4,7 @@ import json
 import pytest
 
 from backend import hubdb as H, move_retry
-from backend.tests.test_github import api, get  # noqa: F401
+from backend.tests.test_github import api, get, headers  # noqa: F401
 from backend.tests.test_review_gate import ticket, move, HEAD, BASE
 
 RECEIPT = f'Tests: base {BASE} head {HEAD}: 9 passed, 0 failed'
@@ -203,15 +203,21 @@ def test_retries_refused_again_expire_three_days_after_the_first_refusal(api):
     assert step(api, task) == 'In Progress'
 
 
-def test_a_private_tickets_blocker_does_not_name_it(api, monkeypatch):
+def test_a_private_tickets_blocker_is_private_to_devops_and_does_not_name_it(api, monkeypatch):
     task = ticket(api, RECEIPT)
     with api.app.state.store.transaction() as c:
         c.execute('UPDATE tasks SET private=1 WHERE id=?', (task['id'],))
     unreadable(api, monkeypatch, PERMANENT)
     assert move(api, task).status_code == 422
     with api.app.state.store.read() as c:
-        body, private = c.execute("SELECT body, private FROM tasks WHERE owner=?",
-                                  (H.bot_actor('devops-engineer'),)).fetchone()
-        audit = c.execute("SELECT detail_json FROM events WHERE action='blocker.routed'").fetchone()[0]
-    assert not private and 'a private task' in body
-    assert task['id'] not in body and task['title'] not in body and task['id'] not in audit
+        blocker = dict(c.execute("SELECT * FROM tasks WHERE owner=?", (H.bot_actor('devops-engineer'),)).fetchone())
+        audit = [tuple(r) for r in c.execute("SELECT target, detail_json FROM events WHERE action='blocker.routed'")]
+        assert blocker['private']
+        assert H.task_private_readable(c, H.bot_actor('devops-engineer'), blocker)
+        assert not H.task_private_readable(c, 'human:ana', blocker)     # not on the private task or the blocker
+    assert 'a private task' in blocker['body']
+    assert task['id'] not in blocker['body'] and task['title'] not in blocker['body']
+    for target, detail in audit:                       # the company-readable audit row carries no PR, repo or task
+        assert 'github.com' not in target and '/pull/' not in target and task['id'] not in detail
+    seen = api.get('/api/v2/tasks/' + blocker['id'], headers=headers())     # ana, a person not on it
+    assert seen.status_code in (403, 404) and 'github.com' not in seen.text and 'review moves' not in seen.text
