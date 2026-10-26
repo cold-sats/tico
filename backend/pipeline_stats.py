@@ -11,8 +11,8 @@ holds is `held`. Failed attempts in the window are counted by cause with their f
 attempt counts only when the caller may read it (backend/task_privacy.py), as on a bot's page. A stopped run's
 recovery decision (resume or dismiss) is listed beside the bot's queue with who made it, when and its note.
 
-Counts and ids only: no titles, bodies or run text; a decision's note is the decider's words, shown only to a reader
-who may open the run's conversation.
+Counts and ids only: no titles, bodies or run text; a decision's note is the decider's words (Tico's own can name the
+task), shown only to a reader who may open the run's conversation.
 """
 
 import json
@@ -178,7 +178,8 @@ def queues_report(c, who, bots, now):
 def decisions_report(c, auth, who, bots, since):
     """{bot: [decision]}: each readable job with a recovery decision (run_view.recovery, the job_recovery record) that
     still holds it (a saved choice waiting for its lane) or was made since `since`, newest first, at most
-    DECISIONS_LISTED a bot. Each row names the job's state, the decision, who made it (BotOps, a person or Tico's
+    DECISIONS_LISTED a bot. Each row names the job's state while the decision is about its current try (null and
+    `current` false once a later try has run), the decision, who made it (BotOps, a person or Tico's
     auto-reconcile), when, and its note, and `label` says it as one line. The note is a decider's own words; it is left out for a reader who cannot open the run's
     conversation, as the run page leaves the run out."""
     from .execution import owner_name
@@ -213,11 +214,12 @@ def decisions_report(c, auth, who, bots, since):
             d = saved[r["job_id"]]
             if not can_open(r["conversation_id"]):
                 d = {**d, "note": None}
-            out[r["job_bot"]].append({"job": r["job_id"], "attempt": d["attempt_id"],
-                                      "state": "held" if r["job_state"] == "uncertain" else r["job_state"],
-                                      "decision": d["decision"], "by": d["by"], "by_kind": d["by_kind"], "at": d["at"],
-                                      "note": d["note"],
-                                      "label": decision_label(r["job_state"], d, lambda a: owner_name(c, a))})
+            # A decision about an earlier try is history: no state of the job's later try is put beside it.
+            state = d["state"] and ("held" if d["state"] == "uncertain" else d["state"])
+            out[r["job_bot"]].append({"job": r["job_id"], "attempt": d["attempt_id"], "current": d["current"],
+                                      "state": state, "decision": d["decision"], "by": d["by"],
+                                      "by_kind": d["by_kind"], "at": d["at"], "note": d["note"],
+                                      "label": decision_label(d, lambda a: owner_name(c, a))})
     return out
 
 

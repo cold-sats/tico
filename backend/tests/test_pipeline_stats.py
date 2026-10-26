@@ -164,8 +164,9 @@ def test_a_held_or_dismissed_run_lists_its_decision_beside_the_bots_queue(api):
 
     botops_decides(api, attempt["job_id"], attempt["id"], "dismiss", DEV_563_NOTE, H.now())
     [row] = stats(api)["queues"]["ops"]["decisions"]
-    assert (row["job"], row["attempt"], row["state"], row["decision"], row["by"], row["by_kind"], row["note"]) == (
-        attempt["job_id"], attempt["id"], "cancelled", "dismiss", "bot:botops", "botops", DEV_563_NOTE)
+    assert (row["job"], row["attempt"], row["current"], row["state"], row["decision"], row["by"], row["by_kind"],
+            row["note"]) == (attempt["job_id"], attempt["id"], True, "cancelled", "dismiss", "bot:botops", "botops",
+                             DEV_563_NOTE)
     assert row["label"].startswith("Cancelled: dismissed by BotOps at ") and row["label"].endswith("Z, " + DEV_563_NOTE)
 
     with api.app.state.store.transaction() as c:
@@ -174,6 +175,20 @@ def test_a_held_or_dismissed_run_lists_its_decision_beside_the_bots_queue(api):
     [row] = stats(api)["queues"]["ops"]["decisions"]
     assert (row["decision"], row["by"], row["by_kind"]) == ("resume", "human:ana", "person")
     assert ": resumed by " in row["label"] and row["label"].endswith(", Run it again after all, please.")
+
+    # The resume runs a new try that stops undecided: the job is held again, but the row is the earlier decision's
+    # history, never "held" beside it, and it says only what was decided.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET state='queued' WHERE id=?", (attempt["job_id"],))
+    ready(api, machine, ["ops"])
+    again = claim(api, machine)
+    assert again["job_id"] == attempt["job_id"]
+    post(api, f"attempts/{again['id']}/started", {"thread_id": "again"}, machine["token"])
+    expire(api, again["id"])
+    assert claim(api, machine) is None
+    [row] = stats(api)["queues"]["ops"]["decisions"]
+    assert (row["attempt"], row["current"], row["state"]) == (attempt["id"], False, None)
+    assert row["label"].startswith("Resumed by ") and row["label"].endswith(", Run it again after all, please.")
 
     # Outside the window it is no longer listed; a reader who cannot read the bot never sees it.
     with api.app.state.store.transaction() as c:

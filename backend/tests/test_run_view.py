@@ -401,10 +401,11 @@ def test_a_held_runs_decision_shows_beside_its_state_with_who_when_and_the_note(
     botops_decides(api, attempt["job_id"], attempt["id"], "dismiss", DEV_563_NOTE, "2026-10-26T09:50:45.103088Z")
     [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
     assert run["job_state"] == "cancelled"
-    assert run["decision"] == {"decision": "dismiss", "attempt_id": attempt["id"], "by": "bot:botops",
-                               "by_kind": "botops", "at": "2026-10-26T09:50:45.103088Z", "note": DEV_563_NOTE}
+    assert run["decision"] == {"decision": "dismiss", "attempt_id": attempt["id"], "current": True,
+                               "state": "cancelled", "by": "bot:botops", "by_kind": "botops",
+                               "at": "2026-10-26T09:50:45.103088Z", "note": DEV_563_NOTE}
     from backend.run_view import decision_label
-    assert decision_label(run["job_state"], run["decision"], lambda a: "BotOps") == (
+    assert decision_label(run["decision"], lambda a: "BotOps") == (
         "Cancelled: dismissed by BotOps at 09:50Z, " + DEV_563_NOTE)
 
     # The label is read from the decision record each time, never copied onto the job: a later decision shows.
@@ -423,17 +424,45 @@ def test_a_persons_resume_with_a_note_names_them_and_a_run_without_one_has_no_la
                                                       "acknowledge_uncertain_effects": True})
     [run] = get(api, f"tasks/{tid}/run-view")["attempts"]
     assert run["job_state"] == "queued"
-    assert (run["decision"]["decision"], run["decision"]["by"], run["decision"]["by_kind"], run["decision"]["note"]) == (
-        "resume", "human:ana", "person", "Nothing was renamed yet; run it again.")
+    assert (run["decision"]["decision"], run["decision"]["by"], run["decision"]["by_kind"], run["decision"]["note"],
+            run["decision"]["state"]) == ("resume", "human:ana", "person", "Nothing was renamed yet; run it again.",
+                                          "queued")
     # The try it started has no decision of its own, so it carries no label.
     ready(api, machine, ["ops"])
     again = claim(api, machine)
+    post(api, f"attempts/{again['id']}/started", {"thread_id": "again"}, machine["token"])
     later, earlier = get(api, f"tasks/{tid}/run-view")["attempts"]
     assert (later["run"], later["decision"]) == (again["id"], None)
-    assert earlier["decision"]["by"] == "human:ana" and earlier["job_state"] == "leased"
-    # Tico's own auto-reconcile is named as such.
+    assert earlier["decision"]["by"] == "human:ana"
+    # The new try stops too and nobody has decided it: the job is held again, but the earlier resume is history, not
+    # a saved choice for this stop. It says only what was decided; the new stop carries no label.
+    expire(api, again["id"])
+    assert claim(api, machine) is None
+    later, earlier = get(api, f"tasks/{tid}/run-view")["attempts"]
+    assert later["job_state"] == "uncertain" and later["decision"] is None
+    assert (earlier["decision"]["current"], earlier["decision"]["state"]) == (False, None)
     from backend.run_view import decided_by, decision_label
+    assert decision_label(earlier["decision"], lambda a: "Ana") == (
+        "Resumed by Ana at " + earlier["decision"]["at"][11:16] + "Z, Nothing was renamed yet; run it again.")
+    # Tico's own auto-reconcile is named as such.
     assert decided_by(H.KEEPER) == "tico"
-    assert decision_label("completed", {"decision": "resume", "by": H.KEEPER, "by_kind": "tico",
-                                        "at": "2026-10-26T07:05:00Z", "note": ""}, str) == (
+    assert decision_label({"decision": "resume", "by": H.KEEPER, "by_kind": "tico", "state": "completed",
+                           "at": "2026-10-26T07:05:00Z", "note": ""}, str) == (
         "Done: resumed by Tico's auto-reconcile at 07:05Z")
+
+
+def test_a_deferred_choice_keeps_the_time_it_was_made(api):
+    """A choice saved while the lane is busy is applied later by the same `_decide`; the label's time is when the
+    person decided, not when it was applied. A new decision takes its own time."""
+    _, _, attempt = held_run(api, "Tidy the archive")
+    execution = api.app.state.execution
+    with api.app.state.store.transaction() as c:
+        row = c.execute("SELECT * FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone()
+        execution._decide(c, row, attempt["id"], "resume", "Run it once the lane is free.", "human:ana", deferred=True)
+        c.execute("UPDATE job_recovery SET created='2026-10-26T09:00:00Z' WHERE job_id=?", (attempt["job_id"],))
+        execution._decide(c, row, attempt["id"], "resume", "Run it once the lane is free.", "human:ana")
+        assert c.execute("SELECT created FROM job_recovery WHERE job_id=?", (attempt["job_id"],)).fetchone()[0] == (
+            "2026-10-26T09:00:00Z")
+        execution._decide(c, row, attempt["id"], "dismiss", "Done by hand after all, nothing to run.", "human:ana")
+        assert c.execute("SELECT created FROM job_recovery WHERE job_id=?", (attempt["job_id"],)).fetchone()[0] != (
+            "2026-10-26T09:00:00Z")

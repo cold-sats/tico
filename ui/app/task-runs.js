@@ -19,15 +19,19 @@ function runStateWord(a) {
 // The job's state beside its recovery decision; a saved choice still waiting for its lane is held (backend/run_view.py).
 const RUN_JOB_WORDS = {uncertain: 'Held', cancelled: 'Cancelled', queued: 'Queued', leased: 'Running', running: 'Running',
   input: 'Running', completed: 'Done'};
-// "Cancelled: dismissed by BotOps at 09:50Z": the job's state now and the resume or dismiss decided about this try,
-// read from the decision record each time (job_recovery), so a later decision replaces it. '' with no decision.
+// "Cancelled: dismissed by BotOps at 09:50Z": the job's state and the resume or dismiss decided about this try, read
+// from the decision record each time (job_recovery), so a later decision replaces it. The decision carries `state` only
+// while it is about the job's current try; once a later try ran, it says only what was decided ("Resumed by BotOps
+// at 09:50Z"). '' with no decision.
 function runDecisionWords(a) {
   const d = a.decision;
   if (!d) return '';
   const who = d.by_kind === 'tico' ? "Tico's auto-reconcile" : actorLabel(d.by), at = new Date(d.at || '');
   const hhmm = isNaN(at) ? '' : ` at ${String(at.getUTCHours()).padStart(2, '0')}:${String(at.getUTCMinutes()).padStart(2, '0')}Z`;
-  const state = RUN_JOB_WORDS[a.job_state] || String(a.job_state || '').replace(/^./, ch => ch.toUpperCase());
-  return `${state}: ${d.decision === 'resume' ? 'resumed' : 'dismissed'} by ${who === 'You' ? 'you' : who}${hhmm}`;
+  const verb = d.decision === 'resume' ? 'resumed' : 'dismissed';
+  const what = d.state ? `${RUN_JOB_WORDS[d.state] || String(d.state).replace(/^./, ch => ch.toUpperCase())}: ${verb}`
+    : verb.replace(/^./, ch => ch.toUpperCase());
+  return `${what} by ${who === 'You' ? 'you' : who}${hhmm}`;
 }
 const runByWord = by => !by ? '' : by === 'keeper' ? 'automatically' : 'by ' + actorLabel(by);
 const runMs = ms => ms == null ? '' : durationWords(ms / 1000);

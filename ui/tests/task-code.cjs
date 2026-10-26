@@ -79,12 +79,14 @@ function fixtures() {
       {run: 'a1', bot: 'eng', job: 'j1', try: 1, tries: 2, state: 'expired', outcome: 'interrupted', created: ago(900), started: ago(898), finished: ago(600),
        took_s: 298, ran_on: {segments: [{model: 'claude-opus-5-5'}]}, lease: [{kind: 'grace', at: ago(610)}],
        reason: 'Lease expired before completion', next: {kind: 'resumed', by: 'keeper', at: ago(130), note: 'Resumed automatically: it recorded no tool call.'},
-       job_state: 'running', decision: null, subagents: [], background: []},
+       // Resumed by Tico, then the job ran try 2: the decision is history, with no state of the later try.
+       job_state: 'running', decision: {decision: 'resume', attempt_id: 'a1', current: false, state: null, by: 'keeper', by_kind: 'tico',
+         at: '2026-10-26T07:05:00Z', note: 'Resumed automatically: it recorded no tool call.'}, subagents: [], background: []},
       // The Dev 563 shape: cut at its time limit, then dismissed by BotOps with a note (job_recovery).
       {run: 'a0', bot: 'eng', job: 'j0', try: 1, tries: 1, state: 'interrupted', outcome: 'interrupted', created: ago(5400), started: ago(5398), finished: ago(1800),
        took_s: 3598, ran_on: {segments: [{model: 'claude-opus-5-5'}]}, lease: [], reason: 'Timeout: max_run_minutes (60 minutes)',
        next: {kind: 'dismissed', by: 'bot:botops', at: '2026-10-26T09:50:45.103088Z', note: 'Finished before the 60-min limit. Nothing to redo.'},
-       job_state: 'cancelled', decision: {decision: 'dismiss', attempt_id: 'a0', by: 'bot:botops', by_kind: 'botops',
+       job_state: 'cancelled', decision: {decision: 'dismiss', attempt_id: 'a0', current: true, state: 'cancelled', by: 'bot:botops', by_kind: 'botops',
          at: '2026-10-26T09:50:45.103088Z', note: 'Finished before the 60-min limit. Nothing to redo.'}, subagents: [], background: []}]};
   return {tasks: [parent, plain, ...others], tree, runView};
 }
@@ -305,10 +307,12 @@ async function desktop(browser) {
     /^general-purpose\s*claude-opus-5-5 \(the run’s model\) · completed · 42s · 3 tool calls · in the background\s*Explore\s*claude-haiku-5-5 · running$/);
   assert.equal(await tries.first().locator('.truns-tree .truns-tree li').count(), 1, 'a nested subagent sits under its parent');
   await tries.nth(1).locator('summary').click();
-  assert.match(await tries.nth(1).innerText(), /Try 1 of 2 · lease expired · 4m 58s[\s\S]*Lease expired before completion[\s\S]*Run again automatically, 2m ago\s*Resumed automatically/);
+  // A decision about an earlier try is history once the job ran again: no "Running:" from the later try beside it.
+  assert.match(await tries.nth(1).locator('summary').innerText(), /^Try 1 of 2 · lease expired · Resumed by Tico's auto-reconcile at 07:05Z · 4m 58s/);
+  assert.match(await tries.nth(1).innerText(), /Lease expired before completion[\s\S]*Resumed by Tico's auto-reconcile at 07:05Z, Resumed automatically: it recorded no tool call\./);
   // A try with no recovery decision carries no decision label; a dismissed one says it beside its state.
-  assert.equal(await runs.locator('.truns-decision').count(), 1);
-  assert.doesNotMatch(await tries.nth(1).locator('summary').innerText(), /dismissed|resumed/);
+  assert.equal(await runs.locator('.truns-decision').count(), 2);
+  assert.doesNotMatch(await tries.first().locator('summary').innerText(), /dismissed|resumed/i);
   assert.match(await tries.nth(2).locator('summary').innerText(), /^Try 1 of 1 · stopped · Cancelled: dismissed by BotOps at 09:50Z · /);
   await tries.nth(2).locator('summary').click();
   assert.equal(await tries.nth(2).locator('.truns-decision').innerText(),
