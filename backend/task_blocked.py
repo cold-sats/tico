@@ -152,16 +152,20 @@ def reconcile(c, task_id):
     bump(c, row)
 
 
-def sweep(c, at):
+def sweep(c, at, task_ids=None):
     """Share the existing stall sweep; one private-safe age alert per blocked episode."""
     from . import hubdb as H
+    scope, args = '', ()
+    if task_ids is not None:
+        args = tuple(task_ids)
+        scope = ' AND t.id IN (' + ','.join('?' for _ in args) + ')' if args else ' AND 0'
     # Reuse the existing wait predicates for asks, approvals and legacy holds too.
     # Their creation paths need no separate state/query implementation.
     for row in H._rows(c.execute("SELECT t.* FROM tasks t JOIN task_types ty ON ty.id=t.type_id "
-                                "WHERE ty.role='engineering' AND t.status IN ('open','doing','review','ready')")):
+                                "WHERE ty.role='engineering' AND t.status IN ('open','doing','review','ready')" + scope, args)):
         if detail := wait(c, row):
             hold(c, row['id'], 'Waiting on ' + detail['why'])
-    for row in H._rows(c.execute('SELECT * FROM tasks WHERE blocked_since IS NOT NULL')):
+    for row in H._rows(c.execute('SELECT t.* FROM tasks t WHERE blocked_since IS NOT NULL' + scope, args)):
         reconcile(c, row['id'])
         row = H.task(c, row['id'])
         if not row.get('blocked_since') or seconds(row['blocked_since'], at) < 4 * 3600:

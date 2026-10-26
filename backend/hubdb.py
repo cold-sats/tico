@@ -7046,7 +7046,7 @@ def wake_stalled(conn, at=None, task_ids=None, queued_here=None):
     from . import stall_triage, wake_rules
     at = at or now()
     from .task_blocked import sweep as blocked_sweep
-    blocked_sweep(conn, at)
+    blocked_sweep(conn, at, task_ids=task_ids)
     woke, escalated, checked, stuck, held, retried_ids = [], [], [], [], [], []
     stalled = {row["id"]: row for row in stalled_tasks(conn, at, task_ids=task_ids, queued_here=queued_here)}
     spots = {row["id"]: row for row in spot_check_tasks(conn, at, task_ids=task_ids)}

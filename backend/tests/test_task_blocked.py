@@ -143,6 +143,8 @@ def test_sweep_discovers_person_wait_and_keeps_private_age_alert_private(api):
         answer = H.task_create(c, 'human:ana', 'Choose a machine', 'Choose one.', 'human:ana', parent_id=task['id'])
         c.execute('UPDATE tasks SET private=1 WHERE id=?', (task['id'],))
         c.execute('UPDATE task_types SET manager=? WHERE id=?', ('cmo', task['type_id']))
+        task_blocked.sweep(c, H.now(), task_ids=[])
+        assert H.task(c, task['id'])['status'] == 'doing', 'a scoped sweep cannot mutate unrelated work'
         task_blocked.sweep(c, H.now())
         row = H.task(c, task['id'])
         assert row['status'] == 'waiting' and row['blocked_kind'] == 'dependency'
