@@ -1147,7 +1147,8 @@ STEP_NOISE_DROPPED = "rules.step_noise_dropped"
 def drop_step_noise(conn):
     """Once per install: cancel the Release Manager's queued step-entry notices a profile catch-all held for its digest
     (before only a row naming `step_entered` could reach it, every task's step move did). Nothing else is touched: a
-    note, another bot's jobs, a job already let go. Quietly does nothing before the tables exist."""
+    note, another bot's jobs, a job already let go, a notice a team's own step_entered row batched. Quietly does
+    nothing before the tables exist."""
     try:
         if conn.execute("SELECT 1 FROM events WHERE action=? LIMIT 1", (STEP_NOISE_DROPPED,)).fetchone():
             return 0
@@ -1156,7 +1157,8 @@ def drop_step_noise(conn):
         dropped = conn.execute(
             "UPDATE jobs SET state='cancelled',held=0 WHERE bot=? AND state='queued' AND held=1 AND message_id IN "
             "(SELECT id FROM messages WHERE json_extract(refs_json,'$.news')='step_entered' "
-            "AND json_extract(refs_json,'$.wake_batch')='rule')", (manager,)).rowcount if manager else 0
+            "AND json_extract(refs_json,'$.wake_batch')='rule' AND json_extract(refs_json,'$.rule')='profile_lead_digest')",
+            (manager,)).rowcount if manager else 0
         H.event(conn, H.KEEPER, STEP_NOISE_DROPPED, manager or "", {"jobs": dropped})
         return dropped
     except sqlite3.OperationalError:

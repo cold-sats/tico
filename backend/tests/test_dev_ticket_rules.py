@@ -125,22 +125,29 @@ def test_the_release_managers_held_step_notices_are_dropped_once_and_nothing_els
     with api.app.state.store.transaction() as c:
         leads(c)
         task = H.task_create(c, "bot:boss", "Recruit an advisor", "x", "bot:cpo", lint=False)
+        other = H.task_create(c, "bot:boss", "Book the offsite", "x", "bot:cpo", lint=False)
         c.execute("DELETE FROM jobs")
         # What the catch-all held before: step entries batched for the digest, and other held news.
         batched = {"news": "step_entered", "wake_batch": "rule"}
+        own_row = {"news": "step_entered", "wake_batch": "rule"}
         for bot, refs in (("release-manager", batched), ("boss", batched),
                           ("release-manager", {"news": "task_done", "wake_batch": "completion"})):
             H._wake(c, task, "bot:" + bot, f"{task['title']} entered Exploring.", refs)
+        H._wake(c, other, "bot:release-manager", f"{other['title']} entered Exploring.", own_row)
+        # As a team's own step_entered row with outcome batch stamps it (rules.stamp).
+        c.execute("UPDATE messages SET refs_json=json_set(refs_json,'$.rule','r-team-step-batch') WHERE body LIKE ?",
+                  (other["title"] + "%",))
         held = {r["id"]: (r["bot"], r["state"]) for r in c.execute("SELECT id,bot,state FROM jobs WHERE held=1")}
-        assert sorted(b for b, _ in held.values()) == ["boss", "release-manager", "release-manager"]
+        assert sorted(b for b, _ in held.values()) == ["boss", "release-manager", "release-manager", "release-manager"]
         c.execute("DELETE FROM events WHERE action=?", (R.STEP_NOISE_DROPPED,))   # this database's startup ran it
         assert R.drop_step_noise(c) == 1
         after = {r["id"]: (r["bot"], r["state"], json.loads(r["refs_json"])["news"]) for r in c.execute(
             "SELECT j.id,j.bot,j.state,m.refs_json FROM jobs j JOIN messages m ON m.id=j.message_id")}
         assert sorted(after.values()) == [("boss", "queued", "step_entered"),
                                           ("release-manager", "cancelled", "step_entered"),
+                                          ("release-manager", "queued", "step_entered"),
                                           ("release-manager", "queued", "task_done")]
         # Once per install: a later start leaves a step notice a person's row batched since.
         H._wake(c, task, "bot:release-manager", f"{task['title']} entered Doing.", batched)
         assert R.drop_step_noise(c) == 0
-        assert c.execute("SELECT count(*) FROM jobs WHERE bot='release-manager' AND state='queued'").fetchone()[0] == 2
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='release-manager' AND state='queued'").fetchone()[0] == 3
