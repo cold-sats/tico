@@ -8216,8 +8216,12 @@ def conversation(conn, conversation_id):
 
 def prime_conversations(conn, ids):
     """Read these conversations in one query per 500 for the conversation() lookups that follow in this snapshot."""
-    from .read_cache import prime
-    for part in chunks(sorted({cid for cid in ids if cid})):
+    from .read_cache import cache, prime
+    values = cache(conn)
+    wanted = {cid for cid in ids if cid}
+    if values is not None:
+        wanted = {cid for cid in wanted if ("one", CONVERSATION_SQL, (cid,)) not in values}
+    for part in chunks(sorted(wanted)):
         found = {row["id"]: row for row in conn.execute(
             "SELECT * FROM conversations WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
         prime(conn, CONVERSATION_SQL, {(cid,): found.get(cid) for cid in part})
@@ -8262,10 +8266,14 @@ def prime_messages(conn, ids):
     """Read these messages in one query per 500 for the message() lookups that follow in this snapshot, deleted or not.
     Returns {id: stored row} of those found (empty outside a snapshot, where nothing is kept)."""
     from .read_cache import cache
-    if cache(conn) is None:
+    values = cache(conn)
+    if values is None:
         return {}
-    out = {}
-    for part in chunks(sorted({mid for mid in ids if mid})):
+    wanted = {mid for mid in ids if mid}
+    known = {mid for mid in wanted if ("one", MESSAGE_SQL, (mid,)) in values}
+    out = {mid: values[("one", MESSAGE_SQL, (mid,))] for mid in known
+           if values[("one", MESSAGE_SQL, (mid,))] is not None}
+    for part in chunks(sorted(wanted - known)):
         found = {row["id"]: row for row in conn.execute(
             "SELECT * FROM messages WHERE id IN (%s)" % ",".join("?" * len(part)), part)}
         _prime_message_lookups(conn, part, found)
@@ -8303,8 +8311,7 @@ def prime_message_rows(conn, rows):
             for key in ("answers", "inputs"):
                 if isinstance(refs, dict) and isinstance(refs.get(key), list):
                     parents.update(v for v in refs[key] if isinstance(v, str))
-        wanted = {mid for mid in parents if mid and mid not in seen
-                  and ("one", MESSAGE_SQL, (mid,)) not in values}
+        wanted = {mid for mid in parents if mid and mid not in seen}
         if not wanted:
             break
         seen |= wanted
@@ -8436,9 +8443,13 @@ def prime_tasks(conn, ids):
     """Read these tasks and their tags in one query each per 500, for the task() lookups that follow in this snapshot
     (a Needs you card reads its task, its ancestors and what they block, one at a time)."""
     from .read_cache import cache, prime, prime_rows
-    if cache(conn) is None:
+    values = cache(conn)
+    if values is None:
         return
-    for part in chunks(sorted({tid for tid in ids if tid})):
+    wanted = {tid for tid in ids if tid}
+    wanted = {tid for tid in wanted if ("one", TASK_SQL, (tid,)) not in values
+              or (TASK_TAGS_SQL % "?", (tid,)) not in values}
+    for part in chunks(sorted(wanted)):
         marks = ",".join("?" * len(part))
         found = {row["id"]: row for row in conn.execute("SELECT * FROM tasks WHERE id IN (%s)" % marks, part)}
         prime(conn, TASK_SQL, {(tid,): found.get(tid) for tid in part})
