@@ -18,6 +18,13 @@ from .store import Problem
 SETTINGS = 'repos_new_bot_default'
 # {bot: [owner/name, ...]}: write grants an Owner or admin let start and manage workflow runs (Actions: write).
 WORKFLOWS = 'repository-workflow-grants'
+# {bot: [owner/name, ...]}: write grants an Owner or admin let edit workflow files (Workflows: write).
+WORKFLOW_EDITS = 'repository-workflow-edit-grants'
+# Each per-grant opt-in an Owner or admin sets on a write grant: its grant flag, where it is stored, what it is called
+# in a refusal, and the key its `stopped` entry uses.
+FLAGS = (('run_workflows', WORKFLOWS, 'Running workflows', 'run workflows', 'workflows_stopped'),
+         ('edit_workflows', WORKFLOW_EDITS, 'Editing workflow files', 'edit workflow files', 'workflow_edits_stopped'))
+STORED = {flag: key for flag, key, *_ in FLAGS}
 
 
 def metadata(c, key):
@@ -153,7 +160,7 @@ class Reads:
         self.missing = unreachable(c)
         self.creation = metadata(c, 'repository-creation-grants')
         self.product_creation = metadata(c, PRODUCT_GRANTS)
-        self.workflows = metadata(c, WORKFLOWS)
+        self.flags = {flag: metadata(c, key) for flag, key, *_ in FLAGS}
         self._enabled = self._bot_repos = self._all = None
 
     def _rows(self, sql, keys):
@@ -191,10 +198,11 @@ def access(c, bot, org, reads=None):
     own_row = reads.configs.get(source)
     own = repo_of(own_row['repo'] if own_row else '', org)
     chosen = [dict(r) for r in reads.chosen[bot]]
-    flagged = {str(name).lower() for name in reads.workflows.get(bot) or ()}
-    for r in chosen:
-        if r['access'] == 'write' and r['full_name'].lower() in flagged:
-            r['run_workflows'] = True
+    for flag, stored in reads.flags.items():
+        flagged = {str(name).lower() for name in stored.get(bot) or ()}
+        for r in chosen:
+            if r['access'] == 'write' and r['full_name'].lower() in flagged:
+                r[flag] = True
     grants = {}
     if mode == 'all':
         repos, shared = reads.all_mode()
@@ -214,7 +222,7 @@ def access(c, bot, org, reads=None):
 
 def set_access(c, bot, body, org, actor, legacy=False, team_list=False, own_click=True, owner=False):
     """`own_click` is False when a bot's turn makes the change for a person: it may grant with their rights, but
-    not let a bot run workflows. `owner`: the Owner is making the change."""
+    not let a bot run workflows or edit workflow files. `owner`: the Owner is making the change."""
     from .github_app import repo_of, save_extra_repos
     before = access(c, bot, org)
     if body.create_repositories is not None:
@@ -232,8 +240,8 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False, own_clic
         if not product and (not team_list or not H.is_human(actor)):
             raise Problem('forbidden', 'Only the Owner or an admin turns off Create product repositories', 403)
     wanted = {}
-    was = {r['full_name'].lower() for r in before['chosen'] if r.get('run_workflows')}
-    workflows = set(was)
+    was = {flag: {r['full_name'].lower() for r in before['chosen'] if r.get(flag)} for flag in STORED}
+    flagged = {flag: set(names) for flag, names in was.items()}
     for grant in body.chosen or []:
         name = repo_of(grant.full_name, org)
         if not name or name.split('/')[0].lower() != org.lower():
@@ -252,31 +260,34 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False, own_clic
         elif not c.execute('SELECT 1 FROM repositories WHERE full_name=?', (name,)).fetchone():
             raise Problem('github_repo', 'Choose a repository from the team list', 422)
         wanted[name.lower()] = (name, grant.access)
-        if grant.run_workflows and grant.access != 'write':
-            raise Problem('github_repo', 'Running workflows needs write access to ' + name, 422)
-        if grant.run_workflows is not None and grant.run_workflows != (name.lower() in was) and (
-                not team_list or not H.is_human(actor) or not own_click):
-            raise Problem('forbidden', 'Only an Owner or admin lets a bot run workflows, themselves in Settings > '
-                          'Repositories', 403)
-        # Left out, a grant keeps its setting while it stays write.
-        if grant.run_workflows or grant.run_workflows is None and name.lower() in was and grant.access == 'write':
-            workflows.add(name.lower())
-        else:
-            workflows.discard(name.lower())
+        for flag, _, label, verb, _ in FLAGS:
+            value = getattr(grant, flag)
+            if value and grant.access != 'write':
+                raise Problem('github_repo', label + ' needs write access to ' + name, 422)
+            if value is not None and value != (name.lower() in was[flag]) and (
+                    not team_list or not H.is_human(actor) or not own_click):
+                raise Problem('forbidden', 'Only an Owner or admin lets a bot ' + verb + ', themselves in Settings > '
+                              'Repositories', 403)
+            # Left out, a grant keeps its setting while it stays write.
+            if value or value is None and name.lower() in was[flag] and grant.access == 'write':
+                flagged[flag].add(name.lower())
+            else:
+                flagged[flag].discard(name.lower())
     config = json.loads(c.execute('SELECT config_json FROM bot_config WHERE bot=?', (bot,)).fetchone()[0] or '{}')
     config.update(repo_access_mode=body.mode, repo_all_access=body.all_access or before['all_access'])
     c.execute('UPDATE bot_config SET config_json=? WHERE bot=?', (json.dumps(config), bot))
     if body.chosen is not None:
         c.execute('DELETE FROM bot_repo_access WHERE bot=?', (bot,))
         c.executemany('INSERT INTO bot_repo_access VALUES(?,?,?)', [(bot, name, level) for name, level in wanted.values()])
-        flags = metadata(c, WORKFLOWS)
-        names = sorted(wanted[key][0] for key in workflows if key in wanted)
-        if names:
-            flags[bot] = names
-        else:
-            flags.pop(bot, None)
-        if flags != metadata(c, WORKFLOWS):
-            save_metadata(c, WORKFLOWS, flags)
+        for flag, stored in STORED.items():
+            flags = metadata(c, stored)
+            names = sorted(wanted[key][0] for key in flagged[flag] if key in wanted)
+            if names:
+                flags[bot] = names
+            else:
+                flags.pop(bot, None)
+            if flags != metadata(c, stored):
+                save_metadata(c, stored, flags)
     if body.create_repositories is not None:
         grants = metadata(c, 'repository-creation-grants')
         if body.create_repositories:
@@ -290,11 +301,12 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False, own_clic
         save_metadata(c, PRODUCT_GRANTS, grants)
     after = access(c, bot, org)
     # Kept flags apply again when a grant returns to effect (Own or All back to Chosen): that is a gain too.
-    running = {r['full_name'].lower() for r in before['effective'] if r.get('run_workflows')}
-    if any(r.get('run_workflows') and r['full_name'].lower() not in running for r in after['effective']) and (
-            not team_list or not H.is_human(actor) or not own_click):
-        raise Problem('forbidden', 'Only an Owner or admin lets a bot run workflows, themselves in Settings > '
-                      'Repositories', 403)
+    for flag, _, _, verb, _ in FLAGS:
+        had = {r['full_name'].lower() for r in before['effective'] if r.get(flag)}
+        if any(r.get(flag) and r['full_name'].lower() not in had for r in after['effective']) and (
+                not team_list or not H.is_human(actor) or not own_click):
+            raise Problem('forbidden', 'Only an Owner or admin lets a bot ' + verb + ', themselves in Settings > '
+                          'Repositories', 403)
     save_extra_repos(c, bot, [r['full_name'] for r in after['chosen'] if r['access'] == 'write'] if body.mode == 'chosen' else [])
     lost = stopped(before, after)
     H.event(c, actor, 'bot.repos_changed', bot, {'before': before, 'after': after, **lost})
@@ -304,15 +316,17 @@ def set_access(c, bot, body, org, actor, legacy=False, team_list=False, own_clic
 def stopped(before, after):
     """What a change takes away, said on its reply and in its audit event: `stopped`, the grants that applied before
     and no longer do (a repository gone, or write turned to read), `workflows_stopped` for repositories it may no
-    longer run workflows in, and `creation_stopped` when repository creation was taken away. A switch to own keeps
-    the chosen rows, but they stop applying."""
+    longer run workflows in, `workflow_edits_stopped` for those it may no longer edit workflow files in, and
+    `creation_stopped` when repository creation was taken away. A switch to own keeps the chosen rows, but they stop
+    applying."""
     kept = {(r['full_name'].lower(), r['access']) for r in after['effective']}
     out = {'stopped': [{'full_name': r['full_name'], 'access': r['access']} for r in before['effective']
                        if (r['full_name'].lower(), r['access']) not in kept]}
-    running = {r['full_name'].lower() for r in after['effective'] if r.get('run_workflows')}
-    workflows = [r['full_name'] for r in before['effective'] if r.get('run_workflows') and r['full_name'].lower() not in running]
-    if workflows:
-        out['workflows_stopped'] = workflows
+    for flag, _, _, _, key in FLAGS:
+        still = {r['full_name'].lower() for r in after['effective'] if r.get(flag)}
+        lost = [r['full_name'] for r in before['effective'] if r.get(flag) and r['full_name'].lower() not in still]
+        if lost:
+            out[key] = lost
     if before['create_repositories'] and not after['create_repositories']:
         out['creation_stopped'] = True
     if before.get('create_product_repositories') and not after.get('create_product_repositories'):
@@ -323,16 +337,18 @@ def stopped(before, after):
 def started(before, after):
     """What a change gives that only a person's own click may: `workflows_started`, the repositories the bot may now run
     workflows in (a tick, or a kept tick coming back into effect) or may once its grant applies (a tick kept on a grant
-    not in effect yet), and `product_creation_started` when Create product repositories turns back on. BotOps acting
-    for a person puts these on a Confirm card (`bot_set`)."""
-    workflows = []
-    for kind in ('effective', 'chosen'):
-        running = {r['full_name'].lower() for r in before[kind] if r.get('run_workflows')}
-        workflows += [r['full_name'] for r in after[kind] if r.get('run_workflows')
-                      and r['full_name'].lower() not in running and r['full_name'] not in workflows]
+    not in effect yet), `workflow_edits_started` the same for editing workflow files, and `product_creation_started`
+    when Create product repositories turns back on. BotOps acting for a person puts these on a Confirm card
+    (`bot_set`)."""
     out = {}
-    if workflows:
-        out['workflows_started'] = workflows
+    for flag, *_, key in FLAGS:
+        names = []
+        for kind in ('effective', 'chosen'):
+            had = {r['full_name'].lower() for r in before[kind] if r.get(flag)}
+            names += [r['full_name'] for r in after[kind] if r.get(flag)
+                      and r['full_name'].lower() not in had and r['full_name'] not in names]
+        if names:
+            out[key.replace('_stopped', '_started')] = names
     if not before.get('create_product_repositories') and after.get('create_product_repositories'):
         out['product_creation_started'] = True
     return out
@@ -342,6 +358,7 @@ def describe_stopped(result):
     """`Acme/product (write), repository creation` for a reply or a card."""
     parts = [r['full_name'] + ' (' + r['access'] + ')' for r in result.get('stopped') or []]
     parts += [name + ' (run workflows)' for name in result.get('workflows_stopped') or []]
+    parts += [name + ' (edit workflow files)' for name in result.get('workflow_edits_stopped') or []]
     parts += ['repository creation'] if result.get('creation_stopped') else []
     return ', '.join(parts + (['product repository creation'] if result.get('product_creation_stopped') else []))
 
@@ -377,8 +394,9 @@ def preview_change(c, settings, actor, bot, body):
 def needs_card(result):
     """Whether a change BotOps makes for a person goes on their Confirm card (`bot_set`, and the settings catalogue's
     class for it): it gives what only their own click may (`started`), or takes something away."""
-    return bool(result.get('workflows_started') or result.get('product_creation_started') or result.get('stopped')
-                or result.get('creation_stopped') or result.get('workflows_stopped')
+    return bool(result.get('workflows_started') or result.get('workflow_edits_started')
+                or result.get('product_creation_started') or result.get('stopped') or result.get('creation_stopped')
+                or result.get('workflows_stopped') or result.get('workflow_edits_stopped')
                 or result.get('product_creation_stopped'))
 
 
@@ -403,9 +421,9 @@ def tried(c, bot, update, org, actor, name, owner=False):
 def card_words(c, settings, auth, who, bot, body):
     """For the settings catalogue (settings_catalog.plan), the change BotOps would make for a person tried as that
     person's own click: (whether it needs their Confirm card, the card's plain words). It needs one exactly when
-    `bot_set` would make one, a kept Run workflows tick coming back included. A change that click could not make (no
-    write access for Run workflows, an admin turning Create product repositories on) is refused now, so no card is made
-    for it."""
+    `bot_set` would make one, a kept Run workflows or Edit workflow files tick coming back included. A change that
+    click could not make (no write access for either tick, an admin turning Create product repositories on) is refused
+    now, so no card is made for it."""
     if auth.system_bot(bot) and who.role != 'owner':
         raise Problem('forbidden', 'Only the Owner changes Built-in bots', 403)
     try:
@@ -435,12 +453,17 @@ def plain_change(name, before, result):
     if result.get('workflows_started'):
         lines.append('may run workflows in ' + _and(_short(n) for n in result['workflows_started'])
                      + ": it can start CI there, and CI uses that repository's secrets")
+    if result.get('workflow_edits_started'):
+        lines.append('may edit workflow files in ' + _and(_short(n) for n in result['workflow_edits_started'])
+                     + ": a workflow it pushes on a branch runs with that repository's secrets before review")
     if result.get('product_creation_started'):
         lines.append('may create product repositories again')
     if lost:
         lines.append('loses access to ' + _and(lost))
     if result.get('workflows_stopped'):
         lines.append('can no longer run workflows in ' + _and(_short(n) for n in result['workflows_stopped']))
+    if result.get('workflow_edits_stopped'):
+        lines.append('can no longer edit workflow files in ' + _and(_short(n) for n in result['workflow_edits_stopped']))
     if result.get('creation_stopped'):
         lines.append('can no longer create repositories')
     if result.get('product_creation_stopped'):
@@ -585,39 +608,41 @@ def repository_health(service):
                       'Refresh Settings > Repositories or check the GitHub App installation.')
 
 
-def workflow_health(service, accepted, refused=False):
-    """Remember whether the installation lets flagged repositories run workflows (Actions: write), and whether GitHub
-    refused that token although it does, for Health; written only when it changes. `refused=None` keeps what was
-    learned about the refusal while the installation still reports Actions: write."""
+def workflow_health(service, accepted, refused=False, flag='run_workflows'):
+    """Remember whether the installation lets repositories with `flag` have the permission it raises (run workflows:
+    Actions: write; edit workflows: Workflows: write), and whether GitHub refused that token although it does, for
+    Health; written only when it changes. `refused=None` keeps what was learned about the refusal while the
+    installation still reports the permission."""
+    key = STORED[flag] + ':accepted'
     with service.store.read() as c:
-        saved = metadata(c, WORKFLOWS + ':accepted')
+        saved = metadata(c, key)
         if refused is None:
             refused = bool(accepted and saved.get('accepted') is True and saved.get('refused'))
         state = {'accepted': accepted, 'refused': refused}
         if {'accepted': saved.get('accepted'), 'refused': bool(saved.get('refused'))} == state:
             return
     with service.store.transaction() as c:
-        save_metadata(c, WORKFLOWS + ':accepted', {**state, 'at': H.now()})
+        save_metadata(c, key, {**state, 'at': H.now()})
 
 
-def _workflow_grants(c):
-    return [bot + ': ' + name for bot, names in sorted(metadata(c, WORKFLOWS).items()) for name in names or ()]
+def _workflow_grants(c, flag):
+    return [bot + ': ' + name for bot, names in sorted(metadata(c, STORED[flag]).items()) for name in names or ()]
 
 
-def workflows_waiting(c):
-    """The `bot: owner/name` grants allowed to run workflows that cannot yet, because the installation last said it
-    lacks Actions: write; empty when it has it, nothing is flagged, or no token was asked for since."""
-    if metadata(c, WORKFLOWS + ':accepted').get('accepted') is not False:
+def workflows_waiting(c, flag='run_workflows'):
+    """The `bot: owner/name` grants with `flag` that cannot use it yet, because the installation last said it lacks
+    the permission; empty when it has it, nothing is flagged, or no token was asked for since."""
+    if metadata(c, STORED[flag] + ':accepted').get('accepted') is not False:
         return []
-    return _workflow_grants(c)
+    return _workflow_grants(c, flag)
 
 
-def workflows_refused(c):
-    """The grants whose last token GitHub refused Actions: write although the installation reports it."""
-    saved = metadata(c, WORKFLOWS + ':accepted')
+def workflows_refused(c, flag='run_workflows'):
+    """The grants with `flag` whose last token GitHub refused although the installation reports the permission."""
+    saved = metadata(c, STORED[flag] + ':accepted')
     if saved.get('accepted') is not True or not saved.get('refused'):
         return []
-    return _workflow_grants(c)
+    return _workflow_grants(c, flag)
 
 
 def queue_sync(service, refresh=False):
@@ -711,6 +736,9 @@ class Grant(Contract):
     access: Literal['read', 'write'] = 'write'
     # Start, rerun and cancel workflow runs (GitHub Actions: write) on a write grant; None keeps the current setting.
     run_workflows: bool | None = None
+    # Create and change workflow files under .github/workflows (GitHub Workflows: write) on a write grant; None keeps
+    # the current setting.
+    edit_workflows: bool | None = None
 
 
 class RepoAccessUpdate(Contract):
@@ -827,8 +855,9 @@ def install(app, store, service):
                                   owner=who.role == 'owner')
             # A bot's turn acting for a person (BotOps, the Assistant) may give another bot access with their rights, but
             # taking any away is the person's own call: BotOps once set two bots to own, and their product repositories
-            # stopped applying with nobody asked. Letting a bot run workflows, or turning Create product repositories
-            # back on, is the person's own click too: BotOps puts it on a Confirm card, which runs as their own session.
+            # stopped applying with nobody asked. Letting a bot run workflows or edit workflow files, or turning Create
+            # product repositories back on, is the person's own click too: BotOps puts it on a Confirm card, which runs
+            # as their own session.
             # The change is tried as that click would make it first, so what their click could not do (no write
             # access, an admin turning product repositories on) is refused now rather than put on a card.
             before = access(c, bot, org)
@@ -840,7 +869,8 @@ def install(app, store, service):
                 c.execute('ROLLBACK TO repo_narrowing')
                 c.execute('RELEASE repo_narrowing')
                 raise
-            gains = result.get('workflows_started') or result.get('product_creation_started')
+            gains = result.get('workflows_started') or result.get('workflow_edits_started') \
+                or result.get('product_creation_started')
             if not needs_card(result):
                 c.execute('RELEASE repo_narrowing')
                 return result
@@ -853,8 +883,8 @@ def install(app, store, service):
                 return propose(c, who, 'PUT', '/api/v2/bots/' + bot + '/repositories', body.model_dump(exclude_none=True),
                                plain[:300], what=plain)
             if gains:
-                raise Problem('forbidden', 'Only an Owner or admin lets a bot run workflows or create product '
-                              'repositories, themselves in Settings > Repositories', 403)
+                raise Problem('forbidden', 'Only an Owner or admin lets a bot run workflows, edit workflow files or '
+                              'create product repositories, themselves in Settings > Repositories', 403)
             raise Problem('forbidden', 'This takes ' + describe_stopped(result) + ' away from ' + name + '; a person '
                           'who manages it makes that change in Settings > Repositories', 403)
 
