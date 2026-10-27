@@ -328,8 +328,11 @@ that says its model is at capacity or overloaded for now ("Selected model is at 
 20s", `overloaded_error`) has not spent the login's quota: that login is held two minutes, the streak does not grow,
 a fallback can still take the run, and the bot's line and Health say *temporary model capacity*, a check or task
 model's turn included; a quota hold already in force keeps its own end. Only a refusal before the bot sent a message
-or used a tool is a run that did nothing: one that came after the run had acted is never replayed or handed to a
-fallback, and waits for review as *uncertain*. A quota or billing refusal ("Quota exceeded. Check your plan and
+or used a tool is a run that did nothing. After the run acted, a runner that kept its thread queues one continuation
+on that same thread after the two-minute hold, with a note to carry on without repeating completed work. It never
+hands that continuation to a fallback or a fresh thread. If the thread cannot resume, or the continuation hits
+capacity again, the run waits for review as *uncertain*. A missing CLI session is never rebuilt for a continuation, and a cleared session stays cleared. Older runners that cannot keep the thread hold it for
+review immediately, and are never handed a continuation: it waits in the queue for a runner that can continue it. A quota or billing refusal ("Quota exceeded. Check your plan and
 billing details.") stays a usage limit as above. While it
 holds, no bot starts a run on that login: a bot whose fallback (its own, or the company's default) is signed in on
 that computer and not held itself runs there at once, and the runner never tries the held login (the run's note says
