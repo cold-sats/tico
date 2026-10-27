@@ -4,6 +4,12 @@ CREATE TABLE IF NOT EXISTS rule_events_seen (
   event TEXT NOT NULL, trigger TEXT NOT NULL, delivery TEXT NOT NULL, seen_at TEXT NOT NULL,
   PRIMARY KEY(event, trigger, delivery));
 CREATE INDEX IF NOT EXISTS rule_events_seen_at ON rule_events_seen(seen_at);
+"""
+
+# The ledger and row state behind task Trigger rules (backend/task_trigger_rules.py). rules.ensure_schema creates them on
+# every boot: SCHEMA above is a numbered migration that an existing database has already run, so a table added there
+# never reaches it.
+TASK_TRIGGER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS rule_task_runs (
   rule_id TEXT NOT NULL, task_id TEXT NOT NULL, event TEXT NOT NULL, revision TEXT NOT NULL,
   at TEXT NOT NULL, fired INTEGER NOT NULL DEFAULT 0, webhook_event_id TEXT,

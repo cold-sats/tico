@@ -380,7 +380,10 @@ CREATE INDEX IF NOT EXISTS rules_scope ON rules(scope_kind, scope_id);
 
 
 def ensure_schema(c):
-    """Keep creator attribution separate from the person responsible for a task action."""
+    """Keep creator attribution separate from the person responsible for a task action, and make the task Trigger
+    tables."""
+    from .rules_schema import TASK_TRIGGER_SCHEMA
+    c.executescript(TASK_TRIGGER_SCHEMA)
     H.add_column(c, "rules", "action_by", "TEXT")
     # Only an unedited legacy rule is known to carry its creator's action. Revised legacy rules fail open on private
     # tasks until someone saves their action again, rather than borrowing an unknown editor's creator permissions.

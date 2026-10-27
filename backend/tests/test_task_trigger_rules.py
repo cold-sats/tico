@@ -336,3 +336,15 @@ def test_execution_ledgers_have_indexed_hour_and_webhook_lookups(api):
         delivery = " ".join(r[3] for r in c.execute("EXPLAIN QUERY PLAN SELECT rule_id FROM rule_task_runs "
                         "WHERE webhook_event_id=?", ("synthetic",)))
         assert "rule_task_runs_hour" in hourly and "rule_task_runs_webhook" in delivery
+
+
+def test_a_database_past_the_rule_events_migration_gets_the_task_trigger_tables(api):
+    # A database that ran the rule-events migration before task Triggers existed has neither table; the rules list
+    # and every rule save read them, so they come from boot, not from that numbered migration.
+    with api.app.state.store.transaction() as c:
+        c.execute("DROP TABLE rule_task_runs")
+        c.execute("DROP TABLE rule_task_state")
+    api.app.state.store.initialize(seed_market=False)
+    created = rule(api)
+    assert created["paused"] is False
+    assert any(r["id"] == created["id"] for r in get(api, "rules")["rules"])
