@@ -1286,6 +1286,29 @@ who it reached, and its Private row names them.
   `hub task question`.
 - `POST /api/v2/tasks/dry-run` makes the same privacy checks as the create and returns the same refusal text.
 
+### A private task with no person on it: a sealed subtask for another bot
+
+The same task's owning bot (or its manager), from its own run, may hand work to another bot in a **sealed** private
+subtask: `hub task create --owner <bot> --parent <task>`. The other bot reads that subtask, and only the words written
+into it: never the parent (its title, words, comments or id), its other subtasks, or the run's other work. Each of
+those stays "not found" for it, and its notices and run prompt leave the parent out.
+
+- Every private task the run carries that the other bot cannot read must have no person on it (no person requester,
+  owner or guest), nor any private task above it. Otherwise the create is refused, naming the person: ask them with
+  `hub task question`, or have them file the subtask. When the person is on a task above that the filer cannot read,
+  the refusal leaves their name out and says to ask the filer's own requester to file it.
+- The subtask is private; a company-visible one is refused, as for any create from private work.
+- Its words may not carry the private work: a secret-shaped value, or 12 or more words in a row copied from a private
+  task the other bot cannot read, is refused naming the check (never the text). Rewrite it and file again; it does not
+  count toward quarantine. A full commit id is fine after a commit word (`head <sha>`, `base <sha>`) or in a GitHub
+  commit link, and so are branch, session and dated path names; a word mixing letters and digits inside a long name
+  (`pr1714-...`) reads as secret-shaped, so write it apart (`pr-1714-...`).
+- The parent's history records "Handed to <bot> in a private subtask"; the subtask's records who filed it.
+- When the subtask is done, the parent's owner is woken on the parent, as for any subtask. Its words do not reach the
+  parent's other readers.
+- The other bot may file its own review or QA subtasks under the sealed one by the same rule.
+- Comments and files from the private run to the subtask, and any company-visible work, stay refused.
+
 Task-linked messages, files and previews, execution output, SQL results, search context and saved
 responses apply the same current-participant boundary. Retained room grants and attachment
 uploader ownership do not restore revoked access. File downloads use authenticated delivery
