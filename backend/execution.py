@@ -2232,11 +2232,15 @@ class Execution:
         subscription_context = context(c)
         held_bots = set(body.busy_bots or ()) | busy_bots
         bots = []
+        # A selected-job recheck must not classify unrelated queued bots while
+        # holding the writer. Resolve its current bot, state and hold here.
+        queued = ("a.bot=(SELECT bot FROM jobs WHERE id=? AND state='queued' AND held=0)" if job_id is not None else
+                  "EXISTS(SELECT 1 FROM jobs j WHERE j.bot=a.bot AND j.state='queued' AND j.held=0)")
         for row in c.execute(f"SELECT a.bot,bc.config_json,{DRAINING_SQL} draining FROM assignments a "
                              "JOIN bots b ON b.slug=a.bot JOIN bot_config bc ON bc.bot=a.bot "
                              "WHERE a.runner_id=? AND b.state='active' AND (? IS NULL OR a.bot=?) "
-                             "AND EXISTS(SELECT 1 FROM jobs j WHERE j.bot=a.bot AND j.state='queued' AND j.held=0)",
-                             (who.runner_id, body.bot, body.bot)).fetchall():
+                             f"AND {queued}",
+                             (who.runner_id, body.bot, body.bot, *((job_id,) if job_id is not None else ()))).fetchall():
             bot = row["bot"]
             why, config = claim_refusal(c, self.store.settings, runner, bot, row["config_json"], row["draining"], ready,
                                         held_bots, subscription_context, default)
