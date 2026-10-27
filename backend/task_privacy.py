@@ -307,7 +307,7 @@ def prime_messages(c, messages):
     if read_cache.cache(c) is not None:
         meeting_sources(c).prime_conversations(rooms)
     runs = set()
-    for ref in refs:
+    for ref in refs + ancestry:
         if isinstance(ref, dict):
             run = ref.get("run")
             runs.add(ref.get("turn_id") or (run.get("attempt_id") if isinstance(run, dict) else None))

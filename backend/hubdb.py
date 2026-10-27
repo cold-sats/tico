@@ -5034,14 +5034,49 @@ def task_comments(conn, task_id, *, actor=None):
     return out
 
 
+REVIEW_ANSWERS_SQL = (
+    "SELECT * FROM messages WHERE deleted_at IS NULL AND ((kind='answer' AND in_reply_to=?) "
+    "OR id=(SELECT answered_by FROM messages WHERE id=?)) ORDER BY created,rowid")
+
+
+def prime_review_answers(conn, messages):
+    """Read question replies together as stored rows; each reader still filters their provenance in review_answers."""
+    from .read_cache import cache, prime_rows, rows
+    values = cache(conn)
+    if values is None:
+        return []
+    asks = {}
+    for message in messages:
+        refs = _json(message["refs_json"], {}) or {}
+        if message["kind"] == "ask" and isinstance(refs, dict) and refs.get("questions"):
+            asks[message["id"]] = message
+    wanted = {mid: m for mid, m in asks.items() if (REVIEW_ANSWERS_SQL, (mid, mid)) not in values}
+    for part in chunks(sorted(wanted)):
+        marks = ",".join("?" * len(part))
+        answered = {}
+        for mid in part:
+            if wanted[mid]["answered_by"]:
+                answered.setdefault(wanted[mid]["answered_by"], set()).add(mid)
+        found = {mid: [] for mid in part}
+        answers = conn.execute(
+            f"SELECT * FROM messages WHERE deleted_at IS NULL AND ((kind='answer' AND in_reply_to IN ({marks})) "
+            "OR id IN (SELECT value FROM json_each(?))) ORDER BY created,rowid", (*part, _dump(list(answered))))
+        for row in answers:
+            linked = set(answered.get(row["id"], ()))
+            if row["kind"] == "answer" and row["in_reply_to"] in found:
+                linked.add(row["in_reply_to"])
+            for mid in linked:
+                found[mid].append(row)
+        prime_rows(conn, REVIEW_ANSWERS_SQL, {(mid, mid): replies for mid, replies in found.items()})
+    return [row for mid in asks for row in rows(conn, REVIEW_ANSWERS_SQL, (mid, mid))]
+
+
 def review_answers(conn, message_id, *, actor=None):
     from . import task_privacy as privacy
+    from .read_cache import rows
     out = []
-    for row in conn.execute(
-            "SELECT * FROM messages WHERE deleted_at IS NULL AND ((kind='answer' AND in_reply_to=?) "
-            "OR id=(SELECT answered_by FROM messages WHERE id=?)) ORDER BY created,rowid",
-            (message_id, message_id)):
-        if actor is not None and not privacy.message_readable(conn, actor, row):
+    for row in rows(conn, REVIEW_ANSWERS_SQL, (message_id, message_id)):
+        if actor is not None and not privacy.message_readable(conn, actor, row, current=True):
             continue
         refs = _json(row["refs_json"], {}) or {}
         out.append(refs.get("answer") or {"by": row["from_actor"], "text": row["body"], "at": row["created"]})
@@ -8294,7 +8329,7 @@ MESSAGE_PARENT_DEPTH = 100      # task_privacy and live_privacy refuse a provena
 
 def prime_message_rows(conn, rows):
     """Seed message() with stored rows already read whole in this snapshot (a join's `m.*`), then read the messages
-    they reply to or answer, a level at a time in one query per 500 each, so the provenance walks that follow
+    they reply to or answer, and their question replies, a level at a time in one query per 500 each, so the walks
     (task_privacy.message_tasks, live_privacy) read none of them one by one. Returns every row seeded or read."""
     from .read_cache import cache
     values = cache(conn)
@@ -8305,6 +8340,9 @@ def prime_message_rows(conn, rows):
     level, seen = list(rows.values()), set(rows)
     for _ in range(MESSAGE_PARENT_DEPTH):
         parents = set()
+        answers = {row["id"]: row for row in prime_review_answers(conn, level)}
+        _prime_message_lookups(conn, list(answers), answers)
+        parents.update(answers)
         for row in level:
             refs = _json(row["refs_json"], {}) or {}
             parents.add(row["in_reply_to"])
