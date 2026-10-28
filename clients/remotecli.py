@@ -222,11 +222,11 @@ def run(args, who=None):
         return via_tool(client, Namespace(**fields), **more)
     if args.cmd == "template" or (args.cmd == "bot" and args.sub not in ("status", "recent", "repo-create")):
         return bots(client, args)
-    if fn in ("bot repo-create", "human add", "human list", "group list", "group update", "tool list", "tool learn", "tool add", "tool update", "tool remove",
+    if fn in ("bot repo-create", "human add", "human list", "group list", "group update", "group delete", "tool list", "tool learn", "tool add", "tool update", "tool remove",
               "update create", "update redo", "update list", "update show", "update mark-read", "update reply", "update settings",
               "changelog list", "changelog mark-read",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
-              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "team budget", "org order", "run list",
+              "brief", "pipeline", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "team budget", "org order", "org reports-to", "run list",
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
               "seat list", "seat create", "seat update", "seat close", "seat draft"):

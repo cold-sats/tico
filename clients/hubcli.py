@@ -183,7 +183,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            to 60 s and prints the run with its summary; --draft: the owner's draft
     hub lens show <run-id>                 one run: answers, result, changes
     hub lens runs [--lens ID]              runs, newest first, with their summaries
-    hub approval request --kind send|spend|publish|merge|support|task_cap|spend_limit|group|org --payload-file f.json [--task ID] [--supersedes ID]
+    hub approval request --kind send|spend|publish|merge|support|task_cap|spend_limit --payload-file f.json [--task ID] [--supersedes ID]
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
@@ -300,6 +300,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            CEO Bot: draft the job description of a seat the owner opened
     hub org order <manager> [--set a,b,c]  a manager's direct reports in the chart's order; --set puts them in
                                            that order (the ones left out keep their places)
+    hub org reports-to <bot:slug|human:id> <manager> [--on-behalf-of turn]
+                                           change who a teammate reports to, as the person who asked
     hub health check                       what is wrong with the bots, most urgent first, each with its fix
     hub health metrics [--minutes N]       the server's flight recorder (owners, admins and bots)
                                            (the Assistant gets the live snapshot)
@@ -397,11 +399,13 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            add a human to the roster and sign-in list (a Confirm card first, unless they are in the team's domain)
     hub human list                         the humans on the roster
     hub group list                         the groups (they nest), with their humans and bots
-    hub group update [<group>] [--name N] [--parent G|''] [--add-human H ...] [--add-bot B ...]
-                     [--remove-human H ...] [--remove-bot B ...]
-                                           an owner or admin, or BotOps as the person who asked: with no <group>,
-                                           create one from --name; else rename, move or fill it. A teammate is in
-                                           one group at a time
+    hub group update [<group>] [--name N] [--parent G|''] [--lead bot:B|person:P|''] [--add-human H ...]
+                     [--add-bot B ...] [--remove-human H ...] [--remove-bot B ...] [--on-behalf-of turn]
+                                           an owner or admin (a lead in its groups), or BotOps / the Strategy Bot as
+                                           the person who asked: with no <group>, create one from --name; else
+                                           rename, move, lead or fill it. A teammate is in one group at a time
+    hub group delete <group> [--on-behalf-of turn]
+                                           delete a group; its teammates and groups move up to its parent
     hub api GET|POST|PUT|PATCH|DELETE <path> ['{json}']
                                            BotOps: any v2 route, as the person who asked; a Confirm card for what
                                            always needs their click. Never a secret in the body
@@ -484,8 +488,8 @@ if __package__ in (None, ""):                          # run as a script: python
 # before a request is made. The server is the authority when they disagree.
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status != "closed")
-# task_cap, spend_limit, group and org: the redesign's proposals (backend/proposals.py), refused while it is off.
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
+# task_cap and spend_limit: the redesign's proposals (backend/proposals.py), refused while it is off.
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # set by hand; gray is only ever automatic
 # The Assistant, acting on a task the person asked it to in their own Assistant chat (backend/assistant.py `instruction`).
 ASKED = ("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "
@@ -2236,6 +2240,11 @@ def parser():
     s.add_argument("--set", type=lambda text: [x.strip() for x in text.split(",") if x.strip()], metavar="A,B,C",
                    help="its reports in the new order, comma-separated; the ones left out keep their places")
     s.set_defaults(fn="org order")
+    s = org.add_parser("reports-to", help="change who a teammate reports to, as the person who asked")
+    s.add_argument("teammate", help="bot:<slug> or human:<id>")
+    s.add_argument("reports_to", metavar="manager", help="a bot's slug or human:<id>")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="org reports-to")
     org.add_parser("models", help="the published starter org chart models that recommendations come from").set_defaults(fn="org models")
     health = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub")
     s = health.add_parser("check", help="what is wrong with the bots, most urgent first, each with its fix")
@@ -2627,7 +2636,7 @@ def parser():
     groups = sub.add_parser("group", help="the groups: sub-teams that nest, holding humans and bots").add_subparsers(dest="sub")
     groups.add_parser("list", help="the groups with their humans and bots").set_defaults(fn="group list")
 
-    s = groups.add_parser("update", help="create (no group given), rename, move or fill a group (an owner or an admin)")
+    s = groups.add_parser("update", help="create (no group given), rename, move, lead or fill a group (an owner or an admin)")
     s.add_argument("group", nargs="?", help="the group's id; leave out to create one from --name")
     s.add_argument("--name")
     s.add_argument("--parent", help="the group it is in; an empty one is the top")
@@ -2635,7 +2644,13 @@ def parser():
     s.add_argument("--add-bot", dest="add_bots", action="append", metavar="BOT", help="put a bot in it")
     s.add_argument("--remove-human", dest="remove_humans", action="append", metavar="HUMAN")
     s.add_argument("--remove-bot", dest="remove_bots", action="append", metavar="BOT")
+    s.add_argument("--lead", help="bot:<slug> or person:<id>; an empty one clears it")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="group update")
+    s = groups.add_parser("delete", help="delete a group; its teammates and groups move up to its parent")
+    s.add_argument("group")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
+    s.set_defaults(fn="group delete")
     s = sub.add_parser("api", help="BotOps: any v2 route, as the person who asked")
     s.add_argument("method", type=str.upper, choices=["GET", "POST", "PUT", "PATCH", "DELETE"])
     s.add_argument("path", help="/api/v2/... or the part after it")
@@ -2942,7 +2957,7 @@ def rename_argv(argv):
         return ["note", "create"] + argv[1:], '"hub note <bot> <text>" is now "hub note create <bot> <text>"'
     if argv[:1] == ["notice"] and len(argv) > 1 and (argv[1] in NOTICE_COMMANDS or argv[1].startswith("-")):
         return argv, None                              # `hub notice list` is new; only `hub notice <text>` is the old send
-    if argv[:2] == ["org", "order"]:                   # `hub org` alone is the old `hub team show`; this one is new
+    if argv[:2] in (["org", "order"], ["org", "reports-to"]):   # `hub org` alone is the old `hub team show`
         return argv, None
     for old, new, tail, rewrite in RENAMED:
         if tuple(argv[:len(old)]) == old:

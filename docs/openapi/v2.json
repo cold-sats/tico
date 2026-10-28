@@ -134,7 +134,7 @@
   "paths": {
     "/api/v2/approvals": {
       "post": {
-        "summary": "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
+        "summary": "Ask a person to approve an action. With the redesign on, kinds task_cap and spend_limit are proposals the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
         "operationId": "requestApproval",
         "requestBody": {
           "content": {
@@ -24447,9 +24447,7 @@
               "merge",
               "support",
               "task_cap",
-              "spend_limit",
-              "group",
-              "org"
+              "spend_limit"
             ],
             "title": "Kind"
           },

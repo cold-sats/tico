@@ -118,7 +118,8 @@ Only the Owner changes them, directly in Settings or by asking BotOps to act wit
 and remove groups and put humans and bots in them; members read them. A group is an access audience, so moving a human or a bot into a
 group, or a group under another, can change who reads a bot. BotOps does this as the person who asked it (`POST`, `PATCH` and `DELETE`
 on `/api/v2/groups` through `hub api`, or `hub group update`), with that person's own rights: an owner or an admin, at once; a member is
-refused. Built-in bots stay outside groups.
+refused. The Strategy Bot only suggests org changes; when the person in its chat asks for one, it makes it citing their message, with the
+same rights. Built-in bots stay outside groups.
 
 **The built-in bots** (the Assistant, BotOps, the Librarian and the CEO Bot) act for the whole team, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
@@ -468,7 +469,8 @@ The commands (with MCP tools of the same names):
 | `hub bot update <slug> ...` | name, description, reports-to, status, repository |
 | `hub bot setup-done [slug]` | a starter bot's own call, once its setup is done: it stops being `needs_onboarding` (its manager may call it for it) |
 | `hub human add <email> [--name] [--title] [--reports-to]`, `hub human list` | the roster |
-| `hub group list`, `hub group update [<group>] [--name] [--parent] [--add-human] [--add-bot] [--remove-human] [--remove-bot]` | the groups; create (no group given), rename, move or fill one, owners and admins only |
+| `hub group list`, `hub group update [<group>] [--name] [--parent] [--lead] [--add-human] [--add-bot] [--remove-human] [--remove-bot]`, `hub group delete <group>` | the groups; create (no group given), rename, move, lead, fill or delete one, owners and admins only (a lead within its groups) |
+| `hub org reports-to <bot:slug\|human:id> <manager>` | change who a teammate reports to, with the asker's rights |
 
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
 | `hub bot go-live <bot> [--computer C] [--routines-file F]` | places it if it has no computer, turns it on, and for a starter bot starts its setup chat as the requester. When the computer does not have the bot's repository yet but GitHub does (or GitHub cannot be asked), the placement is kept and the answer is HTTP 202 `waiting_for_repository` (the CLI says so and exits 0): the computer clones it, and the readiness report that says it has the repository finishes the go-live, once, with the requester's rights. When GitHub could not be asked the answer says so, since a repository that doesn't exist never arrives. Health lists each waiting go-live for the owner, admins and whoever manages the bot. One that can't finish, or hasn't finished within 7 days, stops, and the requester gets one notice to run go-live again. A repository GitHub does not have is refused (`repository_missing`) with how to create it; when it is waiting for the GitHub App's permission to create repositories, the refusal is `repository_waiting_for_permission` and names the owner's Needs you task with the two fixes. `--help` shows the `--routines-file` shape (docs/routines.md) |

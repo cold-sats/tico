@@ -2,13 +2,12 @@
 
 36: a listening match reaches the market graph only through the Librarian's turn, never by a direct write.
 37: the daily briefing fires at 07:00 on the fake clock and posts to Market and Updates.
-38: a reorg proposal waits for a person; on approval the hub moves the bot, BotOps gets a note, no BotOps task."""
+38: a reorg is no proposal: a bot's org approval is refused, and the owner moves the bot herself, audited as hers."""
 import json
 from datetime import datetime
 
 from ..harness import (CLAUDE_ID, DANA, LEAD, OPENAI_ID, OPENAI_REF, RELEASE_ID, W2, W3, W6, Check,
-                       Scenario, Unmet, accepted, approval_id_of, audit_of, auto_id, automation, body, decide, got,
-                       hub_notices, make_group, rows, setup)
+                       Scenario, Unmet, accepted, audit_of, auto_id, automation, body, got, make_group, rows, setup)
 
 
 def canon(value):
@@ -69,19 +68,16 @@ def advance_to_next_run(org, facts):
 
 
 def propose_move(org, facts):
-    """The Engineering Lead proposes moving the OpenAI builder from Builders to Release (an org move: a bot proposal
-    that uses the existing approvals, CONTRACT §5)."""
+    """The Engineering Lead tries to file moving the OpenAI builder from Builders to Release as an approval: org changes
+    are no proposal any more (the Strategy Bot suggests them in words), so the hub refuses it."""
     return org.api("post", "/api/v2/approvals", {
         "kind": "org", "payload": {"bot": OPENAI_REF, "from": got(facts, "builders"), "to": got(facts, "release")}},
         who=LEAD, wave=W2)
 
 
-def decide_proposal(org, facts):
-    reply = got(facts, "proposal")
-    approval = approval_id_of(reply)
-    if not approval:
-        raise Unmet(W2, f"the proposal filed no approval: {reply.excerpt()}")
-    return decide(org, approval, "approved")
+def move_by_hand(org, facts):
+    """Dana, the owner, moves it herself on the Org tab: one group change, no approval."""
+    return org.api("patch", f"/api/v2/groups/{got(facts, 'release')}", {"add": {"bots": [OPENAI_ID]}}, who=DANA, wave=W2)
 
 
 def audit_group(org, facts):
@@ -211,50 +207,30 @@ def s38_steps(org, facts):
     org.step(facts, "builders", make_group, org, "Builders", [CLAUDE_ID, OPENAI_ID])
     org.step(facts, "release", make_group, org, "Release", [RELEASE_ID])
     org.step(facts, "proposal", propose_move, org, facts)
-    org.step(facts, "decided", decide_proposal, org, facts)
+    org.step(facts, "moved", move_by_hand, org, facts)
     org.step(facts, "groups", org.api, "get", "/api/v2/groups", who=DANA, wave=W2)
-    org.step(facts, "notices", hub_notices, org, "botops")
-    org.step(facts, "tasks", org.api, "get", "/api/v2/tasks", who=DANA, wave=W2)
     org.step(facts, "audit", audit_group, org, facts)
 
 
-def proposal_pending(facts):
+def proposal_refused(facts):
     got(facts, "builders")
     got(facts, "release")
-    setup(facts, "proposal")
-    data = facts["proposal"].body if isinstance(facts["proposal"].body, dict) else {}
-    approval = data.get("approval") if isinstance(data.get("approval"), dict) else data
-    status = approval.get("status")
-    return status == "pending", f"proposal status {status!r}"
+    reply = got(facts, "proposal")
+    return reply.status == 422, f"an org approval got {reply.status}, not 422"
 
 
-def moved_on_approval(facts):
-    setup(facts, "decided", "groups")
+def moved_by_hand(facts):
+    setup(facts, "moved", "groups")
     groups = rows(body(facts, "groups"))
     release = got(facts, "release")
     hit = [g for g in groups if g.get("id") == release and OPENAI_ID in canon(g)]
-    return bool(hit), f"{OPENAI_ID} is not in Release after approval"
+    return bool(hit), f"{OPENAI_ID} is not in Release after Dana's move"
 
 
-def botops_noted(facts):
-    """One hub notice to BotOps naming the approval (CONTRACT §5: from keeper, kind notice, refs.approval)."""
-    setup(facts, "decided")
-    approval = approval_id_of(facts["proposal"])
-    notes = [n for n in got(facts, "notices") if (n.get("refs") or {}).get("approval") == approval]
-    return len(notes) == 1, f"{len(notes)} notice(s) to BotOps naming the approved move"
-
-
-def no_botops_task(facts):
-    setup(facts, "tasks", "decided")
-    tasks = [t for t in rows(body(facts, "tasks")) if "botops" in canon(t).lower() and "move" in canon(t).lower()]
-    return not tasks, "a BotOps task was created for a move the hub applies itself"
-
-
-def audited_via_approval(facts):
-    setup(facts, "audit", "decided")
-    approval = approval_id_of(facts["proposal"])
-    hit = [row for row in rows(body(facts, "audit")) if row.get("via") == f"approval:{approval}"]
-    return bool(hit), "no audit row with via approval:<id> for the group change"
+def audited_as_dana(facts):
+    setup(facts, "audit", "moved")
+    hit = [row for row in rows(body(facts, "audit")) if not row.get("via") and "dana" in canon(row.get("actor"))]
+    return bool(hit), "no audit row by Dana, with no approval, for the group change"
 
 
 # ---------------------------------------------------------------------------------------------- scenarios
@@ -277,13 +253,11 @@ SCENARIOS = [
                  Check("the briefing is posted to Market", W6, posted_to_market),
                  Check("the briefing is posted to Updates", W6, posted_to_updates),
              ], bots={"librarian": ("librarian", "claude")}),
-    Scenario(38, "strategy-reorg-proposal",
-             "A reorg proposal waits for a person; on approval the hub moves the bot and BotOps gets a note", s38_steps, [
-                 Check("the org move is filed as a pending proposal", W2, proposal_pending),
-                 Check("Dana's approval is accepted", W2, lambda facts: accepted(facts, "decided", needs=())),
-                 Check("the bot is in Release after approval", W2, moved_on_approval),
-                 Check("BotOps gets a note about the approved move", W2, botops_noted),
-                 Check("no BotOps task is made for a move the hub applies", W2, no_botops_task),
-                 Check("the group change is audited via approval:<id>", W2, audited_via_approval),
-             ], bots={"botops": ("botops", "claude")}),
+    Scenario(38, "strategy-reorg-by-hand",
+             "A reorg is no proposal: a bot's org approval is refused and the owner moves the bot herself", s38_steps, [
+                 Check("a bot's org move is refused as a proposal", W2, proposal_refused),
+                 Check("Dana's move is accepted", W2, lambda facts: accepted(facts, "moved")),
+                 Check("the bot is in Release after Dana's move", W2, moved_by_hand),
+                 Check("the group change is audited as Dana's, with no approval", W2, audited_as_dana),
+             ]),
 ]
