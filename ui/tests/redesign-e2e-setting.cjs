@@ -35,7 +35,7 @@ run('redesign-e2e-setting', ['org', 'toured'], async ({hub, browser, phone, tag}
   await shot(page, `${tag}-01-settings-on`);
   await openRail(page, phone);
   const on = await navShown(page);
-  for (const key of ['automations', 'library', 'connections', 'strategy'])
+  for (const key of ['automations', 'library', 'tools', 'strategy'])
     assert.ok(on.includes(key), `${tag}: ${key} in the new nav: ${on}`);
   assert.equal(await page.getAttribute('a[data-nav="strategy"]', 'href'), '#/strategy/market');
   await shot(page, `${tag}-02-nav-on`);
