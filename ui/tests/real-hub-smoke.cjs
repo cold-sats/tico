@@ -10,8 +10,9 @@ const whoami = page => page.evaluate(async () => (await fetch('/api/v2/me', {cac
 
 (async () => {
   const hub = await startHub({seeds: ['org', 'redesign_on']});
-  const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
+  let browser;
   try {
+    browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
     assert.deepEqual(Object.keys(hub.tokens).sort(),
       ['ana', 'builder-claude', 'builder-openai', 'chris', 'engineering-lead', 'release-manager']);
 
@@ -42,7 +43,7 @@ const whoami = page => page.evaluate(async () => (await fetch('/api/v2/me', {cac
     }
     console.log('real-hub-smoke: ok');
   } finally {
-    await browser.close();
-    await hub.stop();
+    await browser?.close();
+    await hub.stop();       // also when the browser never launched: the hub process must not outlive the test
   }
 })().catch(error => { console.error(error); process.exit(1); });
