@@ -134,7 +134,7 @@
   "paths": {
     "/api/v2/approvals": {
       "post": {
-        "summary": "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
+        "summary": "Ask a person to approve an action. Kinds task_cap, spend_limit, group and org are proposals the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
         "operationId": "requestApproval",
         "requestBody": {
           "content": {
@@ -2703,7 +2703,7 @@
     },
     "/api/v2/bots/{bot}/onboarded": {
       "post": {
-        "summary": "Mark onboarding complete, by a person above the bot on the org chart (its manager, their managers or the owner; 403 for anyone else): its `stage` goes from onboarding to active (`onboarding_state` `needs_setup` to `onboarded`) and its routines start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it onboarding. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
+        "summary": "Mark onboarding complete, by a person above the bot on the org chart (its manager, their managers or the owner; 403 for anyone else): its `stage` goes from onboarding to active (`onboarding_state` `needs_setup` to `onboarded`) and its automations start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it onboarding. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
         "operationId": "markBotOnboarded",
         "parameters": [
           {
@@ -3073,68 +3073,6 @@
         },
         "tags": [
           "Repositories"
-        ]
-      }
-    },
-    "/api/v2/bots/{bot}/routines": {
-      "get": {
-        "summary": "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)",
-        "operationId": "listBotRoutines",
-        "parameters": [
-          {
-            "name": "bot",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Bot"
-            }
-          },
-          {
-            "name": "include_deleted",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Deleted"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoutineList"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Bots"
         ]
       }
     },
@@ -14243,275 +14181,6 @@
         ]
       }
     },
-    "/api/v2/redesign/migration/convert": {
-      "post": {
-        "summary": "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag has no yes, unless `accept` names it; 409 while another convert runs or can still be restored",
-        "operationId": "migrationConvert",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/Accept"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MigrationConverted"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Automations"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/redesign/migration/dry-run": {
-      "post": {
-        "summary": "Every routine, wake rule, job, inbox, limit and budget, what it becomes and its flags. Writes nothing",
-        "operationId": "migrationDryRun",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/Empty"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MigrationReport"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Automations"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/redesign/migration/resolve": {
-      "post": {
-        "summary": "Say yes to flags (`accept`: flag ids, or object ids for every flag on one); answers the dry run again",
-        "operationId": "migrationResolve",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Accept"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MigrationReport"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Automations"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/redesign/migration/restore": {
-      "post": {
-        "summary": "Within a day of converting (or after a restart cut it off): what it changed back, its automations deleted; a field changed since is left and listed in `skipped`. 410 once the day is over",
-        "operationId": "migrationRestore",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/Empty"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Body"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MigrationRestored"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Automations"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
     "/api/v2/relay": {
       "get": {
         "summary": "The Gateway key, how many relay addresses exist, the last pull, the last problem and what waits at the Gateway",
@@ -15744,96 +15413,6 @@
         },
         "tags": [
           "Session"
-        ]
-      }
-    },
-    "/api/v2/settings/redesign": {
-      "get": {
-        "summary": "Whether the team turned the redesign on (also `redesign` in config)",
-        "operationId": "getRedesign",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RedesignState"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Team"
-        ]
-      },
-      "put": {
-        "summary": "Turn the redesign on or off for the whole team (owner only)",
-        "operationId": "setRedesign",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RedesignSetting"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RedesignState"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Team"
         ]
       }
     },
@@ -22061,7 +21640,7 @@
     },
     "/api/v2/usage/limits": {
       "get": {
-        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (with the redesign on, a lead who is not an administrator gets the groups it leads and those below)",
+        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (a lead who is not an administrator gets the groups it leads and those below)",
         "operationId": "getUsageLimits",
         "responses": {
           "200": {
@@ -22151,7 +21730,7 @@
     },
     "/api/v2/usage/limits/{bot}": {
       "put": {
-        "summary": "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD (the hourly one with the redesign off); empty follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group lead for the bots in the group and those below (redesign on). A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "summary": "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD; empty follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group lead for the bots in the group and those below. A bot over a limit takes no new job until the period turns over or the limit is raised",
         "operationId": "setBotUsageLimit",
         "parameters": [
           {
@@ -22264,7 +21843,7 @@
     },
     "/api/v2/usage/pools/groups/{group}": {
       "put": {
-        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators; with the redesign on, also the lead of the group or one above it, within the parent group's limit)",
+        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators; also the lead of the group or one above it, within the parent group's limit)",
         "operationId": "setGroupUsageLimit",
         "parameters": [
           {
@@ -24307,36 +23886,6 @@
   },
   "components": {
     "schemas": {
-      "Accept": {
-        "properties": {
-          "accept": {
-            "anyOf": [
-              {
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "additionalProperties": true,
-                      "type": "object"
-                    }
-                  ]
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Accept"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "Accept",
-        "description": "Flags the owner says yes to: flag ids, object ids (every flag on it), or {id, flags} as the dry run lists them."
-      },
       "AcceptPhone": {
         "properties": {
           "price_micros": {
@@ -27525,10 +27074,6 @@
           },
           "version": {
             "type": "string"
-          },
-          "redesign": {
-            "type": "boolean",
-            "description": "The team turned the redesign on (backend/redesign.py)"
           },
           "visual_origin": {
             "type": "string",
@@ -33366,209 +32911,6 @@
         ],
         "additionalProperties": true
       },
-      "MigrationConverted": {
-        "type": "object",
-        "properties": {
-          "migration": {
-            "type": "string"
-          },
-          "snapshot": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "expires": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "expires",
-              "id"
-            ],
-            "additionalProperties": true
-          },
-          "expires": {
-            "type": "string"
-          },
-          "converted": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "failed": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "kept": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "counts": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "converted",
-          "failed",
-          "migration"
-        ],
-        "additionalProperties": true
-      },
-      "MigrationObject": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "becomes": {
-            "description": "The automation flow it becomes, the new values, or \"unchanged\""
-          },
-          "flags": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "kind": {
-                  "type": "string"
-                },
-                "text": {
-                  "type": "string"
-                },
-                "keeps": {
-                  "type": "boolean"
-                },
-                "accepted": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "accepted",
-                "id",
-                "kind",
-                "text"
-              ],
-              "additionalProperties": true
-            }
-          }
-        },
-        "required": [
-          "becomes",
-          "flags",
-          "id",
-          "kind"
-        ],
-        "additionalProperties": true
-      },
-      "MigrationReport": {
-        "type": "object",
-        "properties": {
-          "objects": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MigrationObject"
-            }
-          },
-          "counts": {
-            "type": "object"
-          },
-          "flags": {
-            "type": "object",
-            "properties": {
-              "total": {
-                "type": "integer"
-              },
-              "open": {
-                "type": "integer"
-              }
-            },
-            "required": [
-              "open",
-              "total"
-            ],
-            "additionalProperties": true
-          },
-          "ready": {
-            "type": "boolean"
-          },
-          "migration": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "The latest convert: id, state (converting, interrupted, converted, restored, expired), created, expires, restorable"
-          }
-        },
-        "required": [
-          "counts",
-          "flags",
-          "objects",
-          "ready"
-        ],
-        "additionalProperties": true
-      },
-      "MigrationRestored": {
-        "type": "object",
-        "properties": {
-          "migration": {
-            "type": "string"
-          },
-          "restored": {
-            "type": "boolean"
-          },
-          "automations_removed": {
-            "type": "integer"
-          },
-          "routines": {
-            "type": "integer"
-          },
-          "rules": {
-            "type": "integer"
-          },
-          "skipped": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "why": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "id",
-                "why"
-              ],
-              "additionalProperties": true
-            }
-          }
-        },
-        "required": [
-          "automations_removed",
-          "migration",
-          "restored",
-          "routines",
-          "rules",
-          "skipped"
-        ],
-        "additionalProperties": true
-      },
       "Moderate": {
         "properties": {
           "action": {
@@ -34839,32 +34181,6 @@
         ],
         "additionalProperties": true
       },
-      "RedesignSetting": {
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "enabled"
-        ],
-        "title": "RedesignSetting"
-      },
-      "RedesignState": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "additionalProperties": true
-      },
       "Refresh": {
         "properties": {
           "runner_id": {
@@ -35730,105 +35046,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RoadmapSettings"
-      },
-      "Routine": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "bot": {
-            "type": "string"
-          },
-          "key": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "title": {
-            "type": "string"
-          },
-          "cron": {
-            "type": "string"
-          },
-          "on": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "timezone": {
-            "type": "string"
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "text": {
-            "type": "string"
-          },
-          "last_fired": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "next_due": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "deleted_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updated_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "active": {
-            "type": "boolean"
-          },
-          "held_by_bot": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Set while an enabled routine waits on its bot rather than its own switch: the bot's state (paused, planned, quarantined, archived) or needs_setup. The routine stays enabled and fires again once the bot is active and set up."
-          }
-        },
-        "required": [
-          "active",
-          "bot",
-          "cron",
-          "enabled",
-          "id",
-          "kind",
-          "on",
-          "timezone",
-          "title"
-        ],
-        "additionalProperties": true
-      },
-      "RoutineList": {
-        "type": "object",
-        "properties": {
-          "routines": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Routine"
-            }
-          }
-        },
-        "required": [
-          "routines"
-        ],
-        "additionalProperties": true
       },
       "RunNow": {
         "properties": {
@@ -41378,7 +40595,7 @@
               "object",
               "null"
             ],
-            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}. With the redesign on, a lead who is not an administrator: company null and only the groups it leads and those below, each with may_edit true",
+            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}. A lead who is not an administrator: company null and only the groups it leads and those below, each with may_edit true",
             "additionalProperties": true
           },
           "bots": {

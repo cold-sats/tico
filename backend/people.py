@@ -363,8 +363,8 @@ def org_parent(kind, ident, roster, employees, archived=(), bare_people=False):
     People follow `reports_to`, except a named department under that boss becomes `g:<team>`.
     A bot follows its `reports_to` bot when that bot is still on the tree; otherwise it hangs
     under its team's department group, else the person who leads the team, else the founder.
-    `bare_people` (the redesign on, backend/redesign.py; callers pass `redesign.on(c)`): a bot's bare person id in
-    `reports_to` is that person. Off, it is a boss that is not here and the bot hangs under the owner, as it always did.
+    `bare_people`: a bot's bare person id in `reports_to` is that person. Without it, it is a boss that is not here and
+    the bot hangs under the owner.
     """
     archived = set(archived or ())
     if kind == "person":

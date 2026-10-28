@@ -1,7 +1,6 @@
 """Task caps (redesign/CONTRACT.md §1, backend/task_caps.py): how many tasks a teammate may send a manager a day.
 
 The org here: ops reports to coo, coo to Ana (the owner). A cap on (ops, Ana) limits the tasks ops creates for Ana."""
-from backend import redesign
 from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_api import api, get, headers, post  # noqa: F401  (the api fixture)
@@ -20,17 +19,10 @@ def as_bot(api, slug, token):
     api.app.state.store.settings.test_identities[token] = Identity(f"bot:{slug}", "bot", agent="test")
 
 
-def redesign_on(api, on=True):
-    """The switch in the database (backend/redesign.py): the owner's route is wave 1's."""
-    with api.app.state.store.transaction() as c:
-        redesign.set_on(c, on, "human:ana")
-
-
 def org(api):
-    """ops under coo under Ana, the redesign on, and ops signing in as itself (`ops-test`)."""
+    """ops under coo under Ana, and ops signing in as itself (`ops-test`)."""
     report(api, "coo", "human:ana")
     report(api, "ops", "coo")                 # a bot names its boss by slug; a person as human:<id>
-    redesign_on(api)
     as_bot(api, "ops", "ops-test")
 
 
@@ -50,15 +42,6 @@ def task(api, token, title, owner, expected=200):
 
 def rows(api):
     return {(row["sender"], row["receiver"]): row for row in get(api, "task-caps")["caps"]}
-
-
-def test_the_routes_answer_404_and_nothing_is_capped_while_the_redesign_is_off(api):
-    report(api, "ops", "human:ana")
-    as_bot(api, "ops", "ops-test")
-    assert api.get("/api/v2/task-caps", headers=headers()).status_code == 404
-    put_cap(api, {"sender": "bot:ops", "receiver": "person:ana", "per_day": 0}, expected=404)
-    for n in range(3):
-        task(api, "ops-test", f"Off {n}", owner="ana")
 
 
 def test_a_task_over_the_cap_is_refused_with_the_flat_payload_and_writes_no_row(api):

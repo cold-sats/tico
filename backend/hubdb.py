@@ -1444,7 +1444,7 @@ def hook(conn, type, subject, data, actor, revision=None):
         logging.getLogger(__name__).warning("webhook event %s was not queued", type, exc_info=True)
     try:
         from . import automations
-        automations.on_event(conn, type, subject, data, actor)    # dormant unless the redesign is on
+        automations.on_event(conn, type, subject, data, actor)
     except Exception:
         logging.getLogger(__name__).warning("automations did not hear %s", type, exc_info=True)
 
