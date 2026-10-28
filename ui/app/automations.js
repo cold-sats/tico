@@ -122,7 +122,7 @@ async function auLoadList(state) {
     get('/v2/groups').catch(() => ({groups: []})),
   ]);
   if (AU !== state) return;
-  state.groups = groups.groups || [];
+  state.groups = Array.isArray(groups) ? groups : groups.groups || [];
   if (list.error) { state.list = []; state.listError = list.error.message; return; }
   state.list = list.automations || [];
 }

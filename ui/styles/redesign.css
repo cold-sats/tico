@@ -35,12 +35,8 @@ html.redesign #main.sbot-open [data-librarian-open]{display:none}
 #main.rd-goals{display:block}
 #main.rd-goals .goals-main{max-width:none}
 
-/* Org: the chart, as a list, until the org chart lands. */
-.rd-org{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.rd-org-row{padding:6px 0 6px calc(var(--depth,0) * 18px);border-bottom:1px solid var(--line);font-size:var(--t-base);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rd-org-group>span{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:var(--track-caps,.06em);color:var(--muted)}
+/* An empty Strategy view: one line. */
 .rd-empty{margin:12px 0}
-.rd-listen{margin-top:4px}
 
 /* The Strategy Bot: a rail on the right of every Strategy tab on a desktop; a sheet behind a button on a phone. */
 .sbot{position:fixed;top:0;right:0;bottom:0;z-index:40;width:var(--sbot-w);display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--line)}

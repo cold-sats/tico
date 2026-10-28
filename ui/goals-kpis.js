@@ -791,7 +791,8 @@ function goalsRender(state) {
     return rows(n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, depth, n.kind === 'person' ? n.person.goals : '') + below;
   }).join('');
   const tree = goalTreeRows(GOAL_COMPANY, 0, owned[GOAL_COMPANY] || [], loose[GOAL_COMPANY] || []) + walk('', 0, new Set());
-  const help = [
+  // With the redesign on, helpers are off the chart here too (as on the Org tab); one with goals still shows below.
+  const help = redesignOn() ? '' : [
     ['Message bots', helpers.filter(e => !isBuiltInBot(e.name))],
   ].map(([name, members]) => members.length ? `<li class="gt-sep">${name}</li>` + members.map(e => rows('bot:' + e.name, 0)).join('') : '').join('');
   // Anyone else with goals (someone gone from the roster) still shows, at the end.

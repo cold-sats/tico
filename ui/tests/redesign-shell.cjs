@@ -134,6 +134,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
         await page.evaluate(h => { location.hash = h; }, from);
         assert.ok(await hashSoon(page, to), `${tag}: ${from} lands on ${to}`);
       }
+      await page.locator('[data-rdm-settings]').click();
       await page.locator('[data-listen-dest="leads"]').waitFor();
       // Every slow tree asked for has been read and acted on: the goal left behind must not open over Listening.
       await page.waitForFunction(n => window.__treeRead >= n, goals.asked);
@@ -180,6 +181,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.evaluate(() => { location.hash = '#/strategy/goals'; });
       await page.locator('#goal-body').waitFor();
       assert.equal(await page.locator('#goal-manager-panel').count(), 0, tag + ': Goals has no rail of its own');
+      assert.equal(await page.locator('#goal-tree .gt-sep').count(), 0, tag + ': helpers are off Goals too');
       assert.ok(!(await page.locator('body').innerText()).includes('CEO Bot'), tag + ': no "CEO Bot" anywhere');
       await page.locator('#mobile-more').click();
       await shot(page, 'phone-sidebar');

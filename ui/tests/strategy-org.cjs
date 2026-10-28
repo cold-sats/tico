@@ -1,0 +1,139 @@
+// Strategy › Org with the redesign on (ui/app/redesign-org.js) against the fake hub in support/strategy-fake.cjs (the
+// Acme example): the chart top down with the owner on top, groups as outlines that fold (and stay folded), helpers off
+// it, pinch and the zoom buttons; a teammate's sheet with its group and Move to…; the owner moves at once (PATCH
+// /api/v2/groups), anyone else files an org approval; a proposal waiting on the owner is one row with Approve and
+// Decline. With the setting off, #/strategy/org draws none of it. A phone first, then a computer.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const {openStrategy, PHONE, DESKTOP, sideways, shot} = require('./support/strategy-fake.cjs');
+
+const card = ref => `.rdo-card[data-rdo-ref="${ref}"]`;
+const inGroup = (page, ref, gid) => page.locator(`[data-rdo-group="${gid}"] ${card(ref)}`).count().then(n => n === 1);
+const zoomOf = page => page.locator('#rdo-cv').evaluate(el => Number(el.style.zoom) || 1);
+
+async function chart(page, tag) {
+  await page.locator(card('bot:builder')).waitFor();
+  assert.equal(await page.locator('.rdo-card.top').innerText().then(t => t.split('\n')[0]), 'Ana Silva', tag + ': the owner on top');
+  for (const helper of ['bot:botops', 'bot:librarian', 'bot:automations-bot', 'bot:coo', 'bot:mail-sorter'])
+    assert.equal(await page.locator(card(helper)).count(), 0, `${tag}: ${helper} is off the chart`);
+  assert.equal(await page.locator(card('bot:goal-manager')).count(), 1, tag + ': the Strategy Bot is on it');
+  assert.ok(await inGroup(page, 'bot:builder', 'eng'), tag + ': Builder in Engineering');
+  assert.equal(await page.locator('[data-rdo-group="eng"] [data-rdo-group="web"]').count(), 1, tag + ': Web nests in Engineering');
+  assert.equal(await page.locator('[data-rdo-group="eng"] .rdo-card').first().getAttribute('data-rdo-ref'), 'bot:eng-lead', tag + ': the lead first');
+  assert.equal(await sideways(page), false, tag + ': no sideways scroll');
+}
+
+(async () => {
+  const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
+  try {
+    // A phone, the owner: the chart, folding, pinch, a move, a proposal approved.
+    {
+      const tag = 'phone owner';
+      const {page, errors, writes} = await openStrategy(browser);
+      await chart(page, tag);
+      assert.match(await page.locator('.rdo-props').innerText(), /Proposed · Reviewer: Engineering → Web/, tag + ': the proposal row');
+      assert.equal(await page.locator('.rdo-card.pv' + `[data-rdo-ref="bot:reviewer"]`).count(), 1, tag + ': the teammate it moves is marked');
+      await shot(page, 'phone-org');
+
+      // Fold Engineering: its teammates leave, the tab counts them, and it stays folded on the next visit.
+      await page.locator('[data-rdo-fold="eng"]').click();
+      assert.equal(await page.locator(card('bot:builder')).isVisible(), false, tag + ': folded');
+      assert.equal(await page.locator('[data-rdo-fold="eng"] .rdo-n').innerText(), '5', tag + ': the tab counts who is inside');
+      assert.equal(await page.locator('[data-rdo-fold="eng"]').getAttribute('aria-expanded'), 'false');
+      await shot(page, 'phone-org-folded');
+      await page.reload();
+      await page.locator('[data-rdo-fold="eng"]').waitFor();
+      assert.equal(await page.locator(card('bot:builder')).isVisible(), false, tag + ': still folded after a reload');
+      await page.locator('[data-rdo-fold="eng"]').click();
+      await page.locator(card('bot:builder')).waitFor();
+
+      // Pinch out with two fingers, then the buttons.
+      const before = await zoomOf(page), box = await page.locator('#rdo-pane').boundingBox();
+      const cdp = await page.context().newCDPSession(page);
+      const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      const touch = d => [{x: cx - d, y: cy, id: 1}, {x: cx + d, y: cy, id: 2}];
+      await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: touch(40)});
+      for (const d of [60, 80, 100]) await cdp.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: touch(d)});
+      await cdp.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+      const pinched = await zoomOf(page);
+      assert.ok(pinched > before * 1.5, `${tag}: a pinch zooms in (${before} → ${pinched})`);
+      await page.locator('[data-rdo-zoom="out"]').click();
+      assert.ok(await zoomOf(page) < pinched, tag + ': − zooms out');
+      assert.equal(await sideways(page), false, tag + ': zoomed, the chart pans inside its pane');
+
+      // The owner moves Builder into Web at once.
+      await page.locator(card('bot:builder')).click();
+      const sheet = page.locator('dialog.rd-sheet[open]');
+      await sheet.waitFor();
+      assert.equal(await sheet.locator('[data-rdo-home]').innerText(), 'Engineering', tag + ': the sheet names its group');
+      await sheet.locator('select[name="to"]').selectOption('web');
+      assert.equal(await sheet.locator('[type=submit]').innerText(), 'Move', tag + ': the owner moves');
+      await shot(page, 'phone-org-sheet');
+      await sheet.locator('[type=submit]').click();
+      await sheet.waitFor({state: 'detached'});
+      await page.waitForFunction(() => document.querySelector('[data-rdo-group="web"] [data-rdo-ref="bot:builder"]'));
+
+      // Approve the proposal: one decision per proposal, the row leaves and Reviewer is in Web.
+      await page.locator('[data-rdo-decide="approved"]').click();
+      await page.locator('.rdo-props').waitFor({state: 'detached'});
+      await page.waitForFunction(() => document.querySelector('[data-rdo-group="web"] [data-rdo-ref="bot:reviewer"]'));
+      assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [
+        {method: 'PATCH', path: '/api/v2/groups/web', body: {add: {bots: ['builder']}}},
+        {method: 'POST', path: '/api/v2/approvals/ap_org1', body: {decision: 'approved'}},
+      ], tag + ': the requests');
+      assert.deepEqual(errors, [], tag + ': no page errors');
+      await page.close();
+    }
+
+    // A phone, a teammate who leads nothing: the same chart, no proposal row, and a move is a proposal.
+    {
+      const tag = 'phone member';
+      const {page, errors, writes} = await openStrategy(browser, {viewer: 'cara'});
+      await chart(page, tag);
+      assert.equal(await page.locator('.rdo-props').count(), 0, tag + ': nothing waits on her');
+      await page.locator(card('bot:sdr')).click();
+      const sheet = page.locator('dialog.rd-sheet[open]');
+      await sheet.locator('select[name="to"]').selectOption('eng');
+      assert.equal(await sheet.locator('[type=submit]').innerText(), 'Ask to move', tag + ': she asks');
+      await sheet.locator('[type=submit]').click();
+      await sheet.waitFor({state: 'detached'});
+      assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [
+        {method: 'POST', path: '/api/v2/approvals', body: {kind: 'org', payload: {bot: 'bot:sdr', from: 'sales', to: 'eng'}}},
+      ], tag + ': an org approval, no group change');
+      assert.ok(await inGroup(page, 'bot:sdr', 'sales'), tag + ': SDR stays in Sales until approved');
+      assert.deepEqual(errors, [], tag + ': no page errors');
+      await page.close();
+    }
+
+    // A computer, the owner: the same chart, wider; the proposal row on top.
+    {
+      const tag = 'desktop owner';
+      const {page, errors} = await openStrategy(browser, {viewport: DESKTOP});
+      await chart(page, tag);
+      assert.equal(await page.locator('.rdo-props').count(), 1, tag + ': the proposal row');
+      const pane = await page.locator('#rdo-pane').boundingBox(), cv = await page.locator('#rdo-cv').boundingBox();
+      assert.ok(cv.width <= pane.width + 1, tag + ': the whole chart fits the pane');
+      await page.locator(card('person:cara')).click();
+      await page.locator('dialog[open] [data-rdo-home]').waitFor();
+      assert.equal(await page.locator('dialog[open] [data-rdo-home]').innerText(), 'Engineering', tag + ': a person has a home group too');
+      await page.locator('dialog[open] [data-close]').first().click();
+      await shot(page, 'desktop-org');
+      assert.deepEqual(errors, [], tag + ': no page errors');
+      await page.close();
+    }
+
+    // Dormant: with the setting off, none of the chart is drawn.
+    for (const viewport of [PHONE, DESKTOP]) {
+      const {page, errors} = await openStrategy(browser, {viewport, redesign: false});
+      await page.locator('#tree li').first().waitFor();
+      await page.waitForTimeout(200);
+      assert.equal(await page.locator('#rdo-cv, .rdo-props').count(), 0, viewport.width + ' off: no chart');
+      assert.equal(await page.evaluate(() => document.querySelector('#main').classList.contains('rd-org-layout')), false);
+      assert.deepEqual(errors, [], viewport.width + ' off: no page errors');
+      await page.close();
+    }
+    console.log('strategy org ok');
+  } finally {
+    await browser.close();
+  }
+})().catch(e => { console.error(e); process.exit(1); });

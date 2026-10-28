@@ -88,6 +88,8 @@ function redesignRoute(r) {
   if (rdUnder(r, RD_ORG)) { pageRdOrg(); return true; }
   if (rdUnder(r, RD_BUDGET)) { pageBudget(); return true; }
   if (rdUnder(r, RD_LISTENING)) { pageRdListening(); return true; }
+  // Market opens on the latest briefing.
+  if (r === MARKET_ROUTE || rdUnder(r, RD_BRIEFING)) { pageRdBriefing(); return true; }
   return false;
 }
 // After every route: leave Automations' state when off its page, and put the Strategy Bot beside the Strategy tabs.
@@ -109,34 +111,7 @@ function redesignStrategyHead(tab) {
       <span class="spacer"></span>${sub}<div class="strat-actions" id="strat-actions"></div></div>`;
 }
 
-// Org: who reports to whom, as the sidebar's tree has it, until the org chart (wave 6) replaces it.
-function pageRdOrg() {
-  const main = $('#main');
-  main.classList.add('strategy-layout', 'rd-org-layout');
-  const by = orgTreeWithHelpers(orgTreeByParent()), seen = new Set();   // helpers are off the chart (sidebar.js)
-  const name = n => n.kind === 'group' ? n.name : n.kind === 'person' ? (n.person?.name || n.id) : (n.display_name || n.name);
-  const key = n => n.kind === 'group' ? 'g:' + n.id : n.kind === 'person' ? 'p:' + n.id : n.kind === 'bot' ? 'b:' + n.name : 's:' + n.id;
-  const href = n => n.kind === 'person' ? `#/person/${encodeURIComponent(n.id)}` : n.kind === 'bot' ? `#/bot/${encodeURIComponent(n.name)}` : '';
-  const rows = (parent, depth) => (by[parent] || []).filter(n => n.kind !== 'seat').map(n => {
-    const k = key(n);
-    if (seen.has(k) || depth > 12) return '';
-    seen.add(k);
-    const label = href(n) ? `<a href="${href(n)}">${esc(name(n))}</a>` : `<span>${esc(name(n))}</span>`;
-    return `<li class="rd-org-row rd-org-${n.kind}" style="--depth:${depth}">${label}</li>` + rows(k, depth + 1);
-  }).join('');
-  const list = rows('', 0);
-  main.innerHTML = strategyHeadHtml('org') + (list ? `<ul class="rd-org">${list}</ul>` : '<p class="muted rd-empty">No one on the chart yet.</p>');
-}
-
-// Market > Listening: Settings > Listening's destinations, moved here.
-function pageRdListening() {
-  window.marketStop?.();
-  const main = $('#main');
-  main.classList.add('strategy-layout', 'rd-listen-layout');
-  main.innerHTML = strategyHeadHtml('market') + `<section class="card rd-listen"><div id="set-listening">${skelRows(2, {card: true, dot: false})}</div></section>`;
-  marketViewSwitch('listening');
-  void renderSettingsListening();
-}
+// Org (ui/app/redesign-org.js), Market's Briefing and Listening (ui/app/redesign-market.js) are their own files.
 
 // ----------------------------------------------------------------- the Strategy Bot's panel
 // Beside every Strategy tab: a right rail on a desktop, a sheet behind a button on a phone. It stays mounted while

@@ -356,7 +356,7 @@ function pageGoals() {
   // says where you are, so the title is for screen readers only. With the redesign on, Goals is a Strategy tab and
   // the Strategy Bot's own panel (ui/app/redesign.js) takes the rail's place.
   if (redesignOn()) {
-    $('#main').classList.add('goals-layout', 'rd-goals');
+    $('#main').classList.add('strategy-layout', 'rd-goals');
     $('#main').innerHTML = strategyHeadHtml('goals') + `<div class="goals-main"><div id="goal-body"><p class="muted">Loading…</p></div></div>`;
     goalsLoad(state);
     return;
