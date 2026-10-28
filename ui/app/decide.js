@@ -104,11 +104,10 @@ function decideDialog() {
     <header class="dc-head">
       <button type="button" class="dc-icon dc-x" data-dc="close" aria-label="Close" title="Close (Esc)">✕</button>
       <h2 class="dc-count" aria-live="polite"></h2>
-      <span class="dc-nav"><button type="button" class="dc-icon" data-dc="prev" aria-label="Previous" title="Previous (←)"><span class="nav-icon" aria-hidden="true">chevron_left</span></button><button type="button" class="dc-icon" data-dc="next" aria-label="Next" title="Next (→)"><span class="nav-icon" aria-hidden="true">chevron_right</span></button></span>
+      <span class="dc-nav">${helpBubble('← → move · 1–6 pick · Y / N · R recommended · D done · S skip · C comment')}<button type="button" class="dc-icon" data-dc="prev" aria-label="Previous" title="Previous (←)"><span class="nav-icon" aria-hidden="true">chevron_left</span></button><button type="button" class="dc-icon" data-dc="next" aria-label="Next" title="Next (→)"><span class="nav-icon" aria-hidden="true">chevron_right</span></button></span>
     </header>
     <div class="dc-stage"></div>
     <div class="dc-actions"></div>
-    <p class="dc-keys" aria-hidden="true">← → move · 1–6 pick · Y / N · R recommended · D done · S skip · C comment</p>
     <div class="dc-toast" role="status" hidden><span></span><button type="button" data-dc="undo">Undo</button></div>
   </section>`;
   const root = $('.decide', d);
@@ -311,7 +310,10 @@ function decideRender(st, enter = false) {
   const face = chat ? `<a class="dc-who-face" href="${esc(chat)}" tabindex="-1" aria-hidden="true">${actorFace(from, 32)}</a>`
     : from === 'keeper' ? personCircle('Tico', 32) : actorFace(from, 32);
   const sub = c.type === 'pick' ? qcardSub(c.it) : c.type === 'approve' ? plainActors(approvalTitle(c.it) || c.it.title || '')
-    : c.type === 'ask' ? `Question for you · ${ageShort(c.it.created)}` : c.type === 'stale' ? `Stale check · ${ageShort(c.it.created)}` : decideMeta(c.it);
+    : c.type === 'ask' || c.type === 'stale' ? ageShort(c.it.created) : decideMeta(c.it);
+  // The chip names what the card is; a task card outside the questions names what it needs (Pay, Review and send).
+  const chip = c.type === 'approve' ? 'Approval' : c.type === 'stale' ? 'Stale check'
+    : c.type === 'task' && c.it.need && c.it.need !== 'decide' ? needLabel(c.it.need) : 'Question';
   // A card the note goes with: a comment on a task, a note with a decision, the answer to a question.
   const note = c.type === 'stale' ? '' : `<div class="dc-note"><textarea rows="1" maxlength="4000" aria-label="${c.type === 'ask' ? 'Your answer' : decide ? 'Note' : 'Comment'}" placeholder="${c.type === 'ask' ? 'Your answer' : decide ? 'Add a note' : 'Add a comment'}"></textarea>
       ${decide ? '' : `<button type="button" class="dc-send" data-dc="comment" aria-label="Send comment" title="${DC_SEND_WHY}" disabled>${ICON_SEND}</button>`}</div>`;
@@ -320,7 +322,7 @@ function decideRender(st, enter = false) {
       <div class="dc-who-text"><div class="dc-who-name">${chat ? `<a class="dc-who-link" href="${esc(chat)}" title="${esc(`Open ${name}`)}">${esc(name)}</a>` : esc(name)}${origin ? `<span class="dc-origin"> · ${esc(origin)}</span>` : ''}</div>
         <div class="dc-who-sub">${esc(sub)}</div></div>
       ${decideDue(c.it) ? `<span class="tl-due${decideDue(c.it).late ? ' late' : ''}">${esc(decideDue(c.it).words)}</span>` : ''}
-      <span class="pill needs">${esc(needLabel(c.it.need || 'decide'))}</span></div>
+      <span class="pill needs">${esc(chip)}</span></div>
     <div class="dc-body"></div>${note}
   </article>`;
   decidePaintBody(st);

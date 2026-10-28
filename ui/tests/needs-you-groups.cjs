@@ -81,7 +81,7 @@ async function shot(target, name) {
       count: g.querySelector('.tl-count, .tl-gcount, .count')?.textContent.trim()})));
     assert.deepEqual(groups.map(g => [g.key, g.count]),
       [['need:decide', '1'], ['need:pay', '2'], ['need:connect', '1'], ['need:review', '2'], ['need:do', '1'], ['older', '1']], JSON.stringify(groups));
-    assert.deepEqual(groups.map(g => g.label), ['Decide', 'Pay', 'Sign in or connect', 'Review and send', 'Do', 'Older questions']);
+    assert.deepEqual(groups.map(g => g.label), ['Answer', 'Pay', 'Sign in or connect', 'Review and send', 'Do', 'Older questions']);
     const review = page.locator('#task-body [data-group="need:review"]');
     assert.ok((await review.textContent()).includes("Send: '$200 for each rental owner you introduce' to Jennie Ooten"));
     assert.ok((await page.locator('#task-body [data-group="need:pay"]').textContent()).includes('Pay $1,200: LinkedIn ads for October'));
@@ -105,7 +105,7 @@ async function shot(target, name) {
     await pick.locator('.tl-title').click();
     const dc = page.locator('#need-card .dc-card[data-key="task:t-pick"]');
     await dc.waitFor();
-    assert.equal((await dc.locator('.dc-who .pill.needs').textContent()).trim(), 'Decide');
+    assert.equal((await dc.locator('.dc-who .pill.needs').textContent()).trim(), 'Question');
     const dcRec = page.locator('.decide .dc-actions [data-dc="recommend"]');
     assert.ok((await dcRec.textContent()).includes('Do what you recommend'));
     assert.match(await dc.locator('.need-folded').innerText(), /Also waiting on this[\s\S]*Switch the payroll vendor/i);

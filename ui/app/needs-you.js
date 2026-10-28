@@ -5,7 +5,7 @@
 // ---- Needs you: hub.db items, rendered as the same request rows the Issues use ----
 // What a card takes, in the order Needs you lists the groups (the server sets each card's `need`, backend/views.py
 // NEED_GROUPS): all the yes/no and pick cards can be cleared in one sitting.
-const NEED_GROUPS = [['decide', 'Decide'], ['pay', 'Pay'], ['connect', 'Sign in or connect'], ['review', 'Review and send'],
+const NEED_GROUPS = [['decide', 'Answer'], ['pay', 'Pay'], ['connect', 'Sign in or connect'], ['review', 'Review and send'],
   ['hands', 'Hands needed'], ['do', 'Do']];
 const NEED_RANK = Object.fromEntries(NEED_GROUPS.map(([k], i) => [k, i]));
 const needLabel = need => (NEED_GROUPS.find(([k]) => k === need) || NEED_GROUPS.at(-1))[1];
