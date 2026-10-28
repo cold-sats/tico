@@ -27,16 +27,24 @@ def outage(stop_at, back_at):
         if w.down:
             if w.now() >= START + back_at:
                 w.restart()
+                # The state each turn is in right after the restart's first pass, before any runner call reaches it.
+                ids = list(run.stop_turns)
+                marks = ",".join("?" * len(ids))
+                run.restart_states = {r["id"]: r["state"] for r in w.sql(
+                    f"SELECT id,state FROM attempts WHERE id IN ({marks})", tuple(ids))}
         elif not getattr(run, "stopped", False) and w.now() >= START + stop_at:
             run.stopped = True
             run.running_at_stop = [b.slug for b in team.all if b.running]
+            run.stop_turns = {b.attempt["id"]: b.slug for b in team.all if b.running}
             w.go_down()
     return during
 
 
 def runner_restarts(when):
-    """The computer's runner restarts at `when` under its running turns. It files each one as interrupted when it comes
-    back up, as the runner does (runner-rs recover_output); the server then resumes each one on its next sweep."""
+    """The computer's runner restarts at `when` under its running turns. Each turn had edited a file before the restart,
+    so it is not a read-only run: the runner files it as interrupted when it comes back up, as the runner does
+    (runner-rs recover_output), and the server resumes it on its next sweep, because a restart cannot have repeated an
+    outside action."""
     def during(run, w, team, i):
         if getattr(run, "restarted", False) or w.now() < START + when:
             return
@@ -44,6 +52,10 @@ def runner_restarts(when):
         run.running_at_restart = [b.slug for b in team.all if b.running]
         for bot in team.all:
             if bot.running:
+                edit = {"tool": "Edit", "summary": "edited a file", "item_id": "restart-edit"}
+                w.post(f"attempts/{bot.attempt['id']}/events",
+                       {"events": [{"seq": 1, "kind": "tool", "payload": edit}]}, token=w.runner["token"])
+                bot.attempt["last_seq"] = 1
                 bot.lose()
                 bot.recover()
     return during
@@ -78,15 +90,21 @@ def poison_setup(run, w, team):
 
 # ---------------------------------------------------------------------------------------------- checks
 def lost_none(run):
-    """No turn that was running when the server stopped expired: its lease was extended when the server started, so its
-    renewals and its result settled it. Needs at least one turn running at the stop, else nothing was tested."""
-    running = getattr(run, "running_at_stop", [])
-    lost = run.w.sql("SELECT bot, job_id FROM attempts WHERE state='expired' AND finished>=?", (stamp(OUTAGE_AT),))
-    if not running:
+    """The restart ended no turn that was running when the server stopped. Its state is read right after the restart's
+    first pass: a turn whose lease was extended at the start (grace_leases) is still running then, and its runner's
+    renewals keep it. A turn the pass expired is no longer running, and its job goes to review or back to the queue.
+    Needs at least one turn running at the stop, else nothing was tested."""
+    turns = getattr(run, "stop_turns", {})
+    states = getattr(run, "restart_states", None)
+    if not turns or states is None:
         return False, "no turn was running when the server stopped, so nothing was tested"
-    if lost:
-        return False, f"{len(lost)} turns expired in the outage: " + ", ".join(r["bot"] for r in lost[:6])
-    return True, f"all {len(running)} turns running at the stop settled: " + ", ".join(running[:6])
+    if len(states) != len(turns):
+        return False, f"could not read {len(turns) - len(states)} of the {len(turns)} turns after the restart"
+    ended = [f"{turns[aid]} ({state})" for aid, state in states.items() if state not in ("leased", "running")]
+    if ended:
+        return False, f"the restart ended {len(ended)} of {len(turns)} running turns: " + ", ".join(ended[:6])
+    return True, f"all {len(turns)} turns running at the stop were still running after the restart: " + \
+        ", ".join(sorted(turns.values())[:6])
 
 
 def leases_extended(run):
@@ -119,14 +137,14 @@ SCENARIOS = [
              "and starts again on the same database: the turns settle, and the board moves on.",
              setup=lambda run, w, team: tickets(run, w, 8), during=outage(OUTAGE_AT, BACK_AT), claim="runner", hours=6,
              checks=[*BASE,
-                     ("no turn running at the stop was lost", None, lost_none),
+                     ("the restart ended no turn running at the stop", None, lost_none),
                      ("the restart extended the lapsed leases", None, leases_extended),
                      ("the board keeps moving after the restart", None,
                       board_keeps_moving(BACK_AT, waits=((BACK_AT, BACK_AT + SETTLE),))),
                      ("no run is left uncertain", None, no_uncertain_runs)]),
     Scenario("recover_runner_restart",
-             "The computer's runner restarts at 2:00 under its running turns: it files each one interrupted, and the server "
-             "resumes each one on its next sweep, so each runs again.",
+             "The computer's runner restarts at 2:00 under its running turns, each of which had edited a file: it files each "
+             "one interrupted, and the server resumes each one on its next sweep, so each runs again.",
              setup=lambda run, w, team: tickets(run, w, 8), during=runner_restarts(RESTART_AT), claim="runner", hours=6,
              checks=[*BASE,
                      ("each turn the restart interrupted ran again", None, runner_rerun),
