@@ -1479,6 +1479,9 @@ ALLOWED = {
     "turn title": "a converted routine's task is its automation's turn, titled `Automation <name>: <step> (<run>)` "
                   "(CONTRACT section 2); a legacy release task is headed `<name>: <tag>`. Both compare by the routine's "
                   "name (masked)",
+    "briefing webhook": "market.briefing is one event per ISO week (backend/market_briefing.py `post`: a replacement "
+                        "with the same bets sends none). Day one and day two fall in one week, so day one's briefing "
+                        "sends it and day two's replacement sends none; wf10_same checks that count, then the rest",
 }
 
 
@@ -1518,12 +1521,27 @@ def find_assistants(org, f):
             f["assistants"][slug] = person
 
 
+def write_briefing(org, day):
+    """The legacy Librarian writes its briefing itself, through the market route (backend/market_briefing.py `post`,
+    which emits market.briefing), as its turn does in the product. The converted built-in posts its turn's answer the
+    same way (post_update), so both days send the webhook once."""
+    def act(token, attempt):
+        week = "%d-W%02d" % dt.date(*day).isocalendar()[:2]
+        answer = org.api("post", "/api/v2/market/briefings",
+                         {"week": week, "title": "Morning briefing", "body": BRIEF, "items": []}, who=token, wave=W5)
+        if not 200 <= answer.status < 300:
+            raise Unmet(W5, f"briefing: {answer.status} {answer.excerpt()}")
+        return answer
+    return act
+
+
 def drain_all(org, f, errors):
     if f["phase"] == 2:
         find_assistants(org, f)
     for slug in list(org.bot_slugs):
+        act = write_briefing(org, DAY10[1]) if f["phase"] == 1 and slug == LIBRARIAN else None
         try:
-            drain(org, slug, limit=6, text="Done for today.")
+            drain(org, slug, act, limit=6, text="Done for today.")
         except Exception as exc:  # noqa: BLE001 (kept with the day: a claim the product refuses is a difference)
             errors.append(f"{slug}: {type(exc).__name__}: {getattr(exc, 'what', exc)}"[:160])
 
@@ -1723,7 +1741,16 @@ def wf10_converted(f):
 def wf10_same(name):
     def check(f):
         one, two = day(f, 1), day(f, 2)
-        ok, text = diff(one[name], two[name])
+        one_, two_ = dict(one[name]), dict(two[name])
+        if name == "webhooks":
+            # ALLOWED 'briefing webhook': market.briefing is sent once per ISO week. Day two's briefing replaces the one
+            # day one wrote when both fall in the same week, so the week is announced once, on day one.
+            weeks = [dt.date(*DAY10[n]).isocalendar()[:2] for n in (1, 2)]
+            sent = [one_.pop("market.briefing", 0), two_.pop("market.briefing", 0)]
+            want = [1, 0] if weeks[0] == weeks[1] else [1, 1]
+            if sent != want:
+                return False, f"market.briefing sent {sent} on the two days; once per week wants {want}"
+        ok, text = diff(one_, two_)
         return ok, text + (f"; day two errors {two['errors'][:2]}" if two["errors"] and not ok else "")
     return check
 
