@@ -182,7 +182,7 @@ function lcDrawControls() {
   groups.filter(g => !ordered.includes(g)).forEach(g => ordered.push(g));   // a group whose parent is hidden
   const opt = (value, label) => `<option value="${esc(value)}">${esc(label)}</option>`;
   const people = (S.people || []).filter(p => !p.hidden && !p.archived);
-  const bots = (S.emps || []).filter(e => e.status !== 'archived').map(e => [e.name, lcBotName(e.name)]).sort((a, b) => a[1].localeCompare(b[1]));
+  const bots = (S.emps || []).filter(e => e.status !== 'archived').map(e => [e.name, lcBotName(e.name)]).sort((a, b) => a[1].localeCompare(b[1], undefined, {numeric: true}));
   who.innerHTML = opt('', 'Everyone')
     + (ordered.length ? `<optgroup label="Teams">${ordered.map(g => opt('group:' + g.id, ' '.repeat(depth(g) * 2) + g.name)).join('')}</optgroup>` : '')
     + (people.length ? `<optgroup label="People">${people.map(p => opt('human:' + p.id, p.name || p.email || p.id)).join('')}</optgroup>` : '')
@@ -248,11 +248,11 @@ function lcAccessHTML(item) {
     if (!byTeam.has(label)) byTeam.set(label, []);
     byTeam.get(label).push(line);
   }
-  const teams = [...byTeam].sort(([a], [b]) => (a === 'No team') - (b === 'No team') || a.localeCompare(b));
+  const teams = [...byTeam].sort(([a], [b]) => (a === 'No team') - (b === 'No team') || a.localeCompare(b, undefined, {numeric: true}));
   // Many teammates: each team folds; the team the list is narrowed to (and the teams under it) open, else the first.
   const many = lines.length > 24, picked = LC.filter.who.startsWith('group:') ? groups.find(g => g.id === LC.filter.who.slice(6)) : null;
   const opened = picked ? new Set([...byTeam.keys()].filter(label => label === path(picked) || label.startsWith(path(picked) + ' › '))) : null;
-  const sorted = xs => xs.sort((a, b) => a.sort.localeCompare(b.sort)).map(x => x.html).join('');
+  const sorted = xs => xs.sort((a, b) => a.sort.localeCompare(b.sort, undefined, {numeric: true})).map(x => x.html).join('');
   if (teams.length === 1 && teams[0][0] === 'No team') return sorted(teams[0][1]);   // no teams to tell apart
   return teams.map(([label, xs], i) => `<details class="lc-team"${!many || (opened?.size ? opened.has(label) : i === 0) ? ' open' : ''}><summary><span>${esc(label)}</span><span class="muted">${xs.length}</span></summary>
     ${sorted(xs)}</details>`).join('');
