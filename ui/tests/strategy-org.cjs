@@ -1,9 +1,8 @@
 // Strategy › Org with the redesign on (ui/app/redesign-org.js) against the fake hub in support/strategy-fake.cjs (the
 // Acme example): the chart top down with the owner on top, groups as outlines that fold (and stay folded), helpers off
 // it, pinch and the zoom buttons; a teammate's sheet with its group and Move to…; the owner, and a lead inside the
-// groups it leads, move at once (PATCH /api/v2/groups), anyone else files an org approval; a proposal waiting on the
-// owner is one row with Approve and Decline. With the setting off, #/strategy/org draws none of it. A phone first,
-// then a computer.
+// groups it leads, move at once (PATCH /api/v2/groups), anyone else sees the group and no Move to…; no proposals and no
+// approvals; the Strategy Bot's starters ask for org changes. With the setting off, #/strategy/org draws none of it. A phone first, then a computer.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openStrategy, PHONE, DESKTOP, sideways, shot} = require('./support/strategy-fake.cjs');
@@ -27,18 +26,11 @@ async function chart(page, tag) {
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
-    // A phone, the owner: the chart, folding, pinch, a move, a proposal approved.
+    // A phone, the owner: the chart, folding, pinch, a move.
     {
       const tag = 'phone owner';
       const {page, errors, writes} = await openStrategy(browser);
       await chart(page, tag);
-      // One row per move, whole on a phone: who and where to, with its own Approve and Decline.
-      const prop = page.locator('.rdo-prop[data-rdo-prop="ap_org1"]');
-      assert.match(await prop.innerText(), /Reviewer → Web/, tag + ': the proposal row');
-      assert.equal(await prop.locator('.rdo-props-t').evaluate(el => el.scrollWidth <= el.clientWidth), true, tag + ': the row is not cut');
-      assert.equal(await prop.getByRole('button', {name: 'Approve'}).isVisible(), true, tag + ': Approve');
-      assert.equal(await prop.getByRole('button', {name: 'Decline'}).isVisible(), true, tag + ': Decline');
-      assert.equal(await page.locator('.rdo-card.pv' + `[data-rdo-ref="bot:reviewer"]`).count(), 1, tag + ': the teammate it moves is marked');
       // Opens readable (names 12px or more), centred on the owner, the frame down to the tab bar, the page still.
       const look = await page.evaluate(() => {
         const pane = document.querySelector('#rdo-pane'), cv = document.querySelector('#rdo-cv');
@@ -86,47 +78,40 @@ async function chart(page, tag) {
       const sheet = page.locator('dialog.rd-sheet[open]');
       await sheet.waitFor();
       assert.equal(await sheet.locator('[data-rdo-home]').innerText(), 'Engineering', tag + ': the sheet names its group');
+      const options = await sheet.locator('select[name="to"] option').allInnerTexts();
+      assert.deepEqual(options.map(t => t.trim()), ['No group', 'Engineering', 'Web', 'Sales', 'Outbound'], tag + ': every group, and No group');
       await sheet.locator('select[name="to"]').selectOption('web');
       assert.equal(await sheet.locator('[type=submit]').innerText(), 'Move', tag + ': the owner moves');
       await shot(page, 'phone-org-sheet');
       await sheet.locator('[type=submit]').click();
       await sheet.waitFor({state: 'detached'});
       await page.waitForFunction(() => document.querySelector('[data-rdo-group="web"] [data-rdo-ref="bot:builder"]'));
-
-      // Approve the proposal: one decision per proposal, the row leaves and Reviewer is in Web.
-      await page.locator('[data-rdo-decide="approved"]').click();
-      await page.locator('.rdo-props').waitFor({state: 'detached'});
-      await page.waitForFunction(() => document.querySelector('[data-rdo-group="web"] [data-rdo-ref="bot:reviewer"]'));
       assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [
         {method: 'PATCH', path: '/api/v2/groups/web', body: {add: {bots: ['builder']}}},
-        {method: 'POST', path: '/api/v2/approvals/ap_org1', body: {decision: 'approved'}},
-      ], tag + ': the requests');
+      ], tag + ': one group change, no approval');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }
 
-    // A phone, a teammate who leads nothing: the same chart, no proposal row, and a move is a proposal.
+    // A phone, a teammate who leads nothing: the same chart; the sheet names the group and has no Move to….
     {
       const tag = 'phone member';
       const {page, errors, writes} = await openStrategy(browser, {viewer: 'cara'});
       await chart(page, tag);
-      assert.equal(await page.locator('.rdo-props').count(), 0, tag + ': nothing waits on her');
       await page.locator(card('bot:sdr')).click();
       const sheet = page.locator('dialog.rd-sheet[open]');
-      await sheet.locator('select[name="to"]').selectOption('eng');
-      assert.equal(await sheet.locator('[type=submit]').innerText(), 'Ask to move', tag + ': she asks');
-      await sheet.locator('[type=submit]').click();
-      await sheet.waitFor({state: 'detached'});
-      assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [
-        {method: 'POST', path: '/api/v2/approvals', body: {kind: 'org', payload: {bot: 'bot:sdr', from: 'sales', to: 'eng'}}},
-      ], tag + ': an org approval, no group change');
-      assert.ok(await inGroup(page, 'bot:sdr', 'sales'), tag + ': SDR stays in Sales until approved');
+      await sheet.waitFor();
+      assert.equal(await sheet.locator('[data-rdo-home]').innerText(), 'Sales', tag + ': the group');
+      assert.equal(await sheet.locator('select[name="to"], [type=submit]').count(), 0, tag + ': no Move to…');
+      await shot(page, 'phone-org-sheet-member');
+      await sheet.locator('[data-close]').first().click();
+      assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [], tag + ': nothing written');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }
 
-    // A phone, a lead who is not an admin: inside the groups he leads a move happens at once (PATCH, audited by the
-    // hub); out of them it is an org approval.
+    // A phone, a lead who is not an admin: Move to… offers the groups he leads, and the move happens at once (PATCH,
+    // audited by the hub); a teammate outside them has no Move to….
     {
       const tag = 'phone lead';
       const {page, errors, writes} = await openStrategy(browser, {viewer: 'ben'});
@@ -139,31 +124,41 @@ async function chart(page, tag) {
         await sheet.locator('[type=submit]').click();
         await sheet.waitFor({state: 'detached'});
       };
+      await page.locator(card('bot:sdr')).click();
+      const options = await page.locator('dialog.rd-sheet[open] select[name="to"] option').allInnerTexts();
+      assert.deepEqual(options.map(t => t.trim()), ['Sales', 'Outbound'], tag + ': only the groups he leads');
+      await page.locator('dialog.rd-sheet[open] [data-close]').first().click();
       await ask('bot:sdr', 'outbound', 'Move');
       await page.waitForFunction(() => document.querySelector('[data-rdo-group="outbound"] [data-rdo-ref="bot:sdr"]'));
-      await ask('bot:sales-lead', 'eng', 'Ask to move');
+      await page.locator(card('bot:builder')).click();
+      assert.equal(await page.locator('dialog.rd-sheet[open] select[name="to"]').count(), 0, tag + ': no Move to… outside his groups');
+      await page.locator('dialog.rd-sheet[open] [data-close]').first().click();
       assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [
         {method: 'PATCH', path: '/api/v2/groups/outbound', body: {add: {bots: ['sdr']}}},
-        {method: 'POST', path: '/api/v2/approvals', body: {kind: 'org', payload: {bot: 'bot:sales-lead', from: 'sales', to: 'eng'}}},
-      ], tag + ': a direct move inside Sales, an org approval out of it');
-      assert.ok(await inGroup(page, 'bot:sales-lead', 'sales'), tag + ': Sales Lead stays in Sales until approved');
+      ], tag + ': a direct move inside Sales');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }
 
-    // A computer, the owner: the same chart, wider; the proposal row on top.
+    // A computer, the owner: the same chart, wider.
     {
       const tag = 'desktop owner';
       const {page, errors} = await openStrategy(browser, {viewport: DESKTOP});
       await chart(page, tag);
-      assert.equal(await page.locator('.rdo-props').count(), 1, tag + ': the proposal row');
       const pane = await page.locator('#rdo-pane').boundingBox(), cv = await page.locator('#rdo-cv').boundingBox();
       assert.ok(cv.width <= pane.width + 1, tag + ': the whole chart fits the pane');
       await page.locator(card('person:cara')).click();
       await page.locator('dialog[open] [data-rdo-home]').waitFor();
       assert.equal(await page.locator('dialog[open] [data-rdo-home]').innerText(), 'Engineering', tag + ': a person has a home group too');
+      await shot(page, 'desktop-org-sheet');
       await page.locator('dialog[open] [data-close]').first().click();
       await shot(page, 'desktop-org');
+      // The Strategy Bot beside it offers org starters here, and its usual ones on Goals.
+      const starters = () => page.locator('#sbot [data-gm-starter]').allInnerTexts();
+      await page.locator('#sbot [data-gm-starter]').first().waitFor();
+      assert.deepEqual(await starters(), ['Suggest org changes', 'Who should lead each group?', 'Fix reporting lines'], tag + ': org starters');
+      await page.evaluate(() => { location.hash = '#/strategy/goals'; });
+      await page.waitForFunction(() => document.querySelector('#sbot [data-gm-starter]')?.textContent === 'Set a goal');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }
@@ -173,7 +168,7 @@ async function chart(page, tag) {
       const {page, errors} = await openStrategy(browser, {viewport, redesign: false});
       await page.locator('#tree li').first().waitFor();
       await page.waitForTimeout(200);
-      assert.equal(await page.locator('#rdo-cv, .rdo-props').count(), 0, viewport.width + ' off: no chart');
+      assert.equal(await page.locator('#rdo-cv').count(), 0, viewport.width + ' off: no chart');
       assert.equal(await page.evaluate(() => document.querySelector('#main').classList.contains('rd-org-layout')), false);
       assert.deepEqual(errors, [], viewport.width + ' off: no page errors');
       await page.close();

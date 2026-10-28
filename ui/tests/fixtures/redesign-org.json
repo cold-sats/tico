@@ -30,11 +30,5 @@
     {"id": "web", "name": "Web", "parent": "eng", "lead": "bot:web-dev", "people": [], "bots": ["web-dev"], "order": 0, "bet_id": null},
     {"id": "sales", "name": "Sales", "parent": "", "lead": "person:ben", "people": ["ben"], "bots": ["sales-lead", "sdr"], "order": 1, "bet_id": null},
     {"id": "outbound", "name": "Outbound", "parent": "sales", "lead": "", "people": [], "bots": [], "order": 0, "bet_id": null}
-  ],
-  "needs": {
-    "ana": [
-      {"id": "ap_org1", "kind": "approval", "what": "org", "payload": {"bot": "bot:reviewer", "from": "eng", "to": "web"},
-       "title": "Approve this org", "requester": "bot:eng-lead", "created": "2026-10-27T15:00:00Z"}
-    ]
-  }
+  ]
 }

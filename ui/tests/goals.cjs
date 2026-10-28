@@ -119,10 +119,9 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     // Two requests draw the page: the tree and Needs you.
     assert.deepEqual(requests.filter(r => /goals|kpis/.test(r)).sort(), ['GET /api/v2/goals/needs-you', 'GET /api/v2/goals/tree']);
 
-    // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; built-in and message bots apart.
-    const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-sep') ? el.textContent : el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
-    assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:goal-manager@1', 'bot:sales@1', 'bot:support@1',
-      'Message bots', 'bot:inbox@0', 'bot:channel@0']);
+    // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; helper bots off it.
+    const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
+    assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:goal-manager@1', 'bot:sales@1', 'bot:support@1']);
     // The sidebar separates the same built-in and message bots, in the same order.
     assert.deepEqual(await page.locator('#tree a.node[data-helper]').evaluateAll(els => els.map(el => el.dataset.org)),
       ['b:inbox', 'b:channel']);
@@ -206,7 +205,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
 
     // A bot with no goal: tapping it opens its panel on a new goal, the owner fixed.
     const panel = page.locator('#goal-panel[open]');
-    await row('bot:sales').click();
+    await row('bot:sales').locator('.gt-name').click();
     const fresh = panel.locator('[data-goal-form="new"]');
     await fresh.waitFor();
     assert.equal(await fresh.locator('select[name=owner]').count(), 0, 'the owner is whoever was tapped');
@@ -239,7 +238,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.equal(await page.locator('#goal-panel[open]').count(), 0);
 
     // A bot with goals: each goal, its KPIs and its check-in; a KPI opens in the panel, with a way back.
-    await row('bot:cmo').click();
+    await row('bot:cmo').locator('.gt-name').click();
     await panel.locator('[data-gp-goal="g-cmo"]').waitFor();
     assert.equal(await panel.locator('.gp-goal').count(), 2);
     assert.match(await panel.locator('[data-gp-goal="g-cmo"]').innerText(), /The onboarding email went out late/);
@@ -267,14 +266,14 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     await panel.locator('[data-gp-close]').click();
 
     // The company line edits the company goal; a colour a person set is handed back from there.
-    await row('company').click();
+    await row('company').locator('.gt-name').click();
     await panel.locator('[data-goal-form="g-top"]').waitFor();
     assert.equal(await panel.locator('[data-goal-form="g-top"] select[name=parent]').count(), 0, 'a company goal supports nothing');
     await panel.locator('[data-goal-form="g-top"] [data-goal-auto]').click();
     await until(() => last()?.path === '/api/v2/goals/g-top/status/auto', 'handed back');
     await panel.locator('[data-gp-close]').click();
     // The owner's panel holds the KPIs no goal uses.
-    await row('human:ana').click();
+    await row('human:ana').locator('.gt-name').click();
     assert.match(await panel.locator('.gp-body').innerText(), /Other KPIs[\s\S]*Cash runway/i);
     assert.equal(await panel.locator('[data-kpi="k-retired"]').count(), 0, 'archived KPI is absent from the default active view');
     await panel.locator('[data-gp-history]').click();
@@ -373,7 +372,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert(cmo.height >= 44 && cmo.height <= 80, 'name and goal on two lines: ' + cmo.height);
     assert(seo.x - ana.x <= 22, 'a smaller indent: ' + (seo.x - ana.x));
     assert.equal(await row('bot:cmo').locator('.gt-kn').isVisible(), true, 'a count instead of chips');
-    await row('bot:sales').click();
+    await row('bot:sales').locator('.gt-name').click();
     const sheet = await panel.boundingBox();
     assert(Math.abs(sheet.y + sheet.height - 844) <= 2 && sheet.width >= 388, 'a sheet at the bottom');
     await page.keyboard.press('Escape');

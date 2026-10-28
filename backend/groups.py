@@ -204,7 +204,7 @@ def led_groups(c, who, roster=None):
 
 def _lead_move(c, who, gid, body, roster):
     """A lead's move inside what it leads (CONTRACT §3): only an `add`, into a group it leads or one below, of teammates
-    already in such a group. Anything else from a lead who is not an admin is the owner's (or an `org` approval)."""
+    already in such a group. Anything else from a lead who is not an admin is the owner's."""
     if any(v is not None for v in (body.name, body.parent, body.lead, body.bet_id)) or body.remove.people \
             or body.remove.bots or not (body.add.people or body.add.bots):
         return False
@@ -303,7 +303,7 @@ def _lead_check(c, roster, configs, gid, lead):
 
 
 def leads_follow(c, cause):
-    """With the redesign on, a lead who left its group (an add to another group, a remove, an approved move, its own
+    """With the redesign on, a lead who left its group (an add to another group, a remove, its own
     move) is cleared in the same write: one audit row per group, the hub's own change with `via` naming the change that
     moved it, and one notice to the top of the org."""
     if not redesign.on(c):

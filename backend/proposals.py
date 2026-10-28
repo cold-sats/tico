@@ -1,7 +1,8 @@
-"""Proposals for the redesign's budgets and org chart (redesign CONTRACT §5): a change to a task cap, a spend limit, a
-group or a teammate's home group, filed as an approval that a person decides.
+"""Proposals for the redesign's budgets (redesign CONTRACT §5): a change to a task cap or a spend limit, filed as an
+approval that a person decides. An org change is no proposal: the Strategy Bot suggests it in words and makes it when the
+person asks (backend/assistant.py `instructed_org`); the owner and group leads make it themselves on the Org tab.
 
-  KINDS                      task_cap, spend_limit, group, org (backend/hubdb.py APPROVAL_KINDS)
+  KINDS                      task_cap, spend_limit (backend/hubdb.py APPROVAL_KINDS)
   check(c, kind, payload)    refuses, when it is filed, a proposal the hub could not apply (and every one while off)
   decider(c)                 who decides: the top of the org
   apply(c, auth, settings, who, row)
@@ -9,8 +10,7 @@ group or a teammate's home group, filed as an approval that a person decides.
                              person, audited with via `approval:<id>`; the approval is spent and BotOps gets a notice
 
 Payloads: task_cap `{sender, receiver, per_day}`; spend_limit `{bot}` or `{pool: "company"|"group:<id>"}` with
-`per_30m_usd, daily_usd, weekly_usd, monthly_usd`; group `{id, ...}` a PATCH /api/v2/groups/{id} body, or with no `id` a
-POST body; org `{bot, from, to}`, `bot` any teammate ref, `from`/`to` group ids ("" = no group).
+`per_30m_usd, daily_usd, weekly_usd, monthly_usd`.
 
 The note to BotOps is a hub notice (from `keeper`, kind `notice`, refs `{approval}`), as every hub notice reaches a bot:
 BotOps reads it in its inbox, the owner in BotOps's conversations. Nothing waits in a bot's queue: only work outside
@@ -23,7 +23,7 @@ from . import models as M
 from . import redesign
 from .store import Problem
 
-KINDS = ("task_cap", "spend_limit", "group", "org")
+KINDS = ("task_cap", "spend_limit")
 
 
 class SpendLimit(M.UsageLimit):
@@ -32,36 +32,17 @@ class SpendLimit(M.UsageLimit):
     pool: str | None = M.Field(default=None, max_length=200)
 
 
-class GroupChange(M.GroupUpdate):
-    """A group change: `id` names the group to change; with none, `name` makes a new one."""
-    id: M.ID | None = None
-    bet_id: None = None                       # linking a bet stays the owner's own act
-
-
-class OrgMove(M.Contract):
-    bot: M.ID                                 # any teammate ref: bot:<slug> or person:<id>
-    from_: str = M.Field(alias="from", max_length=200)
-    to: str = M.Field(max_length=200)
-
-
 def _parse(kind, payload):
     try:
         if kind == "task_cap":
             from .task_caps import TaskCap
             return TaskCap(**payload)
-        if kind == "spend_limit":
-            found = SpendLimit(**payload)
-            if bool(found.bot) == bool(found.pool):
-                raise Problem("validation", "A spend_limit names a bot or a pool, not both", 422)
-            if found.pool and found.pool != "company" and not found.pool.startswith("group:"):
-                raise Problem("validation", "A pool is company or group:<id>", 422)
-            return found
-        if kind == "group":
-            found = GroupChange(**payload)
-            if not found.id and not found.name:
-                raise Problem("validation", "A new group needs a name", 422)
-            return found
-        return OrgMove(**payload)
+        found = SpendLimit(**payload)
+        if bool(found.bot) == bool(found.pool):
+            raise Problem("validation", "A spend_limit names a bot or a pool, not both", 422)
+        if found.pool and found.pool != "company" and not found.pool.startswith("group:"):
+            raise Problem("validation", "A pool is company or group:<id>", 422)
+        return found
     except ValidationError as exc:
         first = exc.errors()[0]
         raise Problem("validation", f"{kind} payload: {'.'.join(map(str, first['loc']))}: {first['msg']}", 422)
@@ -91,17 +72,6 @@ def _name(c, value):
     return name(c, value)
 
 
-def _home(c, who):
-    """The group a teammate (an actor) is in, "" for none."""
-    from . import groups as G
-    from . import people as P
-    roster = G._roster(c)
-    kind, _, ident = who.partition(":")
-    if kind == "bot":
-        return P.team_of(ident, G._configs(c), roster) or ""
-    return (P.person(ident, roster) or {}).get("team") or ""
-
-
 def _group_name(c, gid):
     from . import groups as G
     return (G._roster(c)["org_groups"].get(gid) or {}).get("name") or gid or "no group"
@@ -128,33 +98,7 @@ def _apply_spend(c, auth, settings, who, aid, change):
                                          _group_name(c, change.pool.split(":", 1)[1]) + ".")
 
 
-def _apply_group(c, auth, settings, who, aid, change):
-    from . import groups as G
-    via = f"approval:{aid}"
-    if change.id:
-        body = M.GroupUpdate(**change.model_dump(exclude={"id", "bet_id"}, exclude_unset=True))
-        row = G.update(c, auth, settings, who, change.id, body, via=via)
-        return f"Group {row['name']} changed."
-    body = M.GroupCreate(**change.model_dump(include={"name", "parent", "add", "lead"}, exclude_unset=True))
-    row = G.create(c, auth, settings, who, body, via=via)
-    return f"Group {row['name']} made."
-
-
-def _apply_org(c, auth, settings, who, aid, move):
-    from . import groups as G
-    teammate = _teammate(c, move.bot)
-    if _home(c, teammate) != move.from_:
-        raise Problem("conflict", f"{_name(c, teammate)} is no longer in {_group_name(c, move.from_)}", 409)
-    kind, _, ident = teammate.partition(":")
-    members = M.GroupMembers(**{"bots" if kind == "bot" else "people": [ident]})
-    if move.to:
-        G.update(c, auth, settings, who, move.to, M.GroupUpdate(add=members), via=f"approval:{aid}")
-    elif move.from_:
-        G.update(c, auth, settings, who, move.from_, M.GroupUpdate(remove=members), via=f"approval:{aid}")
-    return f"{_name(c, teammate)} moved from {_group_name(c, move.from_)} to {_group_name(c, move.to)}."
-
-
-APPLY = {"task_cap": _apply_cap, "spend_limit": _apply_spend, "group": _apply_group, "org": _apply_org}
+APPLY = {"task_cap": _apply_cap, "spend_limit": _apply_spend}
 
 
 def apply(c, auth, settings, who, row):

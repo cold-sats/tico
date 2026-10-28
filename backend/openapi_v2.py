@@ -1321,7 +1321,7 @@ SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "p
 # The redesign's proposals (backend/proposals.py): a change a person decides, applied by the hub on approve.
 STABLE.extend([
     ("/api/v2/approvals", "post", "Needs you", "requestApproval",
-     "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals "
+     "Ask a person to approve an action. With the redesign on, kinds task_cap and spend_limit are proposals "
      "the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
      "ApprovalRequested"),
 ])

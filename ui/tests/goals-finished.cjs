@@ -68,7 +68,7 @@ const goals = [
     const panel = page.locator('#goal-panel');
     const open = async owner => {
       if (await panel.evaluate(d => d.open).catch(() => false)) await panel.locator('[data-gp-close]').click();
-      await page.locator(`#goal-tree .gt-row[data-owner="${owner}"]`).first().click();
+      await page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont) .gt-name`).click();
       await panel.locator('.gp-body').waitFor();
     };
 

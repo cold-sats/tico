@@ -210,6 +210,29 @@ def require_direct_setting(c, method, path, body, trial=None, base=""):
                       if e else "That setting needs the person's own yes", 403)
 
 
+# An org change the person asked for in their chat (the redesign's Strategy Bot suggests them in words; the person says
+# which to make): a group made, renamed, nested, filled, led or deleted, and who a teammate reports to. It runs on their
+# cited words with exactly their rights, which the route checks as for their own click: the owner changes anything, a
+# lead moves teammates inside what it leads, anyone else is refused there. A bot asking, or the Strategy Bot on its own,
+# never borrows a person's rights: its own are refused (backend/groups.py `_may_change`).
+_ORG = [(m, re.compile(p)) for m, p in (
+    ("POST", r"/api/v2/groups"), ("PATCH", r"/api/v2/groups/[^/]+"), ("DELETE", r"/api/v2/groups/[^/]+"))]
+_REPORTS = (re.compile(r"/api/v2/(?:people|humans)/[^/]+"), re.compile(r"/api/v2/bots/[^/]+/definition"))
+
+
+def instructed_org(method, path, body=None):
+    """Whether this write is an org change that may run on the person's cited words: a group write, or a change of who a
+    person or a bot reports to and nothing else."""
+    path = normalize_path(path)
+    if not path:
+        return False
+    if any(m == method and p.fullmatch(path) for m, p in _ORG):
+        return True
+    fields = _fields(body)
+    return (method == "POST" and any(p.fullmatch(path) for p in _REPORTS) and "reports_to" in fields
+            and not set(fields) - {"reports_to", "expected_revision"})
+
+
 def instructed_route(method, path, body=None, decides=False):
     """Whether this write may run on the person's cited words. `decides`: their Assistant may decide approvals."""
     path = normalize_path(path)
