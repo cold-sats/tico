@@ -5,6 +5,12 @@
 .gt-row,.gt-group{display:grid;grid-template-columns:calc(var(--d,0) * var(--ind)) 28px max(48px,calc(var(--name-w) - var(--d,0) * var(--ind) - 28px)) minmax(0,1fr) auto;
   grid-template-areas:"ind av name goal kpis";align-items:stretch;min-height:36px;padding:0 10px;font-size:var(--t-base);line-height:1.3}
 .gt-row{cursor:pointer}.gt-row:hover,.gt-row:focus-visible{background:var(--surface2);outline:none}
+/* "+" adds a goal for the line's owner (a group's: its lead), shown under a pointer; a phone long-presses the line. */
+.gt-row,.gt-group{position:relative}
+.gt-add{display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);width:24px;height:24px;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font-size:var(--t-md);line-height:1;cursor:pointer}
+.gt-add:hover{border-color:var(--accent);color:var(--accent)}
+@media (hover:hover){.gt-row:hover>.gt-add,.gt-row:focus-within>.gt-add,.gt-group:hover>.gt-add{display:inline-flex}}
+.gt-row>.gt-goal{cursor:pointer}
 .gt-ind{grid-area:ind;background:repeating-linear-gradient(to right,transparent 0 6px,var(--line) 6px 7px,transparent 7px var(--ind))}
 .gt-av,.gt-name,.gt-goal,.gt-kpis{display:flex;align-items:center;min-width:0}
 .gt-av{grid-area:av}.gt-name{grid-area:name;padding-right:12px}.gt-goal{grid-area:goal;gap:8px}.gt-kpis{grid-area:kpis;gap:6px;padding-left:12px}
@@ -78,13 +84,6 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .goal-why .linkish{font-size:var(--t-sm);font-style:normal}
 .goal-why-prop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px 19px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--radius);font-size:var(--t-sm)}
 .goal-why-ed{display:flex;gap:8px;align-items:center;margin:0 0 8px 19px}.goal-why-ed input{flex:1 1 auto;min-width:0}
-/* the strategy, one line at the top of Goals */
-.gst{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0 0 var(--s3);padding:7px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);color:var(--ink);font-size:var(--t-base);text-decoration:none}
-.gst:hover{background:var(--surface2);text-decoration:none}
-.gst-k{flex:none;font-weight:600}
-.gst-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
-.gst-sum::before{content:"· ";color:var(--muted)}
-.gst-go{color:var(--accent)}
 .goal-bet-line{display:flex;align-items:center;gap:8px;min-width:0;margin:-2px 0 6px 19px;font-size:var(--t-sm)}
 .goal-bet-chip{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface2);color:var(--ink);font-weight:600;text-decoration:none}
 .goal-bet-chip:hover{border-color:var(--accent);text-decoration:none}
@@ -270,3 +269,19 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .prop-np-label{margin-top:4px;font-weight:600;font-size:var(--t-sm)}
 .prop-np-clamp .prop-np-v{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .prop-np>.linkish{justify-self:start;font-size:var(--t-sm)}
+
+/* One goal in the sheet (ui/app/goals.js goalSheetOpen): the owner's panel's frame, a side panel or a phone's sheet. */
+.gsheet .gs-h{margin:0;font-size:var(--t-md);font-weight:600}
+.gsheet .tmodal-head{gap:8px}
+.gsheet .goal-form{max-width:none}
+.goal-measure{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1.2fr)}
+.goal-measure input{min-width:0}
+#main.rd-goals #goal-new{white-space:nowrap}
+@media (max-width:760px){
+  .goal-measure{grid-template-columns:1fr 1fr}.goal-measure .goal-metric{grid-column:1 / -1}
+  .gsheet .goal-fs:not(.goal-measure){grid-template-columns:1fr}
+  .gsheet .goal-f input,.gsheet .goal-f select{height:44px;font-size:16px}
+  .gsheet .goal-actions button{min-height:44px}
+  #main.rd-goals .rd-strat-head h1{flex:1 1 0}
+  #main.rd-goals .rd-strat-head .strat-actions{order:1;flex:none}
+}

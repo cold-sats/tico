@@ -1,7 +1,7 @@
 // A stand-in hub for the Strategy content scripts (ui/tests/strategy-*.cjs): the org chart's groups and moves
 // (redesign CONTRACT §3), Market › Listening's stats with
 // `daily` and `recent`, and the latest market briefing, over fixtures/redesign-{org,listening,briefing}.json (the Acme
-// example), plus the boot stubs. Writes change what a page reads back and are recorded in `writes`.
+// example) and goals, plus the boot stubs. Writes change what a page reads back and are recorded in `writes`.
 const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./page.cjs');
@@ -32,7 +32,13 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
   const me = viewer === fx.me.id ? fx.me : {id: viewer, name: person?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};
   const config = {company_name: 'Acme', ...(redesign ? {redesign: true} : {})};
-  const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: []};
+  // Goals: the company's, one with a measure that has a target, and Sales Lead's (goal_routes.py shapes, no rights).
+  const goals = [
+    {id: 'g-co', title: 'Reach 100 paying customers', owner: 'company', parent_id: null, status: 'green', status_source: 'auto', rank: 1,
+      kpis: [{id: 'k-cust', name: 'Paying customers', status: 'green', link: {kind: 'improve', baseline: 20, baseline_at: '2026-09-01', target: 100, deadline: '2026-12-31'}}]},
+    {id: 'g-sales', title: 'Book 40 demos a month', owner: 'bot:sales-lead', parent_id: 'g-co', status: 'yellow', status_source: 'auto', rank: 1, kpis: []},
+  ];
+  const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: [], goals};
   const writes = [];
   // A teammate joins a group and leaves the one it was in (backend/groups.py); `remove` leaves it in no group.
   const move = (kind, id, to) => {
@@ -93,8 +99,22 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
     if (p === '/api/v2/strategy') return json({current: null, bets: [], may_edit: true});
     if (p === '/api/v2/conversations') return json({conversations: []});
     if (p === '/api/v2/bots/goal-manager/routines') return json({routines: []});
-    if (p === '/api/v2/goals/tree') return json({goals: [], owners: {}, other_kpis: [], proposals: []});
+    if (p === '/api/v2/goals/tree') return json({goals: db.goals, owners: {}, other_kpis: [], proposals: []});
     if (p === '/api/v2/goals/needs-you') return json({items: []});
+    if (p === '/api/v2/goals' && method === 'POST') {
+      const g = {id: 'g-' + (db.goals.length + 1), title: body.title, owner: body.owner, parent_id: body.parent_id || null, status: 'gray', rank: 9, kpis: []};
+      db.goals.push(g);
+      return json({goal: g});
+    }
+    m = p.match(/^\/api\/v2\/goals\/([^/]+)(\/status|\/kpis(?:\/([^/]+))?)?$/);
+    const goal = m && db.goals.find(g => g.id === decodeURIComponent(m[1]));
+    if (m && method === 'POST' && goal) {
+      if (m[2] === '/status') goal.status = body.status;
+      else if (m[3]) Object.assign(goal.kpis.find(k => k.id === m[3]).link, body);
+      else if (m[2]) goal.kpis.push({id: 'k-' + (goal.kpis.length + 1), name: body.name, status: 'gray', link: {kind: body.kind, target: body.target ?? null, deadline: body.deadline ?? null}});
+      else Object.assign(goal, body, body.parent_id === '' ? {parent_id: null} : {});
+      return json({goal});
+    }
     return json(unrouted(p));
   });
   await page.goto('http://tico-ui.test/' + hash);
