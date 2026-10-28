@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import random
+import sys
 import tempfile
 import traceback
 import uuid
@@ -60,7 +61,8 @@ class World:
         self.limit_next = {}                # runtime -> usage limit text: the next turn on it meets that limit
         self.server_errors = []             # (when, route, status, body) for each call the server answered with a 5xx
         self.input_reads = []               # (when, bot, attempt, message ids): the inputs a turn read as it started
-        self.attempt_posts = []             # (when, path, sent with the runner's token) for each renew or events post
+        self.attempt_posts = []             # (when, path, caller, bot, bot on, bot running) for each renew or events post
+        self.limit_windows = []             # one per limited turn: the bot's limit as the server holds it after the turn
         self.down = False                   # the server is stopped (go_down): nothing reaches it until restart()
         self.patches = []                   # (module, name, original) for each patch(), put back on __exit__
 
@@ -238,7 +240,14 @@ class World:
         headers = {"Authorization": "Bearer " + token}
         if method == "post" and path.startswith("attempts/") and path.rsplit("/", 1)[-1] in ("renew", "events"):
             caller = " > ".join(frame.name for frame in traceback.extract_stack()[-6:-1])
-            self.attempt_posts.append((self.now(), path, token == self.runner["token"], caller))
+            # The bot making the call: the nearest frame with a bot in scope, read for its slug, computer and turn.
+            frame, bot = sys._getframe(1), None
+            while frame is not None and bot is None:
+                owner = frame.f_locals.get("self")
+                bot = owner if hasattr(owner, "slug") and hasattr(owner, "available") else None
+                frame = frame.f_back
+            self.attempt_posts.append((self.now(), path, caller, bot.slug if bot else None,
+                                       bot.available if bot else None, bot.running if bot else None))
         if method != "get":      # the server wants a key on every write, PUT included
             headers["Idempotency-Key"] = str(uuid.uuid4())
         route = f"{method.upper()} /api/v2/{path}"
@@ -331,6 +340,27 @@ class World:
         self.post(f"attempts/{attempt['id']}/events",
                   {"events": [{"seq": 1, "kind": "error", "payload": {"error": text, "limit": True}}]},
                   token=self.runner["token"])
+
+    def limit_window(self, slug):
+        """The bot's own limit as the server holds it after its limited turn: `since` (its status), the time its runs
+        may start again (execution.limit_until), and the constant that wait came from: the login hold's reset when the
+        hold names one, else LIMIT_COOLDOWN, or LIMIT_COOLDOWN_LONG after LIMIT_STRIKES limits in a row."""
+        from backend import execution, login_holds
+        from backend.store import H
+        with self.store.read() as c:
+            status = H.status(c, slug) or {}
+            if status.get("state") != "limited" or not status.get("since"):
+                return None
+            since = status["since"]
+            until = execution.limit_until(c, slug, since)
+            last = execution.last_limit(c, slug)
+            hold = login_holds.for_attempt(c, last["id"]) if last else {}
+            streak = execution.limit_streak(c, slug)
+        if hold and hold.get("until"):
+            source = "login hold reset"
+        else:
+            source = "LIMIT_COOLDOWN_LONG" if streak >= execution.LIMIT_STRIKES else "LIMIT_COOLDOWN"
+        return {"bot": slug, "since": since, "until": until, "source": source, "streak": streak}
 
     # ------------------------------------------------------------------ fake GitHub
     def hook(self, event, payload):
