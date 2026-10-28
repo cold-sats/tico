@@ -485,7 +485,7 @@ a link out of the worktree is refused, the whole is capped at 16 KB, and a resum
 them again only when they change. A bot's chat and its own thread use the local
 `bot-<slug>` checkout one turn at a time; with a session per task, each task's turns run in that
 task's own worktree (`sessions/bot-<slug>/<task>`), beside the bot's other tasks. A bot never has two turns on
-one task at once: a wake about a task its turn is on goes into that turn, or waits for the next one there. A task a bot
+one task at once: a wake about a task its turn is on goes into that turn, or waits for the next one there. A bot's own **Turns at once** caps its turns across all computers; at the limit its queued work waits and says so ("At its turn limit"), and its other bots keep their turns. A task a bot
 files for itself during a turn starts its own turn once that turn ends (or after 5 minutes), and not at all if that
 turn finished, declined or parked it. Only that
 computer knows which thread

@@ -359,6 +359,28 @@ function machineUpdateWords(update) {
     return `<span class="pill ${update.state === 'incompatible' ? 'fail' : 'waiting'}" data-runner-outdated title="${esc([update.label, update.target ? `to ${update.target}` : ''].filter(Boolean).join(' '))}">Update</span>`;
   return '';
 }
+// Turns at once on a computer: a whole number from 1 to 256, or empty for automatic. Anything else is named under the
+// row and not sent. The note is set from the answer, since a pop-up whose field is still focused is not redrawn.
+async function settingsTurnsAtOnceSave(input) {
+  settingsFieldClear(input);
+  const text = input.value, n = Number(text);
+  const whole = input.checkValidity() && (text === '' || (Number.isInteger(n) && n >= 1 && n <= 256));
+  if (!whole) { settingsFieldError(input, 'Enter a whole number from 1 to 256, or leave it empty for automatic.'); return; }
+  if (text === (input.dataset.current || '')) return;
+  const turns_at_once = text === '' ? null : n;
+  input.disabled = true;
+  try {
+    const done = await post(`/v2/computers/${encodeURIComponent(input.dataset.turnsAtOnce)}/turns-at-once`, {turns_at_once});
+    input.dataset.current = text;
+    input.defaultValue = text;
+    input.disabled = false;
+    const machine = (SETTINGS_DATA.machines || []).find(row => row.id === input.dataset.turnsAtOnce);
+    const note = input.closest('label')?.querySelector('[data-turns-note]');
+    if (note && machine) note.textContent = machineTurnsNote({...machine, turns_at_once, turn_limit: done?.turn_limit ?? machine.turn_limit});
+    toast(turns_at_once == null ? 'Turns at once is automatic' : `Turns at once set to ${turns_at_once}`);
+    await loadSettings();
+  } catch (error) { toast(error.message, true); input.value = input.dataset.current; input.disabled = false; }
+}
 // One compact row per computer: name, status, operator and Tico version in one cell, then its AI tool chips and Add.
 // A click opens the pop-up.
 function renderSettingsMachines() {
@@ -414,6 +436,8 @@ function renderSettingsMachines() {
       } catch (error) { toast(error.message, true); inbox.checked = !inbox.checked; inbox.disabled = false; }
       return;
     }
+    const turns = event.target.closest('[data-turns-at-once]');
+    if (turns) { await settingsTurnsAtOnceSave(turns); return; }
     const box = event.target.closest('[data-member-bots]');
     if (!box) return;
     box.disabled = true;

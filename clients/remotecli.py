@@ -42,7 +42,7 @@ def via_tool(client, args, **more):
               and v is not None}
     if getattr(args, "visual", None):
         fields["visuals"] = visuals_from_args(args)
-    if args.fn == "bot keep-tasks-going" and hasattr(args, "limit"):
+    if args.fn in ("bot keep-tasks-going", "bot turns-at-once") and hasattr(args, "limit"):
         fields["limit"] = args.limit  # explicit null restores the default; omission only reads
     fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
     fields.update(more)

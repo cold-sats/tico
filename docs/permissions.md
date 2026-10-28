@@ -234,6 +234,7 @@ created by a member has Instructions the Team has not reviewed, so it does not g
   bot on any computer. Placing a member's bot never hands it to the computer's owner: it stays theirs.
 - Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its owner's
   or takes members' bots.
+- **Turns at once** on a computer is set by owners and admins only. A member who manages a bot sets that bot's **Turns at once** in its editor, like its other settings.
 
 A computer still hosts its owner's bots and the team owner's; taking members' bots adds members' bots, it does not move anyone else's.
 

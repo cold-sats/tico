@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from clients import gateway, sessions
 
 from . import access as Access
+from . import start_places
 from . import lifecycle
 from . import bot_access as A
 from . import models as M
@@ -803,11 +804,12 @@ def own_sign_in(c, bot, settings=None):
 def free_turn(c, bot, location, human=False):
     """The computer whose running work and short starts occupy all its places, or ''."""
     machine = location.get("machine") or {}
-    row = c.execute("SELECT capacity FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
+    row = c.execute("SELECT * FROM runners WHERE id=?", (machine.get("runner_id"),)).fetchone()
     if not row:
         return ""
     held = turns_here(c, machine["runner_id"])
-    return (machine.get("label") or "its computer") if sum(held.values()) >= (row["capacity"] or 1) else ""
+    from .start_places import turn_limit
+    return (machine.get("label") or "its computer") if sum(held.values()) >= turn_limit(row) else ""
 
 
 def queued_label(c, bot, location, settings=None, human=False, behind=False):
@@ -863,6 +865,8 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
         # Its computer takes no new work until its running turns end and it updates (docs/updates.md).
         progress = runner_versions.drain_progress(c, (location.get("machine") or {}).get("runner_id"))
         label = "Saved — waiting for the computer to update" + (f": {progress}" if progress else "")
+    elif start_places.at_turn_limit(c, bot):
+        label = "Saved — at its turn limit"
     elif (computer := free_turn(c, bot, location, human)):
         label = "Saved — waiting for a free turn on " + computer
     return label, readiness_reason
@@ -2024,6 +2028,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                          "host": "keeper", "tasks": "hub", "has_repo": location["ready"],
                          "keep_tasks_going": auto_tasks.of(config),
+                         "turns_at_once": start_places.bot_limit(config),
                          "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
                          "gateway_department": gateway_tiers.department_of(departments.of("bot:" + slug)),
@@ -2203,10 +2208,10 @@ def install_views(app, store, auth, mutate, task_view):
             # One pass for every renamed subscription (not one registry_metadata lookup per shared login).
             login_names = display_names(c)
             runners = list(c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
-                                      "accepts_member_bots,screen,performance,capabilities_json,restart_since,readiness_at "
+                                      "accepts_member_bots,turns_at_once,screen,performance,capabilities_json,restart_since,readiness_at "
                                       "FROM runners ORDER BY created"))
             from . import usage_limits
-            from .start_places import describe, summaries
+            from .start_places import describe, summaries, turn_limit
             # One company Default for every computer's queue classify: without it each summary rebuilds
             # pools/groups/spend for every queued bot (same waste Health's snapshot already dropped).
             limits = usage_limits.company(c)
@@ -2226,6 +2231,8 @@ def install_views(app, store, auth, mutate, task_view):
                 value["turn_summary"] = describe(value["turn_counts"])
                 value["release"] = runner_versions.view(fleet.get(row["id"])).get("release") or ""
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
+                # What the computer may run at once now: its setting, or its capacity (start_places.turn_limit).
+                value["turn_limit"] = turn_limit(row)
                 # Since when it says it is restarting after a person pressed Restart; null when it is not.
                 value["restarting"] = value.pop("restart_since")
                 from .screen import listing as screen_listing

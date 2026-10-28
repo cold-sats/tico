@@ -18,6 +18,7 @@ function settingsBotEditorRows(e) {
     ${manage ? `<div class="sb-row"><span>Mail sending</span><span class="muted" data-mail-summary="${esc(e.name)}">…</span>${change('data-edit-mail', 'mail sending')}</div>` : ''}
     ${profileRowHTML(e)}
     ${settingsKeepTasksRow(e)}
+    ${settingsTurnsAtOnceRow(e)}
     ${budgetRowHTML(e)}
     ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>${settingsAppDeliveryRow(e)}`
       : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
@@ -57,6 +58,19 @@ function settingsKeepTasksRow(e) {
 function settingsKeepTasksRun(input) {
   const slug = input.dataset.botKeepTasks, keep_tasks_going = input.value === '' ? null : Number(input.value);
   return async rev => (await post(`/v2/bots/${encodeURIComponent(slug)}/keep-tasks-going`, {keep_tasks_going, expected_revision: rev}))?.revision ?? rev + 1;
+}
+// The most turns a bot runs at once across all its computers. The server takes 1 to 256, and empty is no limit.
+function settingsTurnsAtOnceRow(e) {
+  if (e.agent) return '';
+  const current = e.turns_at_once == null ? '' : String(e.turns_at_once);
+  return `<div class="sb-row"><span>Turns at once</span><input type="number" min="1" max="256" step="1" class="settings-inline-select"
+    data-bot-turns-at-once="${esc(e.name)}" data-current="${esc(current)}" value="${esc(current)}" placeholder="No limit"
+    aria-label="Turns at once for ${esc(e.display_name)}" ${settingsCanManageBot(e) ? '' : 'disabled'}><span></span></div>
+    <div class="sb-sub muted">Most turns it runs at once across all computers. Empty for no limit.</div>`;
+}
+function settingsTurnsAtOnceRun(input) {
+  const slug = input.dataset.botTurnsAtOnce, turns_at_once = input.value === '' ? null : Number(input.value);
+  return async rev => (await post(`/v2/bots/${encodeURIComponent(slug)}/turns-at-once`, {turns_at_once, expected_revision: rev}))?.revision ?? rev + 1;
 }
 // The old wake presets, for history rows written before profiles (backend/profiles.py replaced them).
 const SETTINGS_WAKE_PRESETS = [['token_saver', 'Token saver'], ['performance', 'Performance']];
@@ -278,6 +292,12 @@ function settingsEditBot(slug = '', inline = false) {
         settingsFieldClear(keep);
         if (!keep.checkValidity()) settingsFieldError(keep, keep.validationMessage || 'Enter a whole number from 0 to 1000, or leave it blank.');
         stage('keep', 'keep tasks going', changed(keep) && keep.checkValidity() && settingsKeepTasksRun(keep));
+      }
+      const turns = event.target.closest('[data-bot-turns-at-once]');
+      if (turns) {
+        settingsFieldClear(turns);
+        if (!turns.checkValidity()) settingsFieldError(turns, turns.validationMessage || 'Enter a whole number from 1 to 256, or leave it blank.');
+        stage('turns', 'turns at once', changed(turns) && turns.checkValidity() && settingsTurnsAtOnceRun(turns));
       }
       if (event.target.matches('[data-task-effort]')) event.target.dataset.touched = '1';
       const delivery = event.target.closest('[data-bot-app-delivery]');
