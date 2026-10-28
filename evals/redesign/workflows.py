@@ -1232,7 +1232,7 @@ def wf7_botops(f):
 V1 = [act("n1", "note", text="New ask for the lead.")]
 V2 = [step("route", "paths", paths=[{"name": "urgent", "match": "all",
                                      "when": [cond("task.title", "contains", "Urgent")],
-                                     "steps": [act("tag", "label", label="urgent"),
+                                     "steps": [act("tag", "label", name="urgent"),
                                                act("n2", "note", text="Urgent ask for the lead.")]}],
            otherwise={"steps": [act("n1", "note", text="New ask for the lead.")]})]
 
