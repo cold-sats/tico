@@ -29,10 +29,15 @@
 
 /* the header */
 .au-c{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
-.au-hd{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;padding:10px 20px;min-height:53px;border-bottom:1px solid var(--line)}
+/* a narrow pane keeps the owner's circle and drops the name (it is the circle's title); a phone hides both */
+@media (min-width:761px){.au-c{container-type:inline-size}}
+@container (max-width:640px){.au-own-n{display:none}}
+.au-hd{display:flex;align-items:center;flex-wrap:nowrap;gap:8px 10px;padding:10px 20px;min-height:53px;border-bottom:1px solid var(--line)}
 .au-hd:empty{border:0;padding:0;min-height:0}
 .au-name{margin:0;font-size:var(--t-lg);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.au-own{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--t-sm)}
+.au-own{display:inline-flex;align-items:center;gap:6px;min-width:0;overflow:hidden;color:var(--muted);font-size:var(--t-sm);white-space:nowrap}
+.au-hd>*:not(.au-name,.au-own){flex-shrink:0}
+.au-hd>.au-name{min-width:6em}
 .au-hd2{display:flex;align-items:center;gap:8px}
 .au-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);font:inherit;font-size:var(--t-sm);line-height:18px;white-space:nowrap}
 button.au-chip{cursor:pointer}
@@ -192,7 +197,7 @@ button.au-chip:hover{background:var(--surface2)}
   .au-scroll{padding:0 12px 12px;overflow:visible}
   .au-row{min-height:44px}
   .au-row a{font-size:var(--t-md)}
-  .au-hd{padding:8px 12px;border:0}
+  .au-hd{padding:8px 12px;border:0;flex-wrap:wrap}
   .au-back,.au-botbtn{display:inline-flex}
   .au-back{margin-left:-6px}
   .au-own,.au-hd>.au-sw,.au-hd>.pill,.au-hd>.au-sp{display:none}

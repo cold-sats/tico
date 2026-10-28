@@ -165,7 +165,7 @@ function auDrawHead() {
   const seg = ['flow', 'runs'].map(v => `<a role="tab" href="${auHref(AU.id, v)}" aria-selected="${AU.view === v || (v === 'flow' && AU.view === 'bot')}">${v === 'flow' ? 'Flow' : 'Runs'}</a>`).join('');
   hd.innerHTML = `<a class="au-icon au-back" href="${AUTOMATIONS}" aria-label="Back"><span class="nav-icon" aria-hidden="true">chevron_left</span></a>
     <h2 class="au-name">${esc(name)}</h2>
-    ${a ? `<span class="au-own">${personCircle(auActorName(a.owner), 18)}${esc(auActorName(a.owner))}</span>
+    ${a ? `<span class="au-own" title="${esc(auActorName(a.owner))}">${personCircle(auActorName(a.owner), 18)}<span class="au-own-n">${esc(auActorName(a.owner))}</span></span>
     ${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', 'data-on-cur') : a.enabled === false ? '<span class="pill">Off</span>' : ''}
     <span class="au-sp"></span>
     <div class="au-hd2">

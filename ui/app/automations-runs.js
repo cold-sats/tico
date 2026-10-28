@@ -5,7 +5,7 @@
 'use strict';
 
 const AU_RUNS_PAGE = 25;
-const AU_RUN_STATUS = {ok: 'Done', failed: 'Failed', skipped: 'Skipped', empty: 'Nothing found'};
+const AU_RUN_STATUS = {ok: 'Done', failed: 'Failed', skipped: 'Skipped', empty: 'Nothing found', waiting: 'Waiting', running: 'Running'};
 const AU_STEP_STATUS = {skipped: 'skipped', failed: 'failed', spend_cap: 'spend cap'};
 // A run's outcome in one to three words: what its last action did.
 const AU_DONE = {archive: 'Archived', leave_for_you: 'Left for you', draft_reply: 'Draft reply', send_reply: 'Replied',
@@ -63,8 +63,14 @@ function auRunOutcome(run) {
 }
 // One step of a run as a short line: what it decided, matched, wrote or did.
 function auRunStepText(rs) {
+  const o = rs.outputs || {};
+  // A step that is waiting (a queued mail action, a bot's turn) has already said what it did.
+  if (rs.status === 'waiting') return [auRunStepDid({...rs, status: 'ok'}), 'waiting'].filter(Boolean).join(' · ');
+  if (rs.status !== 'ok') return (AU_STEP_STATUS[rs.status] || rs.status || '') + (o.error ? ' · ' + o.error : '');
+  return auRunStepDid(rs);
+}
+function auRunStepDid(rs) {
   const o = rs.outputs || {}, step = auFind(AU.cur?.steps || [], rs.id)?.step;
-  if (rs.status !== 'ok') return AU_STEP_STATUS[rs.status] + (o.error ? ' · ' + o.error : '');
   if (typeof o.summary === 'string') return o.summary;
   if (rs.type === 'filter') {
     if (o.rule == null) return 'no match';
