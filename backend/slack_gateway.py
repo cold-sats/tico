@@ -641,8 +641,12 @@ class Gateway:
             channel, channel_denied = self.verify_channel(event) if person and not denied else (None, None)
             taken = []
             if person and channel and not channel_denied:
-                with self.store.transaction() as c:
-                    taken = automations.on_slack(c, event, person, channel, self.settings)
+                try:
+                    with self.store.transaction() as c:
+                        taken = automations.on_slack(c, event, person, channel, self.settings)
+                except Exception:
+                    # Offered once either way: one message an automation cannot take must not stop every later tick.
+                    LOG.exception("slack: offering %s to message automations failed", event["event_id"])
             with self.store.transaction() as c:
                 c.execute("UPDATE slack_events SET processed=? WHERE event_id=?", (self.clock(), event["event_id"]))
             if taken:
