@@ -21,7 +21,8 @@ services:
   question_set(ref) -> questions, and state_fields(ref) -> the set's `state` fields
   act(do, args, ctx) -> {"ok": bool, "detail": str, ...}
   start_turn(who, prompt, ctx, wait) -> {"ref": str, "turn": {bot, task, session}}, or None when the spend cap stops it
-    (checked after the effect key, so a turn already started is returned, never refused)
+    (checked after the effect key, so a turn already started is returned, never refused); ctx["label"] is the find
+    item's part of the turn's title (`_turn_label`), None off a find
   find(source, query, limit) -> [item, ...]
   next_batch() -> the next batch time (ISO), and now() -> now (ISO)
   checkpoint(state) -> None
@@ -214,6 +215,16 @@ def _decide(flow, state, thread, step, services):
     _record(state, thread, step, "ok", {**answers, "level": level}, float(result.get("cost_usd") or 0))
 
 
+def _turn_label(thread):
+    """What a find item's turn adds to its automation's name in its title: the item's own title, else its place in
+    the find ("item 2"). None when the thread is not a find item's."""
+    if thread["item"] is None:
+        return None
+    value = thread["value"] if isinstance(thread["value"], dict) else {}
+    own = " ".join(str(value.get("title") or value.get("subject") or "").split())
+    return own or f"item {thread['item'] + 1}"
+
+
 def _turn(flow, state, thread, step, services, who, prompt, wait):
     # The service checks the cap (`ctx["cap"]` against what was spent, `ctx["cost"]` of it this run's) after its
     # effect key: a resumed run whose turn already started gets that turn back, never its own hold's refusal.
@@ -221,7 +232,7 @@ def _turn(flow, state, thread, step, services, who, prompt, wait):
     cap = (flow.get("spend_cap") or {}).get("per_30m")
     started = services.start_turn(who, F.render_prompt(prompt, values, cap=F.MAX_PROMPT), {
         "values": values, "step": step["id"], "key": str(len(state["steps"])), "cost": state["cost"],
-        "cap": None if cap is None else float(cap)}, wait)
+        "cap": None if cap is None else float(cap), "label": _turn_label(thread)}, wait)
     if started is None:
         # The cap stops spending, not the run: later filters, decisions and actions still go.
         _record(state, thread, step, "spend_cap")
