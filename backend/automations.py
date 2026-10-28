@@ -291,6 +291,13 @@ def may_see(c, who, flow):
     return who.actor == HELPER or may_change(c, who, {**flow, "readonly": False})
 
 
+def may_reference(c, who, aid):
+    """A chat message may name automation `aid` (refs.automation) when it exists and `who` may see it: the same rule as
+    GET /api/v2/automations/{aid}. Callers check the redesign switch first."""
+    row = _row(c, aid) if isinstance(aid, str) else None
+    return bool(row) and may_see(c, who, flow_of(row))
+
+
 def _seen_if_builtin(c, who, flow):
     """A built-in one is refused for what it is (409) to anyone who sees it; any other needs the change rule."""
     return may_see(c, who, flow) if flow.get("builtin") else may_change(c, who, flow)
