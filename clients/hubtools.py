@@ -2844,6 +2844,97 @@ def routine_run(api, args):
     return _routine_api(api, bot).post(f"routines/{args['id']}/run", {}, key=_key(args))
 
 
+# Automations (backend/automations.py, dormant until the team turns the redesign on). One permission rule for every
+# surface: the owner, anyone above the owner, the group's lead; BotOps acts with the requester's rights. A bot that may
+# not change one proposes: its edit comes back as a pending version for a person to restore.
+_AUTO_FIELDS = {
+    "name": _s("What it is called"), "owner": _s("person:<id>, bot:<slug> or group:<id>"),
+    "group": _s("group:<id>, for permissions"), "enabled": {"type": "boolean"},
+    "spend_cap": {"type": ["object", "null"], "description": "{per_30m: dollars} for its LLM and bot turns; null = the bot's limit"},
+    "batch": {"type": "object", "description": "{times: [\"08:00\", ...], tz}: filters on receipt, the rest at these times"},
+    "trigger": {"type": "object", "description": "{type: message|task_received|schedule|webhook|listening|event, ...}"},
+    "steps": {"type": "array", "items": {"type": "object"}, "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action)"},
+}
+
+
+@tool("hub_automation_list", "The automations you may see, newest first, each with `can_edit`.",
+      {"owner": _s("Only this owner's"), "limit": {"type": "integer", "default": 50},
+       "cursor": {"type": "integer", "description": "`next` from the page before"}})
+def automation_list(api, args):
+    query = "&".join(f"{k}={args[k]}" for k in ("owner", "limit", "cursor") if args.get(k) not in (None, ""))
+    return _as_person(api).get("automations" + ("?" + query if query else ""))
+
+
+@tool("hub_automation_get", "One automation: its trigger, steps, version, today's counts and next run.",
+      {"id": _s("auto_...")}, required=("id",))
+def automation_get(api, args):
+    return _as_person(api).get(f"automations/{args['id']}")
+
+
+@tool("hub_automation_create", "Save a new automation (version 1). Checked on save: a bad flow is refused with why.",
+      {k: v for k, v in _AUTO_FIELDS.items()}, required=("name", "owner", "trigger"), writes=True)
+def automation_create(api, args):
+    body = {k: args[k] for k in _AUTO_FIELDS if k in args}
+    return _as_person(api).post("automations", {"steps": [], **body}, key=_key(args))
+
+
+@tool("hub_automation_update", "Change an automation. A new trigger, steps or batch times is a new version; a bot "
+      "without edit rights gets back `pending` (a proposal a person restores).",
+      {"id": _s("auto_..."), **_AUTO_FIELDS, "summary": _s("A few words on the change")},
+      required=("id",), writes=True)
+def automation_update(api, args):
+    body = {k: args[k] for k in (*_AUTO_FIELDS, "summary") if k in args}
+    return _as_person(api).patch(f"automations/{args['id']}", body, key=_key(args))
+
+
+@tool("hub_automation_delete", "Delete an automation; its runs stay. A built-in one is refused (pause it instead).",
+      {"id": _s("auto_...")}, required=("id",), writes=True)
+def automation_delete(api, args):
+    return _as_person(api).post(f"automations/{args['id']}/delete", {}, key=_key(args))
+
+
+@tool("hub_automation_run", "Run an automation now, whatever its trigger says, and get the run: each step's status, "
+      "outputs and cost. `input` stands in for the trigger's output (message, task, item, event, body).",
+      {"id": _s("auto_..."), "input": {"type": "object", "description": "A sample trigger output"}},
+      required=("id",), writes=True)
+def automation_run(api, args):
+    return _as_person(api).post(f"automations/{args['id']}/run", {"input": args.get("input") or {}},
+                                key=_key(args))["run"]
+
+
+@tool("hub_automation_runs", "An automation's runs, newest first, with step detail for 30 days and daily counts.",
+      {"id": _s("auto_..."), "limit": {"type": "integer", "default": 25}, "before": _s("`next` from the page before")},
+      required=("id",))
+def automation_runs(api, args):
+    query = "&".join(f"{k}={args[k]}" for k in ("limit", "before") if args.get(k) not in (None, ""))
+    return _as_person(api).get(f"automations/{args['id']}/runs" + ("?" + query if query else ""))
+
+
+@tool("hub_automation_versions", "An automation's versions, newest first; `status: pending` for proposals only.",
+      {"id": _s("auto_..."), "status": {"type": "string", "enum": ["active", "pending"]}}, required=("id",))
+def automation_versions(api, args):
+    status = f"?status={args['status']}" if args.get("status") else ""
+    return _as_person(api).get(f"automations/{args['id']}/versions{status}")
+
+
+@tool("hub_automation_restore", "Make a version current: a pending one keeps its number, an older one is saved as "
+      "a new version.", {"id": _s("auto_..."), "n": {"type": "integer"}}, required=("id", "n"), writes=True)
+def automation_restore(api, args):
+    return _as_person(api).post(f"automations/{args['id']}/versions/{int(args['n'])}/restore", {}, key=_key(args))
+
+
+@tool("hub_inbox_send", "Read or set an inbox's send switch (on by default). Off, an automation's send_reply saves a "
+      "draft instead. The inbox's person or the top of the org sets it.",
+      {"inbox": _s("An email address, slack:dm or slack:#<channel>"),
+       "send": {"type": "boolean", "description": "Omit to read it"}}, required=("inbox",), writes=True)
+def inbox_send(api, args):
+    from urllib.parse import quote
+    path = "inboxes/" + quote(str(args["inbox"]), safe="@:")
+    if "send" not in args:
+        return _as_person(api).get(path)
+    return _as_person(api).patch(path, {"send": bool(args["send"])}, key=_key(args))
+
+
 @tool("hub_bot_update", "Change a bot's settings (reports to, name, description, status) with your own rights. "
       "BotOps acts as the person who asked, citing their message.",
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
