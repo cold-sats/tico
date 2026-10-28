@@ -26,19 +26,21 @@ SHARED_ATTR = "shared_check"
 
 
 @contextmanager
-def shared_check():
-    """Marks an error a team- or bot-wide check raises (a budget, a back-off, a login hold). It belongs to no one job,
-    so the claim fails on it instead of holding the job it was checking. The error itself is unchanged."""
+def shared_check(scope="bot"):
+    """Marks an error a check raises that belongs to no one job: "bot" for a check of one bot (its budget, back-off or
+    login hold), "team" for the team's defaults. The claim passes a bot over on its error and fails on a team's. The
+    first mark is kept, so a team read inside a bot's check stays a team error. The error itself is unchanged."""
     try:
         yield
     except Exception as exc:
-        setattr(exc, SHARED_ATTR, True)
+        if not getattr(exc, SHARED_ATTR, None):
+            setattr(exc, SHARED_ATTR, scope)
         raise
 
 
-def is_shared(exc):
-    """Whether `exc` came out of a shared_check."""
-    return bool(getattr(exc, SHARED_ATTR, False))
+def shared_scope(exc):
+    """"bot" or "team" for an error out of a shared_check, else None."""
+    return getattr(exc, SHARED_ATTR, None)
 
 
 def report(kind, row_id, exc, logger="tico.scheduler"):

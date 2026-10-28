@@ -603,13 +603,25 @@ def _stop_checks(c):
         out.append(_finding(f"claim_failed:{bot}", "claim_failed", SETUP,
                             f"Tico could not start {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} "
                             f"for {name}",
-                            f"{name} has {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} held since "
-                            f"{str(hold['since'])[:16]} UTC: an error happened while Tico prepared each one to start, "
-                            "so each is held and no claim tries it again. The server log has the traceback.",
-                            f"BotOps: read the server log for the traceback, fix its cause, then release {name} "
-                            f"(hub bot release {bot}). Its held runs queue again, and one that fails again is held "
-                            "again.",
+                            f"{name} has {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} held, "
+                            f"queued since {str(hold['since'])[:16]} UTC: an error happened while Tico prepared each "
+                            "one to start. "
+                            "Each waits, then Tico tries it again on its own; the wait doubles with each failed try, "
+                            "up to an hour. The server log has the traceback.",
+                            f"BotOps: read the server log for the traceback and fix its cause. To retry the held runs "
+                            f"now, release {name} (hub bot release {bot}); one that fails again is held with a longer "
+                            "wait.",
                             severity=BAD))
+    for failure in claim_holds.check_failures(c):
+        bot, error = failure["bot"], failure["error"]
+        name = (H.bot(c, bot) or {}).get("display_name") or bot
+        out.append(_finding(f"claim_check:{bot}", "claim_check", SETUP,
+                            f"{name}'s claim check is failing: {error}",
+                            f"Tico could not check {name}'s queued runs for a claim: the check raised {error} at "
+                            f"{str(failure['failed_at'])[:16]} UTC. The claim passes {name} over, so its runs wait "
+                            "while the other bots' runs are unaffected. The server log has the traceback.",
+                            f"Fix the cause in the server log. This finding clears when one of {name}'s runs starts.",
+                            subject=error, severity=BAD))
     return out
 
 

@@ -45,7 +45,7 @@ from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity, validate_identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name, route as error_route
-from .execution import (Execution, bot_repository, bump_bot_session_epoch, claim_scope, clear_limits,
+from .execution import (ClaimFaults, Execution, bot_repository, bump_bot_session_epoch, claim_scope, clear_limits,
                         lift_after_model_change, model_choice, own_login_hold)
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
@@ -6657,7 +6657,7 @@ def create_app(settings=None):
     def claim(request: Request, body: M.Claim):
         # A read first: an idle runner asks every fraction of a second and must not take the write lock.
         with store.read() as c:
-            selected, failed = [], []
+            selected, failed = [], ClaimFaults()
             idle = execution.idle_claim(c, request.state.identity, body,
                                         request.headers.get("idempotency-key"), selected, failed)
             if idle is not None:

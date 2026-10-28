@@ -16,7 +16,7 @@ from . import auto_tasks, start_places, org_turns, app_delivery, check_models, l
 from . import task_privacy as privacy
 from . import claim_holds, quarantine_stops, run_backoff, turn_budgets
 from .auth import Identity
-from .batch_work import isolated, is_shared, report, shared_check, storage_error
+from .batch_work import isolated, report, shared_check, shared_scope, storage_error
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .verdict_moves import HANDOFF_FIRST_SQL
@@ -62,8 +62,34 @@ AWAKE_SETTLE = 120
 # one write a minute on an idle machine rather than four a second.
 CONTACT_EVERY = 10
 CLAIM_MAINTENANCE = 8       # a polling request never cleans up the whole install's backlog
-CLAIM_STARTS = 5           # jobs one claim may hold for failing to start before it answers: its work stays bounded
 CLAIM_PICKS = 5            # candidates one claim may drop under its lock (no longer eligible) before it answers none
+CLAIM_HOLDS = 3            # jobs one claim may hold, for a check or a start that raised, before it picks no more
+
+
+class ClaimFaults:
+    """What one claim could not check or start, kept for the whole claim. `jobs`: (job id, error name) pairs to hold.
+    `bots`: the bots whose bot-wide check raised, with the error name; the claim passes each over for the rest of its
+    call, so its error is logged once and none of its runs is held. `holds`: the jobs the claim has held, which
+    CLAIM_HOLDS bounds, so one wide failure cannot hold a whole backlog in one claim."""
+
+    def __init__(self):
+        self.jobs, self.bots, self.holds = [], {}, 0
+        self.new_bots = []          # (bot, exception) whose failure Health has not recorded yet
+
+    def __bool__(self):
+        return bool(self.jobs or self.new_bots)
+
+    def full(self):
+        return self.holds >= CLAIM_HOLDS
+
+    def job(self, job_id, error):
+        self.jobs.append((job_id, error))
+        self.holds += 1
+
+    def bot(self, bot, exc):
+        if bot not in self.bots:
+            self.bots[bot] = type(exc).__name__
+            self.new_bots.append((bot, exc))
 
 
 # A runner that advertises this runs a bot's task-keyed turns in their own lanes, side by side;
@@ -1724,8 +1750,8 @@ def obsolete_notices_sql():
     idle claim asks the same question: when it counted notices the claim keeps, every claim from that computer went
     on to the write lock for nothing. It goes from this computer's bots to their queued jobs (jobs_queue): left to
     itself SQLite starts from every keeper notice ever sent, tens of milliseconds on each of a runner's claims."""
-    # A held job (its claim's hold or a wake preset's) waits for its release, and the pass takes it once it is free: its
-    # item is still open until then, and a cancelled job would leave that item with nothing to release.
+    # A held job waits: a wake preset's or a quota reset's until its release, a claim's until its wait ends. The pass
+    # takes it once it is free, and the claim then closes the item its hold opened (claim_holds.clear).
     return ("FROM assignments x CROSS JOIN jobs j CROSS JOIN messages m "
             f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
             f"WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND {H.unheld_sql()} AND m.id=j.message_id "
@@ -2578,9 +2604,10 @@ class Execution:
 
     def candidate(self, c, who, body, runner, *, job_id=None, people_only=False, failed=None, skip=()):
         """The queued job this runner would be given next, or None. Reads only. `people_only`: only a person's own
-        message (start_places.from_person), on a computer that holds every other start. `failed`: a claim's list, which
-        takes each job whose checks raise as (job id, error name) and moves on to the next candidate; without it the
-        error propagates. `skip`: the job ids a claim has already dropped, which are passed over."""
+        message (start_places.from_person), on a computer that holds every other start. `failed`: the claim's
+        ClaimFaults, which takes each job whose checks raise and moves on to the next candidate, passes over the bot of
+        a bot-wide check that raises, and stops picking once CLAIM_HOLDS jobs are held; without it the error
+        propagates. `skip`: the job ids a claim has already dropped, which are passed over."""
         lanes, roots, continues = lanes_on(runner), roots_on(runner), capacity_continue_on(runner)
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
@@ -2612,12 +2639,23 @@ class Execution:
                              f"AND {queued}",
                              (who.runner_id, body.bot, body.bot, *((job_id,) if job_id is not None else ()))).fetchall():
             bot = row["bot"]
-            why, config = claim_refusal(c, self.store.settings, runner, bot, row["config_json"], row["draining"], ready,
-                                        held_bots, subscription_context, default)
-            if why:
+            if failed is not None and bot in failed.bots:
+                continue            # its check raised earlier in this claim: passed over for the rest of it
+            try:
+                with shared_check():
+                    why, config = claim_refusal(c, self.store.settings, runner, bot, row["config_json"],
+                                                row["draining"], ready, held_bots, subscription_context, default)
+                    if why:
+                        continue
+                    followed_bot = follow(c, bot, config)
+            except Exception as exc:
+                # A check of one bot (its back-off or budget) that raises is that bot's alone: the claim passes it over.
+                if failed is None or storage_error(exc) or shared_scope(exc) == "team":
+                    raise
+                failed.bot(bot, exc)
                 continue
             bots.append(bot)
-            followed[bot] = follow(c, bot, config)
+            followed[bot] = followed_bot
         if not bots:
             return None
         marks = ",".join("?" for _ in bots)
@@ -2646,7 +2684,9 @@ class Execution:
              *(v for bot in bots for v in (bot, held.get(bot, 0)))))
         candidates = candidates.fetchall()
         for i, row in enumerate(candidates):
-            if row["id"] in skip:
+            if failed is not None and failed.full():
+                break               # CLAIM_HOLDS jobs are held by this claim: it picks no more
+            if row["id"] in skip or (failed is not None and row["bot"] in failed.bots):
                 continue
             if i % PRIME_QUEUED == 0 and len(candidates) > 1:
                 # A backlog the claim passes over (lane held, check model, budget) is checked again on every claim, a
@@ -2668,12 +2708,17 @@ class Execution:
                     if not waiting:
                         return row
             except Exception as exc:
-                # This job's checks raised. Its error is logged once, and the claim holds the job, so no other claim
-                # evaluates it again. Storage errors and shared checks' errors are not this job's: they stop the claim.
-                if failed is None or storage_error(exc) or is_shared(exc):
+                # Storage errors and a team's check fail the claim. A bot's check is not this job's: the claim passes
+                # the bot over, and its other runs wait for the check. This job's own error is logged once, and the
+                # claim holds the job, so no other claim evaluates it again.
+                scope = shared_scope(exc)
+                if failed is None or storage_error(exc) or scope == "team":
                     raise
+                if scope:
+                    failed.bot(row["bot"], exc)
+                    continue
                 report("claim", row["id"], exc)
-                failed.append((row["id"], type(exc).__name__))
+                failed.job(row["id"], type(exc).__name__)
         return None
 
     def pick(self, c, who, body, runner, now, *, people_only=False, failed, passed):
@@ -2825,28 +2870,33 @@ class Execution:
         self.stamp(c, who, runner, now)
 
     def maintenance_due(self, c, who):
-        """Whether `maintain` has anything to do for this claim: a start place or lease that lapsed, or a quota
-        reset hold on one of this computer's bots that is due. Read-only, so an idle poll stays off the lock."""
+        """Whether `maintain` has anything to do for this claim: a start place or lease that lapsed, a quota reset hold
+        on one of this computer's bots that is due, or a held run whose wait has ended. Read-only, so an idle poll
+        stays off the lock."""
         now = H.now()
         return bool(start_places.overdue(c) or c.execute(
             "SELECT 1 FROM jobs j JOIN assignments a ON a.bot=j.bot WHERE a.runner_id=? "
             "AND j.state='queued' AND j.held=1 AND j.wake_class='quota-reset' "
             "AND j.hold_until<=? LIMIT 1", (who.runner_id, now)).fetchone() or c.execute(
+            "SELECT 1 FROM jobs j JOIN assignments a ON a.bot=j.bot WHERE a.runner_id=? "
+            "AND j.state='queued' AND j.held=1 AND j.hold_reason=? AND j.hold_until<=? LIMIT 1",
+            (who.runner_id, claim_holds.REASON, now)).fetchone() or c.execute(
             "SELECT 1 FROM attempts WHERE state IN ('leased','running') AND lease_until<=? LIMIT 1",
             (now,)).fetchone())
 
     def maintain(self, c):
-        """What a claim cleans up before it looks for work: due quota resets released, and a bounded number of
-        lapsed leases expired, their work back in the queue."""
+        """What a claim cleans up before it looks for work: due quota resets released, held runs whose wait has ended
+        let go, and a bounded number of lapsed leases expired, their work back in the queue."""
         wake_presets.release_quota_resets(c)
+        claim_holds.release_due(c)
         self.expire(c, limit=CLAIM_MAINTENANCE)
 
     def claim(self, c, who, body, selected=None, *, prepared=False, maintained=False, failed=None):
         """`maintained`: the claim route ran `maintain` in its own write before its read snapshot chose `selected`,
         so a job that expiry requeued was there to choose, and this write rechecks only that job.
-        `failed`: the read snapshot's jobs whose checks raised (see candidate). They are held first; the claim then
-        chooses under the lock as usual."""
-        failed = [] if failed is None else failed
+        `failed`: the read snapshot's ClaimFaults (see candidate): the jobs and bots that raised there. They are held
+        first; the claim then chooses under the lock as usual."""
+        failed = ClaimFaults() if failed is None else failed
         self.hold_failed(c, failed)
         runner = self.runner(c, who)
         if runner:
@@ -2878,6 +2928,7 @@ class Execution:
             if not prepared:
                 selected = None
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (old['id'],))
+            claim_holds.clear(c, old['id'], "Its run is no longer needed.")
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),old['message_id']))
             from .repositories import metadata
             if (old["attempt_id"] and metadata(c, LAST_STOP + old["bot"]).get("attempt_id") == old["attempt_id"]
@@ -2946,29 +2997,35 @@ class Execution:
             row = self.pick(c, who, body, runner, now, failed=failed, passed=passed)
         if not row:
             return {"attempt": None}
-        # The job's preparation runs in a savepoint of its own. An error rolls back its writes and holds the job, and
-        # the claim takes the next candidate (at most CLAIM_STARTS jobs a claim). A shared check's error is no job's.
-        starts = 0
+        # The job's preparation runs in a savepoint of its own. An error rolls back its writes: a check of one bot
+        # passes that bot over, and a job's own error holds the job. The claim takes the next candidate until
+        # CLAIM_HOLDS jobs are held. A team's check and a storage error fail the claim, as they always did.
         while True:
             c.execute("SAVEPOINT claim_start")
             try:
                 answer = self.start_claimed(c, who, body, runner, row)
             except Exception as exc:
-                if not c.in_transaction or storage_error(exc) or is_shared(exc):
+                scope = shared_scope(exc)
+                if not c.in_transaction or storage_error(exc) or scope == "team":
                     raise
                 c.execute("ROLLBACK TO claim_start")
                 c.execute("RELEASE claim_start")
-                report("claim", row["id"], exc)
-                failed.append((row["id"], type(exc).__name__))
+                if scope:
+                    failed.bot(row["bot"], exc)
+                else:
+                    report("claim", row["id"], exc)
+                    failed.job(row["id"], type(exc).__name__)
                 self.hold_failed(c, failed)
-                starts += 1
-                if starts == CLAIM_STARTS:
+                if failed.full():
                     return {"attempt": None}
                 row = self.pick(c, who, body, runner, now, people_only=people_only, failed=failed, passed=passed)
                 if not row:
                     return {"attempt": None}
                 continue
             c.execute("RELEASE claim_start")
+            if answer.get("attempt"):
+                # The run is handed out: a retry that starts clears its hold and its bot's Health finding.
+                claim_holds.started(c, row["id"])
             return answer
 
     def start_claimed(self, c, who, body, runner, row):
@@ -2979,7 +3036,8 @@ class Execution:
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (row["id"],))
             H.event(c, H.KEEPER, "job.suppress", row["id"], {"reason": "unreadable"})
             return {"attempt": None}
-        with shared_check():            # the bot's budget and back-off: an error in them stops the claim, holds nothing
+        # The bot's budget and back-off: an error in them passes the bot over, and holds no run.
+        with shared_check():
             if turn_budgets.enforce(c, self.store.settings, row, msg):
                 return {"attempt": None}    # the bot is over its run budget: held now, its queue kept
             if run_backoff.probe(c, row["bot"]):
@@ -3261,10 +3319,14 @@ class Execution:
                          (who.runner_id, H.KEEPER, now, job_id)).fetchone() is not None
 
     def hold_failed(self, c, failed):
-        """Hold each job the claim could not evaluate or start, given as (job id, error name), and clear the list."""
-        while failed:
-            job_id, error = failed.pop(0)
+        """Record what the claim's ClaimFaults found, and clear it: each job it could not evaluate or start is held, and
+        each bot whose check raised is logged once and named in Health (claim_holds.check_failed)."""
+        while failed.jobs:
+            job_id, error = failed.jobs.pop(0)
             claim_holds.hold(c, self.store.settings, job_id, error)
+        while failed.new_bots:
+            bot, exc = failed.new_bots.pop(0)
+            claim_holds.check_failed(c, bot, exc)
 
     def attempt(self, c, who, aid, active=True, final=False, arrived=None):
         """`final` is a runner handing in the result of a turn it has finished. That result
