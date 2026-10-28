@@ -128,7 +128,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.equal(await page.locator('#goal-panel[open]').count(), 0, tag + ': and does not open');
       assert.equal(await page.locator('.mkt-views [data-market-view="listening"][aria-current="page"]').count(), 1, tag + ': Listening is a Market view');
       await page.evaluate(() => { location.hash = '#/automations'; });
-      await page.locator('#automations-root').waitFor({state: 'attached'});
+      await page.locator('#au-root, #automations-root').first().waitFor({state: 'attached'});
       assert.equal(await page.locator('#side a[data-nav="automations"].cur').count(), 1, tag + ': Automations is current');
       await page.evaluate(() => { location.hash = '#/strategy/org'; });
       await page.locator('.rd-org').waitFor();
