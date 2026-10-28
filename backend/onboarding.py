@@ -30,6 +30,7 @@ from . import access as Access
 from . import groups as Groups
 from . import message_bots as MessageBots
 from .store import H, Problem, encode, readiness_document
+from . import automation_flow, redesign
 
 KEY = "onboarding"
 BOTOPS = "botops"
@@ -90,9 +91,10 @@ def render(card, names, bot_name=""):
     """One card as a person reads it. A card is written for whichever company adopts it, so
     every word it shows carries the placeholders, not only its AGENT.md."""
     name = fill(bot_name or card["name"], names)
+    # The Automations Bot's instructions carry the flow shape the hub checks saves against (backend/automation_flow.py).
     return {**card, "name": name,
             "summary": fill(card["summary"], names, name),
-            "instructions": fill(card["instructions"], names, name),
+            "instructions": fill(card["instructions"], names, name).replace("{{flow_shape}}", automation_flow.shape_text()),
             "onboarding": [{key: fill(text, names, name) for key, text in item.items()}
                            for item in card.get("onboarding", [])],
             "first_routine": {key: fill(value, names, name) if isinstance(value, str) else value
@@ -155,7 +157,9 @@ def _card(document, instructions):
             "example_output": str(document.get("example_output") or ""),
             "approval_required": [],       # compatibility field; sending uses outbound_send
             "starter": bool(document.get("first_routine")) and bool(document.get("onboarding")),
-            "instructions": instructions}
+            "instructions": instructions,
+            # Built in only with the redesign on (ensure_automations_bot): the card is absent from the catalog until then.
+            **({"redesign": True} if document.get("redesign") else {})}
 
 
 # A template's avatar symbol: a Material Symbols name (card.yaml `icon`). Read on every bot list, so
@@ -457,7 +461,7 @@ class Onboarding:
 
     # ------------------------------------------------------------------ catalog
     def catalog(self, c, rendered=True):
-        cards = read_cards(self.settings)
+        cards = [card for card in read_cards(self.settings) if not card.get("redesign") or redesign.on(c)]
         if rendered:
             record = load(c)
             names = display_names(self.settings, record)
@@ -896,6 +900,13 @@ class Onboarding:
         run it. It is a helper outside the org chart, so no chart or seat changes."""
         return self._ensure_builtin(c, "task-manager", "Task Manager", "task_manager.turned_on")
 
+    def ensure_automations_bot(self, c):
+        """The Automations Bot exists only while the redesign is on. Turning the redesign on makes it (the redesign route
+        calls this), and so does a company's first start or enrollment with the redesign already on. Off, nothing is made."""
+        if not redesign.on(c):
+            return None
+        return self._ensure_builtin(c, "automations-bot", "Automations Bot", "automations_bot.turned_on")
+
     def turn_on_task_manager(self, c, who):
         """Bring the Task Manager back after it was paused or archived by an older version (its report is plain code and
         keeps running either way, but the tasks it opens need the bot to be active)."""
@@ -1050,6 +1061,7 @@ class Onboarding:
         self.ensure_librarian(c)              # a company from before it was built in
         self.ensure_goal_manager(c)
         self.ensure_task_manager(c)
+        self.ensure_automations_bot(c)
         placed = self._wire(c, record, "human:" + operator, runner_id)
         self._store(c, record, "human:" + operator)
         return branches + placed

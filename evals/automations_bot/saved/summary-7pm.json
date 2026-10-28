@@ -11,7 +11,8 @@
           "type": "bot_turn",
           "enabled": true,
           "bot": "chief-of-staff",
-          "prompt": "Summarize what got done on Acme today in five short bullets."
+          "prompt": "Summarize what got done on Acme today in five short bullets.",
+          "out": "summary"
         },
         {
           "id": "post",
@@ -19,9 +20,7 @@
           "enabled": true,
           "do": "post_update",
           "args": {
-            "to": [
-              "updates"
-            ]
+            "text": "{{summary}}"
           }
         }
       ]

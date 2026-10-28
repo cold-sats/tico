@@ -12,6 +12,14 @@ const FIXTURE = path.join(__dirname, '../fixtures/redesign-automations.json');
 const PHONE = {width: 390, height: 844}, DESKTOP = {width: 1440, height: 900};
 const clone = x => JSON.parse(JSON.stringify(x));
 
+// The Automations Bot's draft (`draft: true` in openAutomations): off, its version 1 pending until Turn on (CONTRACT §2).
+const DRAFT = {id: 'au_draft', name: 'Receipts to archive', owner: 'person:dana', enabled: false, builtin: false, version: 1,
+  trigger: {type: 'message', inbox: 'dana@acme.example', filters: []},
+  steps: [{id: 'f1', type: 'filter', enabled: true, rules: [
+    {when: [{field: 'message.subject', op: 'contains', value: 'receipt'}], match: 'all', then: ['archive'], stop: true}]}]};
+const DRAFT_VERSIONS = [{n: 1, actor: 'bot:automations-bot', at: '2026-10-28T09:00:00Z', status: 'pending',
+  summary: 'Archive receipts from billing'}];
+
 // 30 runs of the inbox automation, newest first: most reply, a few fail at the LLM, a few hit the spend limit.
 function inboxRuns(now = Date.now()) {
   return Array.from({length: 30}, (_, i) => {
@@ -33,8 +41,9 @@ function inboxRuns(now = Date.now()) {
 }
 
 // One page on the fake hub. viewer: the person signed in (any but the fixture's owner sees nothing editable).
-async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana'} = {}) {
+async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana', draft = false} = {}) {
   const fx = clone(JSON.parse(fs.readFileSync(FIXTURE, 'utf8')));
+  if (draft) { fx.automations.push(clone(DRAFT)); fx.versions = {...fx.versions, au_draft: clone(DRAFT_VERSIONS)}; }
   const owner = viewer === fx.me.id;
   const me = owner ? fx.me : {id: viewer, name: fx.people.find(p => p.id === viewer)?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};
@@ -46,7 +55,7 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
   };
   for (const a of db.list) {
     const old = fx.versions[a.id] || [{n: a.version, actor: a.owner, at: '2026-10-27T15:00:00Z'}];
-    db.versions[a.id] = old.map(v => ({...v, status: 'active', flow: {trigger: clone(a.trigger), steps: clone(a.steps)}}));
+    db.versions[a.id] = old.map(v => ({...v, status: v.status || 'active', flow: {trigger: clone(a.trigger), steps: clone(a.steps)}}));
   }
   const writes = [];
   const find = id => db.list.find(a => a.id === id);
@@ -61,7 +70,8 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
     return out;
   });
   const full = a => ({...clone(a), steps: withSets(a.steps)});
-  const row = a => { const {steps, ...rest} = clone(a); return rest; };
+  // A list row carries how many versions wait for a person (the Pending pill).
+  const row = a => { const {steps, ...rest} = clone(a); return {...rest, pending: db.versions[a.id].filter(v => v.status === 'pending').length}; };
   const nextN = id => Math.max(...db.versions[id].map(v => v.n)) + 1;
   const newVersion = (a, actor = 'person:' + me.id) => {
     a.version = nextN(a.id);
@@ -129,8 +139,13 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
         const v = db.versions[a.id].find(x => x.n === +m[1]);
         if (!v) return refuse(404, 'not_found', 'No such version');
         a.trigger = clone(v.flow.trigger); a.steps = clone(v.flow.steps);
-        // A pending version turned on becomes the current one; an older one comes back as a new version.
-        if (v.status === 'pending') { v.status = 'active'; a.version = v.n; } else newVersion(a);
+        // A pending version turned on becomes the current one; an older one comes back as a new version. A draft (off,
+        // no version live yet) is turned on by its first pending version.
+        if (v.status === 'pending') {
+          const draftNow = !a.enabled && !db.versions[a.id].some(x => x.status === 'active');
+          v.status = 'active'; a.version = v.n;
+          if (draftNow) a.enabled = true;
+        } else newVersion(a);
         return json(full(a));
       }
       if ((m = rest.match(/^versions\/(\d+)$/)) && method === 'DELETE') {

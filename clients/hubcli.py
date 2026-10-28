@@ -237,6 +237,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub automation runs <id> [--limit N] [--before RUN]
     hub automation versions <id> [--pending]
     hub automation restore <id> <n>        make version n current (a pending one keeps its number)
+    hub automation question-sets            the saved question sets a Decide step may name, with their questions
     hub automation inbox <inbox> [--send on|off]
                                            an inbox's send switch (email, slack:dm, slack:#chan); off = drafts only
     hub trigger list                       webhooks people and bots made; a routine runs --on webhook.<id>
@@ -1869,6 +1870,8 @@ def parser():
     s.add_argument("id")
     s.add_argument("n", type=int)
     s.set_defaults(fn="automation restore")
+    s = auto.add_parser("question-sets", help="the saved question sets a Decide step may name")
+    s.set_defaults(fn="automation question-sets")
     s = auto.add_parser("inbox", help="read or set an inbox's send switch")
     s.add_argument("inbox", help="an email address, slack:dm or slack:#<channel>")
     s.add_argument("--send", choices=["on", "off"], help="leave out to read it")
