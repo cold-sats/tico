@@ -1133,7 +1133,7 @@ class HubServices:
             return started
         return self._once(ctx, work)
 
-    def find(self, source, query, limit):
+    def find(self, source, query, limit, idle_hours=None):
         """Items after the watermark, which moves only as items are finished (`_found_done`)."""
         self.dirty = True
         with self.hub.store.read() as c:
@@ -1141,7 +1141,8 @@ class HubServices:
             mark = _mark(found[0] if found else "")
             return A.find(c, self.auto, source, query, limit, (mark["at"], mark["id"]),
                           mailboxes=owner_mailboxes(c, self.flow["owner"]) if source == "mail" else (),
-                          skip=_held(c, self.row["id"], self.run_id) | {ident for _, ident in mark["done"]})
+                          skip=_held(c, self.row["id"], self.run_id) | {ident for _, ident in mark["done"]},
+                          idle_hours=idle_hours)
 
     def checkpoint(self, state):
         """Save the run after a step that did something, before the next one starts."""

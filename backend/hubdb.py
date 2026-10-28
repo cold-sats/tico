@@ -832,6 +832,13 @@ CREATE TABLE IF NOT EXISTS task_cap_sends(task_id TEXT PRIMARY KEY, sender TEXT,
 CREATE INDEX IF NOT EXISTS task_cap_sends_pair ON task_cap_sends(sender, receiver, sent_at);
 """
 
+# A pull request's last activity (CONTRACT section 6, PR find): the time of its newest GitHub pull_request, review or
+# review comment event. NULL on rows from before it, which read as their creation (automation_actions FIND).
+TASK_LINK_ACTIVITY_SCHEMA = """
+ALTER TABLE task_links ADD COLUMN activity_at TEXT;
+"""
+
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -849,7 +856,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               WEBHOOKS_SCHEMA, SLEEP_IDLE_SCHEMA,
               TICO_NOTICES_SCHEMA, WEBHOOKS_V2_SCHEMA, WEBHOOKS_V3_SCHEMA,
               WEBHOOKS_V4_SCHEMA, WEBHOOKS_V5_SCHEMA, WEBHOOKS_V6_SCHEMA, RUN_SESSION_SCHEMA,
-              TASK_CAPS_SCHEMA]
+              TASK_CAPS_SCHEMA, TASK_LINK_ACTIVITY_SCHEMA]
 
 
 class Refused(Exception):
