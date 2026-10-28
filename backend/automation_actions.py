@@ -330,7 +330,10 @@ def start_turn(c, auto, run_id, step_id, who, prompt, assistant_bot):
         found = H.bot(c, bot)
         if not found or found["state"] not in R.BOT_STATES_OK:
             raise ValueError(f"No bot {bot}" if not found else f"{bot} is {found['state']}")
-    title = f"Automation {auto['flow'].get('name') or auto['id']}: {step_id}"[:300]
+    # The run id makes the title this run's own: two runs of one automation may both have a turn open, and the same
+    # title from the same requester would read as a duplicate task (hubdb task_create) and refuse the second turn.
+    name = str(auto["flow"].get("name") or auto["id"])[:200]
+    title = f"Automation {name}: {step_id} ({run_id})"[:300]
     task = H.task_create(c, actor, title, prompt, H.bot_actor(bot), lint=False, deduplicate=False, capped=False,
                          trigger="other", trigger_source="automation:" + auto["id"],
                          wake_refs={"automation": auto["id"], "automation_run": run_id, "automation_step": step_id,

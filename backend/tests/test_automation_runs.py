@@ -253,7 +253,18 @@ def test_a_resumed_run_gets_back_the_turn_it_started_and_its_own_hold_never_caps
     automations.tick(api.app.state.store, datetime.now(timezone.utc) + timedelta(minutes=20))
     done = run_row(api, rid)
     assert [(s["id"], s["status"]) for s in done["state"]["steps"]] == [("look", "ok"), ("tell", "ok")]
-    assert len(sql(api, "SELECT id FROM tasks WHERE title='Automation Test: look'")) == 1
+    assert len(sql(api, "SELECT id FROM tasks WHERE title LIKE 'Automation Test: look (%'")) == 1
+
+
+def test_two_runs_of_one_automation_each_get_their_own_turn(api):
+    """A turn's task names its run, so a second run's turn is not refused as a duplicate of the first while it is open."""
+    turn_on(api)
+    aid = make(api, [{"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}])
+    runs = [queued(api, aid), queued(api, aid)]
+    hub(api).drain()
+    assert [run_row(api, rid)["state"]["steps"][0]["status"] for rid in runs] == ["ok", "ok"]
+    titles = sorted(r["title"] for r in sql(api, "SELECT title FROM tasks WHERE title LIKE 'Automation Test: look (%'"))
+    assert titles == sorted(f"Automation Test: look ({rid})" for rid in runs)
 
 
 def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_day(api):
