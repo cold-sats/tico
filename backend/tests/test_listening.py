@@ -252,7 +252,7 @@ def test_hub_sql_shows_saved_destinations_to_the_owner_and_admins_only(api):
     assert post(api, "sql", {"sql": "SELECT count(*) FROM listening_destinations"}, token=_token(api, "finance"))["rows"][0][0] == 0
 
 
-def test_with_the_redesign_on_stats_carry_a_daily_chart_and_the_callers_recent_posts(api):
+def test_stats_carry_a_daily_chart_and_the_callers_recent_posts(api):
     """Market › Listening reads posts per day by source and the newest routed posts; a receiver sees only its own."""
     _bots(api)
     listening = _token(api, "listening")

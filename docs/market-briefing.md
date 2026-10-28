@@ -16,7 +16,7 @@ bets it touches. The CEO Bot looks only at those.
 There is one briefing a week, named by its ISO week (`2026-W44`). Posting the same week again replaces it and keeps the
 first date.
 
-## With the redesign on
+## Built-in automations
 
 The hub makes two built-in automations for the Librarian (see Automations):
 
@@ -48,8 +48,8 @@ still right. Most weeks the answer is yes and nothing more happens. When it is n
 
 A replacement that touches different bets than before opens one more task for them.
 
-A new CEO Bot starts with this routine. A CEO Bot that already exists keeps the routines it has: add this one with
-`hub routine set market-briefing --on market.briefing --text-file playbooks/market-briefing.md`
+A new CEO Bot starts with this routine. A CEO Bot that already exists keeps the routines it has: add this one as an
+automation on the event `market.briefing` with a CEO Bot turn that follows `playbooks/market-briefing.md`
 ([Routines](routines.md)).
 
 ## Commands

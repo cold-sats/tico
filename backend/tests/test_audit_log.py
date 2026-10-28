@@ -1,21 +1,16 @@
 """The redesign's audit trail (backend/audit_log.py): rows written with their change, read newest first, paged,
-the owner seeing all and anyone else only their own, and the route gone while the redesign is off."""
+the owner seeing all and anyone else only their own."""
 import json
 from urllib.parse import urlencode
 
-from backend import audit_log, redesign
+from backend import audit_log
 from backend.tests.test_api import api, get  # noqa: F401
 
 
 def _write(api, *changes):
     with api.app.state.store.transaction() as c:
-        redesign.set_on(c, True, "human:ana")
         for actor, obj, before, after in changes:
             audit_log.write(c, actor, obj, before, after)
-
-
-def test_off_the_route_is_not_there(api):
-    get(api, "audit", expected=404)
 
 
 def test_owner_reads_every_row_newest_first_with_before_and_after(api):
@@ -36,7 +31,7 @@ def test_pages_by_before(api):
     first = get(api, "audit?limit=2")
     assert len(first["rows"]) == 2 and first["next"]
     rest = get(api, "audit?" + urlencode({"limit": 10, "before": first["next"]}))
-    assert len(rest["rows"]) == 4 and rest["next"] is None   # 3 groups and the hub making What wakes bots
+    assert len(rest["rows"]) == 3 and rest["next"] is None
 
 
 def test_rows_sharing_a_time_are_never_skipped(api, monkeypatch):
@@ -49,7 +44,7 @@ def test_rows_sharing_a_time_are_never_skipped(api, monkeypatch):
         seen += [r["object"] for r in page["rows"]]
         if not (cursor := page["next"]):
             break
-    assert sorted(seen) == ["automation:auto_builtin_wakes", *(f"group:{i}" for i in range(5))]
+    assert sorted(seen) == [f"group:{i}" for i in range(5)]
 
 
 def test_a_page_stops_at_the_byte_budget_and_the_next_page_picks_up_the_rest(api):
@@ -62,7 +57,7 @@ def test_a_page_stops_at_the_byte_budget_and_the_next_page_picks_up_the_rest(api
         seen += [r["object"] for r in page["rows"]]
         if not (cursor := page["next"]):
             break
-    assert sorted(seen) == ["automation:auto_builtin_wakes", *(f"group:{i}" for i in range(6))]
+    assert sorted(seen) == [f"group:{i}" for i in range(6)]
 
 
 def test_the_cli_pages_the_same_rows_the_owner_reads(api):
