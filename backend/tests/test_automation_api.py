@@ -222,3 +222,28 @@ def test_runs_are_paged_newest_first_by_run_id(api):
     rest = get(api, f"automations/{aid}/runs?limit=2&before={first['next']}")
     assert [r["id"] for r in rest["runs"]] == [made[0]] and rest["next"] is None
     get(api, f"automations/{aid}/runs?before=run_nope", expected=404)
+
+
+def test_the_answers_match_the_published_contract(api):
+    """Each automation read and write against its docs/openapi/v2.json shape."""
+    from backend.tests.test_openapi_v2 import conforms
+    turn_on(api)
+    document = api.get("/api/v2/openapi.json", headers=headers()).json()
+    shape = {op["operationId"]: op["responses"]["200"].get("content", {}).get("application/json", {}).get("schema")
+             for ops in document["paths"].values() for op in ops.values() if op["tags"] == ["Automations"]}
+
+    def check(operation, answer):
+        assert conforms(answer, shape[operation], document) is None, (operation, conforms(answer, shape[operation], document))
+        return answer
+    aid = check("createAutomation", make(api))["id"]
+    check("getAutomation", get(api, f"automations/{aid}"))
+    check("listAutomations", get(api, "automations"))
+    check("updateAutomation", patch(api, aid, {"steps": []}))
+    check("runAutomation", post(api, f"automations/{aid}/run", {}))
+    check("listAutomationRuns", get(api, f"automations/{aid}/runs"))
+    check("listAutomationVersions", get(api, f"automations/{aid}/versions"))
+    check("restoreAutomationVersion", post(api, f"automations/{aid}/versions/1/restore", {}))
+    check("listQuestionSets", get(api, "automations/question-sets"))
+    check("getInboxSend", get(api, "inboxes/ana@acme.example"))
+    check("getPersonAssistant", get(api, "people/ana/assistant"))
+    check("deleteAutomationPost", post(api, f"automations/{aid}/delete", {}))

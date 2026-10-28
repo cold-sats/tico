@@ -1298,6 +1298,72 @@ SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "p
     "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     "next": {"type": ["string", "null"]}}}})
 
+# Automations (backend/automations.py): 404 until the team turns the redesign on.
+TAGS["Automations"] = ("A trigger and a tree of steps (filter, decide, llm, find, bot_turn, paths, action), saved as versions; "
+                       "one permission rule for UI, CLI and MCP.")
+STABLE.extend([
+    ("/api/v2/automations", "get", "Automations", "listAutomations",
+     "The automations you may see, newest first, each with can_edit; paged by cursor", "AutomationList"),
+    ("/api/v2/automations", "post", "Automations", "createAutomation",
+     "Save a new automation as version 1; a flow that fails its checks is refused with where and why", "Automation"),
+    ("/api/v2/automations/question-sets", "get", "Automations", "listQuestionSets",
+     "The saved question sets a Decide step may name (`set`), each with its questions", "QuestionSets"),
+    ("/api/v2/automations/{aid}", "get", "Automations", "getAutomation",
+     "One automation with set questions filled in, today's counts and, for a schedule, next_run", "Automation"),
+    ("/api/v2/automations/{aid}", "patch", "Automations", "updateAutomation",
+     "Change it: a new trigger, steps or batch is a new version. A bot without edit rights (or the Automations Bot) "
+     "gets `pending`, a proposal a person restores", "Automation"),
+    ("/api/v2/automations/{aid}", "delete", "Automations", "deleteAutomation",
+     "Delete it; its runs stay. A built-in one is refused", "AutomationDeleted"),
+    ("/api/v2/automations/{aid}/delete", "post", "Automations", "deleteAutomationPost",
+     "The same delete, for clients that only POST", "AutomationDeleted"),
+    ("/api/v2/automations/{aid}/run", "post", "Automations", "runAutomation",
+     "Run it now with `input` standing in for the trigger's output; answers the run", "AutomationRunNow"),
+    ("/api/v2/automations/{aid}/runs", "get", "Automations", "listAutomationRuns",
+     "Its runs, newest first (limit, before → next), step detail for 30 days, and daily run and drop counts",
+     "AutomationRuns"),
+    ("/api/v2/automations/{aid}/versions", "get", "Automations", "listAutomationVersions",
+     "Its versions, newest first; status=pending for proposals", "AutomationVersions"),
+    ("/api/v2/automations/{aid}/versions/{n}/restore", "post", "Automations", "restoreAutomationVersion",
+     "Make a version current: a pending one keeps its number, an older one is saved as a new version", "Automation"),
+    ("/api/v2/automations/{aid}/versions/{n}", "delete", "Automations", "discardAutomationVersion",
+     "Discard a pending version (409 for any other)", "Automation"),
+    ("/api/v2/inboxes/{inbox}", "get", "Automations", "getInboxSend",
+     "An inbox's send switch (on by default): email address, slack:dm or slack:#<channel>", "InboxSwitch"),
+    ("/api/v2/inboxes/{inbox}", "patch", "Automations", "setInboxSend",
+     "Turn the send switch on or off (the inbox's person, or the owner); off, send_reply saves a draft", "InboxSwitch"),
+    ("/api/v2/people/{person}/assistant", "get", "Automations", "getPersonAssistant",
+     "The bot behind a person's Assistant, or null until it is first used", "PersonAssistant"),
+])
+_RUN = obj({"id": "s", "automation_id": "s", "version": "i", "trigger_ref": "s", "started": "s",
+            "finished": {"type": ["string", "null"]}, "status": {"enum": ["queued", "running", "waiting", "ok", "failed", "empty", "skipped"]},
+            "cost": "f", "summary": "n", "steps": {"type": ["array", "null"], "items": {"type": "object"},
+                                                   "description": "Each step's status, outputs and cost; null after 30 days"}},
+           required=["id", "automation_id", "version", "status", "steps"])
+SCHEMAS.update({
+    "Automation": obj({"id": "s", "name": "s", "owner": "s", "enabled": "b", "trigger": {"type": "object"},
+                       "steps": items({"type": "object"}), "version": "i", "can_edit": "b",
+                       "spend_cap": {"type": ["object", "null"]}, "batch": {"type": ["object", "null"]},
+                       "last_run": {"type": ["object", "null"]},
+                       "counts": obj({"today": obj({"runs": "i", "dropped": "i"})}),
+                       "next_run": {"type": ["string", "null"]}, "pending": "i", "warning": "s"},
+                      required=["id", "can_edit"]),
+    "AutomationList": obj({"automations": items(ref("Automation")), "next": {"type": ["integer", "null"]}}),
+    "AutomationDeleted": obj({"id": "s", "deleted": "b"}),
+    "AutomationRun": _RUN,
+    "AutomationRunNow": obj({"run": ref("AutomationRun")}),
+    "AutomationRuns": obj({"runs": items(ref("AutomationRun")), "next": {"type": ["string", "null"]},
+                           "daily": items(obj({"day": "s", "runs": "i", "dropped": "i"}))}),
+    "AutomationVersions": obj({"versions": items(obj({"n": "i", "actor": "s", "at": "s",
+                                                      "status": {"enum": ["active", "pending"]}, "summary": "s",
+                                                      "flow": {"type": "object"}},
+                                                     required=["n", "actor", "at", "status", "flow"])),
+                               "next": {"type": ["integer", "null"]}}),
+    "QuestionSets": obj({"sets": items(obj({"id": "s", "summary": "s", "questions": {"type": "object", "description": "Keyed by question id, in judge.py's format"}}))}),
+    "InboxSwitch": obj({"inbox": "s", "send": "b"}),
+    "PersonAssistant": obj({"bot": {"type": ["string", "null"]}}),
+})
+
 # Bot profiles (backend/profiles.py).
 STABLE.extend([
     ("/api/v2/profiles", "get", "Bots", "listProfiles",
