@@ -5,7 +5,7 @@
 'use strict';
 
 const AU_RUNS_PAGE = 25;
-const AU_RUN_STATUS = {ok: 'Done', failed: 'Failed', skipped: 'Skipped', empty: 'Nothing found'};
+const AU_RUN_STATUS = {ok: 'Done', failed: 'Failed', skipped: 'Skipped', empty: 'Nothing found', waiting: 'Waiting', running: 'Running'};
 const AU_STEP_STATUS = {skipped: 'skipped', failed: 'failed', spend_cap: 'spend cap'};
 // A run's outcome in one to three words: what its last action did.
 const AU_DONE = {archive: 'Archived', leave_for_you: 'Left for you', draft_reply: 'Draft reply', send_reply: 'Replied',
@@ -25,6 +25,7 @@ async function auRunsLoad(state, more = false) {
     r.rows = more ? r.rows.concat(page.runs || []) : page.runs || [];
     r.next = page.next || null;
     if (!more) state.lastRun = r.rows[0] || null;
+    if (state.openRun) { r.open.add(state.openRun); state.openRun = null; }
   } catch (e) { r.error = e.message; }
   r.loading = false;
   if (AU === state && state.view === 'runs') auDrawPane();
@@ -62,13 +63,19 @@ function auRunOutcome(run) {
 }
 // One step of a run as a short line: what it decided, matched, wrote or did.
 function auRunStepText(rs) {
+  const o = rs.outputs || {};
+  // A step that is waiting (a queued mail action, a bot's turn) has already said what it did.
+  if (rs.status === 'waiting') return [auRunStepDid({...rs, status: 'ok'}), 'waiting'].filter(Boolean).join(' · ');
+  if (rs.status !== 'ok') return (AU_STEP_STATUS[rs.status] || rs.status || '') + (o.error ? ' · ' + o.error : '');
+  return auRunStepDid(rs);
+}
+function auRunStepDid(rs) {
   const o = rs.outputs || {}, step = auFind(AU.cur?.steps || [], rs.id)?.step;
-  if (rs.status !== 'ok') return AU_STEP_STATUS[rs.status] + (o.error ? ' · ' + o.error : '');
   if (typeof o.summary === 'string') return o.summary;
   if (rs.type === 'filter') {
     if (o.rule == null) return 'no match';
     const rule = step?.rules?.[o.rule];
-    return rule ? `${auCondsText(rule.when, rule.match) || 'rule ' + (o.rule + 1)} → ${(rule.then || []).map(x => AU_ACTIONS[x] || x).join(', ')}` : 'rule ' + (Number(o.rule) + 1);
+    return rule ? `${auCondsText(rule.when, rule.match) || 'rule ' + (o.rule + 1)} → ${auThenWords(rule.then).join(', ')}` : 'rule ' + (Number(o.rule) + 1);
   }
   if (rs.type === 'decide') return Object.entries(o).filter(([, v]) => v && typeof v === 'object').map(([q, v]) => auAnswer(q, v).text).join(' · ');
   if (rs.type === 'llm') return [auActorName(step?.as), o.text ? String(o.text).split('\n')[0].slice(0, 80) : ''].filter(Boolean).join(' · ');

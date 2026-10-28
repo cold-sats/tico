@@ -25,7 +25,7 @@ GAP = "CONTRACT gap"   # a check the CONTRACT cannot back yet: it names no route
 
 # Waves that have landed on main. The PR that merges a wave adds its label here: from then on a failing check prints
 # its detail instead of "not built yet".
-BUILT = {W1, W3, W4, W5}
+BUILT = {W1, W2, W3, W4, W5, W6}
 
 # Teammates: the test token each signs in with, the CONTRACT §3 ref and the bare id the API takes as an owner.
 # The Acme cast (DECISIONS.md): Dana owns the hub; Omar and Priya are people. Omar is a peer of the Engineering Lead and
@@ -239,9 +239,10 @@ class Org(World):
         self.advance(delta)
         self.scheduler_pass()
 
-    def turn(self, slug, tokens=2_000_000):
-        """The bot's next turn, run the way a runner runs it: claim, start, complete with its token use. None when
-        the hub held the bot (no job was claimed)."""
+    def turn(self, slug, tokens=2_000_000, act=None, text="done"):
+        """The bot's next turn, run the way a runner runs it: claim, start, `act(attempt_token, attempt)` (the bot's
+        own calls during the turn, as that bot), complete with `text` and its token use. None when the hub held the
+        bot (no job was claimed)."""
         self.scheduler_pass()
         claim = self.api("post", "/api/v2/jobs/claim", {"bot": slug, "start_places": True},
                          who=self.runner["token"], wave=W2)
@@ -254,10 +255,12 @@ class Org(World):
             raise RuntimeError(f"claim {claim.status}: {claim.excerpt()}")   # a harness or auth bug, not a hold
         base = f"/api/v2/attempts/{attempt['id']}"
         for step, payload in (("started", {"thread_id": "redesign"}),
-                              ("complete", {"outcome": "completed", "text": "done", "last_seq": 0, "limited": False,
+                              ("complete", {"outcome": "completed", "text": text, "last_seq": 0, "limited": False,
                                             "usage": {"input_tokens": tokens, "cached_tokens": 0,
                                                       "output_tokens": 10_000, "model": "claude-opus-5-5",
                                                       "runtime": "claude", "billing": "api"}})):
+            if step == "complete" and act:
+                act(attempt.get("token"), attempt)
             reply = self.api("post", f"{base}/{step}", payload, who=self.runner["token"], wave=W2)
             if not 200 <= reply.status < 300:
                 raise RuntimeError(f"attempt {step} {reply.status}: {reply.excerpt()}")
@@ -390,6 +393,20 @@ def audit_of(org, obj=None, limit=None, before=None, who=DANA):
 def decide(org, approval_id, decision, who=DANA):
     """A person decides a bot's proposal. `decision` is "approved" or "declined" (the approval model's words)."""
     return org.api("post", f"/api/v2/approvals/{approval_id}", {"decision": decision}, who=who, wave=W2)
+
+
+def hub_notices(org, slug, who=DANA):
+    """The hub's notices to a bot (CONTRACT §5 BotOps note, §1 run guard): messages from `keeper` of kind `notice`, read
+    as the owner reads a bot's rooms: GET /api/v2/conversations?bot=<slug>, then each room's messages."""
+    rooms = org.api("get", f"/api/v2/conversations?bot={slug}", who=who, wave=W2)
+    if rooms.status != 200:
+        raise Unmet(W2, f"{slug}'s conversations: {rooms.status} {rooms.excerpt()}")
+    found = []
+    for room in rooms.body.get("conversations") or []:
+        page = org.api("get", f"/api/v2/conversations/{room['id']}/messages", who=who, wave=W2)
+        found += [m for m in (page.body.get("messages") or []) if isinstance(page.body, dict)
+                  and m.get("from_actor") == "keeper" and m.get("kind") == "notice"]
+    return found
 
 
 def approval_id_of(reply):

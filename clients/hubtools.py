@@ -48,7 +48,8 @@ ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 # Bots cannot set ready; a task is closed through its separate requester action.
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status not in ("ready", "closed"))
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
+# task_cap, spend_limit, group and org: the redesign's proposals (backend/proposals.py), refused while it is off.
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
 PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
@@ -1898,7 +1899,7 @@ def market_briefing_post(api, args):
 
 
 @tool("hub_market_briefing_latest", "The newest weekly market briefing with its body, its items and the bets it touches "
-      "(`briefing` is null before the first).", {})
+      "(`briefing` is null before the first); `source` names the automation run that posted it, if one did.", {})
 def market_briefing_latest(api, args):
     return api.get("market/briefings/latest")
 # ----------------------------------------------------------------------------- market spend
@@ -2855,7 +2856,12 @@ _AUTO_FIELDS = {
     "spend_cap": {"type": ["object", "null"], "description": "{per_30m: dollars} for its LLM and bot turns; null = the bot's limit"},
     "batch": {"type": "object", "description": "{times: [\"08:00\", ...], tz}: filters on receipt, the rest at these times"},
     "trigger": {"type": "object", "description": "{type: message|task_received|schedule|webhook|listening|event, ...}"},
-    "steps": {"type": "array", "items": {"type": "object"}, "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action)"},
+    "steps": {"type": "array", "items": {"type": "object"},
+              "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action). An action step is "
+                             "{type: action, do, args}; args by do: draft_reply and send_reply body (or text), to, bot "
+                             "(Slack send); forward to, body, webhook; label name (or tag); create_task title, body, owner; "
+                             "assign owner, text; note text (or note), bot; wake_bot bot, text; post_update to ([updates, market]), text (none posts what the bot_turn before it wrote); "
+                             "call_webhook webhook, type, data; archive and leave_for_you take none"},
 }
 
 
@@ -2873,7 +2879,14 @@ def automation_get(api, args):
     return _as_person(api).get(f"automations/{args['id']}")
 
 
-@tool("hub_automation_create", "Save a new automation (version 1). Checked on save: a bad flow is refused with why.",
+@tool("hub_automation_question_sets", "The saved question sets a Decide step may name (`set`), each with its `id` "
+      "(name@version), `summary` and `questions`. Read-only.", {})
+def automation_question_sets(api, args):
+    return _as_person(api).get("automations/question-sets")
+
+
+@tool("hub_automation_create", "Save a new automation (version 1). Checked on save: a bad flow is refused with why. "
+      "The Automations Bot saves a draft instead: off, its first version pending, for the person it is talking to.",
       {k: v for k, v in _AUTO_FIELDS.items()}, required=("name", "owner", "trigger"), writes=True)
 def automation_create(api, args):
     body = {k: args[k] for k in _AUTO_FIELDS if k in args}
@@ -2881,7 +2894,7 @@ def automation_create(api, args):
 
 
 @tool("hub_automation_update", "Change an automation. A new trigger, steps or batch times is a new version; a bot "
-      "without edit rights gets back `pending` (a proposal a person restores).",
+      "without edit rights gets back `pending` (a proposal a person restores). Action args are named in `steps`.",
       {"id": _s("auto_..."), **_AUTO_FIELDS, "summary": _s("A few words on the change")},
       required=("id",), writes=True)
 def automation_update(api, args):
@@ -2923,6 +2936,14 @@ def automation_versions(api, args):
       "a new version.", {"id": _s("auto_..."), "n": {"type": "integer"}}, required=("id", "n"), writes=True)
 def automation_restore(api, args):
     return _as_person(api).post(f"automations/{args['id']}/versions/{int(args['n'])}/restore", {}, key=_key(args))
+
+
+@tool("hub_automation_discard", "Discard a pending version: a proposal a bot made, which then goes away. The "
+      "automation stays as it is; any other version is refused (409).",
+      {"id": _s("auto_..."), "n": {"type": "integer", "description": "The pending version's number"}},
+      required=("id", "n"), writes=True)
+def automation_discard(api, args):
+    return _as_person(api).call("DELETE", f"automations/{args['id']}/versions/{int(args['n'])}", None, _key(args))
 
 
 @tool("hub_inbox_send", "Read or set an inbox's send switch (on by default). Off, an automation's send_reply saves a "
@@ -3827,6 +3848,24 @@ def team_budget(api, args):
     return _as_person(api).post("settings/turn-budgets", body, key=_key(args)) if body else _as_person(api).get("settings/turn-budgets")
 
 
+@tool("hub_task_caps", "Read the task caps (redesign on): how many tasks each teammate may create for another per day, with "
+      "today's count, the tasks closed before the receiver acted, and the refused creates. Also the changes bots asked "
+      "for, which a person approves or declines as approvals. A cap is off until someone sets one.", {})
+def task_caps_read(api, args):
+    return _as_person(api).get("task-caps")
+
+
+@tool("hub_task_cap_set", "Set how many tasks `sender` may create for `receiver` each day (teammate refs: bot:<slug> or "
+      "person:<id>). The receiver must be a manager above the sender at any level. per_day 0 blocks it; null removes the cap. "
+      "A bot's own change waits as an approval a person decides.",
+      {"sender": _s("bot:<slug> or person:<id>"), "receiver": _s("bot:<slug> or person:<id>, a manager above the sender"),
+       "per_day": {"type": ["integer", "null"], "minimum": 0, "description": "Tasks a day; null removes the cap"}},
+      ("sender", "receiver", "per_day"), writes=True)
+def task_cap_set(api, args):
+    body = {"sender": args["sender"], "receiver": args["receiver"], "per_day": args["per_day"]}
+    return _as_person(api).call("PUT", "task-caps", body, key=_key(args))
+
+
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
@@ -4369,6 +4408,16 @@ def stall_triage(api, args):
     return _as_person(api).call("PUT", "system-routines/stall_triage", {"on": bool(args["on"])}, _key(args))
 
 
+@tool("hub_audit", "Who changed what in the redesign's caps, spend, groups, automations and inboxes, newest first. "
+      "The owner reads every row; anyone else reads their own changes. Page with `before` from `next`.",
+      {"object": _s("One object, such as automation:<id> or inbox:<address>"),
+       "limit": {"type": "integer", "default": 50, "description": "Rows a page, up to 200"},
+       "before": _s("`next` from the page before")})
+def audit(api, args):
+    query = {k: args[k] for k in ("object", "limit", "before") if args.get(k) not in (None, "")}
+    return _as_person(api).get("audit", **query)
+
+
 @tool("hub_redesign", "The new design (Strategy tabs, Budget, task caps, Automations, the new sidebar): one switch for the "
       "whole team, off by default. Anyone reads it; only the owner (or BotOps for the owner) switches it. Omit `on` to read.",
       {"on": {"type": "boolean", "description": "true switches it on, false off; leave out to read"}}, writes=True)
@@ -4405,7 +4454,10 @@ def redesign_migrate(api, args):
       {"kind": {"type": "string", "enum": list(APPROVAL_KINDS)},
        "payload": {"type": "object", "description": "The exact action, as the approvals policy describes. "
                    "kind=send is to/cc/subject/body_sha256/mailbox. Skip this tool when the owner "
-                   "already said send; use mail send --approve <their-message-id>."},
+                   "already said send; use mail send --approve <their-message-id>. With the redesign on, a "
+                   "proposal the hub applies on approval: task_cap {sender, receiver, per_day}, spend_limit "
+                   "{bot | pool: company|group:<id>, per_30m_usd, daily_usd, weekly_usd, monthly_usd}, group "
+                   "{id?, name?, parent?, lead?, add?, remove?}, org {bot, from, to}."},
        "task_id": _s("The task this action belongs to"),
        "supersedes_approval": _s("Your older undecided approval this replaces (a re-cut, a redraft); it is withdrawn. "
                                  "One on the same task for the same url, recipient and subject, PR or spend is replaced anyway")},
@@ -5479,6 +5531,8 @@ ASSISTANT_WRITES = {"hub_inbound_create_email", "hub_task_child_create", "hub_ta
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose", "hub_assistant_learn",
                     "hub_settings_set"}
 AUDIENCE = {
+    # Task caps (CONTRACT §1): people read and set them; a bot's own change is a proposal a person decides.
+    "hub_task_caps": REQUESTER_READ, "hub_task_cap_set": PEOPLE + BOTS,
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,

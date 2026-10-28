@@ -264,6 +264,23 @@ def test_only_the_computer_that_reads_the_mailbox_claims_or_reports_its_actions(
         assert c.execute("SELECT state FROM automation_mail_actions").fetchone()[0] == "claimed"
 
 
+def test_a_claim_stops_inside_the_byte_budget_and_the_rest_wait_for_the_next(api, computer):
+    computer.sync()
+    body = json.dumps({"body": "x" * 100_000})                   # 100 KB each: a claim takes two or three at most
+    with api.app.state.store.transaction() as c:
+        for i in range(5):
+            c.execute("INSERT INTO automation_mail_actions(id,automation_id,run_id,mailbox,msg_id,action,args_json,"
+                      "state,created,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)",
+                      (f"act{i}", "auto_x", "run_x", BOX, "m1", "draft_reply", body, "queued",
+                       f"2026-10-28T00:00:0{i}Z"))
+    first = [a["id"] for a in claim(api, computer.token)["actions"]]
+    assert 0 < len(first) < 5
+    rest = list(first)
+    while len(rest) < 5 and (batch := claim(api, computer.token)["actions"]):
+        rest += [a["id"] for a in batch]
+    assert sorted(rest) == [f"act{i}" for i in range(5)]
+
+
 def test_the_routes_are_404_while_the_redesign_is_off(api, computer):
     api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers())
     claim(api, computer.token, expected=404)

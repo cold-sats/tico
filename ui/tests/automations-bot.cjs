@@ -1,8 +1,9 @@
 // The Automations Bot (ui/app/automations-bot.js) against the fake hub in support/automations-fake.cjs: a message goes
 // to the bot's chat naming the open automation (POST /api/v2/chat/automations-bot, refs.automation); its reply comes
 // with a proposal, a pending version (GET .../versions?status=pending), as a card: View diff shows the changed lines,
-// Turn on restores that version, Discard deletes it. "+ New" opens the bot with no automation. A phone gives the bot
-// its own screen; a computer shows it on the right.
+// Turn on restores that version, Discard deletes it. "+ New" opens the bot with no automation. A draft (off, its first
+// version pending) shows Pending in the list, and Turn on turns it on. A phone gives the bot its own screen; a computer
+// shows it on the right.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openAutomations, PHONE, DESKTOP, sideways, shot} = require('./support/automations-fake.cjs');
@@ -76,6 +77,24 @@ async function ask(page, text) {
       assert.deepEqual(writes.at(-1).body.refs, {});
       assert.equal(await page.locator('.au-prop').count(), 0);
       assert.equal(await sideways(page), false);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // A draft (the bot's: off, version 1 pending): Pending and Off in the list; Turn on enables it and clears Pending.
+    {
+      const {page, errors, writes} = await openAutomations(browser, {viewport: DESKTOP, hash: '#/automations/au_draft', draft: true});
+      await page.waitForSelector('.au-card[data-open="f1"]');
+      const row = page.locator('.au-row[data-row="au_draft"]');
+      assert.equal(await row.locator('.pill:text-is("Pending")').count(), 1);
+      assert.equal(await row.locator('.au-sw').isChecked(), false, 'a draft is off');
+      const card = page.locator('.au-prop[data-n="1"]');
+      await card.waitFor();
+      assert.match(await card.innerText(), /Receipts to archive · v1/);
+      await card.getByRole('button', {name: 'Turn on'}).click();
+      await page.waitForSelector('.au-prop[data-n="1"] .pill.ok');
+      assert.deepEqual(writes.at(-1), {method: 'POST', path: '/api/v2/automations/au_draft/versions/1/restore', body: {}});
+      assert.equal(await row.locator('.pill:text-is("Pending")').count(), 0);
+      assert.equal(await row.locator('.au-sw').isChecked(), true);
       assert.deepEqual(errors, []);
       await page.close();
     }

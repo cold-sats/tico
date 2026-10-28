@@ -30,6 +30,8 @@ from .store import H, Problem
 
 log = logging.getLogger("tico.redesign_migration")
 KEEP_HOURS = 24
+# A migration in one of these may still be restored (or is still running): no second convert starts beside it.
+OPEN_STATES = ("converting", "interrupted", "converted")
 WAKES_PREFIX = "auto_wakes_"                  # custom "What wakes" automations: rules.py reads its rows from these
 GUARD = {"turns_per_hour": 300, "turns_per_day": 2500}   # CONTRACT §1 run guard defaults
 STRATEGY_NAME = "Strategy Bot"
@@ -37,6 +39,10 @@ DEFAULT_PROMPT = ("Read this message for {name}. Archive what needs nothing, lab
                   "reply where one is wanted, and leave the rest for {name}.")
 OUTCOME_DO = {"wake": "wake_bot", "batch": "wake_bot", "action": "wake_bot", "note": "note", "ignore": "archive",
               "ask": "leave_for_you"}
+# The message the inbox automation runs on, handed to the Assistant the way message automations do: each `{{field}}`
+# becomes a quoted data block after the instructions (automation_flow.render_prompt), never read as instructions.
+MESSAGE_PART = ("\n\nThe message to handle: id {{message.id}} in thread {{message.thread}}, from {{message.from}} "
+                "({{message.from_name}}), subject {{message.subject}}. Its body:\n{{message.body}}")
 JOB_MIRRORS_SKIP = ("stale_review",)          # a regular automation instead (PLAN §8)
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS redesign_migrations(id TEXT PRIMARY KEY, state TEXT NOT NULL, actor TEXT NOT NULL, "
@@ -170,7 +176,7 @@ def plan(c, who):
 
 
 def _routines(c, done):
-    from . import event_catalog as CAT, routines, triggers
+    from . import automations, event_catalog as CAT, routines, triggers
     rows = c.execute("SELECT s.*, coalesce(sc.timezone, ?) AS timezone, coalesce(sc.enabled, 1) AS enabled "
                      "FROM schedules s LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
                      "WHERE s.deleted_at IS NULL ORDER BY s.bot, s.id", (routines.DEFAULT_ZONE,)).fetchall()
@@ -215,8 +221,15 @@ def _routines(c, done):
         flow = {"name": (row["title"] or "Routine")[:120], "owner": "bot:" + bot, "enabled": enabled,
                 "trigger": trigger, "steps": [{"id": "turn", "type": "bot_turn", "bot": "bot:" + bot, "prompt": text}],
                 "source": {"kind": "routine", "id": sid}}
+        do = "routine"
+        if automations.is_briefing_routine(row) and trigger["type"] == "schedule":
+            # The hub's Market briefing does this now: the routine becomes that built-in, on the routine's own time
+            # and words, so the two never both run.
+            flow = {**automations.briefing_flow(trigger["cron"], trigger["tz"], text), "builtin": True,
+                    "enabled": enabled, "source": flow["source"]}
+            do = "adopt_briefing"
         out.append({"kind": "routine", "id": sid, "title": row["title"], "becomes": flow, "flags": flags,
-                    "_do": ("routine", {"next_due": row["next_due"]})})
+                    "_do": (do, {"next_due": row["next_due"]})})
     return out
 
 
@@ -358,6 +371,7 @@ def _inboxes(c, done):
         found = c.execute("SELECT content FROM mail_agent_instructions WHERE bot=?", (box["bot"],)).fetchone() \
             if _table(c, "mail_agent_instructions") else None
         prompt = (found["content"] if found and (found["content"] or "").strip() else DEFAULT_PROMPT.format(name=name))
+        prompt = prompt.rstrip() + MESSAGE_PART
         flags = []
         if len(prompt) > F.MAX_PROMPT:
             flags.append(_flag(oid, "too_long", f"The Inbox Manager's instructions are longer than {F.MAX_PROMPT:,} "
@@ -486,7 +500,7 @@ def current(c):
     if not row:
         return None
     out = dict(row)
-    out["restorable"] = row["state"] == "converted" and row["expires"] > _now()
+    out["restorable"] = row["state"] in ("converted", "interrupted") and row["expires"] > _now()
     return out
 
 
@@ -533,9 +547,38 @@ def resolve(c, who, accept):
 
 
 # ---------------------------------------------------------------------------------------------------- convert
+def _limit_now(c, where):
+    """A spend limit's two amounts as stored now: a bot's or a pool's row, or the company default's JSON."""
+    from . import usage_limits
+    if where["table"] == "registry":
+        stored = _json(_meta(c, usage_limits.KEY), {})
+        return {"hourly_usd": stored.get("hourly_usd"), "per_30m_usd": stored.get("per_30m_usd")}
+    column = "bot" if where["table"] == "usage_limits" else "scope"
+    row = c.execute(f"SELECT * FROM {where['table']} WHERE {column}=?", (where["key"],)).fetchone()
+    row = dict(row) if row else {}
+    return {"hourly_usd": row.get("hourly_usd"), "per_30m_usd": row.get("per_30m_usd")}
+
+
+def _budget_now(c, bot):
+    """The declared turn budgets: the team's (bot None) or one bot's."""
+    from . import turn_budgets as TB
+    if bot is None:
+        return _json(_meta(c, TB.TEAM_KEY), {})
+    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    return _json(row["config_json"] if row else None, {})
+
+
+def _same(a, b):
+    """Two stored values alike (amounts compared to the cent's fraction, so 0.2 == 0.20000000001)."""
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+        return abs(float(a) - float(b)) < 1e-6
+    return a == b
+
+
 def _snapshot(c, objects):
-    """The rows convert changes, as they are now: what restore puts back."""
-    from . import ceo_bot, turn_budgets as TB, usage_limits
+    """What the convert will change, as it is now, and what the convert changes it to: restore puts back only those
+    fields, and only where they still hold what the convert wrote. Nothing the convert does not touch is kept."""
+    from . import ceo_bot
     routine_ids = [o["id"] for o in objects if o["kind"] == "routine"]
     rule_ids = [o["id"] for o in objects if o["kind"] == "wake_rule"]
 
@@ -548,22 +591,33 @@ def _snapshot(c, objects):
     snap = {"schedules": rows("SELECT * FROM schedules WHERE id IN ({})", routine_ids),
             "schedule_config": rows("SELECT * FROM schedule_config WHERE schedule_id IN ({})", routine_ids),
             "rules": rows("SELECT * FROM rules WHERE id IN ({})", rule_ids),
-            "usage_limits": [dict(r) for r in c.execute("SELECT * FROM usage_limits")] if _table(c, "usage_limits") else [],
-            "usage_pools": [dict(r) for r in c.execute("SELECT * FROM usage_pools")] if _table(c, "usage_pools") else [],
-            "registry": {key: _meta(c, key) for key in (usage_limits.KEY, TB.TEAM_KEY)},
-            "budgets": {}, "bots": {}}
+            "changes": {}, "bots": {}}
     for obj in objects:
         do = obj.get("_do")
-        if do and do[0] == "budget_bot":
-            row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (do[1]["bot"],)).fetchone()
-            declared = _json(row["config_json"] if row else None, {})
-            snap["budgets"][do[1]["bot"]] = {k: declared.get(k) for k in TB.KEYS}
-        if do and do[0] == "inbox":
-            snap["bots"][do[1]["bot"]] = {"state": do[1]["state"]}
-        if do and do[0] == "rename":
-            snap["bots"][ceo_bot.SLUG] = {"display_name": do[1]["before"]}
-        if do and do[0] == "stale_review":
-            snap["stale_review"] = do[1]["on"]
+        if not do:
+            continue
+        kind, args = do
+        if kind == "limit":
+            snap["changes"][obj["id"]] = {"kind": "limit", "where": {k: args.get(k) for k in ("table", "key")},
+                                          "before": _limit_now(c, args),
+                                          "after": {"hourly_usd": None, "per_30m_usd": args["per_30m_usd"]}}
+        if kind == "budget_team" and args["raise"]:
+            now = _budget_now(c, None)
+            keys = [k for k, v in obj["becomes"].items() if not _same(now.get(k), v)]
+            snap["changes"][obj["id"]] = {"kind": "budget", "bot": None, "before": {k: now.get(k) for k in keys},
+                                          "after": {k: obj["becomes"][k] for k in keys}}
+        if kind == "budget_bot":
+            now = _budget_now(c, args["bot"])
+            keys = [k for k, v in args["values"].items() if not _same(now.get(k), v)]
+            snap["changes"][obj["id"]] = {"kind": "budget", "bot": args["bot"], "before": {k: now.get(k) for k in keys},
+                                          "after": {k: args["values"][k] for k in keys}}
+        if kind == "inbox":
+            snap["bots"][args["bot"]] = {"state": args["state"], "object": obj["id"]}
+        if kind == "rename":
+            snap["bots"][ceo_bot.SLUG] = {"display_name": args["before"], "renamed": bool(args["rename"]),
+                                          "object": obj["id"]}
+        if kind == "stale_review":
+            snap["stale_review"] = args["on"]
     return snap
 
 
@@ -573,6 +627,20 @@ def _save(c, who, flow):
     checked = automations._checked(c, flow)
     via = "migration" if not who.via else f"{who.via}, migration"
     automations._save(c, who.actor, aid, checked, None, via=via)
+    return aid
+
+
+def _adopt(c, who, flow):
+    """The Librarian's briefing routine as the hub's Market briefing built-in: made if the hub has not made it yet
+    (or a restore took it away), then given the routine's time, words and on/off."""
+    from . import automations
+    aid = "auto_builtin_" + automations.BRIEFING_KEY
+    row = c.execute("SELECT * FROM automations WHERE id=?", (aid,)).fetchone()
+    if row and row["deleted_at"]:
+        c.execute("UPDATE automations SET deleted_at=NULL WHERE id=?", (aid,))
+    via = "migration" if not who.via else f"{who.via}, migration"
+    automations._save(c, who.actor, aid, automations._checked(c, flow), automations.flow_of(row) if row else None,
+                      via=via)
     return aid
 
 
@@ -586,11 +654,11 @@ def _convert_one(c, who, mid, obj, group_done):
     from . import ceo_bot, team_rules, turn_budgets as TB, usage_limits
     kind, args = obj["_do"]
     now = _now()
-    if kind == "routine":
+    if kind in ("routine", "adopt_briefing"):
         live = c.execute("SELECT next_due FROM schedules WHERE id=? AND deleted_at IS NULL", (obj["id"],)).fetchone()
         if not live:
             return None
-        aid = _save(c, who, obj["becomes"])
+        aid = _save(c, who, obj["becomes"]) if kind == "routine" else _adopt(c, who, obj["becomes"])
         if obj["becomes"]["trigger"]["type"] == "schedule" and live["next_due"]:
             # The routine's own next fire: the occurrence it would have run is the automation's, once.
             c.execute("UPDATE automations SET next_due=? WHERE id=?", (live["next_due"], aid))
@@ -670,10 +738,15 @@ def convert(store, who, accept=None):
         _require_on(c)
         ensure(c)
         _expire(c, _now())
-        live = current(c)
-        if live and live["state"] == "converted":
-            raise Problem("conflict", "The last convert can still be restored; restore it or wait until "
-                                      f"{live['expires']}", 409)
+        # In the same write that starts a convert, so two converts can never both start (each would make its own
+        # "What wakes" automations from the same rules).
+        busy = c.execute("SELECT id, state, expires FROM redesign_migrations WHERE state IN "
+                         f"({','.join('?' * len(OPEN_STATES))}) ORDER BY created DESC LIMIT 1", OPEN_STATES).fetchone()
+        if busy and busy["state"] == "converting":
+            raise Problem("conflict", "A convert is running; wait for it to finish", 409)
+        if busy:
+            raise Problem("conflict", f"The last convert ({busy['state']}) can still be restored; restore it or wait "
+                                      f"until {busy['expires']}", 409)
         objects = plan(c, who)
         if accept:
             for fid in sorted(_accept_ids(objects, accept)):
@@ -705,7 +778,8 @@ def convert(store, who, accept=None):
     kept = [{"kind": o["kind"], "id": o["id"]} for o in objects if o["_do"] and o not in work]
     result = {"converted": len(converted), "failed": failed, "kept": kept}
     with store.transaction() as c:
-        c.execute("UPDATE redesign_migrations SET state='converted', finished=?, result_json=? WHERE id=?",
+        c.execute("UPDATE redesign_migrations SET state='converted', finished=?, result_json=? WHERE id=? "
+                  "AND state IN ('converting','interrupted')",
                   (_now(), json.dumps(result, sort_keys=True), mid))
         from . import audit_log
         audit_log.write(c, who.actor, "redesign_migration:" + mid, None, {"converted": len(converted),
@@ -718,16 +792,26 @@ def convert(store, who, accept=None):
 
 # ---------------------------------------------------------------------------------------------------- restore
 def _expire(c, now):
-    """A snapshot past its day is dropped. What it converted stays converted (and its routines stay held)."""
+    """A snapshot past its day is dropped, a convert cut off by a restart included. What it converted stays converted
+    (and its routines stay held)."""
     if not _table(c, "redesign_migrations"):
         return 0
     return c.execute("UPDATE redesign_migrations SET state='expired', snapshot_json=NULL "
-                     "WHERE state='converted' AND expires<=?", (now,)).rowcount
+                     "WHERE state IN ('converted','interrupted','converting') AND expires<=?", (now,)).rowcount
 
 
 def prune(c, now):
     """The scheduler's hourly sweep: snapshots older than a day go."""
     return _expire(c, now)
+
+
+def interrupted(c):
+    """At startup: a convert still `converting` was cut off by the restart. It is marked `interrupted`, which restore
+    undoes from its snapshot like a finished one (only what it converted) and the sweep expires after its day."""
+    if not _table(c, "redesign_migrations"):
+        return 0
+    return c.execute("UPDATE redesign_migrations SET state='interrupted', finished=? WHERE state='converting'",
+                     (_now(),)).rowcount
 
 
 def _put(c, table, row):
@@ -736,9 +820,58 @@ def _put(c, table, row):
               [row[k] for k in columns])
 
 
+def _set_limit(c, where, values):
+    from . import usage_limits
+    if where["table"] == "registry":
+        stored = _json(_meta(c, usage_limits.KEY), {})
+        stored.update(values)
+        _set_meta(c, usage_limits.KEY, json.dumps(stored, sort_keys=True))
+        return
+    column = "bot" if where["table"] == "usage_limits" else "scope"
+    c.execute(f"UPDATE {where['table']} SET hourly_usd=?, per_30m_usd=? WHERE {column}=?",
+              (values.get("hourly_usd"), values.get("per_30m_usd"), where["key"]))
+
+
+def _set_budget(c, bot, values):
+    from . import turn_budgets as TB
+    declared = _budget_now(c, bot)
+    for k, v in values.items():
+        if v is None:
+            declared.pop(k, None)
+        else:
+            declared[k] = v
+    if bot is None:
+        _set_meta(c, TB.TEAM_KEY, json.dumps(declared, sort_keys=True))
+    else:
+        c.execute("UPDATE bot_config SET config_json=?, revision=revision+1 WHERE bot=?",
+                  (json.dumps(declared, sort_keys=True), bot))
+
+
+def _held_runs(c, aid, ref_prefix):
+    """What restore does with a converted automation's unfinished runs. A run that did something (a turn started, an
+    action done) is left to finish, and so is one the old object cannot take back (an event's): firing it again
+    would do it twice. A run that has done nothing yet on what the old object takes back itself (a schedule's
+    occurrence, a mail the Inbox Manager reads) is skipped, so the old object does it once. Returns the earliest
+    schedule occurrence skipped, for the routine to fire."""
+    now, back = _now(), None
+    for run in c.execute("SELECT id, trigger_ref, state_json FROM automation_runs WHERE automation_id=? "
+                         "AND status='queued'", (aid,)).fetchall():
+        ref = str(run["trigger_ref"] or "")
+        if not ref.startswith(ref_prefix) or _json(run["state_json"], {}).get("steps"):
+            continue
+        c.execute("UPDATE automation_runs SET status='skipped', finished=? WHERE id=? AND status='queued'",
+                  (now, run["id"]))
+        if ref.startswith("schedule:"):
+            due = ref[len("schedule:"):]
+            back = due if back is None or due < back else back
+    return back
+
+
 def restore(c, who):
-    """Put the snapshot back and soft-delete what the convert made. 404 with no migration, 410 once it expired."""
-    from . import ceo_bot, team_rules, turn_budgets as TB
+    """Put back what the convert changed and delete what it made. A finished convert and one cut off by a restart
+    (`interrupted`) are restored alike: only the objects it converted. A field changed since the convert is left as it
+    is and listed in `skipped`. 404 with no migration, 410 once it expired."""
+    from . import ceo_bot, team_rules
     from .scheduler import next_due
     _require_on(c)
     ensure(c)
@@ -747,65 +880,92 @@ def restore(c, who):
     live = current(c)
     if not live or live["state"] in ("restored",):
         raise Problem("not_found", "There is no converted migration to restore", 404)
-    if live["state"] != "converted":
+    if live["state"] not in ("converted", "interrupted"):
         raise Problem("gone", "The snapshot is kept one day after converting; this one has expired", 410)
     mid = live["id"]
     snap = json.loads(c.execute("SELECT snapshot_json FROM redesign_migrations WHERE id=?", (mid,)).fetchone()[0])
-    made = {r["automation"] for r in c.execute("SELECT automation FROM redesign_migrated WHERE migration=? "
-                                               "AND automation IS NOT NULL", (mid,))}
-    # The routines: the row as it was, firing next when its automation would have (no double fire, no gap).
-    nexts = {}
-    for row in c.execute("SELECT m.id, a.next_due FROM redesign_migrated m JOIN automations a ON a.id=m.automation "
-                         "WHERE m.migration=? AND m.kind='routine'", (mid,)):
-        nexts[row["id"]] = row["next_due"]
+    marked = {(r["kind"], r["id"]): r["automation"]
+              for r in c.execute("SELECT kind, id, automation FROM redesign_migrated WHERE migration=?", (mid,))}
+    done = {ident for _, ident in marked}
+    made = {aid for aid in marked.values() if aid}
+    skipped = []
+    # The routines: the row as it was, firing next when its automation would have (no double fire, no gap). A run
+    # its automation queued and has not started gives its occurrence back to the routine.
+    routines_back = 0
     for row in snap["schedules"]:
-        due = nexts.get(row["id"]) or row.get("next_due")
-        if row.get("cron") and not row.get("event_name") and (not due or due <= now):
-            tz = next((sc.get("timezone") for sc in snap["schedule_config"] if sc["schedule_id"] == row["id"]), None)
-            due = _stamp(next_due(row["cron"], _at(now), tz or "America/Los_Angeles"))
+        aid = marked.get(("routine", row["id"]))
+        if not aid:
+            continue
+        auto = c.execute("SELECT next_due FROM automations WHERE id=?", (aid,)).fetchone()
+        due = (auto["next_due"] if auto else None) or row.get("next_due")
+        owed = _held_runs(c, aid, "schedule:")
+        if row.get("cron") and not row.get("event_name"):
+            if owed:
+                due = owed
+            elif not due or due <= now:
+                tz = next((sc.get("timezone") for sc in snap["schedule_config"] if sc["schedule_id"] == row["id"]),
+                          None)
+                due = _stamp(next_due(row["cron"], _at(now), tz or "America/Los_Angeles"))
         _put(c, "schedules", {**row, "deleted_at": None, "next_due": due if row.get("cron") else None,
                               "updated_at": now})
+        routines_back += 1
+    restored_routines = {r["id"] for r in snap["schedules"] if ("routine", r["id"]) in marked}
     for row in snap["schedule_config"]:
-        _put(c, "schedule_config", row)
+        if row["schedule_id"] in restored_routines:
+            _put(c, "schedule_config", row)
+    rules_back = 0
     for row in snap["rules"]:
-        _put(c, "rules", row)
-    for table in ("usage_limits", "usage_pools"):
-        if _table(c, table):
-            key = "bot" if table == "usage_limits" else "scope"
-            for row in snap[table]:
-                c.execute(f"UPDATE {table} SET hourly_usd=?, per_30m_usd=? WHERE {key}=?",
-                          (row.get("hourly_usd"), row.get("per_30m_usd"), row[key]))
-    for key, raw in snap["registry"].items():
-        _set_meta(c, key, raw)
-    for bot, values in snap["budgets"].items():
-        row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
-        declared = _json(row["config_json"] if row else None, {})
-        for k in TB.KEYS:
-            if values.get(k) is None:
-                declared.pop(k, None)
-            else:
-                declared[k] = values[k]
-        c.execute("UPDATE bot_config SET config_json=?, revision=revision+1 WHERE bot=?",
-                  (json.dumps(declared, sort_keys=True), bot))
+        if ("wake_rule", row["id"]) in marked:
+            _put(c, "rules", row)
+            rules_back += 1
+    for oid, change in (snap.get("changes") or {}).items():
+        if oid not in done:
+            continue
+        now_values = _limit_now(c, change["where"]) if change["kind"] == "limit" else _budget_now(c, change["bot"])
+        if not all(_same(now_values.get(k), v) for k, v in change["after"].items()):
+            skipped.append({"id": oid, "why": "changed after the convert; left as it is"})
+            continue
+        if change["kind"] == "limit":
+            _set_limit(c, change["where"], change["before"])
+        else:
+            _set_budget(c, change["bot"], change["before"])
     for bot, was in snap["bots"].items():
-        if "display_name" in was:
-            ceo_bot._rename(c, who.actor, was["display_name"] or "")
-        if was.get("state") == "active" and (H.bot(c, bot) or {}).get("state") == "paused":
-            H.status_set(c, who.actor, bot, state="active", reason="The redesign's convert was restored")
-    if snap.get("stale_review"):
+        if was.get("object") and was["object"] not in done:
+            continue
+        if "display_name" in was and was.get("renamed", True):
+            if ((H.bot(c, bot) or {}).get("display_name") or "") == STRATEGY_NAME:
+                ceo_bot._rename(c, who.actor, was["display_name"] or "")
+            else:
+                skipped.append({"id": was.get("object") or "bot:" + bot, "why": "renamed after the convert"})
+        if was.get("state") == "active":
+            if (H.bot(c, bot) or {}).get("state") == "paused":
+                H.status_set(c, who.actor, bot, state="active", reason="The redesign's convert was restored")
+            else:
+                skipped.append({"id": was.get("object") or "bot:" + bot, "why": "its bot changed after the convert"})
+    for (kind, _), aid in marked.items():
+        if kind == "inbox" and aid:
+            _held_runs(c, aid, "mail:")
+    if snap.get("stale_review") and any(k == "system_job" and i == "job:stale_review" for k, i in marked):
         team_rules.save(c, who.actor, {"stale_review": True})
     for aid in sorted(made):
-        c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=? AND deleted_at IS NULL", (now, aid))
-        c.execute("UPDATE automation_runs SET status='skipped', finished=? WHERE automation_id=? "
-                  "AND status IN ('queued','waiting')", (now, aid))
+        # Its runs already under way finish (above).
+        if aid.startswith("auto_builtin_"):
+            # An adopted built-in is the hub's: it stays, paused, while the routine it took over runs again.
+            from . import automations
+            row = c.execute("SELECT * FROM automations WHERE id=? AND deleted_at IS NULL", (aid,)).fetchone()
+            if row and row["enabled"]:
+                before = automations.flow_of(row)
+                automations._save(c, who.actor, aid, {**before, "enabled": False}, before, via="migration restore")
+        else:
+            c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=? AND deleted_at IS NULL", (now, aid))
     c.execute("DELETE FROM redesign_migrated WHERE migration=?", (mid,))
     c.execute("UPDATE redesign_migrations SET state='restored', restored_at=?, snapshot_json=NULL WHERE id=?", (now, mid))
     from . import audit_log
-    audit_log.write(c, who.actor, "redesign_migration:" + mid, {"state": "converted"}, {"state": "restored"},
+    audit_log.write(c, who.actor, "redesign_migration:" + mid, {"state": live["state"]}, {"state": "restored"},
                     who.via or None)
-    H.event(c, who.actor, "redesign.migration.restored", mid, {"automations": len(made)})
-    return {"migration": mid, "restored": True, "automations_removed": len(made),
-            "routines": len(snap["schedules"]), "rules": len(snap["rules"])}
+    H.event(c, who.actor, "redesign.migration.restored", mid, {"automations": len(made), "skipped": len(skipped)})
+    return {"migration": mid, "restored": True, "automations_removed": len(made), "routines": routines_back,
+            "rules": rules_back, "skipped": skipped}
 
 
 # ---------------------------------------------------------------------------------------------------- hooks
@@ -821,46 +981,106 @@ def holds(c, kind, ident):
 def converted(c):
     """Whether a convert happened that was not restored (its snapshot kept or already expired)."""
     try:
-        return c.execute("SELECT 1 FROM redesign_migrations WHERE state IN ('converting','converted','expired') "
+        return c.execute("SELECT 1 FROM redesign_migrations WHERE state IN ('converting','interrupted','converted',"
+                         "'expired') "
                          "LIMIT 1").fetchone() is not None
     except Exception:   # sqlite3.OperationalError: a database from before the converter
         return False
+
+
+DO_OUTCOME = {"wake_bot": "wake", "note": "note", "archive": "ignore", "leave_for_you": "ask"}
+
+
+def _scalar(key, value):
+    return isinstance(value, (str, int, float, bool)) and bool(F.FIELD.fullmatch(str(key)))
+
+
+def wake_rules_of(aid, flow):
+    """A "What wakes" automation's rules, read from what it shows: each Filter rule's `event is` condition is the
+    event, its `task.<field> is <value>` conditions the rule's conditions, its action the outcome. What a rule
+    carries out of sight is only its id, scope and history, and the conditions a filter cannot show (a list, a
+    range). Raises ValueError (why) for a flow a wake rule cannot express, which `check_wakes` refuses on save."""
+    scope = flow.get("wakes") or {}
+    trigger = flow.get("trigger") or {}
+    if trigger.get("type") != "event" or trigger.get("name") != "tico.wake":
+        raise ValueError("its trigger stays the wake rules' own (event tico.wake)")
+    out = []
+    for n, step in enumerate(flow.get("steps") or []):
+        if step.get("type") != "filter":
+            raise ValueError(f"step {step.get('id')} is a {step.get('type')}: it holds wake rules, one Filter step each")
+        for i, rule in enumerate(step.get("rules") or []):
+            where = f"step {step.get('id')} rule {i + 1}"
+            then = rule.get("then") or []
+            if len(then) != 1:
+                raise ValueError(f"{where}: a wake rule does one thing (wake, note, archive or leave for you)")
+            if rule.get("stop") is False:
+                raise ValueError(f"{where}: a wake rule stops at the first match; keep 'stop' on")
+            action = then[0]
+            args = action.get("args") or {}
+            source = args.get("rule") if isinstance(args.get("rule"), dict) else {}
+            event, when = None, {}
+            conds = rule.get("when") or []
+            if len(conds) > 1 and rule.get("match", "all") != "all":
+                raise ValueError(f"{where}: a wake rule matches all of its conditions")
+            for cond in conds:
+                field, op = str(cond.get("field") or ""), cond.get("op")
+                if field == "event" and op == "is" and event is None and isinstance(cond.get("value"), str):
+                    event = cond["value"]
+                elif field.startswith("task.") and op == "is" and _scalar(field[5:], cond.get("value")):
+                    when[field[5:]] = cond["value"]
+                else:
+                    raise ValueError(f"{where}: a wake rule's conditions are 'event is' and 'task.<field> is'")
+            # The conditions it never showed (not a simple value) stay; every one it showed is as the filter says.
+            when = {**{k: v for k, v in (source.get("when") or {}).items() if not _scalar(k, v)}, **when}
+            do, outcome = action.get("do"), args.get("outcome")
+            params = args.get("params") if isinstance(args.get("params"), dict) else {}
+            # What the converter showed for the rule's own outcome (_rule_step): kept, with its params, while shown.
+            was = params["action"] if outcome == "action" and params.get("action") in F.ACTIONS \
+                else OUTCOME_DO.get(outcome, "wake_bot")
+            if not (outcome and source and do == was):
+                if do not in DO_OUTCOME:
+                    raise ValueError(f"{where}: a wake rule wakes, notes, archives or leaves for you, not {do}")
+                outcome, params = DO_OUTCOME[do], {}
+            out.append({"id": source.get("id") or f"{aid}.{step.get('id')}.{i + 1}",
+                        "scope_kind": scope.get("scope_kind") or source.get("scope_kind") or "bot",
+                        "scope_id": scope.get("scope_id") or source.get("scope_id") or "", "event": event or "*",
+                        "when_json": json.dumps(when, sort_keys=True), "then_outcome": outcome,
+                        "params_json": json.dumps(params, sort_keys=True),
+                        "enabled": 0 if step.get("enabled") is False else 1,
+                        "position": source.get("position") if source.get("position") is not None else n + 1,
+                        "note": source.get("note") or "", "created_by": source.get("created_by") or "",
+                        "created": source.get("created") or "", "updated": source.get("updated") or "",
+                        "revision": source.get("revision") or 1, "action_by": source.get("action_by")})
+    return out
+
+
+def check_wakes(flow):
+    """On save (automations._checked): a "What wakes" automation is refused (422) when an edit is one its wake rules
+    cannot carry out, rather than saved to show one thing and do another."""
+    if not flow.get("wakes") or flow.get("readonly"):
+        return
+    try:
+        wake_rules_of("check", flow)
+    except ValueError as exc:
+        raise Problem("invalid", f"A What wakes automation holds wake rules: {exc}", 422)
 
 
 def wake_rows(c, event=None):
     """The converted wake rules, read back from the enabled "What wakes" automations as rules-table rows (rules.py adds
     them to its own). `event` keeps rows on that event or `*`; None keeps every row."""
     try:
-        found = c.execute("SELECT flow_json, enabled FROM automations WHERE id>=? AND id<? AND deleted_at IS NULL "
+        found = c.execute("SELECT id, flow_json FROM automations WHERE id>=? AND id<? AND deleted_at IS NULL "
                           "AND enabled=1", (WAKES_PREFIX, WAKES_PREFIX[:-1] + "`")).fetchall()
     except Exception:   # sqlite3.OperationalError: no automations table yet
         return []
     out = []
     for row in found:
-        flow = _json(row["flow_json"], {})
-        for step in flow.get("steps") or []:
-            if step.get("type") != "filter" or step.get("enabled") is False:
-                continue
-            for rule in step.get("rules") or []:
-                for action in rule.get("then") or []:
-                    args = action.get("args") or {}
-                    source = args.get("rule") if isinstance(args.get("rule"), dict) else None
-                    if not source or not source.get("id"):
-                        continue
-                    named = next((w.get("value") for w in rule.get("when") or []
-                                  if w.get("field") == "event" and w.get("op") == "is"), None)
-                    ev = str(named) if named else "*"
-                    if event is not None and ev not in (event, "*"):
-                        continue
-                    out.append({"id": source["id"], "scope_kind": source.get("scope_kind") or "bot",
-                                "scope_id": source.get("scope_id") or "", "event": ev,
-                                "when_json": json.dumps(source.get("when") or {}, sort_keys=True),
-                                "then_outcome": args.get("outcome") or "wake",
-                                "params_json": json.dumps(args.get("params") or {}, sort_keys=True), "enabled": 1,
-                                "position": source.get("position") or 0, "note": source.get("note") or "",
-                                "created_by": source.get("created_by") or "", "created": source.get("created") or "",
-                                "updated": source.get("updated") or "", "revision": source.get("revision") or 1,
-                                "action_by": source.get("action_by")})
+        try:
+            rows = wake_rules_of(row["id"], _json(row["flow_json"], {}))
+        except ValueError:   # saved before the check (or by hand): nothing it shows can run
+            log.warning("redesign migration: %s cannot be read as wake rules", row["id"])
+            continue
+        out += [r for r in rows if r["enabled"] and (event is None or r["event"] in (event, "*"))]
     return out
 
 
@@ -874,13 +1094,15 @@ def install(app, store, auth, mutate):
     from fastapi import Request
     from .models import Empty
 
+    dormant = redesign.dormant()
+
     def owner(c, who):
         _require_on(c)
         auth.domain(who)
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner (or BotOps for the owner) runs the redesign's migration", 403)
 
-    @app.post("/api/v2/redesign/migration/dry-run")
+    @app.post("/api/v2/redesign/migration/dry-run", **dormant)
     def migration_dry_run(request: Request, body: Empty | None = None):
         """Every object today's install has, what it becomes and its flags. Writes nothing."""
         who = request.state.identity
@@ -888,7 +1110,7 @@ def install(app, store, auth, mutate):
             owner(c, who)
             return report(c, who)
 
-    @app.post("/api/v2/redesign/migration/resolve")
+    @app.post("/api/v2/redesign/migration/resolve", **dormant)
     def migration_resolve(request: Request, body: Accept):
         """Say yes to flagged mappings, as the dry run lists them; returns the dry run again."""
         who = request.state.identity
@@ -899,7 +1121,7 @@ def install(app, store, auth, mutate):
             return resolve(c, who, body.accept)
         return mutate(request, body, work)
 
-    @app.post("/api/v2/redesign/migration/convert")
+    @app.post("/api/v2/redesign/migration/convert", **dormant)
     def migration_convert(request: Request, body: Accept | None = None):
         """Snapshot, then convert one object per transaction. 409 while a flag has no yes; `accept` says yes here."""
         who = request.state.identity
@@ -907,7 +1129,7 @@ def install(app, store, auth, mutate):
             owner(c, who)
         return convert(store, who, (body.accept if body else None))
 
-    @app.post("/api/v2/redesign/migration/restore")
+    @app.post("/api/v2/redesign/migration/restore", **dormant)
     def migration_restore(request: Request, body: Empty | None = None):
         """Within a day of converting: the old objects back, the converted automations gone. 410 after the day."""
         who = request.state.identity

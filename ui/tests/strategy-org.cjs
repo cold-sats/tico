@@ -1,8 +1,9 @@
 // Strategy › Org with the redesign on (ui/app/redesign-org.js) against the fake hub in support/strategy-fake.cjs (the
 // Acme example): the chart top down with the owner on top, groups as outlines that fold (and stay folded), helpers off
-// it, pinch and the zoom buttons; a teammate's sheet with its group and Move to…; the owner moves at once (PATCH
-// /api/v2/groups), anyone else files an org approval; a proposal waiting on the owner is one row with Approve and
-// Decline. With the setting off, #/strategy/org draws none of it. A phone first, then a computer.
+// it, pinch and the zoom buttons; a teammate's sheet with its group and Move to…; the owner, and a lead inside the
+// groups it leads, move at once (PATCH /api/v2/groups), anyone else files an org approval; a proposal waiting on the
+// owner is one row with Approve and Decline. With the setting off, #/strategy/org draws none of it. A phone first,
+// then a computer.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openStrategy, PHONE, DESKTOP, sideways, shot} = require('./support/strategy-fake.cjs');
@@ -115,6 +116,32 @@ async function chart(page, tag) {
         {method: 'POST', path: '/api/v2/approvals', body: {kind: 'org', payload: {bot: 'bot:sdr', from: 'sales', to: 'eng'}}},
       ], tag + ': an org approval, no group change');
       assert.ok(await inGroup(page, 'bot:sdr', 'sales'), tag + ': SDR stays in Sales until approved');
+      assert.deepEqual(errors, [], tag + ': no page errors');
+      await page.close();
+    }
+
+    // A phone, a lead who is not an admin: inside the groups he leads a move happens at once (PATCH, audited by the
+    // hub); out of them it is an org approval.
+    {
+      const tag = 'phone lead';
+      const {page, errors, writes} = await openStrategy(browser, {viewer: 'ben'});
+      await chart(page, tag);
+      const ask = async (ref, to, label) => {
+        await page.locator(card(ref)).click();
+        const sheet = page.locator('dialog.rd-sheet[open]');
+        await sheet.locator('select[name="to"]').selectOption(to);
+        assert.equal(await sheet.locator('[type=submit]').innerText(), label, `${tag}: ${ref} to ${to} is ${label}`);
+        await sheet.locator('[type=submit]').click();
+        await sheet.waitFor({state: 'detached'});
+      };
+      await ask('bot:sdr', 'outbound', 'Move');
+      await page.waitForFunction(() => document.querySelector('[data-rdo-group="outbound"] [data-rdo-ref="bot:sdr"]'));
+      await ask('bot:sales-lead', 'eng', 'Ask to move');
+      assert.deepEqual(writes.filter(w => w.path.startsWith('/api/v2/groups') || w.path.startsWith('/api/v2/approvals')), [
+        {method: 'PATCH', path: '/api/v2/groups/outbound', body: {add: {bots: ['sdr']}}},
+        {method: 'POST', path: '/api/v2/approvals', body: {kind: 'org', payload: {bot: 'bot:sales-lead', from: 'sales', to: 'eng'}}},
+      ], tag + ': a direct move inside Sales, an org approval out of it');
+      assert.ok(await inGroup(page, 'bot:sales-lead', 'sales'), tag + ': Sales Lead stays in Sales until approved');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }

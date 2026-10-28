@@ -16,7 +16,7 @@ from fastapi import Request
 
 from . import bot_access as A
 from . import models as M
-from . import providers, usage_limits, views
+from . import providers, redesign, task_caps, usage_limits, views
 from .store import H, P, Problem
 from .usage_records import RUNS
 from .subscription_identity import usage_label
@@ -73,20 +73,129 @@ def spend(item):
     return (item["est_cost_usd"] or 0) + item["subscription_equiv_usd"]
 
 
-def install(app, store, auth, mutate, settings):
-    def own_bots(c, who):
-        """The slugs `who` may see usage for: every bot for the owner and administrators, else the
-        bots they run or own."""
-        slugs = {row["slug"] for row in H.bots(c)}
-        if auth.bot_admin(who):
-            return slugs
-        pid = H.actor_id(who.actor)
-        mine = set()
-        for row in c.execute("SELECT bot, operator, bot_owners_json FROM bot_config"):
-            if row["operator"] == pid or pid in A.owner_ids(row["bot_owners_json"]):
-                mine.add(row["bot"])
-        return mine & slugs
+def own_bots(c, auth, who):
+    """The slugs `who` may see usage for: every bot for the owner and administrators, else the
+    bots they run or own."""
+    slugs = {row["slug"] for row in H.bots(c)}
+    if auth.bot_admin(who):
+        return slugs
+    pid = H.actor_id(who.actor)
+    mine = set()
+    for row in c.execute("SELECT bot, operator, bot_owners_json FROM bot_config"):
+        if row["operator"] == pid or pid in A.owner_ids(row["bot_owners_json"]):
+            mine.add(row["bot"])
+    return mine & slugs
 
+def valid(value, name):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= usage_limits.MAX_USD:
+        raise Problem("limit", f"{name} is an amount in USD above zero, or empty for none", 422)
+    return round(float(value), 6)
+
+def amounts(c, body):
+    """The caps a save carries, by period. With the redesign on the 30-minute window replaces the hour: an
+    `hourly_usd` becomes the half hour at the same rate (half of it, up to the next $0.10) and the hour is cleared.
+    With it off the hour is the window, and `per_30m_usd` is refused."""
+    on = redesign.on(c)
+    if not on and getattr(body, "per_30m_usd", None) is not None:
+        raise Problem("limit", "per_30m_usd needs the redesign on; send hourly_usd", 422)
+    caps = {key: valid(getattr(body, key, None), key) for key in usage_limits.KEYS}
+    if on and caps["hourly_usd"] is not None:
+        if caps["per_30m_usd"] is not None:
+            raise Problem("limit", "Send per_30m_usd or hourly_usd, not both", 422)
+        caps["per_30m_usd"] = usage_limits.half(caps["hourly_usd"])
+        caps["hourly_usd"] = None
+    return caps
+
+def led_bots(c, who):
+    """The bots a group lead may set limits for, with the redesign on: every bot in a group the caller leads, nested
+    groups included. Empty when the redesign is off or the caller leads no group."""
+    if not redesign.on(c):
+        return set()
+    named, _ = usage_limits.groups(c)
+    out = set()
+    for gid, g in named.items():
+        if g.get("lead") and task_caps.actor(g["lead"]) == who.actor:
+            out |= usage_limits.members(c, "group:" + gid)
+    return out
+
+def parents_allow(c, gid, caps, named):
+    """With the redesign on, a group's limit may not exceed its parent group's, nor the one above that."""
+    seen, parent = {gid}, (named.get(gid) or {}).get("parent")
+    while parent and parent not in seen:
+        seen.add(parent)
+        above = usage_limits.pool(c, "group:" + parent)
+        for key in usage_limits.KEYS:
+            if caps[key] is not None and above[key] is not None and caps[key] > above[key]:
+                raise Problem("limit", f"Over {usage_limits.label(c, 'group:' + parent)}: its limit is ${above[key]:g}, "
+                              "so a group's limit can be lower, not higher", 422)
+        parent = (named.get(parent) or {}).get("parent")
+
+
+def _audit(c, who, obj, before, after, via):
+    """A spend change as one audit row (CONTRACT §5, object `spend:<bot>` or `spend:pool:<scope>`), redesign on only."""
+    if redesign.on(c) and before != after:
+        from . import audit_log
+        audit_log.write(c, who.actor, obj, before, after, via)
+
+
+def _caps_of(row):
+    return {key: row[key] for key in usage_limits.KEYS} if row and any(row[key] is not None for key in usage_limits.KEYS) \
+        else None
+
+
+def save_pool(c, auth, who, scope, body, via=None):
+    """A limit on the combined spend of the whole team or a group; empty removes it. The owner and bot administrators;
+    with the redesign on, also the lead of the group or of one above it."""
+    gid = scope.split(":", 1)[1] if scope != usage_limits.COMPANY else None
+    if not auth.bot_admin(who):
+        from . import groups as G
+        if gid is None or gid not in G.led_groups(c, who.actor):
+            raise Problem("forbidden", "Only the owner and administrators set team and group limits", 403)
+    default = usage_limits.company(c)
+    named = usage_limits.groups(c, default)[0]
+    if gid is not None and gid not in named:
+        raise Problem("not_found", "Group not found", 404)
+    caps = amounts(c, body)
+    if gid is not None and redesign.on(c):
+        parents_allow(c, gid, caps, named)
+    before = _caps_of(usage_limits.pool(c, scope))
+    usage_limits.save_pool(c, scope, caps, who.actor)
+    H.event(c, who.actor, "usage.pool-set", scope, caps)
+    _audit(c, who, "spend:pool:" + scope, before, _caps_of(usage_limits.pool(c, scope)), via)
+    return {"scope": scope, "limit": usage_limits.pool_state(c, scope, default=usage_limits.company(c))}
+
+
+def save_limit(c, auth, who, bot, body, via=None):
+    """A bot's own limits; empty follows the company default. Its owners and administrators, and with the redesign on
+    the lead of a group it is in. Returns (the saved caps, who may edit)."""
+    led = led_bots(c, who)
+    if who.role not in ("owner", "human") and not led:
+        raise Problem("forbidden", "Usage is for people", 403)
+    if not H.bot(c, bot) or (who.role != "bot" and not auth.visible_bot(c, who, bot)):
+        raise Problem("not_found", "Bot not found", 404)
+    allowed = own_bots(c, auth, who) | led
+    if bot not in allowed:
+        raise Problem("forbidden", "Limits are for a bot's owners and administrators", 403)
+    wanted = amounts(c, body)
+    default = usage_limits.company(c)
+    if not auth.bot_admin(who):
+        for key, value in wanted.items():
+            if value is not None and default[key] is not None and value > default[key]:
+                raise Problem("limit", f"The company default is ${default[key]:g}; a bot's limit can be lower, not higher", 403)
+    before = _caps_of(usage_limits.own(c, bot))
+    marks = ",".join("?" * len(usage_limits.KEYS))
+    c.execute(f"INSERT INTO usage_limits(bot, {', '.join(usage_limits.KEYS)}, updated, updated_by) VALUES(?,{marks},?,?) "
+              "ON CONFLICT(bot) DO UPDATE SET " + ", ".join(f"{key}=excluded.{key}" for key in usage_limits.KEYS) +
+              ", updated=excluded.updated, updated_by=excluded.updated_by",
+              (bot, *(wanted[key] for key in usage_limits.KEYS), H.now(), who.actor))
+    H.event(c, who.actor, "usage.limit-set", H.bot_actor(bot), wanted)
+    _audit(c, who, "spend:" + bot, before, _caps_of(usage_limits.own(c, bot)), via)
+    return default, allowed
+
+
+def install(app, store, auth, mutate, settings):
     def window(start, end):
         """(first day, last day) from the query; the default is the last seven days."""
         try:
@@ -134,13 +243,21 @@ def install(app, store, auth, mutate, settings):
         if found["blocked_by"] and found["blocked_by"]["scope"] != "bot" and not auth.bot_admin(who):
             found["blocked_by"] = {k: v for k, v in found["blocked_by"].items() if k not in ("spent", "limit")}
         mine = usage_limits.own(c, bot)
-        return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed}
+        # With the redesign on, the capped pools it counts against, nearest group first: they follow its home group.
+        pools = {"pools": usage_limits.scopes_of(c, bot, default)} if redesign.on(c) else {}
+        return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed, **pools}
 
-    def pool_views(c, default):
-        """Every group with what it and the whole team are capped at and have spent (the owner and administrators)."""
+    def pool_views(c, default, led=None):
+        """Every group with what it and the whole team are capped at and have spent (the owner and administrators).
+        With `led` (a lead who is not an administrator, the redesign on), only those groups, each `may_edit`, and no
+        company pool."""
         named, _ = usage_limits.groups(c, default)
         groups = {gid: {"name": g.get("name") or gid, "parent": g.get("parent") or None,
-                        **usage_limits.pool_state(c, "group:" + gid, default=default)} for gid, g in named.items()}
+                        **usage_limits.pool_state(c, "group:" + gid, default=default),
+                        **({"may_edit": True} if led is not None else {})}
+                  for gid, g in named.items() if led is None or gid in led}
+        if led is not None:
+            return {"company": None, "groups": groups}
         return {"company": usage_limits.pool_state(c, usage_limits.COMPANY, default=default), "groups": groups}
 
     @app.get("/api/v2/usage/limits")
@@ -153,20 +270,13 @@ def install(app, store, auth, mutate, settings):
             raise Problem("forbidden", "Usage is for people", 403)
         with store.read() as c:
             default = usage_limits.company(c)
-            allowed = own_bots(c, who)
+            allowed = own_bots(c, auth, who)
             admin = bool(auth.bot_admin(who))
-            return {"default": default, "may_edit_default": admin, "pools": pool_views(c, default) if admin else None,
+            from . import groups as G
+            led = None if admin else G.led_groups(c, who.actor)          # empty while the redesign is off
+            pools = pool_views(c, default) if admin else pool_views(c, default, led) if led else None
+            return {"default": default, "may_edit_default": admin, "pools": pools,
                     "bots": {bot: limit_view(c, who, bot, default, allowed) for bot in sorted(allowed)}}
-
-    def valid(value, name):
-        if value is None:
-            return None
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= usage_limits.MAX_USD:
-            raise Problem("limit", f"{name} is an amount in USD above zero, or empty for none", 422)
-        return round(float(value), 6)
-
-    def amounts(body):
-        return {key: valid(getattr(body, key), key) for key in usage_limits.KEYS}
 
     @app.put("/api/v2/usage/limits")
     def set_default(request: Request, body: M.UsageDefault):
@@ -177,7 +287,7 @@ def install(app, store, auth, mutate, settings):
         def work(c):
             if not auth.bot_admin(who):
                 raise Problem("forbidden", "Only the owner and administrators set the company default", 403)
-            value = {**amounts(body), "count_subscription": bool(body.count_subscription)}
+            value = {**amounts(c, body), "count_subscription": bool(body.count_subscription)}
             c.execute("INSERT INTO registry_metadata(key, value_json) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
                       (usage_limits.KEY, json.dumps(value)))
             H.event(c, who.actor, "usage.default", "company", value)
@@ -185,21 +295,10 @@ def install(app, store, auth, mutate, settings):
         return mutate(request, body, work)
 
     def set_pool(request, scope, body):
-        """A limit on the combined spend of the whole team or a group (owner and bot administrators); empty removes it."""
+        """A limit on the combined spend of the whole team or a group; empty removes it."""
         who = request.state.identity
         auth.domain(who)
-
-        def work(c):
-            if not auth.bot_admin(who):
-                raise Problem("forbidden", "Only the owner and administrators set team and group limits", 403)
-            default = usage_limits.company(c)
-            if scope != usage_limits.COMPANY and scope.split(":", 1)[1] not in usage_limits.groups(c, default)[0]:
-                raise Problem("not_found", "Group not found", 404)
-            caps = amounts(body)
-            usage_limits.save_pool(c, scope, caps, who.actor)
-            H.event(c, who.actor, "usage.pool-set", scope, caps)
-            return {"scope": scope, "limit": usage_limits.pool_state(c, scope, default=usage_limits.company(c))}
-        return mutate(request, body, work)
+        return mutate(request, body, lambda c: save_pool(c, auth, who, scope, body))
 
     @app.put("/api/v2/usage/pools/company")
     def set_company_pool(request: Request, body: M.UsageLimit):
@@ -213,31 +312,14 @@ def install(app, store, auth, mutate, settings):
 
     @app.put("/api/v2/usage/limits/{bot}")
     def set_limit(request: Request, bot: str, body: M.UsageLimit):
-        """A bot's own hourly, daily, weekly and monthly limit in estimated USD; empty follows the company default. A
-        person who runs the bot but is not an administrator may not go above the company default."""
+        """A bot's own 30-minute (or hourly, redesign off), daily, weekly and monthly limit in estimated USD; empty follows the
+        company default. A person who runs the bot but is not an administrator may not go above the company default. With
+        the redesign on, a group's lead may set it for every bot in the group."""
         who = request.state.identity
         auth.domain(who)
 
         def work(c):
-            if who.role not in ("owner", "human"):
-                raise Problem("forbidden", "Usage is for people", 403)
-            if not H.bot(c, bot) or not auth.visible_bot(c, who, bot):
-                raise Problem("not_found", "Bot not found", 404)
-            allowed = own_bots(c, who)
-            if bot not in allowed:
-                raise Problem("forbidden", "Limits are for a bot's owners and administrators", 403)
-            wanted = amounts(body)
-            default = usage_limits.company(c)
-            if not auth.bot_admin(who):
-                for key, value in wanted.items():
-                    if value is not None and default[key] is not None and value > default[key]:
-                        raise Problem("limit", f"The company default is ${default[key]:g}; a bot's limit can be lower, not higher", 403)
-            c.execute("INSERT INTO usage_limits(bot, hourly_usd, daily_usd, weekly_usd, monthly_usd, updated, updated_by) "
-                      "VALUES(?,?,?,?,?,?,?) ON CONFLICT(bot) DO UPDATE SET hourly_usd=excluded.hourly_usd, "
-                      "daily_usd=excluded.daily_usd, weekly_usd=excluded.weekly_usd, monthly_usd=excluded.monthly_usd, "
-                      "updated=excluded.updated, updated_by=excluded.updated_by",
-                      (bot, *(wanted[key] for key in usage_limits.KEYS), H.now(), who.actor))
-            H.event(c, who.actor, "usage.limit-set", H.bot_actor(bot), wanted)
+            default, allowed = save_limit(c, auth, who, bot, body)
             return {"bot": bot, "limit": limit_view(c, who, bot, default, allowed)}
         return mutate(request, body, work)
 
@@ -254,7 +336,7 @@ def install(app, store, auth, mutate, settings):
             raise Problem("group", "group must be one of: " + ", ".join(GROUPS), 422)
         filters = {key: request.query_params[key] for key in DIMENSIONS if request.query_params.get(key)}
         with store.read() as c:
-            allowed = own_bots(c, who)
+            allowed = own_bots(c, auth, who)
             people, configs = views.roster(c), views.entries(c, settings.github_owner)
             depts = {slug: P.team_of(slug, configs, people) or "" for slug in allowed}
             names = {row["slug"]: row["display_name"] or row["slug"] for row in H.bots(c)}

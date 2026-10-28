@@ -28,7 +28,7 @@ The owner and the admins see every bot. Anyone else sees the bots they own. A bo
 
 ## Limits
 
-A limit is a cap in estimated USD per hour, day, week or month, set at three levels:
+A limit is a cap in estimated USD per 30 minutes, day, week or month, set at three levels. With the redesign off, the window is the hour (an hourly limit).
 
 - **A bot**: its own limits; the team has a default for bots with none of their own. Change a bot's on its Usage row or in
   Settings > Bots; the owner and administrators also set the default (Usage > **Default limit**). The owner of a bot may set its
@@ -43,10 +43,11 @@ it.
 - At 80% of a limit, one message goes to the bot's owner (else the team owner); for a group or the team, to the team owner. A chip
   shows on the bot's Usage row.
 - At a limit, every bot it covers takes no new job until the period turns over or the limit is raised. The job stays queued, the bot
-  reads "Paused: over its hourly limit" (its own) or "Paused: the team is over its hourly limit" on its page and in Tasks, and a run
+  reads "Paused: over its 30-minute limit" (its own) or "Paused: the team is over its 30-minute limit" on its page and in Tasks ("hourly" for an hourly limit), and a run
   already going finishes. A group's or the team's total is shown only to the owner and administrators.
-- What counts is the estimate of the runs the bots finished that started in the UTC clock hour, the UTC day, the week from Monday
-  00:00 UTC, or the UTC month. Subscription runs count their API-equivalent unless the team turns off "Count subscription runs" (in
+- What counts is the estimate of the runs the bots finished that started in the UTC half hour (the clock hour with the redesign
+  off), the UTC day, the week from Monday 00:00 UTC, or the UTC month. With the redesign on, an hourly limit is saved as the half hour
+  at the same rate: half of it, rounded up to $0.10. Subscription runs count their API-equivalent unless the team turns off "Count subscription runs" (in
   the default limit), for every level.
 - Separate from these cost limits, each bot has a run budget (runs per hour and per day, default 300 and 2500) that stops a runaway loop; see [Run budgets](how-it-works.md).
 - A message is sent once per bot or pool, period and limit, so raising a limit arms it again.

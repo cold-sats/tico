@@ -14,19 +14,19 @@ const whoami = page => page.evaluate(async () => (await fetch('/api/v2/me', {cac
   try {
     browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
     assert.deepEqual(Object.keys(hub.tokens).sort(),
-      ['ana', 'builder-claude', 'builder-openai', 'chris', 'engineering-lead', 'release-manager']);
+      ['ana', 'builder-claude', 'builder-openai', 'dana', 'engineering-lead', 'omar', 'priya', 'release-manager']);
 
     for (const phone of [true, false]) {
-      const page = await pageAs(browser, hub, 'ana', {phone});
+      const page = await pageAs(browser, hub, 'dana', {phone});
       try {
         await page.waitForFunction(() => {
           const who = document.querySelector('#account .account-email')?.textContent || '';
           return who !== '' && who !== 'Signing in…' && document.querySelector('#main')?.children.length > 0;
         }, null, {timeout: t(20000)});
         assert.equal(await page.evaluate(() => innerWidth), phone ? 390 : 1440, 'the viewport is the one asked for');
-        assert.equal(await page.locator('#account .account-email').innerText(), 'ana@acme.example');
+        assert.equal(await page.locator('#account .account-email').innerText(), 'dana@acme.example');
         const me = await whoami(page);
-        assert.equal(me.actor, 'human:ana');
+        assert.equal(me.actor, 'human:dana');
         assert.equal(me.role, 'owner');
       } finally {
         await page.context().close();

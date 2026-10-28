@@ -5,11 +5,17 @@ import json
 
 from ..harness import (CLAUDE, CLAUDE_REF, DANA, DANA_REF, LEAD, LEAD_ID, LEAD_REF, OMAR, OMAR_REF, OPENAI_ID,
                        OPENAI_REF, PRIYA, PRIYA_REF, RELEASE_ID, RELEASE_REF, W2, W3, Check, Scenario, Unmet,
-                       approval_id_of, audit_of, auto_id, automation, body, decide, edit_auto, find, get_caps, got,
-                       make_group, put_cap, put_limit, replied, rows, run_now, setup, untestable)
+                       approval_id_of, audit_of, hub_notices, auto_id, automation, body, decide, edit_auto, find, get_caps, got,
+                       make_group, put_cap, put_limit, replied, rows, run_now, setup)
 
-NO_NOTICE_ROUTE = ("CONTRACT §5 names no read for a note to BotOps: GET /api/v2/notices is Tico Team's notice list "
-                   "(backend/tico_notices.py), not a hub message to BotOps")
+BOTOPS = {"botops": ("botops", "claude")}   # the helper that hears of every applied proposal
+
+
+def noted(f, key, approval_key):
+    """BotOps got exactly one hub notice naming the approval (CONTRACT §5: from keeper, kind notice, refs.approval)."""
+    aid = approval_of(f, approval_key)
+    hits = [m for m in got(f, key) if (m.get("refs") or {}).get("approval") == aid]
+    return len(hits) == 1, f"{len(hits)} notice(s) naming approval {aid}"
 
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -135,6 +141,7 @@ def s34_steps(org, f):
     org.step(f, "decide", lambda: decide(org, approval_of(f, "propose"), "approved"))
     org.step(f, "caps_after", get_caps, org)
     org.step(f, "audit", audit_of, org, obj=f"task_cap:{CLAUDE_REF}>{LEAD_REF}")
+    org.step(f, "botops", hub_notices, org, "botops")
 
 
 # ---------------------------------------------------------------------------------------------- 35 audit
@@ -252,8 +259,8 @@ SCENARIOS = [
               lambda f: cap_at(f, "caps_after", CLAUDE_REF, LEAD_REF, 2, needs=("decide",))),
         Check("the cap change is audited with via approval:<id>", W2,
               lambda f: audit_via(f, "audit", approval_of(f, "propose"))),
-        Check("BotOps gets a notice about the change", W2, untestable(NO_NOTICE_ROUTE)),
-    ]),
+        Check("BotOps gets a notice about the change", W2, lambda f: noted(f, "botops", "propose")),
+    ], bots=BOTOPS),
     Scenario(35, "perm-audit", "Every change writes actor, object, before and after", s35_steps, [
         Check("cap saves and automation writes each leave a row with actor, object, via, before, after", W2, audited),
         Check("the 5 to 7 cap change shows its before and after", W2, change_shown),

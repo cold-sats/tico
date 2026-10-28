@@ -105,6 +105,7 @@ percent
 person
 person_add
 person_search
+play_arrow
 podium
 power
 price_check

@@ -356,6 +356,7 @@ def _save(c, record):
 # tasks it filed for that person since midnight UTC, whoever filed them for it: its own `hub task create` and the asks
 # backend/goal_asks.py files in its name, and the items it merged several bots' asks into (backend/ceo_merge.py).
 DAILY_CAP = 5
+NO_LIMIT = 10 ** 6          # the redesign drops the daily cap: the room never runs out
 
 
 def day_start(at=None):
@@ -384,7 +385,10 @@ def asked_today_all(c, at=None):
 
 
 def room_today(c, person, at=None):
-    """How many more items the CEO Bot may put in this person's Needs you today."""
+    """How many more items the CEO Bot may put in this person's Needs you today (no limit with the redesign on)."""
+    from . import redesign
+    if redesign.on(c):
+        return NO_LIMIT
     return max(0, DAILY_CAP - asked_today(c, person, at))
 
 
@@ -392,7 +396,8 @@ def check_cap(c, actor, owner):
     """Refuse a sixth task today from the CEO Bot to one person. Like any refusal it counts toward the bot's quarantine,
     so its playbooks read `asked_today` in `GET /api/v2/ceo-bot` first and keep the rest for tomorrow; the asks
     backend/goal_asks.py files check `room_today`, and the urgent ones pass `capped=False`."""
-    if actor != "bot:" + SLUG or not H.is_human(owner):
+    from . import redesign
+    if actor != "bot:" + SLUG or not H.is_human(owner) or redesign.on(c):
         return
     if room_today(c, owner) == 0:
         raise H.Refused("cap", f"The {name(c)} already put {DAILY_CAP} items in this person's Needs you today; "

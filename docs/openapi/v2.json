@@ -132,6 +132,68 @@
     }
   ],
   "paths": {
+    "/api/v2/approvals": {
+      "post": {
+        "summary": "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
+        "operationId": "requestApproval",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRequested"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Needs you"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/approvals/{aid}": {
       "get": {
         "summary": "One approval request",
@@ -1093,7 +1155,7 @@
         ]
       },
       "post": {
-        "summary": "Save a new automation as version 1; a flow that fails its checks is refused with where and why",
+        "summary": "Save a new automation as version 1; a flow that fails its checks is refused with where and why. The Automations Bot saves a draft instead: for the person it is talking to, off, its first version pending until they turn it on",
         "operationId": "createAutomation",
         "requestBody": {
           "required": true,
@@ -1703,7 +1765,7 @@
     },
     "/api/v2/automations/{aid}/versions/{n}": {
       "delete": {
-        "summary": "Discard a pending version (409 for any other)",
+        "summary": "Discard a pending version (409 for any other); the Automations Bot is refused",
         "operationId": "discardAutomationVersion",
         "parameters": [
           {
@@ -1790,7 +1852,7 @@
     },
     "/api/v2/automations/{aid}/versions/{n}/restore": {
       "post": {
-        "summary": "Make a version current: a pending one keeps its number, an older one is saved as a new version",
+        "summary": "Make a version current: a pending one keeps its number, an older one is saved as a new version; a draft's first pending version turns it on. The Automations Bot is refused",
         "operationId": "restoreAutomationVersion",
         "parameters": [
           {
@@ -14142,7 +14204,7 @@
     },
     "/api/v2/redesign/migration/convert": {
       "post": {
-        "summary": "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag has no yes, unless `accept` names it; 409 while an earlier convert can still be restored",
+        "summary": "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag has no yes, unless `accept` names it; 409 while another convert runs or can still be restored",
         "operationId": "migrationConvert",
         "requestBody": {
           "content": {
@@ -14342,7 +14404,7 @@
     },
     "/api/v2/redesign/migration/restore": {
       "post": {
-        "summary": "Within a day of converting: the old objects back, the converted automations deleted. 410 once the day is over",
+        "summary": "Within a day of converting (or after a restart cut it off): what it changed back, its automations deleted; a field changed since is left and listed in `skipped`. 410 once the day is over",
         "operationId": "migrationRestore",
         "requestBody": {
           "content": {
@@ -17435,6 +17497,164 @@
             },
             "description": "1-200 characters. Reusing a key with the same body replays the first answer."
           }
+        ]
+      }
+    },
+    "/api/v2/task-caps": {
+      "get": {
+        "summary": "Task caps with today's count and the tasks closed before the receiver acted, per pair; for the owner and admins, the changes bots asked for, waiting as approvals",
+        "operationId": "getTaskCaps",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCaps"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "put": {
+        "summary": "Cap the tasks one teammate sends another a day (0 blocks, null removes). The receiver must be a manager above the sender. A bot's own change comes back as a pending approval a person decides",
+        "operationId": "setTaskCap",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCap"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCapWrite"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "delete": {
+        "summary": "Remove the cap between two teammates (?sender=&receiver=); a bot's removal is an approval too",
+        "operationId": "removeTaskCap",
+        "parameters": [
+          {
+            "name": "sender",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sender"
+            }
+          },
+          {
+            "name": "receiver",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Receiver"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCapWrite"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
         ]
       }
     },
@@ -21800,7 +22020,7 @@
     },
     "/api/v2/usage/limits": {
       "get": {
-        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits",
+        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (with the redesign on, a lead who is not an administrator gets the groups it leads and those below)",
         "operationId": "getUsageLimits",
         "responses": {
           "200": {
@@ -21890,7 +22110,7 @@
     },
     "/api/v2/usage/limits/{bot}": {
       "put": {
-        "summary": "A bot's own hourly, daily, weekly and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "summary": "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD (the hourly one with the redesign off); empty follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group lead for the bots in the group and those below (redesign on). A bot over a limit takes no new job until the period turns over or the limit is raised",
         "operationId": "setBotUsageLimit",
         "parameters": [
           {
@@ -22003,7 +22223,7 @@
     },
     "/api/v2/usage/pools/groups/{group}": {
       "put": {
-        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators)",
+        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators; with the redesign on, also the lead of the group or one above it, within the parent group's limit)",
         "operationId": "setGroupUsageLimit",
         "parameters": [
           {
@@ -24175,6 +24395,63 @@
         ],
         "title": "Answer"
       },
+      "ApprovalCreate": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "send",
+              "spend",
+              "publish",
+              "merge",
+              "support",
+              "task_cap",
+              "spend_limit",
+              "group",
+              "org"
+            ],
+            "title": "Kind"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "supersedes_approval": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Approval"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "payload"
+        ],
+        "title": "ApprovalCreate"
+      },
       "ApprovalDecision": {
         "properties": {
           "decision": {
@@ -24198,6 +24475,28 @@
           "decision"
         ],
         "title": "ApprovalDecision"
+      },
+      "ApprovalRequested": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "additionalProperties": true
       },
       "Assistant": {
         "type": "object",
@@ -24550,6 +24849,9 @@
             "type": "integer"
           },
           "can_edit": {
+            "type": "boolean"
+          },
+          "can_pause": {
             "type": "boolean"
           },
           "spend_cap": {
@@ -30296,6 +30598,18 @@
               }
             ],
             "title": "Bet Id"
+          },
+          "lead": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead"
           }
         },
         "additionalProperties": false,
@@ -30384,6 +30698,18 @@
               }
             ],
             "title": "Bet Id"
+          },
+          "lead": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead"
           }
         },
         "additionalProperties": false,
@@ -33131,7 +33457,7 @@
               "object",
               "null"
             ],
-            "description": "The latest convert: id, state (converting, converted, restored, expired), created, expires, restorable"
+            "description": "The latest convert: id, state (converting, interrupted, converted, restored, expired), created, expires, restorable"
           }
         },
         "required": [
@@ -33159,6 +33485,25 @@
           },
           "rules": {
             "type": "integer"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "why"
+              ],
+              "additionalProperties": true
+            }
           }
         },
         "required": [
@@ -33166,7 +33511,8 @@
           "migration",
           "restored",
           "routines",
-          "rules"
+          "rules",
+          "skipped"
         ],
         "additionalProperties": true
       },
@@ -37899,6 +38245,157 @@
         ],
         "additionalProperties": true
       },
+      "TaskCap": {
+        "properties": {
+          "sender": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Sender"
+          },
+          "receiver": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Receiver"
+          },
+          "per_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Day"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sender",
+          "receiver"
+        ],
+        "title": "TaskCap",
+        "description": "A cap on the tasks `sender` sends `receiver` a day. null (or left out) removes it; 0 blocks the pair."
+      },
+      "TaskCapProposal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "receiver": {
+            "type": "string"
+          },
+          "per_day": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "proposed_by": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created",
+          "id",
+          "per_day",
+          "proposed_by",
+          "receiver",
+          "sender",
+          "status"
+        ],
+        "additionalProperties": true
+      },
+      "TaskCapRow": {
+        "type": "object",
+        "properties": {
+          "sender": {
+            "type": "string"
+          },
+          "receiver": {
+            "type": "string"
+          },
+          "per_day": {
+            "type": "integer"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "closed": {
+            "type": "integer"
+          },
+          "updated": {
+            "type": "string"
+          },
+          "updated_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "closed",
+          "count",
+          "per_day",
+          "receiver",
+          "sender",
+          "updated",
+          "updated_by"
+        ],
+        "additionalProperties": true
+      },
+      "TaskCapWrite": {
+        "type": "object",
+        "properties": {
+          "cap": {
+            "type": "object"
+          },
+          "approval": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval",
+          "cap",
+          "status"
+        ],
+        "additionalProperties": true
+      },
+      "TaskCaps": {
+        "type": "object",
+        "properties": {
+          "caps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskCapRow"
+            }
+          },
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskCapProposal"
+            }
+          }
+        },
+        "required": [
+          "caps",
+          "proposals"
+        ],
+        "additionalProperties": true
+      },
       "TaskComment": {
         "properties": {
           "public": {
@@ -40397,6 +40894,17 @@
       },
       "UsageDefault": {
         "properties": {
+          "per_30m_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per 30M Usd"
+          },
           "hourly_usd": {
             "anyOf": [
               {
@@ -40457,6 +40965,12 @@
           "default": {
             "type": "object",
             "properties": {
+              "per_30m_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "hourly_usd": {
                 "type": [
                   "number",
@@ -40490,6 +41004,7 @@
               "daily_usd",
               "hourly_usd",
               "monthly_usd",
+              "per_30m_usd",
               "weekly_usd"
             ],
             "additionalProperties": true
@@ -40551,6 +41066,17 @@
       },
       "UsageLimit": {
         "properties": {
+          "per_30m_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per 30M Usd"
+          },
           "hourly_usd": {
             "anyOf": [
               {
@@ -40603,6 +41129,12 @@
       "UsageLimitView": {
         "type": "object",
         "properties": {
+          "per_30m_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "hourly_usd": {
             "type": [
               "number",
@@ -40661,6 +41193,7 @@
           },
           "blocked": {
             "enum": [
+              "per_30m",
               "hourly",
               "daily",
               "weekly",
@@ -40676,6 +41209,12 @@
             ],
             "description": "Whose limit holds the bot: scope (bot, company or group:<id>), name (a pool's), period, and spent and limit (a pool's to the owner and administrators only)",
             "additionalProperties": true
+          },
+          "own_per_30m_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "own_hourly_usd": {
             "type": [
@@ -40718,7 +41257,9 @@
           "own_daily_usd",
           "own_hourly_usd",
           "own_monthly_usd",
+          "own_per_30m_usd",
           "own_weekly_usd",
+          "per_30m_usd",
           "percent",
           "source",
           "week_spent",
@@ -40732,6 +41273,12 @@
           "default": {
             "type": "object",
             "properties": {
+              "per_30m_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "hourly_usd": {
                 "type": [
                   "number",
@@ -40765,6 +41312,7 @@
               "daily_usd",
               "hourly_usd",
               "monthly_usd",
+              "per_30m_usd",
               "weekly_usd"
             ],
             "additionalProperties": true
@@ -40777,7 +41325,7 @@
               "object",
               "null"
             ],
-            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}",
+            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}. With the redesign on, a lead who is not an administrator: company null and only the groups it leads and those below, each with may_edit true",
             "additionalProperties": true
           },
           "bots": {
@@ -40815,6 +41363,12 @@
       "UsagePoolView": {
         "type": "object",
         "properties": {
+          "per_30m_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "hourly_usd": {
             "type": [
               "number",
@@ -40834,6 +41388,12 @@
             ]
           },
           "monthly_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "30m_spent": {
             "type": [
               "number",
               "null"
@@ -40868,6 +41428,7 @@
           },
           "blocked": {
             "enum": [
+              "per_30m",
               "hourly",
               "daily",
               "weekly",
@@ -40877,6 +41438,7 @@
           }
         },
         "required": [
+          "30m_spent",
           "blocked",
           "daily_usd",
           "day_spent",
@@ -40884,6 +41446,7 @@
           "hourly_usd",
           "month_spent",
           "monthly_usd",
+          "per_30m_usd",
           "percent",
           "week_spent",
           "weekly_usd"
