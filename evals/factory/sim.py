@@ -62,6 +62,8 @@ class Run:
         self.back_check = None     # set by the scenario when a computer comes back: its readiness is read on that tick
         self.back_lines = []       # what the server held for the returning computer's bot on its first round back
         self.short_rounds = 0      # short rounds whose reasons were read (at most SHORT_ROUNDS)
+        self.stale_busy = None     # a bot a scenario keeps naming busy for its first rounds (see stale_round)
+        self.stale_named = None    # the bot stale_round names busy in the current claim round, if any
 
     def team(self, w):
         styles = self.scenario.styles
@@ -108,6 +110,8 @@ class Run:
                           beat=lambda: [b.renew() for b in team.all if b.available])
                 ready_before = {b.slug for b in team.all if b.available}
                 s.during(self, w, team, i)
+                if w.down:      # the server is stopped: the runner's calls wait for it, so this tick claims nothing
+                    continue
                 ready_now = [b.slug for b in team.all if b.available]
                 if set(ready_now) != ready_before:
                     # A computer that went off or came back is reported before this tick's claims: the readiness
@@ -163,6 +167,7 @@ class Run:
         own rule names. A bot is ready when the records say a login it can run on is free (readiness). A round that
         starts fewer turns than its free slots and ready bots is short, and its reasons are read from the server
         (reasons)."""
+        self.stale_round(w.now())
         body = self.runner_body(team)
         free = w.capacity - sum(1 for b in team.all if b.running)
         if self.back_check:
@@ -320,12 +325,27 @@ class Run:
         ready = ((doc.get("bots") or {}).get(slug) or {}).get("ready")
         return {"at": w.now(), "bot": slug, "server_ready": ready, "reasons": self.reasons(w, [slug])}
 
+    def stale_round(self, now):
+        """Once per claim round, before its claims: a scenario's stale bot (`stale_busy`) stays named busy for its
+        first rounds, as a runner that has not rebuilt its list after a restart still names it. The first round after
+        those is when the list is right again, and `now` is that round's time."""
+        stale = self.stale_busy
+        self.stale_named = None
+        if not stale:
+            return
+        if stale["rounds"] > 0:
+            stale["rounds"] -= 1
+            stale["sent"] += 1
+            self.stale_named = stale["bot"]
+        elif stale["sent"] and stale["corrected_at"] is None:
+            stale["corrected_at"] = now
+
     def runner_body(self, team):
         """The body runner-rs claims with (runner.rs claim_next): no bot named; `busy_bots` the bots it is still running
         (its list on a server without lanes), and `busy_lanes` the lanes with a live worker, each running turn's bot on
         its one lane. A computer that is off names nothing: the server holds its bots by readiness. The sim advertises
-        no lanes."""
-        busy = sorted(b.slug for b in team.all if b.running)
+        no lanes. The stale bot of stale_round is named too while it is set."""
+        busy = sorted({b.slug for b in team.all if b.running} | ({self.stale_named} if self.stale_named else set()))
         return {"next_run": True, "busy_bots": busy, "busy_lanes": [f"{slug}|main" for slug in busy],
                 "start_places": True}
 

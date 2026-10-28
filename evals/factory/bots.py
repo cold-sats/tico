@@ -181,7 +181,8 @@ class Bot:
         while self.lost:
             attempt = self.lost.pop()
             self.world.call("post", f"attempts/{attempt['id']}/complete",
-                            {"outcome": "interrupted", "text": "Runner restarted during execution", "last_seq": 0},
+                            {"outcome": "interrupted", "text": "Runner restarted during execution",
+                             "last_seq": attempt.get("last_seq", 0)},
                             token=self.world.runner["token"], ok=False)
 
     def steer(self):
