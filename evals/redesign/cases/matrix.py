@@ -9,16 +9,19 @@ combination only; a check with no run at all raises Unmet, and one that finds no
 
 Reading the run: a failed step ends its thread, and an llm step whose turn is still held does too until the turn answers
 (automation_engine.py), so the steps after either have no record yet; a `find` runs the steps after it once per item, so
-the per-step checks count each item's records separately. The matrix never answers a held turn, so no action after an
-llm step is exercised.
+the per-step checks count each item's records separately. The matrix answers each turn a run starts the way a runner does
+(answer_turns): most complete, about one in ten fails, and a failed turn's held job is dismissed by its operator so the
+bot is free again. So the actions after a held llm step run and are checked.
 
 Limits, stated so a pass is read for what it is: a schedule has no input, so its condition is never met; the spend-cap
 outcome sets a 0.01 cap but does not spend first, so the cap is only reached if the engine spends on its own; the action
 args are empty for every action (CONTRACT names none). The sender's session is the one the task sample names (CONTRACT
 names no field for it): builder-claude's live session, which a warm-up turn opens before any automation exists."""
+import random
+
 from ..fakes import ReplayJudge, attach_judge
-from ..harness import (DANA_REF, CLAUDE_ID, CLAUDE_REF, LEAD_ID, W3, Check, Reply, Scenario, Unmet, body, mail_message,
-                       publish_mail, replied, rows, run_now, setup, turn_of, work)
+from ..harness import (DANA, DANA_REF, CLAUDE_ID, CLAUDE_REF, LEAD_ID, W3, Check, Reply, Scenario, Unmet, body,
+                       mail_message, publish_mail, replied, rows, run_now, setup, turn_of, work)
 from ..matrix import coverage, feasible_pairs, lower_bound, pairs_of, plan
 from .engine import nested, wide
 from .inboxes import BUCKET
@@ -27,6 +30,11 @@ INBOX = "dana@acme.example"
 DESTINATION = "matrix-leads"
 SENDER_SESSION = "redesign"   # the thread every turn in the harness starts on (Org.turn): builder-claude's live session
 WORKERS = ("llm", "bot_turn")
+# About one turn in ten fails, drawn per turn from the seed and the combination, so a seed replays exactly.
+TURN_FAIL_SHARE = 0.10
+# The usage a completed turn reports: small, so the run cost is real and the spend limits stay out of the way.
+TURN_USAGE = {"input_tokens": 2_000, "cached_tokens": 0, "output_tokens": 200, "model": "claude-opus-5-5",
+              "runtime": "claude", "billing": "api"}
 ACTION = {"archive": "archive", "leave-for-you": "leave_for_you", "draft-reply": "draft_reply",
           "send-reply": "send_reply", "create-task": "create_task", "label": "label", "forward": "forward",
           "wake-bot": "wake_bot", "note": "note", "post-update": "post_update", "call-webhook": "call_webhook",
@@ -220,7 +228,62 @@ def label_of(n, row):
     return f"#{n} " + "/".join(row[k] for k in keys)
 
 
-def run_combo(org, n, row, mails):
+def claim_turn(org, bot, task, outcome):
+    """One runner pass for one turn, as the harness's Org.turn makes it: claim the bot's next job, start it, complete it
+    with `outcome`. Jobs claimed before the turn's own are completed as they come (a claim takes the oldest), so no
+    turn is left for a later combination to answer. Returns whether the turn's own job was claimed."""
+    slug = bot.split(":")[-1]
+    for _ in range(20):
+        claim = org.api("post", "/api/v2/jobs/claim", {"bot": slug, "start_places": True}, who=org.runner["token"],
+                        wave=W3)
+        attempt = claim.body.get("attempt") if isinstance(claim.body, dict) else None
+        if not attempt:
+            return False   # the bot is held, or no job is queued for it
+        mine = ((attempt.get("message") or {}).get("refs") or {}).get("task") == task
+        base = f"/api/v2/attempts/{attempt['id']}"
+        for step, payload in (("started", {"thread_id": "redesign"}),
+                              ("complete", {"outcome": outcome if mine else "completed",
+                                            "text": "done" if outcome == "completed" else "turn failed",
+                                            "last_seq": 0, "limited": False, "usage": TURN_USAGE})):
+            reply = org.api("post", f"{base}/{step}", payload, who=org.runner["token"], wave=W3)
+            if not 200 <= reply.status < 300:
+                raise RuntimeError(f"attempt {step} {reply.status}: {reply.excerpt()}")
+        if mine:
+            if outcome != "completed":
+                dismiss_held(org, attempt)
+            return True
+    return False
+
+
+def dismiss_held(org, attempt):
+    """A failed turn may have acted, so the hub holds its job for review and the bot with it (execution.py: failed work
+    is held). Its operator reviews it and dismisses it, the way a person does under Needs you, so the bot is free for
+    the next turn. The run already has the failure."""
+    reply = org.api("post", f"/api/v2/jobs/{attempt['job_id']}/reconcile",
+                    {"attempt_id": attempt["id"], "decision": "dismiss", "acknowledge_uncertain_effects": True,
+                     "note": "The turn failed in the matrix run; nothing it did needs repeating."},
+                    who=DANA, wave=W3)
+    if not 200 <= reply.status < 300:
+        raise RuntimeError(f"reconcile {attempt['id']} {reply.status}: {reply.excerpt()}")
+
+
+def answer_turns(org, run, rng):
+    """Answers each turn the run started (llm and bot_turn steps that name a turn): about one in ten fails, the rest
+    complete. Returns one record per turn: the step, whether the run was waiting on it, whether it failed and whether
+    its job was claimed."""
+    answered = []
+    for step in run.get("steps") or []:
+        turn = (step.get("outputs") or {}).get("turn")
+        if step.get("type") not in WORKERS or not turn or step.get("status") not in ("ok", "waiting"):
+            continue
+        failed = rng.random() < TURN_FAIL_SHARE
+        claimed = claim_turn(org, turn["bot"], turn["task"], "failed" if failed else "completed")
+        answered.append({"step": step.get("id"), "held": step.get("status") == "waiting", "failed": failed,
+                         "claimed": claimed})
+    return answered
+
+
+def run_combo(org, n, row, mails, seed):
     """Builds one combination as an automation, fires it with its run input, reads back its one run, then switches it
     off so no later combination's actions fire it. Returns the record the checks read. Raises Unmet when a route is not
     registered."""
@@ -238,7 +301,7 @@ def run_combo(org, n, row, mails):
         attach_judge(org, judge_for(row, outcome != "no-match"))
     made = org.api("post", "/api/v2/automations", payload, wave=W3)
     record = {"label": label_of(n, row), "saved": 200 <= made.status < 300, "groups": groups, "top": top,
-              "outcome": outcome, "disabled": [off] if off else [], "run": None, "runs": 0,
+              "outcome": outcome, "disabled": [off] if off else [], "run": None, "runs": 0, "turns": [],
               "sender_session": SENDER_SESSION if kind == "task" else None}
     if not record["saved"]:
         record["label"] += f" (create {made.status})"
@@ -249,6 +312,13 @@ def run_combo(org, n, row, mails):
     fired = run_now(org, facts, "auto", sample=sample_for(kind, n, row, mails))
     record["fired"] = fired.status
     runs = rows(org.api("get", f"/api/v2/automations/{auto.get('id')}/runs", wave=W3).body)
+    if len(runs) == 1:
+        # Every turn the run started is answered the way a runner answers it, then the queued run goes on and is read
+        # again: its held steps finish, and the actions after them run.
+        record["turns"] = answer_turns(org, runs[0], random.Random(f"{seed}:{n}"))
+        if record["turns"]:
+            org.scheduler_pass()
+            runs = rows(org.api("get", f"/api/v2/automations/{auto.get('id')}/runs", wave=W3).body)
     record["run"] = runs[0] if len(runs) == 1 else None
     record["runs"] = len(runs)
     try:
@@ -314,12 +384,26 @@ def top_logged(r):
 
 
 def failure_ends_run(r):
-    """A step-fails row makes its Decide fail, and a failed step ends the run as failed (CONTRACT §2 Runs)."""
-    if r["outcome"] != "step-fails":
+    """A failed step ends the run as failed (CONTRACT §2 Runs): a Decide that fails, and an llm turn that fails while
+    the run waits on it. A turn nothing waited on (a bot turn, or an llm step with nothing after it) cannot fail it."""
+    held_failed = [t for t in r["turns"] if t["failed"] and t["held"]]
+    free_failed = [t for t in r["turns"] if t["failed"] and not t["held"]]
+    if r["outcome"] != "step-fails" and not held_failed and not free_failed:
         return ""
     if r["run"] is None:
         return no_run(r)
-    return "" if r["run"].get("status") == "failed" else f"run status {r['run'].get('status')!r}, want 'failed'"
+    status = r["run"].get("status")
+    if r["outcome"] == "step-fails" or held_failed:
+        return "" if status == "failed" else f"run status {status!r}, want 'failed'"
+    return "" if status != "failed" else "run failed after a turn nothing waited on"
+
+
+def turns_answered(r):
+    """Every turn the run started was claimed and answered, so the run was not left waiting on one."""
+    if r["run"] is None:
+        return no_run(r)
+    unclaimed = [t["step"] for t in r["turns"] if not t["claimed"]]
+    return f"turns never claimed: {unclaimed}" if unclaimed else ""
 
 
 def action_once(r):
@@ -446,7 +530,7 @@ def matrix_scenario(seed):
         mails = {n: mail_for(n, row) for n, row in enumerate(rows_) if row["trigger"] == "email"}
         org.step(f, "mail", publish_mail, org, INBOX, list(mails.values()))
         for n, row in enumerate(rows_):
-            org.step(f, f"c{n}", run_combo, org, n, row, mails)
+            org.step(f, f"c{n}", run_combo, org, n, row, mails, seed)
         org.step(f, "probe_11", org.api, "post", "/api/v2/automations",
                  probe_payload("Matrix probe 11", wide(11)), wave=W3)
         org.step(f, "probe_deep", org.api, "post", "/api/v2/automations",
@@ -463,6 +547,7 @@ def matrix_scenario(seed):
         Check("exactly one path runs per fork", W3, across(one_path)),
         Check("every top-level step is logged with a status", W3, across(top_logged)),
         Check("a step that fails ends the run as failed", W3, across(failure_ends_run)),
+        Check("every turn a run starts is answered, so no run is left waiting", W3, across(turns_answered)),
         Check("each action runs at most once per item", W3, across(action_once)),
         Check("costs add up: the run's cost is the sum of its steps", W3, across(costs_add)),
         Check("a disabled step never runs", W3, across(disabled_silent)),
@@ -470,4 +555,5 @@ def matrix_scenario(seed):
         Check("a refused flow is never saved (11 paths, 4 nesting levels: 422)", W3, probes_refused),
     ]
     return Scenario(0, f"matrix-seed-{seed}",
-                    f"All-pairs coverage matrix, seed {seed}: {len(rows_)} combinations", steps, checks)
+                    f"All-pairs coverage matrix, seed {seed}: {len(rows_)} combinations", steps, checks,
+                    bots={"coo": ("assistant", "claude")})   # the team's Assistant bot, which assistant:<person> names
