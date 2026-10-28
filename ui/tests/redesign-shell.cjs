@@ -33,8 +33,19 @@ const shownRail = page => page.$$eval('#side .side-scroll a.nav-link, #side .sid
 
 async function open(browser, {redesign = false, route = '#/updates', viewport = PHONE, capsStatus = 200, goalsDelay = 0} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
-  const errors = [], sent = [];
+  const errors = [], sent = [], goals = {asked: 0};
   page.on('pageerror', e => errors.push(e.message));
+  // Each goals tree the app has read: counted one task after its body is read, so the code awaiting it has run.
+  await page.addInitScript(() => {
+    window.__treeRead = 0;
+    const fetch0 = window.fetch;
+    window.fetch = (...args) => fetch0(...args).then(r => {
+      if (!String(args[0]).includes('/api/v2/goals/tree')) return r;
+      const text = r.text.bind(r);
+      r.text = () => text().finally(() => setTimeout(() => { window.__treeRead++; }, 0));
+      return r;
+    });
+  });
   const config = {redesign};
   await page.route('**/*', async r => {
     const req = r.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
@@ -51,6 +62,7 @@ async function open(browser, {redesign = false, route = '#/updates', viewport = 
     if (p === '/api/humans') return json(roster.humans);
     if (p === '/api/status') return json({active: [], employees: []});
     if (p === '/api/v2/status') return json({bots: []});
+    if (p === '/api/v2/goals/tree') goals.asked++;
     if (p === '/api/v2/goals/tree') return new Promise(done => setTimeout(done, goalsDelay)).then(() => json({goals: [{id: 'g-1', title: 'Ship the Acme portal', owner: 'company', parent_id: null, status: 'green', rank: 0, kpis: []}], owners: {}, other_kpis: [], proposals: []}));
     if (p === '/api/v2/goals/needs-you') return json({items: []});
     if (p === '/api/v2/strategy') return json({current: null, bets: [], may_edit: true});
@@ -70,7 +82,7 @@ async function open(browser, {redesign = false, route = '#/updates', viewport = 
   });
   await page.goto('http://tico-ui.test/' + route);
   await page.waitForFunction(() => typeof S !== 'undefined' && S.me && (S.emps || []).length);
-  return {page, errors, sent};
+  return {page, errors, sent, goals};
 }
 const hashSoon = (page, want) => page.waitForFunction(w => location.hash === w, want).then(() => true, () => false);
 const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
@@ -108,7 +120,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
     {
       const tag = 'on phone';
       // The goals tree answers slowly: #/goals/g-1 is left before it arrives, as a person tapping on would.
-      const {page, errors} = await open(browser, {redesign: true, goalsDelay: 400});
+      const {page, errors, goals} = await open(browser, {redesign: true, goalsDelay: 400});
       await page.locator('#tree li').first().waitFor();
       assert.deepEqual(await railKeys(page), ['side-update', 'overview', 'welcome', 'strategy', 'updates', 'tasks', 'assistant', 'automations',
         'library', 'rd-lib', 'botops', 'goals', 'nav-pins', 'side-section', 'nav-inboxes-section'], tag + ': the new order');
@@ -123,7 +135,8 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
         assert.ok(await hashSoon(page, to), `${tag}: ${from} lands on ${to}`);
       }
       await page.locator('[data-listen-dest="leads"]').waitFor();
-      await page.waitForTimeout(600);       // past the slow tree: the goal left behind must not open over Listening
+      // Every slow tree asked for has been read and acted on: the goal left behind must not open over Listening.
+      await page.waitForFunction(n => window.__treeRead >= n, goals.asked);
       assert.equal(await page.evaluate(() => location.hash), '#/strategy/market/listening', tag + ': a goal left before it loaded keeps off the address');
       assert.equal(await page.locator('#goal-panel[open]').count(), 0, tag + ': and does not open');
       assert.equal(await page.locator('.mkt-views [data-market-view="listening"][aria-current="page"]').count(), 1, tag + ': Listening is a Market view');
@@ -195,6 +208,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.equal(await amount('[data-bd-spend="bot:builder"]'), '$5.70 / $6 · 30m', tag + ': spend per bot, by the window that binds');
       assert.equal(await amount('[data-bd-spend="bot:goal-manager"]'), '$14 / $20 · day', tag + ': a day window binding says day');
       assert.equal(await amount('[data-bd-spend="company"]'), '$27.38 / $80 · 30m', tag + ': cents only when there are any');
+      assert.equal(await amount('[data-bd-spend="bot:eng-lead"]'), '$2.50 / $3 · hour', tag + ': an hour limit not yet migrated still shows and binds');
       assert.deepEqual(await page.locator('.bd-amt').first().evaluate(el => [getComputedStyle(el).fontVariantNumeric, getComputedStyle(el).fontFamily === getComputedStyle(document.body).fontFamily]),
         ['tabular-nums', true], tag + ': tabular numerals in the body font');
       assert.ok((await page.locator('[data-bd-spend="group:eng"]').innerText()).includes('Engineering pool'), tag + ': group spend');
@@ -235,6 +249,14 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.equal(await page.locator('dialog[open] input[name="monthly_usd"]').isDisabled(), true, tag + ': No limit turns the amount off');
       await page.click('dialog[open] [type=submit]');
       await page.locator('dialog[open]').waitFor({state: 'detached'});
+      // An hour limit not yet migrated is its own row and goes back as it was.
+      await page.locator('[data-bd-spend="bot:eng-lead"]').click();
+      assert.deepEqual(await page.locator('dialog[open] .bd-window > span:first-child').allInnerTexts(),
+        ['Per 30 min', 'Per hour', 'Per day', 'Per week', 'Per month'], tag + ': the hour row');
+      assert.equal(await page.inputValue('dialog[open] input[name="hourly_usd"]'), '3', tag + ': with its amount');
+      await page.fill('dialog[open] input[name="daily_usd"]', '45');
+      await page.click('dialog[open] [type=submit]');
+      await page.locator('dialog[open]').waitFor({state: 'detached'});
       await page.locator('[data-bd-spend="group:eng"]').click();
       await page.fill('dialog[open] input[name="daily_usd"]', '250');
       await page.click('dialog[open] [type=submit]');
@@ -244,6 +266,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
         ['DELETE', '/api/v2/task-caps?sender=bot%3Abuilder&receiver=person%3Aana', {}],
         ['PUT', '/api/v2/task-caps', {sender: 'bot:builder', receiver: 'bot:eng-lead', per_day: 4}],
         ['PUT', '/api/v2/usage/limits/builder', {per_30m_usd: 7.5, daily_usd: 30, weekly_usd: 120, monthly_usd: null}],
+        ['PUT', '/api/v2/usage/limits/eng-lead', {per_30m_usd: 8, hourly_usd: 3, daily_usd: 45, weekly_usd: 180, monthly_usd: 600}],
         ['PUT', '/api/v2/usage/pools/groups/eng', {per_30m_usd: 40, daily_usd: 250, weekly_usd: 800, monthly_usd: 2500}],
       ], tag + ': the requests');
 
