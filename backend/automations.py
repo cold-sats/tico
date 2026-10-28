@@ -863,16 +863,14 @@ class HubServices:
 
     def judge(self, values, questions, label, level):
         from clients import judge as J
-        from .judge import audit_detail, server_engine
+        from .judge import ask, audit_detail, server_engine
         store = self.hub.store
         with store.read() as c:
             engine = server_engine(store, c, self.hub.app.state.judge)
         if engine is None:   # no decision model, or the month's decision cap is reached
             return None
         J.validate(values, questions, label)
-        import inspect
-        takes_level = "level" in inspect.signature(engine).parameters
-        result = engine(_trim(values), questions, label, **({"level": level} if takes_level else {}))
+        result = ask(engine, _trim(values), questions, label, level)
         self.dirty = True
         self._write(lambda c: H.event(c, A.acts_as(c, self.auto) or H.KEEPER, "judge.call", label, {
             "label": label, "automation": self.row["id"], "run": self.run_id, "level": level,
