@@ -199,9 +199,12 @@ def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_versio
         c.execute("UPDATE automations SET name=?,owner=?,grp=?,trigger_type=?,enabled=?,builtin=?,flow_json=?,version=?,"
                   "updated=?,next_due=CASE WHEN ? THEN ? ELSE next_due END WHERE id=?", (*columns, int(again), due, aid))
     else:
+        # A find starts at the automation's creation, so it does not act on what came before it. A stale-PR find is the
+        # exception: its clock is each PR's own activity, so the PRs already idle when it is made are its first items.
+        idle = any(step.get("type") == "find" and step.get("idle_hours") for step in flow.get("steps") or [])
         c.execute("INSERT INTO automations(name,owner,grp,trigger_type,enabled,builtin,flow_json,version,updated,id,"
                   "created,created_by,found_since,next_due) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                  (*columns, aid, now, actor, now, due))
+                  (*columns, aid, now, actor, "" if idle else now, due))
     audit_log.write(c, actor, "automation:" + aid, before, flow, via)
     return _row(c, aid)
 

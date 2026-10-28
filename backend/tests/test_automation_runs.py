@@ -220,6 +220,16 @@ def test_items_with_the_same_time_are_all_found_one_page_at_a_time(api):
     assert counts == [1, 1, 1, 0]
 
 
+def test_a_stale_pr_find_starts_before_its_creation_and_other_finds_do_not(api):
+    """A find starts at its automation's creation, except a stale-PR find, whose PRs were idle before it was made."""
+    turn_on(api)
+    stale = make(api, [{"id": "stale", "type": "find", "source": "prs", "query": "", "idle_hours": 24, "limit": 20}])
+    plain = make(api, [FIND])
+    marks = {r["id"]: r["found_since"] for r in sql(api, "SELECT id, found_since FROM automations WHERE id IN (?,?)",
+                                                    (stale, plain))}
+    assert marks[stale] == "" and marks[plain] not in ("", None)
+
+
 def test_the_watermark_moves_only_once_an_item_is_finished(api, monkeypatch):
     turn_on(api)
     aid = make(api, [FIND, {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "ops", "text": "x"}}])
