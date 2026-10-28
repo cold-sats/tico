@@ -185,10 +185,10 @@ function renderLibrarians() {
   }
   const label = document.querySelector('#nav-assistant [data-nav-name]');
   if (label && label.textContent !== myChatName()) label.textContent = myChatName();
-  for (const [id, slug] of [['nav-docs-librarian', 'librarian'], ['nav-strategy-librarian', 'librarian']]) {
+  for (const [id, slug] of [['nav-strategy-librarian', 'librarian']]) {
     const el = document.getElementById(id);
     if (!el) continue;
-    const bot = (S.emps || []).find(e => e.name === slug && e.status !== 'archived' && e.status !== 'retired');
+    const bot = librarianBot();
     el.hidden = !bot;
     if (!bot) continue;
     const name = bot.display_name || slug;
@@ -199,6 +199,7 @@ function renderLibrarians() {
     el.classList.toggle('cur', on);
     if (on) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
   }
+  window.syncLibrarianRail?.();   // the Librarian's chat beside Library's pages follows the team as read now
 }
 function mailPersonVisible(person) {
   if (!S.me?.mail_access || !person?.email || !person.inbox_bot ||

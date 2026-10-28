@@ -32,15 +32,43 @@ function redesignNav() {
   };
   const automations = link('automations', RD_AUTOMATIONS, RD_NAV_ICONS.automations, 'Automations');
   const library = link('library', DOCS, RD_NAV_ICONS.library, 'Library'); library.classList.add('rd-lib-head');
-  const subs = document.createElement('div'); subs.className = 'rd-lib';
+  // Library's pages fold under it: a chevron beside it, remembered in this browser (rdLibSync).
+  const libRow = document.createElement('div'); libRow.className = 'nav-row rd-lib-row';
+  const libToggle = Object.assign(document.createElement('button'), {type: 'button', className: 'rd-lib-toggle',
+    innerHTML: '<span class="section-chev" aria-hidden="true">›</span>'});
+  libToggle.setAttribute('aria-label', 'Library pages');
+  libToggle.setAttribute('aria-controls', 'rd-lib');
+  libToggle.onclick = () => { const open = rdLibOpen(); RD_LIB.inside = false; rdLibRemember(!open); rdLibSync(); };
+  libRow.append(library, libToggle);
+  const subs = document.createElement('div'); subs.className = 'rd-lib'; subs.id = 'rd-lib';
   const tools = link('tools', RD_TOOLS, 'api', 'Tools');   // ui/app/redesign-library.js
-  subs.append(...[row('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), tools].filter(Boolean));
+  subs.append(...[pick('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), tools].filter(Boolean));
   if (strategyLink) { strategyLink.setAttribute('href', MARKET_ROUTE); strategyLink.querySelector('.nav-icon').textContent = RD_NAV_ICONS.strategy; }
   const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), row('a[data-nav="strategy"]'),
-    pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), pick('#nav-assistant'), automations, library, subs,
+    pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), pick('#nav-assistant'), automations, libRow, subs,
     pick('#nav-botops'), pick('#nav-pins')].filter(Boolean);
   const rest = before.filter(el => !order.includes(el) && !subs.contains(el));
   nav.append(...order, ...rest);
+  rdLibSync();
+}
+// Library open or folded: what this browser chose, opened while a Library page is showing (a fold there holds until
+// the next visit). A browser that will not store it keeps Library open.
+const RD_LIB_KEY = 'tico.nav.library';
+const RD_LIB = {inside: false, was: false};
+const rdInLibrary = r => [DOCS, MEETINGS, '#/library'].some(base => rdUnder((r || '').split('?')[0], base));
+function rdLibRemember(open) { try { localStorage.setItem(RD_LIB_KEY, open ? 'open' : 'closed'); } catch { /* not kept */ } }
+function rdLibSaved() { try { return localStorage.getItem(RD_LIB_KEY) !== 'closed'; } catch { return true; } }
+const rdLibOpen = () => RD_LIB.inside || rdLibSaved();
+function rdLibSync() {
+  const subs = document.getElementById('rd-lib'), toggle = document.querySelector('.rd-lib-toggle');
+  if (!subs || !toggle) return;
+  const here = rdInLibrary(S.route);
+  if (here && !RD_LIB.was) RD_LIB.inside = true;
+  if (!here) RD_LIB.inside = false;
+  RD_LIB.was = here;
+  const open = rdLibOpen();
+  subs.hidden = !open;
+  toggle.setAttribute('aria-expanded', String(open));
 }
 // The current page's highlight for what the redesign adds or moves (sidebar.js asks, after its own checks).
 function redesignNavCurrent(nav) {
@@ -84,6 +112,7 @@ function redesignRoute(r) {
 function redesignAfterRoute() {
   if (!rdUnder(S.route || '', RD_AUTOMATIONS)) window.automationsStop?.();
   if (!rdUnder(S.route || '', RD_TOOLS)) rdToolsStop();
+  rdLibSync();
   syncStrategyBot();
 }
 

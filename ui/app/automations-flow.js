@@ -105,10 +105,17 @@ function auStepCard(s) {
     <div class="au-cr">${auTag(s.type)}<span class="au-ct">${esc(title)}</span>${auStepSwitch(s)}</div>${body}</div>`;
 }
 const auStepSwitch = s => AU.cur?.can_edit ? auSwitch(s.enabled !== false, (AU_STEP_WORDS[s.type] || 'Step') + ' on', `data-step="${esc(s.id)}"`) : '';
-// The "+" between two steps; a viewer without edit rights sees the line only.
-const auIns = (key, i) => `<div class="au-ln">${AU.cur?.can_edit ? `<button class="au-add" type="button" data-add="${esc(key)}|${i}" aria-label="Add step" aria-haspopup="menu">+</button>` : ''}</div>`;
+// Where a step goes in: a small "+" between two steps (a wider hit area than it looks), and an Add step button at the end
+// of a list. A viewer without edit rights sees the line between steps only, and nothing after the last.
+function auIns(key, i, end) {
+  const at = `data-add="${esc(key)}|${i}" aria-haspopup="menu"`;
+  if (!AU.cur?.can_edit) return end ? '' : '<div class="au-ln"></div>';
+  return end ? `<div class="au-ln au-ln-end"><button class="au-add au-add-end" type="button" ${at}><span aria-hidden="true">+</span>Add step</button></div>`
+    : `<div class="au-ln"><button class="au-add" type="button" ${at} aria-label="Add step">+</button></div>`;
+}
 function auStepsHTML(steps, key) {
-  return auIns(key, 0) + (steps || []).map((s, i) => (s.type === 'paths' ? auPathsHTML(s) : auStepCard(s) + auIns(key, i + 1))).join('');
+  const list = steps || [];
+  return auIns(key, 0, !list.length) + list.map((s, i) => (s.type === 'paths' ? auPathsHTML(s) : auStepCard(s) + auIns(key, i + 1, i + 1 === list.length))).join('');
 }
 function auPathsHTML(s) {
   const cols = [...(s.paths || []).map((p, i) => ({p, i, key: `${s.id}:${i}`})), {p: {name: 'Otherwise', steps: s.otherwise?.steps || []}, i: 'other', key: `${s.id}:other`, fb: true}];
