@@ -5,7 +5,9 @@ The briefing is a market page (`market/briefings/<week>`) and a row here that al
 market entities it touches. The server works out which bets those entities touch: an active bet of the published
 strategy whose `cites`, or whose thesis wrong-if `market_id`, is one of them. It emits `market.briefing` with the
 touched bets, so the CEO Bot's routine on that event looks only at them; with none touched, it has nothing to do.
-One row per ISO week: posting the same week again replaces it and keeps `created`.
+One row per ISO week: posting the same week again replaces it and keeps `created`. A briefing an automation posted
+(`post_update` to market, backend/automation_actions.py) carries `source: {automation, run, task}`; a post by hand
+clears it.
 """
 import hashlib
 import re
@@ -42,6 +44,7 @@ SCHEMA = (
 def ensure(c):
     for statement in SCHEMA:
         c.execute(statement)
+    H.add_column(c, "market_briefings", "source", "TEXT")
 
 
 def this_week(at=None):
@@ -55,6 +58,9 @@ def _row(row, body=True):
     out = dict(row)
     out["items"] = MK.loads(out.get("items"), [])
     out["bets"] = MK.loads(out.get("bets"), [])
+    source = out.pop("source", None)
+    if source:
+        out["source"] = MK.loads(source, {})
     if not body:
         out.pop("body", None)
     return out
@@ -108,9 +114,9 @@ def bets_touched(c, items):
     return out
 
 
-def post(c, who, week, title, body, items):
+def post(c, who, week, title, body, items, source=None):
     """Write (or replace) the week's briefing, its market page, and emit `market.briefing`. The caller has checked the
-    writer. Returns the briefing."""
+    writer. `source` is the automation run that posted it, if one did. Returns the briefing."""
     from . import routines
     if not WEEK.match(week):
         raise Problem("validation", "week is an ISO week like 2026-W44", 422)
@@ -123,12 +129,13 @@ def post(c, who, week, title, body, items):
     now = H.now()
     MK.write_page(c, who.actor, PAGE + week, title, body, CATEGORY, replace=True, record=False)
     if before:
-        c.execute("UPDATE market_briefings SET title=?, body=?, items=?, bets=?, updated=? WHERE week=?",
-                  (title, body, MK.dumps(items), MK.dumps(bets), now, week))
+        c.execute("UPDATE market_briefings SET title=?, body=?, items=?, bets=?, updated=?, source=? WHERE week=?",
+                  (title, body, MK.dumps(items), MK.dumps(bets), now, MK.dumps(source) if source else None, week))
     else:
-        c.execute("INSERT INTO market_briefings (id, week, title, body, items, bets, created_by, created, updated) "
-                  "VALUES (?,?,?,?,?,?,?,?,?)", (H.new_id(), week, title, body, MK.dumps(items), MK.dumps(bets),
-                                                   who.actor, now, now))
+        c.execute("INSERT INTO market_briefings (id, week, title, body, items, bets, created_by, created, updated, "
+                  "source) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  (H.new_id(), week, title, body, MK.dumps(items), MK.dumps(bets), who.actor, now, now,
+                   MK.dumps(source) if source else None))
     H.event(c, who.actor, "market.briefing", week, {"items": len(items), "bets": len(bets), "replaced": bool(before)})
     # One event per week; a replacement that touches other bets than before is a new occurrence for them.
     again = MK.loads(before["bets"], []) if before else []

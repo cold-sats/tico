@@ -331,6 +331,9 @@ def ensure_schema(c):
     H.add_column(c, "updates", "drafted_by", "TEXT")
     H.add_column(c, "updates", "edited_by", "TEXT")
     H.add_column(c, "updates", "inputs_json", "TEXT")
+    # `source_json`: the automation run that posted it (`post_update`, backend/automation_actions.py); a post by hand
+    # clears it. Shown as `source` only when set.
+    H.add_column(c, "updates", "source_json", "TEXT")
     # `meetings`: a person's draft written with meeting summaries in its facts, or from a report's update that was,
     # is read only by a meeting reader (`meeting_reader`). A draft from before the column cannot say what it used,
     # so every one already there counts as having used them.
@@ -926,6 +929,9 @@ def _decode(row):
     if "inputs_json" in item:
         inputs = item.pop("inputs_json")
         item["inputs"] = json.loads(inputs) if inputs else []
+    source = item.pop("source_json", None)
+    if source:
+        item["source"] = json.loads(source)
     return item
 
 
@@ -985,7 +991,7 @@ def check_day(c, bot, day):
 
 
 def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs=None, replace_draft=False,
-         meetings=False, reader=True):
+         meetings=False, reader=True, source=None):
     """Store an update by `bot` (a bot slug or `human:<id>`). A daily is its bullets; a week in review
     is its slides, with the goal KPIs added, and a markdown copy in `body`. `headline` keeps one line,
     for places that show one (MCP summaries). `drafted_by` posts a draft for a person; the person
@@ -993,7 +999,8 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
     lands over or beside words the person wrote or edited that day, in either kind. `meetings` flags a draft
     written from meeting summaries (`draft_facts`); an edit keeps the draft's flag, their own words clear it.
     `reader` is whether the person posting is a meeting reader (`meeting_reader`): one who is not was never shown a
-    flagged draft, so what they post over it is their own words, and their reply links no flagged input."""
+    flagged draft, so what they post over it is their own words, and their reply links no flagged input. `source` is
+    the automation run posting it ({automation, run, task}); any other post clears it."""
     day = day or today()
     kind = kind or ("weekly" if slides else kind_for(day))
     if kind not in KINDS:
@@ -1025,6 +1032,7 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
     if inputs is None:
         inputs = [u["id"] for u in team_updates(c, bot, kind, day)[0]]
     inputs_json = json.dumps(list(inputs)) if inputs else None
+    source_json = json.dumps(source, sort_keys=True) if source else None
     if drafted_by:
         draft, edited, flagged = drafted_by, None, int(bool(meetings))
     elif existing and existing["drafted_by"] and not replace_draft and (reader or not existing["meetings"]):
@@ -1033,15 +1041,16 @@ def post(c, bot, body, kind=None, day=None, slides=None, drafted_by=None, inputs
         draft, edited, flagged = None, None, 0
     if existing:
         c.execute("UPDATE updates SET headline=?, body=?, slides_json=?, updated=?, drafted_by=?, edited_by=?, "
-                  "inputs_json=?, meetings=? WHERE id=?",
-                  (headline, body, stored, now, draft, edited, inputs_json, flagged, existing["id"]))
+                  "inputs_json=?, meetings=?, source_json=? WHERE id=?",
+                  (headline, body, stored, now, draft, edited, inputs_json, flagged, source_json, existing["id"]))
         c.execute("DELETE FROM update_reads WHERE update_id=?", (existing["id"],))   # changed: unread again
         uid = existing["id"]
     else:
         uid = H.new_id()
         c.execute("INSERT INTO updates(id,bot,kind,day,headline,body,slides_json,created,updated,drafted_by,edited_by,"
-                  "inputs_json,meetings) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                  (uid, bot, kind, day, headline, body, stored, now, now, draft, edited, inputs_json, flagged))
+                  "inputs_json,meetings,source_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (uid, bot, kind, day, headline, body, stored, now, now, draft, edited, inputs_json, flagged,
+                   source_json))
         # A new latest logical day supersedes updates this reader previously restored. A backdated
         # redo must not revoke a restore: there is already a newer day, and this post did not
         # supersede it. Removing just restore overrides keeps manual archives intact. Same-day
