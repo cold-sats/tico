@@ -284,8 +284,8 @@ def one_each(found, names):
 class TimedJudge(ReplayJudge):
     """The replay judge, keeping the fake-clock time of each call (calls[n]["at"]). `answers` maps a key the state
     carries (a mail's subject, a listening item's url) to a scripted answer: a scripted answer stands in for the
-    model (fakes.ReplayJudge), so the checks read routing and timing, not the model. A call without a level still
-    fails as the CONTRACT gap it is."""
+    model (fakes.ReplayJudge), so the checks read routing and timing, not the model. A call without a level is asked at
+    the company's level (fakes.COMPANY_LEVEL), as the listening judge's is."""
 
     def __init__(self, org, answers=None):
         super().__init__()
@@ -294,7 +294,7 @@ class TimedJudge(ReplayJudge):
     def __call__(self, state, questions, label=None, level=None):
         now = self.org.now()
         key = state_key(state)
-        if level is not None and key in self.answers:
+        if key in self.answers:
             self.script.append(self.answers[key])
         try:
             return super().__call__(state, questions, label, level)
@@ -819,7 +819,10 @@ def wf3_listen(org, found):
     by_source = {}
     for stem in ITEMS3:
         s = found[stem]["state"]
-        by_source.setdefault(s["source"], []).append(
+        # The recorded fixture names a source "job board"; a listening source is a slug (backend/listening.py SOURCE),
+        # so the run is saved as "jobboard".
+        slug = re.sub(r"\s+", "", str(s["source"]).lower())
+        by_source.setdefault(slug, []).append(
             {"native_id": stem, "url": s["url"], "author": s["author"], "content": s["content"],
              "published_at": s["published_at"]})
     reply = None
@@ -842,7 +845,8 @@ def wf3_steps(org, f):
         "what": "Competitors and market moves"}, who=DANA, wave=W6)
     do(org, f, "listen_auto", W3, make_auto, org, "Market watch to the Librarian", "bot:" + LIBRARIAN,
        {"type": "listening", "destination": "market-watch"},
-       [step("add", "bot_turn", bot=LIBRARIAN, prompt="Add what this item says to the market graph.")])
+       [step("add", "bot_turn", bot=LIBRARIAN, prompt="A listening match: {{listening.url}}\n\n{{listening.content}}\n\n"
+                                                      "Add what it says to the market graph, citing it.")])
     do(org, f, "brief_auto", W3, make_auto, org, "Daily market briefing", "bot:" + LIBRARIAN,
        {"type": "schedule", "cron": "0 7 * * *", "tz": "America/Los_Angeles"},
        [step("brief", "bot_turn", bot=LIBRARIAN, prompt="Write today's market briefing from the graph."),
@@ -853,7 +857,15 @@ def wf3_steps(org, f):
     do(org, f, "graph_before", W6, org.api, "get", "/api/v2/market/graph", who=DANA, wave=W6)
 
     def add_entity(token, attempt):
+        # The Librarian files the match as evidence, then cites it on the entity: the graph needs an evidence id
+        # (backend/market.py entity_create, evidence_ids).
+        filed = org.api("post", "/api/v2/market/evidence", {"source_url": url, "source_kind": "news",
+                                                            "quote": "Northwind raised a $24m Series B."},
+                        who=token, wave=W6)
+        if not 200 <= filed.status < 300:
+            raise Unmet(W6, f"evidence: {filed.status} {filed.excerpt()}")
         return org.api("post", "/api/v2/market/entities", {"type": "company", "name": "Northwind",
+                                                           "evidence_ids": [filed.body["evidence"]["id"]],
                                                            "properties": {"source": url}}, who=token, wave=W6)
     do(org, f, "librarian", W3, drain, org, LIBRARIAN, add_entity, text="Added Northwind to the graph.")
     do(org, f, "graph_after", W6, org.api, "get", "/api/v2/market/graph", who=DANA, wave=W6)
@@ -869,11 +881,12 @@ def wf3_steps(org, f):
 
 
 def wf3_one_run(f):
-    """The one market match starts one run; the three misses start none."""
+    """The one market match starts one run; the three misses start none. A run's trigger ref has no named format
+    (CONTRACT section 2), so the run is matched on its kind: a listening trigger."""
     setup(f, "listen_auto", "destination", "listen", "judge")
     found = runs(f, "listen_runs")
-    return len(found) == 1 and len(naming(found, f["url"])) == 1, f"{len(found)} runs; naming the match: " \
-        f"{len(naming(found, f['url']))}"
+    listened = [run for run in found if str(run.get("trigger_ref") or "").startswith("listening:")]
+    return len(found) == 1 and len(listened) == 1, f"{len(found)} runs; listening runs: {len(listened)}"
 
 
 def wf3_turn(f):

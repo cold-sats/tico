@@ -18,10 +18,11 @@ from urllib.parse import urlsplit
 import httpx
 
 from connectors.mail.tests.fake import FakeGmailService  # noqa: F401 (the mail tests' own fake, unchanged)
-from .harness import GAP, Unmet
-
 RECORDINGS = Path(__file__).parent / "recordings"
 LIVE_RATE, LIVE_MAX = 0.05, 10
+# The company's Decisions level in the fixture (clients/judge.py normalize_level(None)). A call with no step level, such
+# as the listening judge's, is asked at it, as the Gateway engine resolves it. Every recording was taken at low.
+COMPANY_LEVEL = "low"
 PUBLIC = [ipaddress.ip_address("93.184.216.34")]   # backend/tests/test_webhooks.py:20
 
 
@@ -45,12 +46,10 @@ class ReplayJudge:
         self.script, self.fail, self.calls = list(script), fail, []
 
     def __call__(self, state, questions, label=None, level=None):
+        level = level or COMPANY_LEVEL
         self.calls.append({"state": state, "questions": questions, "label": label, "level": level})
         if self.fail:
             raise self.fail
-        if level is None:
-            # The engine callable takes no level, but CONTRACT §2 puts decide.level on the step: the replay key needs it.
-            raise Unmet(GAP, "the judge engine is called without a level, and CONTRACT §2 names decide.level")
         if self.script:
             # A passed script wins over a recording: a named scenario needs the exact confidence it scripted.
             return {"model": "scripted", "usage": {"input_tokens": 0, "output_tokens": 0}, "ms": 0,
