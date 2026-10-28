@@ -1236,7 +1236,10 @@ def builtin_health(org):
 
 
 def wf7_steps(org, f):
+    from .cases.migration import migrate
     at(org, org.now() + dt.timedelta(minutes=2))   # the automations tick makes the built-ins once the setting is on
+    # The Health built-in is the migration's mirror of the health-monitor bot (CONTRACT section 6): convert first.
+    migrate(org, f)
     do(org, f, "health", W5, builtin_health, org)
     do(org, f, "failed", W3, emit, org, "bot.run_failed", f"{OPENAI_ID}:r1",
        {"bot": OPENAI_ID, "attempt": "r1", "reason": "login expired"})
@@ -1381,11 +1384,23 @@ def wf9_budget(org):
     return put_budget(org, OPENAI_ID, {"turns_per_hour": GUARD9, "expected_revision": now.body.get("revision")})
 
 
+def hand_self(org):
+    """The bot hands itself the next task during its turn, as the Self follow-up's prompt says. The bot makes it, not
+    the automation, so the automation chain (MAX_CHAIN) does not stop it: this is the runaway the turn budget counts."""
+    def act(token, attempt):
+        made = org.api("post", "/api/v2/tasks", {"title": "Next step", "body": "Scenario task.", "owner": OPENAI_REF},
+                       who=token, wave=W2)
+        if made.status >= 300:
+            raise Unmet(W2, f"hand itself the next task: {made.status} {made.excerpt()}")
+        return made.status
+    return act
+
+
 def wf9_loop(org):
-    """Turn after turn while the bot keeps getting work, until two claims in a row hand nothing out."""
+    """Turn after turn while the bot keeps handing itself work, until two claims in a row hand nothing out."""
     ran, empty = [], 0
     for _ in range(16):
-        result = turn(org, OPENAI_ID, tokens=2_000_000, wave=W2)
+        result = turn(org, OPENAI_ID, act=hand_self(org), tokens=2_000_000, wave=W2)
         ran.append(result)
         empty = empty + 1 if result is None else 0
         if empty == 2:
@@ -1409,7 +1424,8 @@ def wf9_steps(org, f):
     at(org, org.now() + dt.timedelta(hours=1))
     do(org, f, "later", W2, turn, org, OPENAI_ID, wave=W2)
     do(org, f, "held_later", W2, org.api, "get", f"/api/v2/bots/{OPENAI_ID}/budget", wave=W2)
-    do(org, f, "notices", W2, org.api, "get", "/api/v2/notices", who=DANA, wave=W2)
+    do(org, f, "notices", W2, sql, org, "SELECT to_actor, refs_json FROM messages WHERE kind='notice' AND "
+                                        "refs_json LIKE ?", ("%held%",))
     do(org, f, "pause", W3, lambda: org.api("patch", f"/api/v2/automations/{aid(f, 'auto')}", {"enabled": False},
                                             wave=W3))
     do(org, f, "runs_paused", W3, runs_of, org, f, "auto")
@@ -1447,13 +1463,14 @@ def wf9_still(f):
 
 
 def wf9_notices(f):
-    """One run_guard notice each to BotOps and to the Health monitor."""
+    """One held notice each to BotOps and to the Health monitor: hub notices from the keeper, kind notice, refs.held
+    naming the bot (CONTRACT section 1). They are hub messages, not Tico Team notices, so they are read from the hub."""
     setup(f, "budget", "auto", "notices")
-    guard = [n for n in rows(body(f, "notices")) if isinstance(n, dict) and n.get("kind") == "run_guard"]
-    to_botops = [n for n in guard if BOTOPS in canon(n)]
-    to_health = [n for n in guard if "health" in canon(n).lower()]
-    return len(to_botops) == 1 and len(to_health) == 1 and len(guard) == 2, \
-        f"{len(guard)} run_guard notices; BotOps {len(to_botops)}, Health {len(to_health)}"
+    held = [r for r in got(f, "notices") if OPENAI_ID in str(r["refs_json"])]
+    to_botops = [r for r in held if "botops" in str(r["to_actor"])]
+    to_health = [r for r in held if "health-monitor" in str(r["to_actor"])]
+    return len(to_botops) == 1 and len(to_health) == 1 and len(held) == 2, \
+        f"{len(held)} held notices; BotOps {len(to_botops)}, Health {len(to_health)}"
 
 
 def wf9_release(f):
@@ -1852,7 +1869,7 @@ WORKFLOWS = [
         Check("the spend cap stops Bot turn steps after the first", W3, wf9_spend_cap),
         Check("the run guard holds the bot at 6 turns", W2, wf9_held),
         Check("still held an hour later", W2, wf9_still),
-        Check("one run_guard notice each to BotOps and Health", W2, wf9_notices),
+        Check("one held notice each to BotOps and Health", W2, wf9_notices),
         Check("paused and released, the bot works again", W2, wf9_release),
     ], bots={BOTOPS: ("botops", "claude"), HEALTH: ("health", "claude")}),
     Scenario("10", "workflow-10-migration-differential",
