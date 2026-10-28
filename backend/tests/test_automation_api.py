@@ -179,6 +179,28 @@ def test_only_the_top_pauses_a_builtin(api):
     patch(api, shipped, {"enabled": False}, "ben-test", expected=403)
 
 
+def test_what_wakes_bots_is_the_hubs_read_only_builtin_the_top_may_only_pause(api):
+    from backend import automations
+    turn_on(api)
+    automations.tick(api.app.state.store)
+    automations.tick(api.app.state.store)                                  # made once
+    wakes = [a for a in get(api, "automations")["automations"] if a["name"] == "What wakes bots"]
+    assert len(wakes) == 1 and wakes[0]["builtin"] is True and wakes[0]["can_edit"] is False
+    shown = get(api, f"automations/{wakes[0]['id']}")
+    assert shown["owner"] == "person:ana" and shown["trigger"]["type"] == "event" and shown["readonly"] is True
+    assert shown["steps"] and all(s["type"] == "filter" for s in shown["steps"])
+    aid = shown["id"]
+    patch(api, aid, {"name": "Mine now"}, expected=403)                     # nobody edits it
+    patch(api, aid, {"enabled": False}, "ben-test", expected=403)          # only the top pauses it
+    assert api.delete(f"/api/v2/automations/{aid}", headers=headers()).status_code == 409
+    assert post(api, f"automations/{aid}/run", {}, expected=409)["error"]["code"] == "readonly"
+    paused = patch(api, aid, {"enabled": False})
+    assert paused["enabled"] is False and "keep working" in paused["warning"]
+    with api.app.state.store.transaction() as c:                           # the engine never runs it
+        assert automations.fire(c, "event", {"event": {"name": "tico.builtin.wakes"}}) == []
+    assert patch(api, aid, {"enabled": True})["enabled"] is True
+
+
 def test_run_now_runs_the_flow_and_records_each_step(api):
     turn_on(api)
     aid = make(api, steps=[NOTE_STEP, {"id": "off", "type": "action", "enabled": False, "do": "note", "args": {}}])["id"]

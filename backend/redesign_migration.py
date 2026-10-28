@@ -273,24 +273,35 @@ def _wake_rules(c, done, me):
     return out
 
 
+WAKES_BUILTIN = "auto_builtin_wakes"   # the hub's own "What wakes bots" (automations.ensure_builtins)
+
+
+def wakes_builtin(owner):
+    """`What wakes bots`: the built-in wake rules (rules.py, which keeps deciding by them) shown read-only, a Filter
+    step per ten rules. Its `event` trigger is never emitted and `readonly` keeps the engine off it."""
+    from . import rules
+    listed = rules._builtins()
+    steps = []
+    for start in range(0, len(listed), F.MAX_RULES):
+        chunk = listed[start:start + F.MAX_RULES]
+        steps.append({"id": f"b{start // F.MAX_RULES + 1}", "type": "filter", "rules": [
+            {"when": [] if r["event"] == "*" else [{"field": "event", "op": "is", "value": r["event"]}],
+             "then": [{"do": OUTCOME_DO.get(r["then"], "wake_bot"), "args": {"outcome": r["then"], "rule": r["id"],
+                                                                           "words": r.get("words", "")[:300]}}],
+             "stop": True} for r in chunk]})
+    return {**_mirror("What wakes bots", owner, "wakes", {"on": True}, {"kind": "builtin", "id": "wake-builtins"}),
+            "steps": steps}
+
+
 def _builtins(c, done, me):
-    """The built-in wake rules, task rules, system jobs and the Health Monitor: read-only built-ins."""
-    from . import rules, system_routines as SR
+    """The built-in wake rules, task rules, system jobs and the Health Monitor: read-only built-ins. The hub makes
+    `What wakes bots` itself once the redesign is on; the converter then only records it (`adopt`)."""
+    from . import system_routines as SR
     out = []
     if ("builtin", "wake-builtins") not in done and me:
-        listed = rules._builtins()
-        steps = []
-        for start in range(0, len(listed), F.MAX_RULES):
-            chunk = listed[start:start + F.MAX_RULES]
-            steps.append({"id": f"b{start // F.MAX_RULES + 1}", "type": "filter", "rules": [
-                {"when": [] if r["event"] == "*" else [{"field": "event", "op": "is", "value": r["event"]}],
-                 "then": [{"do": OUTCOME_DO.get(r["then"], "wake_bot"), "args": {"outcome": r["then"], "rule": r["id"],
-                                                                               "words": r.get("words", "")[:300]}}],
-                 "stop": True} for r in chunk]})
-        flow = {**_mirror("What wakes bots", me, "wakes", {"on": True}, {"kind": "builtin", "id": "wake-builtins"}),
-                "steps": steps}
-        out.append({"kind": "builtin", "id": "wake-builtins", "title": "Built-in wake rules", "becomes": flow,
-                    "flags": [], "_do": ("mirror", {})})
+        made = c.execute("SELECT 1 FROM automations WHERE id=? AND deleted_at IS NULL", (WAKES_BUILTIN,)).fetchone()
+        out.append({"kind": "builtin", "id": "wake-builtins", "title": "Built-in wake rules", "becomes": wakes_builtin(me),
+                    "flags": [], "_do": ("adopt", {}) if made else ("mirror", {})})
     if _table(c, "task_rules"):
         for row in c.execute("SELECT * FROM task_rules ORDER BY created, id").fetchall():
             if ("task_rule", row["id"]) in done or not me:
@@ -597,6 +608,9 @@ def _convert_one(c, who, mid, obj, group_done):
             _mark(c, "wake_rule", rid, mid, aid)
         group_done[key] = aid
         return aid
+    if kind == "adopt":   # the hub's own built-in: recorded, never removed by a restore
+        _mark(c, "builtin", obj["id"], mid, None)
+        return None
     if kind == "mirror":
         aid = _save(c, who, obj["becomes"])
         _mark(c, {"builtin": "builtin", "task_rule": "task_rule", "system_job": "system_job",

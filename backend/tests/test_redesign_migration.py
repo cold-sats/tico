@@ -116,6 +116,20 @@ def test_convert_waits_for_flags_then_converts_and_restore_puts_it_back(api):
     put(api, "settings/redesign", {"enabled": False})
 
 
+def test_the_hubs_what_wakes_bots_is_adopted_not_doubled_and_outlives_a_restore(api):
+    from backend import automations
+    seed(api)
+    turn_on(api)
+    automations.tick(db(api))                                   # the hub makes What wakes bots
+    open_ = [f["id"] for o in migrate(api, "dry-run")["objects"] for f in o["flags"] if not f["accepted"]]
+    migrate(api, "convert", {"accept": open_})
+    named = "SELECT id FROM automations WHERE name='What wakes bots' AND deleted_at IS NULL"
+    assert rows(api, named) == [{"id": "auto_builtin_wakes"}]
+    migrate(api, "restore")
+    assert rows(api, named) == [{"id": "auto_builtin_wakes"}]
+    put(api, "settings/redesign", {"enabled": False})
+
+
 def test_convert_with_accept_in_one_call_and_restore_after_a_day_is_gone(api):
     seed(api)
     turn_on(api)

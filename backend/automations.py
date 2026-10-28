@@ -286,6 +286,11 @@ def may_see(c, who, flow):
     return who.actor == HELPER or may_change(c, who, {**flow, "readonly": False})
 
 
+def _seen_if_builtin(c, who, flow):
+    """A built-in one is refused for what it is (409) to anyone who sees it; any other needs the change rule."""
+    return may_see(c, who, flow) if flow.get("builtin") else may_change(c, who, flow)
+
+
 def _require(c, who, flow, what="change this automation"):
     if not may_change(c, who, flow):
         raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
@@ -438,15 +443,35 @@ def may_read_inbox(c, owner, inbox, *, sender=None, settings=None):
 
 # ---------------------------------------------------------------------------------------------------- built-ins
 # The automations Tico ships, made by the hub on the scheduler's pass (its first runs at startup) once the redesign is
-# on, never by POST. Each is {key, name, owner, trigger, steps}. The system jobs move here with their migration; until then the old
-# jobs run as they do and this list is empty.
+# on, never by POST. Each is {key, name, owner, trigger, steps}. The first is `What wakes bots`, owned by the top of the
+# org: the wake rules rules.py keeps in code, shown read-only (`readonly`: the engine never runs it, and pausing it
+# leaves those rules working). The system jobs move here with their migration; until then the old jobs run as they do.
 BUILTINS = ()
+
+
+def _top_person(c):
+    """The top of the org: the stored owner's person, else the roster's default person."""
+    from .access import OWNER
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (OWNER,)).fetchone()
+    try:
+        email = str(json.loads(row[0]).get("email") or "").strip().lower() if row else ""
+    except (TypeError, ValueError):
+        email = ""
+    person = c.execute("SELECT id FROM humans WHERE lower(email)=?", (email,)).fetchone() if email else None
+    return person["id"] if person else H.default_human(c)
+
+
+def _catalog(c):
+    from .redesign_migration import WAKES_BUILTIN, wakes_builtin
+    top = _top_person(c)
+    wakes = [{**wakes_builtin("person:" + top), "key": WAKES_BUILTIN[len("auto_builtin_"):]}] if top else []
+    return [*wakes, *BUILTINS]
 
 
 def ensure_builtins(c, catalog=None):
     """Make each built-in that does not exist yet; one already made is left as its people changed it."""
     made = []
-    for spec in BUILTINS if catalog is None else catalog:
+    for spec in _catalog(c) if catalog is None else catalog:
         aid = "auto_builtin_" + spec["key"]
         if c.execute("SELECT 1 FROM automations WHERE id=?", (aid,)).fetchone():
             continue
@@ -546,7 +571,10 @@ def fire(c, kind, payload, ref="", match=None, access=None, only=None):
             row = dict(row)
             if row["id"] in chain:
                 continue
-            trigger = flow_of(row)["trigger"]
+            flow = flow_of(row)
+            if flow.get("readonly"):   # a built-in that shows work Tico runs itself
+                continue
+            trigger = flow["trigger"]
             if match and not match(trigger):
                 continue
             if (access and not access(row)) or not F.all_hold(trigger.get("filters") or [], payload):
@@ -1365,6 +1393,16 @@ def install(app, store, auth, mutate):
             merged = {**before_cap, **changes}
             flow = _checked(c, merged, store.settings,
                             access=any(merged.get(k) != before.get(k) for k in ("trigger", "steps", "owner")))
+            if before.get("readonly"):
+                # Tico's own rules, shown read-only: the top of the org may pause or resume it, and nothing else.
+                if who.role != "owner" or set(changes) - {"enabled"}:
+                    raise Problem("forbidden", "This built-in shows rules Tico runs itself; only the top of the org "
+                                  "pauses it, and nobody edits it", 403)
+                if changes.get("enabled", before["enabled"]) != before["enabled"]:
+                    row = _save(c, who.actor, aid, {**before, "enabled": changes["enabled"]}, before, via=_via(who))
+                warning = ("This is a built-in automation: the rules it shows are Tico's own and keep working while "
+                           "it is paused.") if changes.get("enabled") is False else None
+                return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
             if who.role == "bot" and (who.actor == HELPER or not may_change(c, who, before)):
                 if not changes or set(changes) - set(VERSIONED):
                     raise Problem("forbidden", "A bot may only propose a change to an automation's trigger, steps "
@@ -1389,7 +1427,7 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            row = found(c, who, aid, "delete this automation")
+            row = found(c, who, aid, "delete this automation", rule=_seen_if_builtin)
             if row["builtin"]:
                 raise Problem("builtin", "A built-in automation cannot be deleted; the top of the org may pause it", 409)
             c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (H.now(), aid))
@@ -1418,13 +1456,24 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or RunNow()
 
         def work(c):
-            row = found(c, who, aid, "run this automation")
-            _input_readable(c, flow_of(row)["owner"], body.input)
+            row = found(c, who, aid, "run this automation",
+                        rule=lambda c, who, flow: (may_see if flow.get("readonly") else may_change)(c, who, flow))
+            flow = flow_of(row)
+            if flow.get("readonly"):
+                raise Problem("readonly", "This built-in shows work Tico runs itself; it has nothing to run", 409)
+            _input_readable(c, flow["owner"], body.input)
+            if body.input and not F.all_hold(flow["trigger"].get("filters") or [], body.input):
+                # A sample the trigger's filters drop is dropped as the trigger would drop it: counted, no run row.
+                _count(c, aid, "dropped")
+                return {"run": None, "dropped": True}
             rid = queue(c, row, {**body.input, "manual": {"by": who.actor}}, "manual", manual=True, chain=(aid,))
             if not rid:
                 raise Problem("paused", "The automation queued too many runs and was paused", 409)
             return {"run": rid}
-        rid = mutate(request, body, work)["run"]
+        done = mutate(request, body, work)
+        if done.get("dropped"):
+            return done
+        rid = done["run"]
         hub.drain()
         with store.read() as c:
             return {"run": run_view(c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone())}

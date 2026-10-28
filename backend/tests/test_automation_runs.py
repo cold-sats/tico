@@ -193,6 +193,17 @@ def test_a_schedules_filters_hold_its_run(api):
     assert seen["runs"] == [] and seen["daily"][0]["dropped"] == 1
 
 
+def test_a_sample_the_filters_drop_is_dropped_not_run(api):
+    turn_on(api)
+    aid = make(api, [{"id": "n", "type": "action", "do": "wake_bot", "args": {"bot": "ops"}}],
+               trigger={**EVENT, "filters": [{"field": "mail.from", "op": "contains", "value": "acme.example"}]})
+    assert post(api, f"automations/{aid}/run", {"input": {"mail": {"from": "x@other.example"}}}) == {
+        "run": None, "dropped": True}
+    seen = get(api, f"automations/{aid}/runs")
+    assert seen["runs"] == [] and seen["daily"][0]["dropped"] == 1
+    assert post(api, f"automations/{aid}/run", {"input": {"mail": {"from": "ana@acme.example"}}})["run"]["id"]
+
+
 # ---------------------------------------------------------------------------------------------- the find watermark
 FIND = {"id": "look", "type": "find", "source": "tasks", "query": "Acme batch", "limit": 1}
 
