@@ -6,11 +6,13 @@ for an ordinary refusal; it answers {"ok": False, "detail": ...} and the run rec
 
 Mail is changed on the computer that reads the mailbox, not here: archive, label, leave for you, draft, send and
 forward on a message from mail are queued in `automation_mail_actions` for its runner to claim
-(GET .../mail-actions/claim, POST .../mail-actions/{id}/result). On a Slack message, send_reply posts in the thread
-(the `slack_posts` outbox) and draft_reply leaves the draft with the owner as a task.
+(POST .../mail-actions/claim, POST .../mail-actions/{id}/result; backend/automations.py). The step waits until the
+result comes back. On a Slack message, send_reply posts in the thread (the `slack_posts` outbox) and draft_reply
+leaves the draft with the owner as a task.
 
 `send_reply` honors the inbox's send switch (`automation_inboxes`, on unless set off): off saves a draft and logs
-`automation.send_off`.
+`automation.send_off`. The switch is read again when the send leaves: a mail send claimed, or a Slack post delivered,
+after it went off is a draft too (`slack_held`, the claim route).
 """
 import json
 
@@ -64,9 +66,9 @@ def _queue_mail(c, auto, run_id, action, message, args):
     aid = H.new_id()
     c.execute("INSERT INTO automation_mail_actions(id,automation_id,run_id,mailbox,msg_id,action,args_json,state,created) "
               "VALUES(?,?,?,?,?,?,?,'queued',?)",
-              (aid, auto["id"], run_id, str(message.get("mailbox") or ""), str(message.get("id") or ""), action,
-               json.dumps(args, default=str), H.now()))
-    return {"ok": True, "detail": f"{action} queued", "mail_action": aid}
+              (aid, auto["id"], run_id, str(message.get("mailbox") or "").strip().lower(), str(message.get("id") or ""),
+               action, json.dumps(args, default=str), H.now()))
+    return {"ok": True, "detail": f"{action} queued", "mail_action": aid, "queued": True}
 
 
 def send_on(c, inbox):
@@ -107,7 +109,8 @@ def _slack(c, auto, run_id, do, args, message):
             return _fail("send_reply in Slack needs a bot to post as")
         conv = R._bot_room(c, bot)
         msg = H._write_message(c, H.bot_actor(bot), conv.get("owner_actor") or H.KEEPER, text, conv, "say",
-                               {"automation": auto["id"], "automation_run": run_id}, None, None)
+                               {"automation": auto["id"], "automation_run": run_id,
+                                "automation_inbox": _inbox(message)}, None, None)
         now = H.now()
         c.execute("INSERT INTO slack_posts(message_id,channel,thread_ts,bot,text,state,created,updated) "
                   "VALUES(?,?,?,?,?,'ready',?,?)",
@@ -119,6 +122,27 @@ def _slack(c, auto, run_id, do, args, message):
         title = f"Draft reply: {str(message.get('text') or '')[:80]}".strip()
         return _create_task(c, auto, run_id, {"title": title, "body": text}, {})
     return {"ok": True, "detail": "nothing to do in Slack"}
+
+
+def slack_held(c, post):
+    """An automation's Slack reply whose inbox's send switch went off after it was queued (`slack_posts` row `post`):
+    not posted but cancelled, and the owner gets the draft as a task, as with the switch off when it was queued.
+    Returns whether it was held."""
+    refs = (H.message(c, post["message_id"]) or {}).get("refs") or {}
+    inbox = refs.get("automation_inbox")
+    if not inbox or send_on(c, inbox):
+        return False
+    c.execute("UPDATE slack_posts SET state='cancelled',error='send_off',updated=? WHERE message_id=?",
+              (H.now(), post["message_id"]))
+    row = c.execute("SELECT id, flow_json FROM automations WHERE id=?", (refs.get("automation"),)).fetchone()
+    if row:
+        auto, run_id = {"id": row["id"], "flow": json.loads(row["flow_json"])}, refs.get("automation_run")
+        H.event(c, actor_of(auto["flow"]["owner"]), "automation.send_off", auto["id"], {"run": run_id})
+        made = _create_task(c, auto, run_id, {"title": f"Draft reply: {post['text'][:80]}", "body": post["text"]}, {})
+        from . import automations
+        automations.restate(c, run_id, "message", post["message_id"],
+                            {"detail": "send_off", "send_off": True, "task": made.get("task")})
+    return True
 
 
 def _owner_bot(c, auto):

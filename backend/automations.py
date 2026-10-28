@@ -10,6 +10,9 @@ transaction. A run that waits (an llm turn, a batch time) is saved with its thre
 (`turn_done`) or the tick puts it back in the queue. A run claimed but never saved (the server stopped) is failed by
 the tick, never run twice.
 
+Mail actions are carried out by the computer that reads the mailbox: it claims them (a lease of MAIL_LEASE_MINUTES,
+MAIL_TRIES claims at most) and reports each result; their step and run wait until then (`settle_mail`).
+
 The run state keeps every step's outputs for 30 days; after that `prune` keeps the status, cost and times only.
 """
 import asyncio
@@ -47,7 +50,7 @@ SCHEMA = (
     "runs INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(automation_id, day))",
     "CREATE TABLE IF NOT EXISTS automation_mail_actions(id TEXT PRIMARY KEY, automation_id TEXT NOT NULL, run_id TEXT, "
     "mailbox TEXT NOT NULL, msg_id TEXT NOT NULL, action TEXT NOT NULL, args_json TEXT NOT NULL, state TEXT NOT NULL, "
-    "created TEXT NOT NULL, claimed_at TEXT, claimed_by TEXT, result_json TEXT)",
+    "created TEXT NOT NULL, claimed_at TEXT, claimed_by TEXT, result_json TEXT, attempts INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS automation_mail_queue ON automation_mail_actions(mailbox, state, created)",
     # An inbox's send switch (on unless a row says off): off, send_reply saves a draft instead.
     "CREATE TABLE IF NOT EXISTS automation_inboxes(inbox TEXT PRIMARY KEY, send INTEGER NOT NULL, updated TEXT NOT NULL, "
@@ -60,6 +63,8 @@ MAX_CHAIN = 3            # automations started by automations: at most this deep
 LIST_BYTES = 262_144
 RUN_BYTES = 524_288
 VALUES_BYTES = 60_000    # what a judge call is shown of a run's values
+MAIL_LEASE_MINUTES = 5   # a claimed mail action not reported by then goes back to the queue
+MAIL_TRIES = 3           # claims a mail action gets before it fails
 HELPER = "bot:automations-bot"   # the Automations Bot: sees every automation, changes none, proposes versions
 VERSIONED = ("trigger", "steps", "batch")   # what the automation does; a change here is a new version
 # The automations a write in this context comes from: their own actions never start them again.
@@ -589,9 +594,85 @@ class Hub:
             state = {**state, "status": "failed", "error": (str(exc) or type(exc).__name__)[:300]}
         waits = [t["wait"]["until"] for t in state.get("threads", []) if (t.get("wait") or {}).get("kind") == "batch"]
         with self.store.transaction() as c:
+            settle_mail(c, state)   # in the same write as the save, so a result reported meanwhile is not lost
             c.execute("UPDATE automation_runs SET status=?,cost=?,state_json=?,finished=?,wake_at=? WHERE id=?",
                       (state["status"], state.get("cost", 0), json.dumps(state, default=str),
                        None if state["status"] == "waiting" else H.now(), min(waits) if waits else None, rid))
+
+
+# ---------------------------------------------------------------------------------------------------- mail actions
+def _entries(record):
+    """The action results in a step record: an action step's own, a filter rule's each."""
+    outputs = record.get("outputs") or {}
+    acts = outputs.get("actions") if record.get("type") == "filter" else [outputs]
+    return [a for a in acts or [] if isinstance(a, dict)]
+
+
+def settle_mail(c, state):
+    """The run's queued mail actions as their computer reported them: a step waits while one of its actions is out
+    and is ok or failed by the results, and a run with nothing else to wait for waits while a step does. Returns the
+    run's status."""
+    pending = failed = False
+    for record in state.get("steps") or []:
+        acts = _entries(record)
+        mail = [a for a in acts if a.get("mail_action")]
+        if not mail or record.get("status") not in ("ok", "waiting", "failed"):
+            continue
+        for entry in mail:
+            row = c.execute("SELECT state, result_json FROM automation_mail_actions WHERE id=?",
+                            (entry["mail_action"],)).fetchone()
+            now = row["state"] if row else "failed"
+            entry["queued"] = now in ("queued", "claimed")
+            if entry["queued"]:
+                continue
+            result = json.loads((row and row["result_json"]) or "{}")
+            entry["ok"] = now == "done"
+            entry["detail"] = ("send_off" if entry["ok"] and result.get("send_off")
+                               else str(result.get("detail") or ("done" if entry["ok"] else "no such mail action")))
+            entry.update({k: result[k] for k in ("message", "draft", "thread", "send_off") if result.get(k)})
+        record["status"] = ("waiting" if any(a["queued"] for a in mail)
+                            else "failed" if any(not a.get("ok") for a in acts) else "ok")
+        pending |= record["status"] == "waiting"
+        failed |= record["status"] == "failed"
+    if state.get("status") in ("ok", "waiting") and not any(t.get("state") == E.WAITING
+                                                            for t in state.get("threads") or []):
+        state["status"] = "waiting" if pending else "failed" if failed else "ok"
+    return state.get("status")
+
+
+def _settle_run(c, run_id):
+    """A mail action's result reached its run. A run being advanced settles as it is saved (Hub.go)."""
+    run = c.execute("SELECT status, state_json, finished FROM automation_runs WHERE id=?", (run_id,)).fetchone()
+    if not run or not run["state_json"] or run["status"] in ("queued", "running"):
+        return
+    state = json.loads(run["state_json"])
+    status = settle_mail(c, state)
+    status = "failed" if run["status"] == "failed" else status   # the tick gave up on it: it stays failed
+    c.execute("UPDATE automation_runs SET status=?, state_json=?, finished=? WHERE id=?",
+              (status, json.dumps(state, default=str),
+               run["finished"] or (None if status == "waiting" else H.now()), run_id))
+
+
+def restate(c, run_id, key, value, changes):
+    """Amend a step result the run recorded (the one whose `key` is `value`), when what happened changed after
+    the step: a Slack reply held by the send switch."""
+    run = c.execute("SELECT state_json FROM automation_runs WHERE id=?", (run_id,)).fetchone() if run_id else None
+    if not run or not run["state_json"]:
+        return
+    state = json.loads(run["state_json"])
+    for record in state.get("steps") or []:
+        for entry in _entries(record):
+            if entry.get(key) == value:
+                entry.update({k: v for k, v in changes.items() if v is not None})
+                c.execute("UPDATE automation_runs SET state_json=? WHERE id=?", (json.dumps(state, default=str), run_id))
+                return
+
+
+def _mail_report(c, row, state, result):
+    c.execute("UPDATE automation_mail_actions SET state=?, result_json=? WHERE id=?",
+              (state, json.dumps(result, default=str), row["id"]))
+    if state in ("done", "failed") and row["run_id"]:
+        _settle_run(c, row["run_id"])
 
 
 def tick(store, at=None):
@@ -986,39 +1067,78 @@ def install(app, store, auth, mutate):
                 raise Problem("not_found", "No such person", 404)
             return {"bot": hub.settings.assistant_bot if assistant.find_room(c, "human:" + person) else None}
 
-    # The runner that reads a mailbox carries out the mail actions queued for it.
+    # The computer that reads a mailbox carries out the mail actions queued for it (runner/connectors.py).
+    def mail_computer(c, who, mailbox):
+        """Only the computer that reads this mailbox claims and reports its actions: by the check mail publishing uses
+        (backend/connectors.py `publisher`), and, once the mailbox has been published, only the runner that did."""
+        from .connectors import human_of
+        runner = app.state.execution.runner(c, who)
+        if not runner or runner["operator"] not in (store.settings.processing_operators or (auth.owner_id(c),)):
+            raise Problem("forbidden", "This machine is not assigned the private app-connector capability", 403)
+        box = c.execute("SELECT runner_id FROM mail_mailboxes WHERE address=?", (mailbox,)).fetchone()
+        if not human_of(c, mailbox) or (box and box["runner_id"] and box["runner_id"] != runner["id"]):
+            raise Problem("forbidden", "Another computer reads this mailbox", 403)
+        return runner
+
     @app.post("/api/v2/automations/mail-actions/claim")
     def automation_mail_claim(request: Request, body: MailClaim):
+        """A lease of up to 20 of the mailbox's queued actions for MAIL_LEASE_MINUTES. A send is read against the
+        inbox's send switch now, not when it was queued: off, it is claimed as a draft and its step shows send_off."""
         who = request.state.identity
-        if who.role != "runner":
-            raise Problem("forbidden", "A computer claims mail actions", 403)
 
         def work(c):
             _require_on(c)
+            mailbox = body.mailbox.strip().lower()
+            runner = mail_computer(c, who, mailbox)
+            now = H.now()
+            for row in c.execute("SELECT * FROM automation_mail_actions WHERE mailbox=? AND state='claimed' "
+                                 "AND claimed_at<?", (mailbox, H.shift(now, minutes=-MAIL_LEASE_MINUTES))).fetchall():
+                if row["attempts"] >= MAIL_TRIES:
+                    _mail_report(c, row, "failed", {**json.loads(row["result_json"] or "{}"), "ok": False,
+                                                    "detail": f"no result after {MAIL_TRIES} tries"})
+                else:
+                    c.execute("UPDATE automation_mail_actions SET state='queued' WHERE id=?", (row["id"],))
             rows = [dict(r) for r in c.execute(
                 "SELECT * FROM automation_mail_actions WHERE state='queued' AND mailbox=? ORDER BY created LIMIT 20",
-                (body.mailbox,))]
+                (mailbox,))]
+            sending = A.send_on(c, mailbox)
+            out = []
             for r in rows:
-                c.execute("UPDATE automation_mail_actions SET state='claimed',claimed_at=?,claimed_by=? WHERE id=?",
-                          (H.now(), who.runner_id, r["id"]))
-            return {"actions": [{"id": r["id"], "mailbox": r["mailbox"], "msg_id": r["msg_id"], "action": r["action"],
-                                 "args": json.loads(r["args_json"])} for r in rows]}
+                action, result = r["action"], json.loads(r["result_json"] or "{}")
+                if action == "send" and not sending:
+                    action, result = "draft", {**result, "send_off": True}
+                    owner = c.execute("SELECT owner FROM automations WHERE id=?", (r["automation_id"],)).fetchone()
+                    H.event(c, A.actor_of(owner["owner"] if owner else ""), "automation.send_off", r["automation_id"],
+                            {"run": r["run_id"], "mailbox": mailbox, "msg_id": r["msg_id"]})
+                c.execute("UPDATE automation_mail_actions SET state='claimed',claimed_at=?,claimed_by=?,"
+                          "attempts=attempts+1,action=?,result_json=? WHERE id=?",
+                          (now, runner["id"], action, json.dumps(result) if result else None, r["id"]))
+                out.append({"id": r["id"], "mailbox": r["mailbox"], "msg_id": r["msg_id"], "action": action,
+                            "args": json.loads(r["args_json"]), "attempt": r["attempts"] + 1})
+            return {"actions": out, "lease_seconds": MAIL_LEASE_MINUTES * 60}
         return mutate(request, body, work)
 
     @app.post("/api/v2/automations/mail-actions/{mid}/result")
     def automation_mail_result(request: Request, mid: str, body: MailResult):
+        """What the computer did. Idempotent by action id: once done or failed, a repeat (a lost answer, a late
+        report after the lease ran out) changes nothing. A failure it may retry goes back to the queue until
+        MAIL_TRIES claims; a late success counts, so the action is never carried out again."""
         who = request.state.identity
-        if who.role != "runner":
-            raise Problem("forbidden", "A computer reports mail actions", 403)
 
         def work(c):
             _require_on(c)
-            done = c.execute("UPDATE automation_mail_actions SET state=?,result_json=? WHERE id=? AND claimed_by=?",
-                             ("done" if body.ok else "failed", json.dumps({"ok": body.ok, "detail": body.detail}),
-                              mid, who.runner_id)).rowcount
-            if not done:
-                raise Problem("not_found", "No such claimed mail action", 404)
-            return {"id": mid, "state": "done" if body.ok else "failed"}
+            row = c.execute("SELECT * FROM automation_mail_actions WHERE id=?", (mid,)).fetchone()
+            if not row:
+                raise Problem("not_found", "No such mail action", 404)
+            mail_computer(c, who, row["mailbox"])
+            if row["state"] in ("done", "failed"):
+                return {"id": mid, "state": row["state"]}
+            state = ("done" if body.ok else "queued" if body.retry and row["attempts"] < MAIL_TRIES else "failed")
+            result = {**json.loads(row["result_json"] or "{}"), "ok": body.ok, "detail": body.detail,
+                      **{k: v for k, v in (("message", body.message), ("draft", body.draft), ("thread", body.thread))
+                         if v}}
+            _mail_report(c, row, state, result)
+            return {"id": mid, "state": state}
         return mutate(request, body, work)
 
 
@@ -1029,3 +1149,7 @@ class MailClaim(Contract):
 class MailResult(Contract):
     ok: bool
     detail: str = Field(default="", max_length=1000)
+    retry: bool = True                                      # a failure worth another claim (not: no such message)
+    message: str = Field(default="", max_length=200)        # the Gmail message sent
+    draft: str = Field(default="", max_length=200)          # the Gmail draft made
+    thread: str = Field(default="", max_length=200)
