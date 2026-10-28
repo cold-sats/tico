@@ -166,6 +166,17 @@ def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_versio
     return _row(c, aid)
 
 
+def follow(c, owner, old, new):
+    """A teammate moved group: its automations in the old group go with it (backend/groups.py calls this)."""
+    if old == new or not old or not redesign.on(c):
+        return
+    for row in c.execute("SELECT * FROM automations WHERE owner=? AND grp=? AND deleted_at IS NULL",
+                         (owner, "group:" + old)).fetchall():
+        before = flow_of(row)
+        flow = {k: v for k, v in before.items() if k != "group"} | ({"group": "group:" + new} if new else {})
+        _save(c, H.KEEPER, row["id"], flow, before, via="group:" + (new or old))
+
+
 def _propose(c, actor, aid, flow, before, summary):
     """A bot's change it may not make itself: kept as a pending version that a person with edit rights restores."""
     n = _next_n(c, aid)

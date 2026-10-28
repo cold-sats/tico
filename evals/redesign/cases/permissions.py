@@ -23,20 +23,19 @@ def cap_still(f, key, sender, receiver, per_day):
 
 
 def audit_rows(org):
-    """Rows of the first table with actor, before and after columns: the audit log (CONTRACT: no read route)."""
-    for table in [t["name"] for t in org.sql("SELECT name FROM sqlite_master WHERE type='table'")]:
-        columns = {c["name"] for c in org.sql(f"PRAGMA table_info({table})")}
-        if {"actor", "before", "after"} <= columns:
-            return org.sql(f"SELECT actor, before, after FROM {table}")
-    raise Unmet(W3, "no table with actor, before and after columns")
+    """The audit trail as Chris reads it (CONTRACT §5: `GET /api/v2/audit`)."""
+    reply = org.api("get", "/api/v2/audit", wave=W3)
+    if reply.status != 200:
+        raise Unmet(W3, f"audit read: {reply.status} {reply.excerpt()}")
+    return reply.body["rows"]
 
 
 def audited(f):
     """Four writes (two cap saves, an automation saved and edited) each left an audit row, with an actor, and the
     5 to 7 cap change shows its before and after."""
     audit = got(f, "audit")
-    change = [r for r in audit if re.search(r'per_day"?:\s*5\b', str(r["before"]))
-              and re.search(r'per_day"?:\s*7\b', str(r["after"]))]
+    change = [r for r in audit if re.search(r'per_day[\'"]?:\s*5\b', str(r["before"]))
+              and re.search(r'per_day[\'"]?:\s*7\b', str(r["after"]))]
     ok = len(audit) >= 4 and all(r["actor"] for r in audit) and bool(change)
     return ok, f"{len(audit)} audit row(s); the 5 to 7 cap change {'found' if change else 'missing'}"
 
@@ -120,6 +119,7 @@ SCENARIOS = [
     Scenario(35, "perm-audit", "Every change writes actor, before and after", s35_steps, [
         Check("cap saves and automation writes each leave an audit row with an actor, the 5 to 7 change shown", W3, audited),
         Check("audit rows can be read back", W3,
-              untestable("CONTRACT names no audit read route")),
+              lambda f: (any(str(r.get("object", "")).startswith("automation:") for r in got(f, "audit")),
+                         f"{len(got(f, 'audit'))} row(s)")),
     ]),
 ]

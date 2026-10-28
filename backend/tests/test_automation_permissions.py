@@ -74,3 +74,18 @@ def test_seeing_follows_the_same_rule_on_every_surface(api):
     assert api.delete(f"/api/v2/automations/{aid}", headers=headers("cara-test")).status_code == 403
     assert get(api, f"automations/{aid}", as_bot(api, "ops"))["can_edit"] is True
     assert get(api, "automations", as_bot(api, "automations-bot"))["automations"][0]["can_edit"] is False
+
+
+def test_automations_follow_their_owner_into_a_new_group(api):
+    """A bot moved to another group takes its automations with it, so the new group's lead may change them."""
+    turn_on(api)
+    eng = post(api, "groups", {"name": "Engineering", "add": {"bots": ["ops"]}})["id"]
+    rel = post(api, "groups", {"name": "Release"})["id"]
+    aid = post(api, "automations", {"name": "Ops", "owner": "bot:ops", "group": f"group:{eng}",
+                                    "trigger": {"type": "event", "name": "x.y"}, "steps": []})["id"]
+    other = post(api, "automations", {"name": "Coo", "owner": "bot:coo", "group": f"group:{eng}",
+                                      "trigger": {"type": "event", "name": "x.y"}, "steps": []})["id"]
+    assert api.patch(f"/api/v2/groups/{rel}", json={"add": {"bots": ["ops"]}}, headers=headers()).status_code == 200
+    moved = get(api, f"automations/{aid}")
+    assert moved["group"] == f"group:{rel}" and moved["version"] == 1
+    assert get(api, f"automations/{other}")["group"] == f"group:{eng}"
