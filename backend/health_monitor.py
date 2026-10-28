@@ -573,7 +573,7 @@ def _profile_checks(c):
 def _stop_checks(c):
     """A bot Tico stopped for failed runs or for running away (backend/bot_stops.py): one finding per bot until it is
     released. The signature carries the error class or the window, never the bot."""
-    from . import run_backoff, turn_budgets
+    from . import claim_holds, run_backoff, turn_budgets
     out = []
     for hold in run_backoff.held(c):
         bot, kind = hold["bot"], hold["error_class"] or run_backoff.OTHER
@@ -597,6 +597,17 @@ def _stop_checks(c):
                             f"BotOps: read {name}'s last runs for what keeps waking it, then release it "
                             f"(hub bot release {bot}) or raise its budget (hub bot budget {bot} --{hold['window']} N).",
                             subject=hold["window"], severity=BAD))
+    for hold in claim_holds.held(c):
+        bot = hold["bot"]
+        name = (H.bot(c, bot) or {}).get("display_name") or bot
+        out.append(_finding(f"claim_failed:{bot}", "claim_failed", SETUP,
+                            f"Tico could not start {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} for {name}",
+                            f"{name} has {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} held since "
+                            f"{str(hold['since'])[:16]} UTC: an error happened while Tico prepared each one to start, "
+                            "so each is held and no claim tries it again. The server log has the traceback.",
+                            f"BotOps: read the server log for the traceback, fix its cause, then release {name} "
+                            f"(hub bot release {bot}). Its held runs queue again, and one that fails again is held again.",
+                            severity=BAD))
     return out
 
 

@@ -6629,9 +6629,9 @@ def create_app(settings=None):
     def claim(request: Request, body: M.Claim):
         # A read first: an idle runner asks every fraction of a second and must not take the write lock.
         with store.read() as c:
-            selected = []
+            selected, failed = [], []
             idle = execution.idle_claim(c, request.state.identity, body,
-                                        request.headers.get("idempotency-key"), selected)
+                                        request.headers.get("idempotency-key"), selected, failed)
             if idle is not None:
                 return idle
             # Only a registered computer's claim cleans up: anyone else is refused before any write.
@@ -6645,16 +6645,19 @@ def create_app(settings=None):
             store.write(request.state.identity, execution.maintain)
             selected.clear()
         with store.read() as c:
-            if not selected:
+            # A job whose checks raised on this snapshot is held by the write below, which takes the next candidate.
+            if not selected and not failed:
                 selected.append(execution.candidate(c, request.state.identity, body,
-                                                    execution.runner(c, request.state.identity)))
+                                                    execution.runner(c, request.state.identity), failed=failed))
             # End any transaction opened during selection before taking the writer lock. The selected
             # job is checked against current policy in that transaction.
             if c.in_transaction:
                 c.rollback()
             def work(write):
+                if not selected:
+                    return execution.claim(write, request.state.identity, body, maintained=True, failed=failed)
                 return execution.claim(write, request.state.identity, body,
-                                       selected=selected[0], prepared=True, maintained=True)
+                                       selected=selected[0], prepared=True, maintained=True, failed=failed)
             return mutate(request, body, work)
 
     @app.post("/api/v2/attempts/{aid}/renew")

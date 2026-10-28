@@ -52,7 +52,7 @@ class TeamBudgets(Contract):
 
 
 class ReleaseBot(Contract):
-    """Release a bot from every hold Tico put on it (failed runs, run budget)."""
+    """Release a bot from every hold Tico put on it (failed runs, run budget, queued runs it could not start)."""
 
 
 # ---------------------------------------------------------------------------------------------------- the numbers

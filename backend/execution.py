@@ -14,9 +14,9 @@ from clients import gateway, sessions
 
 from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, rules as wake_rule_engine, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
-from . import quarantine_stops, run_backoff, turn_budgets
+from . import claim_holds, quarantine_stops, run_backoff, turn_budgets
 from .auth import Identity
-from .batch_work import isolated
+from .batch_work import isolated, report, storage_error
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .verdict_moves import HANDOFF_FIRST_SQL
@@ -62,6 +62,7 @@ AWAKE_SETTLE = 120
 # one write a minute on an idle machine rather than four a second.
 CONTACT_EVERY = 10
 CLAIM_MAINTENANCE = 8       # a polling request never cleans up the whole install's backlog
+CLAIM_STARTS = 5           # jobs one claim may hold for failing to start before it answers: its work stays bounded
 
 
 # A runner that advertises this runs a bot's task-keyed turns in their own lanes, side by side;
@@ -284,7 +285,8 @@ def lift_after_connection_change(c, settings, actor, bot):
                             "Connection changed; the Tico AI Gateway key is still at its usage limit"),
                      reason="Connection changed")
         return
-    c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' AND wake_class='quota-reset'", (bot,))
+    c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' AND wake_class='quota-reset' "
+              "AND hold_reason IS NULL", (bot,))
     out = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') LIMIT 1", (bot,)).fetchone()
     H.status_set(c, actor, bot, state="running" if out else "idle",
                  focus="Working on other tasks" if out else "Connection changed; queued work resumes",
@@ -1318,7 +1320,7 @@ def clear_limits(c, settings, actor, bot):
         if (H.status(c, slug) or {}).get("state") == "limited":
             H.status_set(c, actor, slug, state="idle", focus="", reason="Try now")
         c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' "
-                  "AND wake_class='quota-reset'", (slug,))
+                  "AND wake_class='quota-reset' AND hold_reason IS NULL", (slug,))
         H.event(c, actor, "limit.cleared", slug, {"from": bot, "runtime": mine})
     return len(bots)
 
@@ -2555,9 +2557,11 @@ class Execution:
                           (json.dumps(runtimes), H.now(), runner_id, profile))
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
-    def candidate(self, c, who, body, runner, *, job_id=None, people_only=False):
+    def candidate(self, c, who, body, runner, *, job_id=None, people_only=False, failed=None):
         """The queued job this runner would be given next, or None. Reads only. `people_only`: only a person's own
-        message (start_places.from_person), on a computer that holds every other start."""
+        message (start_places.from_person), on a computer that holds every other start. `failed`: a claim's list, which
+        takes each job whose checks raise as (job id, error name) and moves on to the next candidate; without it the
+        error propagates."""
         lanes, roots, continues = lanes_on(runner), roots_on(runner), capacity_continue_on(runner)
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
@@ -2629,13 +2633,21 @@ class Execution:
                 privacy.snapshot(c)
                 part = candidates[i:i + PRIME_QUEUED]
                 privacy.prime_queued(c, H.prime_messages(c, [job["message_id"] for job in part]).values())
-            if source_continuation(c, row["id"]) and SOURCE_CONTINUE not in _capability_set(runner["capabilities_json"]):
-                continue        # old strict-primary runners cannot route a saved fallback
-            if not continues and continuation_thread(c, row["id"]):
-                continue        # left queued for a runner that continues its thread: this one would start it afresh
-            if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None and not login_refusal(
-                    c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]], row["id"], subscription_context):
-                return row
+            try:
+                if source_continuation(c, row["id"]) and SOURCE_CONTINUE not in _capability_set(runner["capabilities_json"]):
+                    continue        # old strict-primary runners cannot route a saved fallback
+                if not continues and continuation_thread(c, row["id"]):
+                    continue        # left queued for a runner that continues its thread: this one would start it afresh
+                if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None and not login_refusal(
+                        c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]], row["id"], subscription_context):
+                    return row
+            except Exception as exc:
+                # This job's checks raised. Its error is logged once, and the claim holds the job, so no other claim
+                # evaluates it again. Storage errors are not this job's, and they stop the claim.
+                if failed is None or storage_error(exc):
+                    raise
+                report("claim", row["id"], exc)
+                failed.append((row["id"], type(exc).__name__))
         return None
 
     @staticmethod
@@ -2654,7 +2666,7 @@ class Execution:
             return False, None
         return True, (None if start_places.person_queued(c, runner_id) else self.held_answer(c, runner_id))
 
-    def company_waiter(self, c, who, body, runner):
+    def company_waiter(self, c, who, body, runner, failed=None):
         """Oldest eligible stop-level waiter across computers; unavailable lanes do not block others.
         Another computer's waiter is eligible only while that computer claims: its claimed busy lists are the only
         record of lanes the attempts table does not show, and an empty list from a silent computer is not "free"."""
@@ -2677,11 +2689,11 @@ class Execution:
             busy_bots, busy_lanes = claimed_busy(rid, CLAIMED_WAITING_FRESH)
             scope = Claim(busy_bots=list(busy_bots), busy_lanes=['|'.join(x) for x in busy_lanes]) if remote else body
             identity = Identity('runner:' + rid, 'runner', runner_id=rid) if remote else who
-            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id']):
+            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id'], failed=failed):
                 return rid, found
         return None
 
-    def idle_claim(self, c, who, body, key=None, selected=None):
+    def idle_claim(self, c, who, body, key=None, selected=None, failed=None):
         """The answer to a claim that changes nothing, from a read-only connection, or None when
         the claim has something to write or to hand out and must run in the write transaction.
 
@@ -2694,12 +2706,12 @@ class Execution:
         if not key or c.execute("SELECT 1 FROM idempotency WHERE actor=? AND operation='/api/v2/jobs/claim' AND key=?",
                                 (who.actor, key)).fetchone():
             return None
-        answer = self._idle_claim(c, who, body, selected)
+        answer = self._idle_claim(c, who, body, selected, failed)
         if answer is not None:
             self.record_contact(H.now())
         return answer
 
-    def _idle_claim(self, c, who, body, selected=None):
+    def _idle_claim(self, c, who, body, selected=None, failed=None):
         runner = self.runner(c, who)
         if not runner:
             return None
@@ -2733,7 +2745,9 @@ class Execution:
         count = sum(turns_here(c, who.runner_id).values())
         if count >= runner["capacity"] or not self.awake(awake_since, now):
             return {"attempt": None}
-        row = self.candidate(c, who, body, runner, people_only=people_only)
+        row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed)
+        if failed:
+            return None         # a job that raised is held by the claim, under the writer lock, before any answer
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
         if row is None and auto_tasks.missing(c, self.store.settings, runner, body):
@@ -2788,9 +2802,13 @@ class Execution:
         wake_presets.release_quota_resets(c)
         self.expire(c, limit=CLAIM_MAINTENANCE)
 
-    def claim(self, c, who, body, selected=None, *, prepared=False, maintained=False):
+    def claim(self, c, who, body, selected=None, *, prepared=False, maintained=False, failed=None):
         """`maintained`: the claim route ran `maintain` in its own write before its read snapshot chose `selected`,
-        so a job that expiry requeued was there to choose, and this write rechecks only that job."""
+        so a job that expiry requeued was there to choose, and this write rechecks only that job.
+        `failed`: the read snapshot's jobs whose checks raised (see candidate). They are held first; the claim then
+        chooses under the lock as usual."""
+        failed = [] if failed is None else failed
+        self.hold_failed(c, failed)
         runner = self.runner(c, who)
         if runner:
             note_claim(runner["id"], body)
@@ -2846,24 +2864,62 @@ class Execution:
         # Its work keeps its place in the queue and goes out once the machine is really up.
         if not self.awake(awake_since, now):
             return {"attempt": None}
-        if oldest := self.company_waiter(c, who, body, runner):
+        if oldest := self.company_waiter(c, who, body, runner, failed=failed):
             if oldest[0] != who.runner_id:
                 return {'attempt': None, 'waiting': org_turns.REASON}
             selected, prepared = oldest[1], True
         # Selection scans the queue on a read connection. Recheck only that job's
         # current eligibility under the writer lock; a changed queue waits one poll.
         if prepared:
-            row = self.candidate(c, who, body, runner, job_id=selected["id"]) if selected is not None else None
+            row = (self.candidate(c, who, body, runner, job_id=selected["id"], failed=failed)
+                   if selected is not None else None)
         else:
-            row = selected if selected is not None else self.candidate(c, who, body, runner, people_only=people_only)
+            row = (selected if selected is not None else
+                   self.candidate(c, who, body, runner, people_only=people_only, failed=failed))
+        raised = bool(failed)
+        self.hold_failed(c, failed)
+        if row is None and raised:
+            # The job checked here was held just now: the next candidate is taken in this same claim.
+            row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed)
+            self.hold_failed(c, failed)
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
         # Backfill a free turn after queued conversations and awaited results keep their place.
         if row is None and selected is None and (pending := auto_tasks.missing(c, self.store.settings, runner, body)):
             auto_tasks.enqueue(c, pending)
-            row = self.candidate(c, who, body, runner)
+            row = self.candidate(c, who, body, runner, failed=failed)
+            self.hold_failed(c, failed)
         if not row:
             return {"attempt": None}
+        # The job's preparation runs in a savepoint of its own. An error rolls back its writes and holds the job, and
+        # the claim takes the next candidate (at most CLAIM_STARTS jobs a claim).
+        starts = 0
+        while True:
+            c.execute("SAVEPOINT claim_start")
+            try:
+                answer = self.start_claimed(c, who, body, runner, row)
+            except Exception as exc:
+                if not c.in_transaction or storage_error(exc):
+                    raise
+                c.execute("ROLLBACK TO claim_start")
+                c.execute("RELEASE claim_start")
+                report("claim", row["id"], exc)
+                failed.append((row["id"], type(exc).__name__))
+                self.hold_failed(c, failed)
+                starts += 1
+                if starts == CLAIM_STARTS:
+                    return {"attempt": None}
+                row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed)
+                self.hold_failed(c, failed)
+                if not row:
+                    return {"attempt": None}
+                continue
+            c.execute("RELEASE claim_start")
+            return answer
+
+    def start_claimed(self, c, who, body, runner, row):
+        """The preparation of the job a claim hands out: its turn, attempt, inputs and hand-out. The claim runs it in a
+        savepoint of its own (claim), so an error here rolls back only this job's writes."""
         msg = H.message(c, row["message_id"])
         if not privacy.message_readable(c, "bot:" + row["bot"], msg):
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (row["id"],))
@@ -3141,6 +3197,12 @@ class Execution:
                             "session_epoch": epoch["epoch"] if epoch else 0,
                             # Moved by any clear or reset of this bot: the runner starts the bot's shared thread anew.
                             "bot_session_epoch": bot_epoch[0] if bot_epoch else 0}}
+
+    def hold_failed(self, c, failed):
+        """Hold each job the claim could not evaluate or start, given as (job id, error name), and clear the list."""
+        while failed:
+            job_id, error = failed.pop(0)
+            claim_holds.hold(c, self.store.settings, job_id, error)
 
     def attempt(self, c, who, aid, active=True, final=False, arrived=None):
         """`final` is a runner handing in the result of a turn it has finished. That result

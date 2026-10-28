@@ -1848,7 +1848,7 @@
     },
     "/api/v2/bots/{bot}/release": {
       "post": {
-        "summary": "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again",
+        "summary": "Release a bot Tico stopped for failed runs or too many runs, or for queued runs it could not start; its queued work starts again",
         "operationId": "releaseBot",
         "parameters": [
           {
@@ -32206,7 +32206,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ReleaseBot",
-        "description": "Release a bot from every hold Tico put on it (failed runs, run budget)."
+        "description": "Release a bot from every hold Tico put on it (failed runs, run budget, queued runs it could not start)."
       },
       "RepoAccessUpdate": {
         "properties": {

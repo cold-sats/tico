@@ -1274,7 +1274,7 @@ STABLE.extend([
     ("/api/v2/bots/{bot}/budget", "post", "Bots", "setBotBudget",
      "Set the bot's own runs per hour and per day: null follows the team, 0 is no limit; raising it above the runs that held the bot releases it", "BotBudgetState"),
     ("/api/v2/bots/{bot}/release", "post", "Bots", "releaseBot",
-     "Release a bot Tico stopped for failed runs or too many runs; its queued work starts again", "BotReleased"),
+     "Release a bot Tico stopped for failed runs or too many runs, or for queued runs it could not start; its queued work starts again", "BotReleased"),
     ("/api/v2/settings/turn-budgets", "get", "Bots", "getTeamBudgets",
      "The team default runs per hour and per day for bots with no budget of their own (owner and admins)", "TeamBudgetState"),
     ("/api/v2/settings/turn-budgets", "post", "Bots", "setTeamBudgets",

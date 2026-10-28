@@ -109,6 +109,9 @@ def ensure(c):
     H.add_column(c, "jobs", "wake_class", "TEXT")
     H.add_column(c, "jobs", "held", "INTEGER NOT NULL DEFAULT 0")
     H.add_column(c, "jobs", "hold_until", "TEXT")
+    # Why a claim holds a job it could not start (backend/claim_holds.py); only a bot release lets it go.
+    H.add_column(c, "jobs", "hold_reason", "TEXT")
+    H.add_column(c, "jobs", "hold_task_id", "TEXT")
     # The job whose turn carried this one's notice (a batch's newest, or its digest), for `measures`.
     H.add_column(c, "jobs", "wake_carrier", "TEXT")
     H.add_column(c, "attempts", "wake_json", "TEXT")
@@ -202,7 +205,7 @@ def sweep_key(refs):
 def release_quota_resets(c, at=None):
     """A quota retry keeps its job and becomes claimable at the reset even between scheduler ticks."""
     c.execute("UPDATE jobs SET held=0 WHERE held=1 AND state='queued' AND wake_class='quota-reset' "
-              "AND hold_until<=?", (at or H.now(),))
+              "AND hold_reason IS NULL AND hold_until<=?", (at or H.now(),))
 
 
 def tick(c, at=None):
@@ -212,7 +215,8 @@ def tick(c, at=None):
     cache = {}
     for job in c.execute("SELECT j.id,j.bot,j.wake_preset,j.wake_class,j.created,m.conversation_id,m.refs_json "
                          "FROM jobs j JOIN messages m ON m.id=j.message_id "
-                         "WHERE j.held=1 AND j.hold_until IS NULL AND j.state='queued' ORDER BY j.created,j.id").fetchall():
+                         "WHERE j.held=1 AND j.hold_until IS NULL AND j.hold_reason IS NULL AND j.state='queued' "
+                         "ORDER BY j.created,j.id").fetchall():
         values_of = numbers_for(c, job["bot"], job["wake_preset"], cache)
         if not values_of:
             c.execute("UPDATE jobs SET held=0 WHERE id=?", (job["id"],))

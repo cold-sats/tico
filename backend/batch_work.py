@@ -12,6 +12,27 @@ from datetime import datetime, timezone
 _logged = OrderedDict()
 _clock = time.monotonic
 
+# Errors of the storage or the writer lock, not of the row being worked on: they stop the batch or the claim.
+STORAGE_CODES = (sqlite3.SQLITE_FULL, sqlite3.SQLITE_IOERR, sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB,
+                 sqlite3.SQLITE_READONLY, sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+
+
+def storage_error(exc):
+    """Whether `exc` is a storage failure rather than the row's own error."""
+    return (getattr(exc, "sqlite_errorcode", 0) & 0xff) in STORAGE_CODES
+
+
+def report(kind, row_id, exc, logger="tico.scheduler"):
+    """Log one row's failure: with its traceback the first time, then at most once an hour for the same row."""
+    key, now = (kind, str(row_id)), _clock()
+    previous = _logged.get(key)
+    if previous is None or now - previous >= 3600:
+        logging.getLogger(logger).error("%s failed for %s: %s", kind, row_id, str(exc)[:300], exc_info=previous is None)
+        _logged[key] = now
+        _logged.move_to_end(key)
+        while len(_logged) > 2048:
+            _logged.popitem(last=False)
+
 
 @contextmanager
 def isolated(c, kind, row_id, failures=None):
@@ -24,10 +45,7 @@ def isolated(c, kind, row_id, failures=None):
     except Exception as exc:
         # SQLite may already have rolled back the transaction (full disk, I/O). Keep
         # that original error. Storage failures stop the whole batch; row SQL errors do not.
-        code = getattr(exc, "sqlite_errorcode", 0) & 0xff
-        if not c.in_transaction or code in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_IOERR,
-                                            sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB,
-                                            sqlite3.SQLITE_READONLY):
+        if not c.in_transaction or storage_error(exc):
             fatal = True
             raise
         c.execute("ROLLBACK TO background_row")
@@ -38,15 +56,7 @@ def isolated(c, kind, row_id, failures=None):
             return
         if failures is not None:
             failures.append({kind: row_id, "error": type(exc).__name__})
-        key, now = (kind, str(row_id)), _clock()
-        previous = _logged.get(key)
-        if previous is None or now - previous >= 3600:
-            logger = logging.getLogger("tico.scheduler")
-            logger.error("%s failed for %s: %s", kind, row_id, str(exc)[:300], exc_info=previous is None)
-            _logged[key] = now
-            _logged.move_to_end(key)
-            while len(_logged) > 2048:
-                _logged.popitem(last=False)
+        report(kind, row_id, exc)
         if health_available:
             c.execute("INSERT INTO service_health VALUES(?,NULL,?,?) "
                       "ON CONFLICT(service) DO UPDATE SET last_error=excluded.last_error,detail_json=excluded.detail_json",
