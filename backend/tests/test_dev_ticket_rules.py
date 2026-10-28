@@ -70,6 +70,17 @@ def test_a_dev_tickets_type_is_seeded_once_and_a_deleted_row_stays_deleted(api):
         assert len(seeded(c, typ["id"])) == 3
 
 
+def test_renaming_a_step_moves_its_rows_in_the_what_wakes_automation_to_the_new_name(api):
+    with api.app.state.store.transaction() as c:
+        typ = dev_type(c)
+        steps = [{"id": s["id"], "name": "Acceptance" if s["name"] == "In QA" else s["name"], "status": s["status"]}
+                 for s in H.type_get(c, typ["id"])["steps"]]
+        H.type_update(c, H.KEEPER, typ["id"], steps=steps)
+        named = [w.get("step") for _, w, _ in seeded(c, typ["id"])]
+        assert "Acceptance" in named and "In QA" not in named
+        assert any(names_step(s, "Acceptance") for s in wakes(c, typ["id"])[1]["steps"])
+
+
 def test_each_step_entry_reaches_only_the_bot_that_must_act(api):
     with api.app.state.store.transaction() as c:
         typ = dev_type(c)

@@ -881,6 +881,34 @@ def drop_wake_rules(c, scope_kind, scope_id, created_by):
     return gone
 
 
+def rename_steps(c, type_id, lower):
+    """A type's steps were renamed ({lowercased old name: new name}): its "What wakes" rules that name a step by its
+    old name name the new one, as rules.steps_renamed does for rows still in the table."""
+    import copy
+    from . import automations
+
+    def moved(value):
+        if isinstance(value, list):
+            return [lower.get(str(v).lower(), v) for v in value]
+        return lower.get(str(value).lower(), value) if isinstance(value, str) else value
+
+    who = None
+    for row, flow in _wakes_of(c, "type", type_id):
+        after = copy.deepcopy(flow)
+        for step in after.get("steps") or []:
+            for rule in step.get("rules") or []:
+                for cond in rule.get("when") or []:
+                    if cond.get("field") == "task.step" and cond.get("op") == "is":
+                        cond["value"] = moved(cond.get("value"))
+                for then in rule.get("then") or []:
+                    source = (then.get("args") or {}).get("rule")
+                    if isinstance(source, dict) and isinstance(source.get("when"), dict) and "step" in source["when"]:
+                        source["when"]["step"] = moved(source["when"]["step"])
+        if after != flow:
+            who = who or system_who(c)
+            automations._save(c, who.actor, row["id"], automations._checked(c, after), flow, via="steps renamed")
+
+
 def wake_rules_by(c, scope_kind, scope_id, created_by):
     """How many rules `created_by` made are in a scope's "What wakes" automations."""
     return sum(1 for _, flow in _wakes_of(c, scope_kind, scope_id) for s in flow["steps"]

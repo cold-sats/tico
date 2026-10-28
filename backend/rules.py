@@ -253,15 +253,6 @@ def profile_of(conn, bot):
     return row[0] if row and row[0] in PROFILES else "doer"
 
 
-def profile_listing(conn, slug):
-    """A bot's profile rows as the Rules page lists them: built-in, read-only, tagged with the profile."""
-    name = profile_of(conn, slug)
-    return [{"id": r["id"], "scope_kind": "bot", "scope_id": slug, "event": r["event"], "when": r["when"],
-             "then": r["then_outcome"], "params": {}, "enabled": True, "position": n, "built_in": True,
-             "protected": False, "group": "profile", "words": r["words"], "profile": name, "can_change": False}
-            for n, r in enumerate(PROFILE_RULES.get(name, ()))]
-
-
 def sweeps_on(conn, bot):
     """Whether stall and status checks (the sweeps) may wake this bot's tasks: False for a reviewer, lead, responder
     and monitor, and for a custom profile that turned them off. Fails open: a bot whose profile cannot be read is
@@ -1303,6 +1294,9 @@ def steps_renamed(conn, type_id, renamed):
         rows = conn.execute("SELECT id, when_json FROM rules WHERE scope_kind='type' AND scope_id=?", (type_id,)).fetchall()
     except sqlite3.OperationalError:
         return
+    from . import redesign_migration
+    if H._has_table(conn, "automations"):
+        redesign_migration.rename_steps(conn, type_id, lower)     # the rows moved into its What wakes automation
     for ident, raw in rows:
         when = H._json(raw, {}) or {}
         step = when.get("step") if isinstance(when, dict) else None
