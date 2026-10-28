@@ -82,7 +82,7 @@ def automations(world):
     - Route mail (Dana's inbox): Decide, then Paths "Reply" and "Archive" on the bucket, and Otherwise.
     - Weekly digest (Dana, a schedule): no steps yet, the journeys build it.
     - Standup notes (Priya's own, a schedule), made by Priya."""
-    from .harness import DANA_REF, PRIYA, PRIYA_REF, automation
+    from .harness import DANA, DANA_REF, PRIYA, PRIYA_REF, automation
     world.app.state.judge = SteadyJudge()
     inbox = {"type": "message", "inbox": "dana@acme.example"}
     _ok(automation(world, "Inbox triage", DANA_REF, trigger=inbox, steps=[
@@ -98,8 +98,10 @@ def automations(world):
             {"name": "Archive", "when": [_cond("d1.bucket", "is", "archive", min=0.7)],
              "steps": [_node("a", "action", do="note", args={"text": "Archive"})]}],
             otherwise={"steps": [_node("o", "action", do="note", args={"text": "Unsure"})]})]), "Route mail")
-    _ok(automation(world, "Weekly digest", DANA_REF, trigger={"type": "schedule", "cron": "0 8 * * 1", "tz": "UTC"},
-                   steps=[]), "Weekly digest")
+    # Not through automation(): it puts an empty Filter in a flow given no steps, and this one starts empty.
+    _ok(world.api("post", "/api/v2/automations", {
+        "name": "Weekly digest", "owner": DANA_REF, "enabled": True, "builtin": False,
+        "trigger": {"type": "schedule", "cron": "0 8 * * 1", "tz": "UTC"}, "steps": []}, who=DANA), "Weekly digest")
     _ok(automation(world, "Standup notes", PRIYA_REF, who=PRIYA,
                    trigger={"type": "schedule", "cron": "0 9 * * 1-5", "tz": "UTC"},
                    steps=[_node("tell", "action", do="note", args={"text": "Standup"})]), "Standup notes")

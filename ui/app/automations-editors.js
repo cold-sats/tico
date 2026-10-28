@@ -38,9 +38,11 @@ function auEdClose() { if (!AU?.ed) return; AU.ed = null; auDrawPane(); auDrawSi
 // them the step's own, "Custom").
 function auDecideQs(ed) {
   const s = ed.step, qs = s.questions || (AU.sets || []).find(x => x.id === s.set)?.questions || {};
-  ed.qs = Object.entries(qs).map(([id, q]) => ({...q, id, opts: q.type === 'choice' ? auChoiceKeys(q).join(', ') : ''}));
+  ed.qs = Object.entries(qs).map(([id, q]) => ({...q, id, ask: auAskText(q.instructions), opts: q.type === 'choice' ? auChoiceKeys(q).join(', ') : ''}));
   ed.custom = !s.set;
 }
+// A question's instructions as one line of text (structured ones as their JSON; saved back unchanged if untouched).
+const auAskText = v => typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v);
 const auChoiceKeys = q => Array.isArray(q.criteria) ? q.criteria.map(String) : Object.keys(q.criteria || {});
 async function auSetsLoad(ed) {
   AU.sets = [];
@@ -140,6 +142,7 @@ function auDecideFields(s, ed) {
   const sets = auWithCur((AU.sets || []).map(x => [x.id, auSetWords(x.id)]), s.set, auSetWords(s.set));
   const qs = ed.qs.map((q, i) => `<div class="au-rb"><div class="au-ir">
       ${auIn(`qs.${i}.id`, q.id, 'Name', 'aria-label="Question name"')}${auSel(`qs.${i}.type`, AU_QTYPES, q.type, 'data-redraw aria-label="Answer"')}${auX('qs', i, 'Remove question')}</div>
+      ${auIn(`qs.${i}.ask`, q.ask, 'What to ask', 'aria-label="Instructions"')}
       ${q.type === 'choice' ? auIn(`qs.${i}.opts`, q.opts, 'Options, comma separated', 'aria-label="Options"') : ''}</div>`).join('');
   const run = (AU.lastRun?.steps || []).find(x => x.id === s.id);
   const bars = run ? Object.entries(run.outputs || {}).filter(([, v]) => v && typeof v === 'object').map(([q, v]) => {
@@ -236,7 +239,7 @@ function auEdWire(box) {
     if (op === 'rm') list.splice(+m.dataset.i, 1);
     if (op === 'add') {
       if (!auPathGet(ed, at)) auPathSet(ed, at, list);
-      list.push({cond: {field: '', op: 'is', value: ''}, then: {do: 'archive', args: {}}, q: {id: 'question', type: 'noul', opts: ''},
+      list.push({cond: {field: '', op: 'is', value: ''}, then: {do: 'archive', args: {}}, q: {id: 'question', type: 'noul', ask: '', opts: ''},
         rule: {when: [{field: '', op: 'is', value: ''}], match: 'all', then: [{do: 'archive', args: {}}], stop: true},
         path: {name: 'Path ' + (list.length + 1), when: [], steps: []}}[m.dataset.tpl]);
     }
@@ -258,13 +261,18 @@ async function auEdSave(button) {
   else {
     const step = auClone(ed.step);
     if (step.type === 'decide' && ed.custom) {
-      const old = step.questions || {};
-      step.questions = Object.fromEntries(ed.qs.filter(q => q.id.trim()).map(({id, opts, ...q}) => {
-        const def = {...(old[id] || {}), ...q};
+      const old = step.questions || {}, kept = ed.qs.filter(q => q.id.trim());
+      if (kept.some(q => !String(q.ask ?? '').trim())) { toast('Each question needs what to ask', true); if (button) button.disabled = false; return; }
+      step.questions = Object.fromEntries(kept.map(({id, opts, ask, ...q}) => {
+        const def = {...(old[id] || {}), ...q}, was = old[id]?.instructions;
+        def.instructions = typeof was !== 'string' && was != null && ask === auAskText(was) ? was : String(ask).trim();
         if (def.type === 'choice') {
           const keep = Array.isArray(def.criteria) ? {} : def.criteria || {};
           def.criteria = Object.fromEntries(String(opts || '').split(',').map(x => x.trim()).filter(Boolean).map(k => [k, keep[k] || '']));
-        } else delete def.criteria;
+        } else if (def.type === 'score') {
+          // Levels are not edited here: a score keeps its own, or starts with three.
+          if (!Array.isArray(def.criteria) || def.criteria.length < 2) def.criteria = ['Low', 'Medium', 'High'];
+        } else if (!def.criteria || Array.isArray(def.criteria) || Object.keys(def.criteria).some(k => k !== 'true' && k !== 'false')) delete def.criteria;
         return [id.trim(), def];
       }));
       delete step.set;

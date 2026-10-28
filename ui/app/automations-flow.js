@@ -164,7 +164,7 @@ function auNextOut(prefix) {
 function auNewStep(type) {
   const s = {id: auNewId(), type, enabled: true};
   if (type === 'filter') s.rules = [{when: [{field: 'message.from', op: 'contains', value: ''}], match: 'all', then: [{do: 'archive', args: {}}], stop: true}];
-  if (type === 'decide') Object.assign(s, {questions: {question: {type: 'noul'}}, level: 'medium', out: auNextOut('d')});
+  if (type === 'decide') Object.assign(s, {questions: {question: {type: 'noul', instructions: ''}}, level: 'medium', out: auNextOut('d')});
   if (type === 'llm') Object.assign(s, {as: 'assistant:' + (S.me?.id || ''), prompt: '', out: auNextOut('l')});
   if (type === 'find') Object.assign(s, {source: 'mail', query: '', since: 'last_run', limit: 20});
   if (type === 'bot_turn') Object.assign(s, {bot: (S.emps || []).find(e => e.name !== AU_BOT)?.name || '', prompt: ''});
