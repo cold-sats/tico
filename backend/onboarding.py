@@ -92,9 +92,12 @@ def render(card, names, bot_name=""):
     every word it shows carries the placeholders, not only its AGENT.md."""
     name = fill(bot_name or card["name"], names)
     # The Automations Bot's instructions carry the flow shape the hub checks saves against (backend/automation_flow.py).
+    instructions = fill(card["instructions"], names, name)
+    if "{{flow_shape}}" in instructions:
+        instructions = instructions.replace("{{flow_shape}}", automation_flow.shape_text())
     return {**card, "name": name,
             "summary": fill(card["summary"], names, name),
-            "instructions": fill(card["instructions"], names, name).replace("{{flow_shape}}", automation_flow.shape_text()),
+            "instructions": instructions,
             "onboarding": [{key: fill(text, names, name) for key, text in item.items()}
                            for item in card.get("onboarding", [])],
             "first_routine": {key: fill(value, names, name) if isinstance(value, str) else value
