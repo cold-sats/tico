@@ -1,5 +1,6 @@
 """What starts an automation (backend/automations.py): a task received, a catalog event, mail, Slack, an incoming
 webhook, listening and a schedule (DST-safe), with trigger filters, batch times, the chain guard and the redesign off."""
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -121,8 +122,16 @@ def test_only_the_inboxs_person_or_the_top_sets_its_switch(api):
 
 
 # ---------------------------------------------------------------------------------------------- Slack, webhooks, listening
+def listed(api, name, readers=()):
+    """A channel on the team's Slack list (Settings > Tools > Slack)."""
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO slack_channels(key,name,readers_json,created,updated) VALUES(?,?,?,?,?)",
+                  ("#" + name, name, json.dumps(list(readers)), "2026-10-28T00:00:00Z", "2026-10-28T00:00:00Z"))
+
+
 def test_slack_messages_reach_the_dm_or_channel_inbox(api):
     turn_on(api)
+    listed(api, "general")
     dm = make(api, {"type": "message", "inbox": "slack:dm"})
     general = make(api, {"type": "message", "inbox": "slack:#general"})
     person = {"id": "ana"}

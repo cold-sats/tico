@@ -33,10 +33,12 @@ def test_an_llm_step_waits_for_the_bots_turn_in_its_own_room_and_goes_on(api):
     run = post(api, f"automations/{aid}/run", {})["run"]
     assert run["status"] == "waiting"
     turn = run["steps"][0]["outputs"]["turn"]
-    assert turn["bot"] == "ops" and turn["task"] is None
+    assert turn["bot"] == "ops" and turn["task"]
     with api.app.state.store.read() as c:
         room = c.execute("SELECT room_key, scope FROM conversations WHERE id=?", (turn["session"],)).fetchone()
-    assert room is not None
+        task = c.execute("SELECT owner, requester FROM tasks WHERE id=?", (turn["task"],)).fetchone()
+    assert room is not None   # a task of its own, with its own room: never a person's chat or another task's session
+    assert task["owner"] == "bot:ops" and task["requester"] == "bot:ops"   # filed by the owner, bot:ops
     finish(api, r)
     done = get(api, f"automations/{aid}/runs")["runs"][0]
     assert done["status"] == "ok" and [s["status"] for s in done["steps"]] == ["ok", "ok"]

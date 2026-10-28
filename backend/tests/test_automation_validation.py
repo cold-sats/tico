@@ -145,3 +145,15 @@ def test_bad_steps_are_refused(step, words):
 ])
 def test_bad_automation_fields_are_refused(extra, words):
     refused({**flow(act("a")), **extra}, words)
+
+
+@pytest.mark.parametrize("pattern", ["(a+)+$", "(a*)*", "(a|aa)+", "(x?)+b", "^(\\w+\\s?)+$", "a" * 201])
+def test_patterns_that_backtrack_without_end_or_run_long_are_refused(pattern):
+    refused({**flow(act("a")), "trigger": {"type": "event", "name": "x", "filters": [
+        {"field": "a", "op": "matches", "value": pattern}]}}, "pattern")
+
+
+def test_ordinary_patterns_still_save():
+    for pattern in (r"invoice \d+", "^(re|fwd):", "(ab){2}", "[a-z]+@acme\\.example", "(foo)+bar"):
+        check({**flow(act("a")), "trigger": {"type": "event", "name": "x", "filters": [
+            {"field": "a", "op": "matches", "value": pattern}]}})
