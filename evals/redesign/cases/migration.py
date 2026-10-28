@@ -598,6 +598,22 @@ def nine_london(day):
     return dt.datetime(2026, 10, day, 9, tzinfo=LONDON)
 
 
+def close_standup(org):
+    """The standup is finished each morning, so its open task closes before the next occurrence. While a converted
+    routine's last task is open, an occurrence starts no run (CONTRACT section 4, as the legacy scheduler's one-open-run
+    rule does); the scenario checks the clock, not that rule, so it closes the task the way the team would."""
+    with org.store.read() as c:
+        open_ids = [r["id"] for r in c.execute(
+            "SELECT id FROM tasks WHERE owner IN (?, ?) AND status NOT IN ('closed','done')",
+            (CLAUDE_ID, "bot:" + CLAUDE_ID))]
+    closed = 0
+    for tid in open_ids:
+        task = org.api("get", f"/api/v2/tasks/{tid}", wave=W5)
+        version = (task.body.get("task") or task.body).get("version") if isinstance(task.body, dict) else None
+        closed += org.api("post", f"/api/v2/tasks/{tid}", {"version": version, "status": "closed"}, wave=W5).status < 300
+    return closed
+
+
 def s42_steps(org, f):
     prologue(org, f)   # Tue Oct 20, 09:00 UTC (10:00 London)
     org.step(f, "old", get, org, f"/api/v2/bots/{CLAUDE_ID}/routines")
@@ -608,6 +624,7 @@ def s42_steps(org, f):
     for day in STANDUP_DAYS:   # one day at a time, to 09:00 London exactly, so the scheduler fires each in turn
         org.step(f, f"to{day}", guarded, f, "convert", jump, org, nine_london(day))
         org.step(f, f"runs{day}", runs_for, org, f, fx(f)["routines"]["standup"])
+        org.step(f, f"closed{day}", close_standup, org)
 
 
 def standup_trigger(f):

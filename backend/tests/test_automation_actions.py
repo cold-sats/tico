@@ -149,3 +149,24 @@ def test_slack_send_reply_posts_in_the_thread_and_off_leaves_a_draft_task(api):
 def test_an_unknown_action_is_refused(api):
     turn_on(api)
     assert not act(api, "explode")["ok"]
+
+
+def test_an_idle_pr_find_reads_open_prs_whose_last_activity_is_old(api):
+    """The stale-PR find (CONTRACT section 6): with idle_hours, only open or draft PRs whose last activity is that old
+    come back, a PR with no activity recorded reads as idle from its creation, and the plain find keeps every PR."""
+    task_id = task(api)["task"]["id"]
+    now = H.now()
+    old, fresh = H.shift(now, hours=-40), now
+    links = [("idle", "open", H.shift(now, hours=-30)), ("fresh", "open", fresh),
+             ("merged", "merged", H.shift(now, hours=-30)), ("draft", "draft", None)]
+    with api.app.state.store.transaction() as c:
+        for number, (name, state, activity) in enumerate(links, 1):
+            c.execute("INSERT INTO task_links(id,task_id,kind,url,title,state,created,activity_at,repo,number) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                      (f"link_{name}", task_id, "pr", f"https://github.com/acme/app/pull/{number}", f"Change {name}",
+                       state, old, activity, "acme/app", number))
+    with api.app.state.store.read() as c:
+        idle = A.find(c, auto(), "prs", "", 20, ("", ""), idle_hours=24)
+        every = A.find(c, auto(), "prs", "", 20, ("", ""))
+    assert sorted(r["id"] for r in idle) == ["link_draft", "link_idle"]
+    assert len(every) == 4

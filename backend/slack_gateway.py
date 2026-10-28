@@ -616,6 +616,39 @@ class Gateway:
                 "SELECT * FROM slack_events WHERE state='received' AND (processed IS NULL OR processed<=?) "
                 "ORDER BY received, ts LIMIT 50", (H.shift(self.clock(), seconds=-RETRY_SECONDS),))]
 
+    def offer(self):
+        """A stored channel message (the readers' copy) is offered once to `automations.on_slack`, after the same sender
+        and channel checks as a DM. The row keeps its `stored` state, so the readers, the edit path and an `@Tico` copy
+        that promotes it are unchanged; `processed` alone records the offer. Only while the redesign is on and an enabled
+        message automation names a channel, and only for messages that arrived after the oldest such automation was made,
+        so switching the redesign on does not replay the channel's history."""
+        from . import automations, redesign
+        with self.store.read() as c:
+            if not redesign.on(c):
+                return []
+            since = c.execute(
+                "SELECT MIN(created) FROM automations WHERE trigger_type='message' AND enabled=1 AND deleted_at IS NULL "
+                "AND flow_json LIKE '%slack:#%'").fetchone()[0]
+            if not since:
+                return []
+            rows = [dict(r) for r in c.execute(
+                "SELECT * FROM slack_events WHERE state='stored' AND author='human' AND channel_kind='channel' "
+                "AND processed IS NULL AND received>=? ORDER BY received, ts LIMIT 50", (since,))]
+        out = []
+        for event in rows:
+            with self.store.read() as c:
+                person, _user, denied = self.verify_sender(c, event)
+            channel, channel_denied = self.verify_channel(event) if person and not denied else (None, None)
+            taken = []
+            if person and channel and not channel_denied:
+                with self.store.transaction() as c:
+                    taken = automations.on_slack(c, event, person, channel, self.settings)
+            with self.store.transaction() as c:
+                c.execute("UPDATE slack_events SET processed=? WHERE event_id=?", (self.clock(), event["event_id"]))
+            if taken:
+                out.append({"event_id": event["event_id"], "state": "stored", "reason": "automation"})
+        return out
+
     def verify_sender(self, c, event):
         """The verified person behind the event, or (None, reason). Network first, then the roster."""
         try:
@@ -1690,7 +1723,8 @@ class Gateway:
 
     # ------------------------------------------------------------------ the loop
     def tick(self):
-        """One pass: pending events, then replies to mirror, then posts to send, then the readers' pass when due."""
+        """One pass: pending events, the channel messages message automations hear, then replies to mirror, then posts to
+        send, then the readers' pass when due."""
         out = []
         for event in self.pending():
             try:
@@ -1700,6 +1734,7 @@ class Gateway:
                 with self.store.transaction() as c:
                     self.finish(c, event, "failed", reason=f"{type(exc).__name__}: {exc}")
                 out.append({"event_id": event["event_id"], "state": "failed"})
+        out.extend(self.offer())
         self.task_completions()
         self.originate()
         self.mirror()

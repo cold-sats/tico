@@ -18,10 +18,11 @@ from urllib.parse import urlsplit
 import httpx
 
 from connectors.mail.tests.fake import FakeGmailService  # noqa: F401 (the mail tests' own fake, unchanged)
-from .harness import GAP, Unmet
-
 RECORDINGS = Path(__file__).parent / "recordings"
 LIVE_RATE, LIVE_MAX = 0.05, 10
+# The company's Decisions level in the fixture (clients/judge.py normalize_level(None)). A call with no step level, such
+# as the listening judge's, is asked at it, as the Gateway engine resolves it. Every recording was taken at low.
+COMPANY_LEVEL = "low"
 PUBLIC = [ipaddress.ip_address("93.184.216.34")]   # backend/tests/test_webhooks.py:20
 
 
@@ -45,12 +46,10 @@ class ReplayJudge:
         self.script, self.fail, self.calls = list(script), fail, []
 
     def __call__(self, state, questions, label=None, level=None):
+        level = level or COMPANY_LEVEL
         self.calls.append({"state": state, "questions": questions, "label": label, "level": level})
         if self.fail:
             raise self.fail
-        if level is None:
-            # The engine callable takes no level, but CONTRACT §2 puts decide.level on the step: the replay key needs it.
-            raise Unmet(GAP, "the judge engine is called without a level, and CONTRACT §2 names decide.level")
         if self.script:
             # A passed script wins over a recording: a named scenario needs the exact confidence it scripted.
             return {"model": "scripted", "usage": {"input_tokens": 0, "output_tokens": 0}, "ms": 0,
@@ -82,17 +81,69 @@ def attach_judge(org, engine):
     return engine
 
 
+TEAM, APP, BOT_USER, BOT_ID = "T0WF1", "A0WF1", "U0BOT", "B0BOT"
+# The fixture's Slack people (recorded inputs name them by first name) and channels (ids as the recordings name them).
+SLACK_PEOPLE = {"dana": ("U0DANA", "dana@acme.example"), "omar": ("U0OMAR", "omar@acme.example"),
+                "priya": ("U0PRIYA", "priya@acme.example")}
+SLACK_CHANNELS = {"C-release": "release", "C-platform": "platform", "C-general": "general", "C-product": "product",
+                  "C-random": "random"}
+
+
 class FakeSlack:
-    """backend/tests/test_slack_gateway.py:55 FakeSlack, cut to what a reply records: every post_message it made.
-    Waits for the Slack ingest route; no scenario calls it yet."""
+    """The Slack Web API as the gateway (backend/slack_gateway.py Gateway) calls it: the workspace and app it verifies,
+    the people and channels the recordings name, and every post it made."""
 
     def __init__(self):
-        self.posts = []
+        self.posts, self.calls = [], []
+
+    def auth_test(self):
+        return {"ok": True, "team_id": TEAM, "user_id": BOT_USER, "bot_id": BOT_ID, "url": "https://acme.slack.com/"}
+
+    def bots_info(self, bot_id):
+        return {"id": bot_id, "app_id": APP, "user_id": BOT_USER, "name": "Tico"}
+
+    def users_info(self, user_id):
+        from backend.slack_gateway import SlackError
+        self.calls.append(("users.info", user_id))
+        for name, (uid, email) in SLACK_PEOPLE.items():
+            if uid == user_id:
+                return {"id": uid, "team_id": TEAM, "name": name, "profile": {"email": email}}
+        raise SlackError("users.info", "user_not_found")
+
+    def conversations_info(self, channel):
+        from backend.slack_gateway import SlackError
+        self.calls.append(("conversations.info", channel))
+        if channel not in SLACK_CHANNELS:
+            raise SlackError("conversations.info", "channel_not_found")
+        return {"id": channel, "name": SLACK_CHANNELS[channel]}
+
+    def history(self, channel, oldest="", limit=200):
+        self.calls.append(("conversations.history", channel, oldest))
+        return []
+
+    def replies(self, channel, thread_ts, oldest="", limit=200):
+        self.calls.append(("conversations.replies", channel, thread_ts, oldest))
+        return []
+
+    def conversations_open(self, user_id):
+        self.calls.append(("conversations.open", user_id))
+        return {"id": "D0" + user_id}
 
     def post_message(self, channel, thread_ts, text, username=None, icon_emoji=None, icon_url=None):
+        self.calls.append(("chat.postMessage", channel))
         self.posts.append({"channel": channel, "thread_ts": thread_ts, "text": text, "username": username,
                            "icon_emoji": icon_emoji, "icon_url": icon_url})
-        return {"ok": True, "ts": str(len(self.posts))}
+        return {"ok": True, "ts": f"{1700000000 + len(self.posts)}.000100"}
+
+
+def slack_envelope(message):
+    """One recorded message as Socket Mode delivers it (`events_api`): a message event in a channel, or a direct
+    message (channel id D-...). `ts` keeps the recording's stem, which the run's trigger reference carries."""
+    is_dm = str(message["channel"]).startswith("D")
+    uid = SLACK_PEOPLE[message["user"]][0]
+    return {"type": "event_callback", "team_id": TEAM, "api_app_id": APP, "event_id": "Ev-" + message["ts"],
+            "event": {"type": "message", "channel": message["channel"], "channel_type": "im" if is_dm else "channel",
+                      "user": uid, "text": message["text"], "ts": message["ts"]}}
 
 
 def hook(client, url, body=b'{"order": 42}', headers=None):

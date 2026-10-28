@@ -200,9 +200,12 @@ def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_versio
         c.execute("UPDATE automations SET name=?,owner=?,grp=?,trigger_type=?,enabled=?,builtin=?,flow_json=?,version=?,"
                   "updated=?,next_due=CASE WHEN ? THEN ? ELSE next_due END WHERE id=?", (*columns, int(again), due, aid))
     else:
+        # A find starts at the automation's creation, so it does not act on what came before it. A stale-PR find is the
+        # exception: its clock is each PR's own activity, so the PRs already idle when it is made are its first items.
+        idle = any(step.get("type") == "find" and step.get("idle_hours") for step in flow.get("steps") or [])
         c.execute("INSERT INTO automations(name,owner,grp,trigger_type,enabled,builtin,flow_json,version,updated,id,"
                   "created,created_by,found_since,next_due) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                  (*columns, aid, now, actor, now, due))
+                  (*columns, aid, now, actor, "" if idle else now, due))
     if audit:
         audit_log.write(c, actor, "automation:" + aid, before, flow, via)
     return _row(c, aid)
@@ -305,6 +308,13 @@ def may_pause(c, who, flow, can_edit=None):
 def may_see(c, who, flow):
     """Seeing follows the change rule."""
     return may_change(c, who, {**flow, "readonly": False})
+
+
+def may_reference(c, who, aid):
+    """A chat message may name automation `aid` (refs.automation) when it exists and `who` may see it: the same rule as
+    GET /api/v2/automations/{aid}. Callers check the redesign switch first."""
+    row = _row(c, aid) if isinstance(aid, str) else None
+    return bool(row) and may_see(c, who, flow_of(row))
 
 
 def may_reference(c, who, aid):
@@ -638,13 +648,41 @@ def _guard(c, row):
     return True
 
 
+def _absorbed(c, row):
+    """A converted cron routine keeps its routine's rule (CONTRACT section 4, Overlap): an occurrence while the task its
+    last run opened is unfinished starts no run. It counts as dropped and its owner bot is told, as the routine told it
+    (backend/scheduler.py), so the open task is never left in silence."""
+    flow = flow_of(row)
+    source = flow.get("source")   # a dict for a converted routine; a list for an inbox or a "What wakes" group
+    if not isinstance(source, dict) or source.get("kind") != "routine":
+        return False
+    if (flow.get("trigger") or {}).get("type") != "schedule":
+        return False
+    last = c.execute("SELECT json_extract(refs_json,'$.task') AS task FROM messages "
+                     "WHERE json_extract(refs_json,'$.automation')=? ORDER BY created DESC LIMIT 1", (row["id"],)).fetchone()
+    open_task = c.execute("SELECT id FROM tasks WHERE id=? AND status IN ('open','doing','waiting','review','ready')",
+                          (last["task"],)).fetchone() if last and last["task"] else None
+    if not open_task:
+        return False
+    _count(c, row["id"], "dropped")
+    owner = str(flow.get("owner") or "")
+    if owner.startswith("bot:"):
+        H.notice(c, H.KEEPER, owner, f"Scheduled occurrence {H.now()[:16].replace('T', ' ')}Z of {flow.get('name')} "
+                                     "absorbed into this open task; continue it or mark it done.",
+                 refs={"task": open_task["id"], "wake": "occurrence"})
+    return True
+
+
 def queue(c, row, payload, ref="", *, manual=False, chain=()):
     """A queued run of this automation's current version, or None: an automation with a `find` runs one at a time (an
-    occurrence while one is unfinished is passed over, counted as dropped), and the run guard may pause it."""
+    occurrence while one is unfinished is passed over, counted as dropped), a converted cron routine absorbs an
+    occurrence while its last task is open (`_absorbed`), and the run guard may pause it."""
     if (not manual and _finds(flow_of(row)["steps"]) and c.execute(
             "SELECT 1 FROM automation_runs WHERE automation_id=? AND status IN ('queued','running','waiting') LIMIT 1",
             (row["id"],)).fetchone()):
         _count(c, row["id"], "dropped")
+        return None
+    if not manual and _absorbed(c, row):
         return None
     if _guard(c, row):
         return None
@@ -1091,7 +1129,7 @@ class HubServices:
             return started
         return self._once(ctx, work)
 
-    def find(self, source, query, limit):
+    def find(self, source, query, limit, idle_hours=None):
         """Items after the watermark, which moves only as items are finished (`_found_done`)."""
         self.dirty = True
         with self.hub.store.read() as c:
@@ -1099,7 +1137,8 @@ class HubServices:
             mark = _mark(found[0] if found else "")
             return A.find(c, self.auto, source, query, limit, (mark["at"], mark["id"]),
                           mailboxes=owner_mailboxes(c, self.flow["owner"]) if source == "mail" else (),
-                          skip=_held(c, self.row["id"], self.run_id) | {ident for _, ident in mark["done"]})
+                          skip=_held(c, self.row["id"], self.run_id) | {ident for _, ident in mark["done"]},
+                          idle_hours=idle_hours)
 
     def checkpoint(self, state):
         """Save the run after a step that did something, before the next one starts."""

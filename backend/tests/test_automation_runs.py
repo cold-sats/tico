@@ -220,6 +220,16 @@ def test_items_with_the_same_time_are_all_found_one_page_at_a_time(api):
     assert counts == [1, 1, 1, 0]
 
 
+def test_a_stale_pr_find_starts_before_its_creation_and_other_finds_do_not(api):
+    """A find starts at its automation's creation, except a stale-PR find, whose PRs were idle before it was made."""
+    turn_on(api)
+    stale = make(api, [{"id": "stale", "type": "find", "source": "prs", "query": "", "idle_hours": 24, "limit": 20}])
+    plain = make(api, [FIND])
+    marks = {r["id"]: r["found_since"] for r in sql(api, "SELECT id, found_since FROM automations WHERE id IN (?,?)",
+                                                    (stale, plain))}
+    assert marks[stale] == "" and marks[plain] not in ("", None)
+
+
 def test_the_watermark_moves_only_once_an_item_is_finished(api, monkeypatch):
     turn_on(api)
     aid = make(api, [FIND, {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "ops", "text": "x"}}])
@@ -314,6 +324,16 @@ def test_a_turn_moving_its_own_task_does_not_start_its_automation_again(api):
     assert [run["trigger_ref"] for run in runs] == ["manual"], [run["trigger_ref"] for run in runs]
 
 
+def test_two_runs_of_one_automation_each_get_their_own_turn(api):
+    """A second run's turn is not refused as a duplicate of the first while the first is open."""
+    turn_on(api)
+    aid = make(api, [{"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}])
+    runs = [queued(api, aid), queued(api, aid)]
+    hub(api).drain()
+    assert [run_row(api, rid)["state"]["steps"][0]["status"] for rid in runs] == ["ok", "ok"]
+    assert len(sql(api, "SELECT id FROM tasks WHERE title LIKE 'Automation Test: look%'")) == 2
+
+
 def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_day(api):
     turn_on(api)
     turn = {"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}
@@ -349,4 +369,27 @@ def test_an_automation_that_finds_runs_one_at_a_time(api):
     assert first and queued(api, aid) is None   # the next occurrence while the first is unfinished
     assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
     hub(api).drain()
+    assert queued(api, aid)
+
+
+def test_a_converted_cron_routine_absorbs_an_occurrence_while_its_last_task_is_open(api):
+    """CONTRACT section 4 (Overlap): the routine's rule carries over. An occurrence while the task its last run opened is
+    unfinished starts no run; it counts as dropped and the owner bot is told. Once that task is closed, the next runs."""
+    turn_on(api)
+    aid = make(api, [{"id": "turn", "type": "bot_turn", "bot": "ops", "prompt": "Sweep"}],
+               trigger={"type": "schedule", "cron": "30 * * * *", "tz": "UTC"}, owner="bot:ops")
+    with api.app.state.store.transaction() as c:
+        flow = json.loads(c.execute("SELECT flow_json FROM automations WHERE id=?", (aid,)).fetchone()[0])
+        c.execute("UPDATE automations SET flow_json=? WHERE id=?",
+                  (json.dumps({**flow, "source": {"id": "ops:sweep", "kind": "routine"}}), aid))
+    assert queued(api, aid)
+    hub(api).drain()
+    assert queued(api, aid) is None
+    assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
+    told = sql(api, "SELECT body FROM messages WHERE to_actor='bot:ops' AND kind='notice' AND body LIKE 'Scheduled occurrence%'")
+    assert len(told) == 1 and "absorbed into this open task" in told[0]["body"]
+    turn_tasks = sql(api, "SELECT id FROM tasks WHERE owner='bot:ops' AND title LIKE 'Automation Test: turn (%'")
+    assert len(turn_tasks) == 1
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (turn_tasks[0]["id"],))
     assert queued(api, aid)

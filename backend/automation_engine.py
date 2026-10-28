@@ -282,7 +282,9 @@ def _reads(steps, name):
 
 def _find(flow, state, thread, step, services):
     values = values_of(state, thread)
-    items = list(services.find(step["source"], F.render(step.get("query") or "", values), step.get("limit", 20)))
+    idle = {"idle_hours": step["idle_hours"]} if step.get("idle_hours") else {}
+    items = list(services.find(step["source"], F.render(step.get("query") or "", values), step.get("limit", 20),
+                               **idle))
     _record(state, thread, step, "ok", {"count": len(items), "items": [_brief(item) for item in items]})
     state["empty"] = not items
     place = next(n for n, t in enumerate(state["threads"]) if t is thread)

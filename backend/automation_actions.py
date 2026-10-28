@@ -425,19 +425,31 @@ FIND = {
 }
 
 
-def find(c, auto, source, query, limit, cursor, *, mailboxes=(), skip=()):
+# The stale-PR find: an open or draft PR whose last activity (else its creation) is at or before the idle line. The
+# cursor reads that activity, so a PR is found again only once new activity makes it idle again.
+PR_IDLE = ("SELECT id, task_id AS task, url, title, state, repo, number, coalesce(activity_at, created) AS at "
+           "FROM task_links WHERE kind='pr' AND coalesce(state,'') IN ('open','draft') AND {after} "
+           "AND coalesce(activity_at, created)<=? AND (coalesce(title,'') LIKE ? OR url LIKE ?)",
+           "coalesce(activity_at, created)", "id", 2)
+
+
+def find(c, auto, source, query, limit, cursor, *, mailboxes=(), skip=(), idle_hours=None):
     """Items from `source` after `cursor` ((time, id): items with the same time are told apart by id, so a page that
     ends among them never skips the rest) whose text has `query` (plain words), oldest first. Mail is read from
     `mailboxes` only, the owner's; `skip` holds ids another run of the automation is still working on."""
     sql, at, ident, likes = FIND[source]
     if source == "mail" and not mailboxes:
         return []
+    idle = []
+    if idle_hours and source == "prs":
+        sql, at, ident, likes = PR_IDLE
+        idle = [H.shift(H.now(), hours=-int(idle_hours))]
     like = "%" + str(query or "").strip().replace("%", "").replace("_", "") + "%"
     since, last = cursor
     mine = ",".join("?" * len(mailboxes))
     sql = sql.format(after=f"({at}>? OR ({at}=? AND {ident}>?))", mine=mine) + f" ORDER BY {at}, {ident} LIMIT ?"
-    args = [since, since, last, *([m.lower() for m in mailboxes] if source == "mail" else []), *[like] * likes,
-            int(limit) + len(skip)]
+    args = [since, since, last, *([m.lower() for m in mailboxes] if source == "mail" else []), *idle,
+            *[like] * likes, int(limit) + len(skip)]
     rows = [dict(r) for r in c.execute(sql, args) if str(r["id"]) not in skip][:int(limit)]
     for row in rows:
         for key in ("content", "snippet"):

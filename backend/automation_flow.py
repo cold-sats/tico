@@ -26,6 +26,7 @@ MAX_CONDS = 20
 MAX_TEXT = 8000
 MAX_PROMPT = 32000           # an llm or bot_turn prompt (an Inbox Manager's instructions can run long)
 MAX_FIND = 100
+MAX_IDLE_HOURS = 8760   # the stale-PR find's bound: a year
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39}")
 OWNER = re.compile(r"(person|bot|group):[a-z0-9][a-z0-9._-]{0,63}")
 CLOCK = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
@@ -213,6 +214,10 @@ def _check_step(step, where, seen, depth, counts):
         _need(step.get("source") in SOURCES, where, f"source is one of {', '.join(SOURCES)}")
         _text(step.get("query", ""), where, "query", required=False, cap=500)
         _need(step.get("since", "last_run") == "last_run", where, "since is last_run")
+        if "idle_hours" in step:
+            idle = step["idle_hours"]
+            _need(step.get("source") == "prs" and isinstance(idle, int) and not isinstance(idle, bool)
+                  and 1 <= idle <= MAX_IDLE_HOURS, where, "idle_hours is 1 to 8760, on a prs find")
         limit = step.get("limit", 20)
         _need(isinstance(limit, int) and not isinstance(limit, bool) and 1 <= limit <= MAX_FIND, where,
               f"limit is 1 to {MAX_FIND}")
