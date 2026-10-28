@@ -94,7 +94,12 @@ def test_a_bot_asks_and_botops_proposes_where_that_bot_may_not_change(api, botop
     assert not err and proposed["pending"] == 1 and proposed["can_edit"] is False, proposed
     shown = get(api, f"automations/{proposed['id']}")
     assert shown["enabled"] is False
-    assert get(api, f"automations/{proposed['id']}/versions")["versions"][0]["actor"] == "bot:finance"
+    assert [(v["n"], v["actor"], v["status"]) for v in get(api, f"automations/{proposed['id']}/versions")["versions"]] == [
+        (1, "bot:finance", "pending")]
+    assert audit_rows(api, proposed["id"]) == []                          # no audit row until a person turns it on
+    for tool in ("hub_automation_run", "hub_automation_delete"):
+        err, refused = mcp(api, tool, {"id": proposed["id"]}, attempt["token"])
+        assert err, (tool, refused)
     err, edit = mcp(api, "hub_automation_update", {"id": anas, "steps": [NOTE_STEP], "summary": "Tell ops"},
                     attempt["token"])
     assert not err and edit == {"id": anas, "pending": 2, "can_edit": False}, edit
@@ -107,6 +112,8 @@ def test_a_bot_asks_and_botops_proposes_where_that_bot_may_not_change(api, botop
     assert not err and own["can_edit"] is True and own["enabled"] is False, own   # its own: saved, off by default
     on = post(api, f"automations/{proposed['id']}/versions/1/restore", {})    # Ana's Turn on
     assert on["enabled"] is True and on["version"] == 1
+    assert get(api, f"automations/{proposed['id']}/versions?status=pending")["versions"] == []
+    assert [r["actor"] for r in audit_rows(api, proposed["id"])] == ["human:ana"]
 
 
 def test_the_guide_is_dormant_and_carries_the_flow_format(api, botops):

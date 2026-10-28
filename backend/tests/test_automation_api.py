@@ -328,27 +328,14 @@ def test_the_librarian_gets_the_market_builtins_which_stand_down_for_the_teams_o
         assert automations.fire(c, "schedule", {"schedule": {}}, "schedule:x", only="auto_builtin_market_briefing") == []
 
 
-def test_a_bot_without_rights_proposes_a_new_automation_as_a_draft(api):
-    """A new automation a bot may not make is a draft: off, version 1 pending, no audit row, and it runs only after a
-    person's Turn on (the first pending version's restore). One it may make (its own) is saved as asked."""
+def test_a_bot_may_not_make_an_automation_it_may_not_change(api):
+    """A bot's own call to make an automation it may not change is refused (only BotOps, acting for it, saves a draft:
+    test_botops_automations). One it may make (its own) is saved as asked."""
     turn_on(api)
     bot = as_bot(api, "finance")
-    draft = post(api, "automations", flow(), bot)
-    aid = draft["id"]
-    assert draft == {"id": aid, "pending": 1, "can_edit": False}
-    shown = get(api, f"automations/{aid}")
-    assert shown["enabled"] is False and shown["owner"] == "person:ana" and shown["builtin"] is False
-    assert [(v["n"], v["actor"], v["status"]) for v in get(api, f"automations/{aid}/versions")["versions"]] == [
-        (1, "bot:finance", "pending")]
-    assert [a["pending"] for a in get(api, "automations")["automations"] if a["id"] == aid] == [1]
-    assert audit_rows(api, aid) == []
+    post(api, "automations", flow(), bot, expected=403)
     post(api, "automations", flow(builtin=True), bot, expected=403)
-    post(api, f"automations/{aid}/run", {}, bot, expected=403)
-    post(api, f"automations/{aid}/delete", {}, bot, expected=403)
-    post(api, f"automations/{aid}/versions/1/restore", {}, bot, expected=403)
-    on = post(api, f"automations/{aid}/versions/1/restore", {})                 # Turn on: the draft is live
-    assert on["enabled"] is True and on["version"] == 1
-    assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
-    assert [r["actor"] for r in audit_rows(api, aid)] == ["human:ana"]
+    assert [a["id"] for a in get(api, "automations")["automations"] if a["owner"] == "person:ana"
+            and not a["builtin"]] == []
     own = post(api, "automations", flow(owner="bot:finance"), bot)
     assert own["enabled"] is True and own["can_edit"] is True                   # a bot's own: no BotOps, so on

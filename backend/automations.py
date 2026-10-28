@@ -325,8 +325,8 @@ def _by_botops(who):
 
 
 def _bot_draft(c, who, flow):
-    """A new automation a bot may not make itself (its own call, or BotOps' for it): saved off, with version 1 pending,
-    for a person with the change rule to turn on. Like a bot's other proposals it writes no audit row until then."""
+    """A new automation BotOps makes for a bot that may not make it: saved off, with version 1 pending, for a person
+    with the change rule to turn on (a bot's own call is refused, as before). Like a bot's other proposals it writes no audit row until then."""
     aid = "auto_" + H.new_id()
     row = _save(c, who.actor, aid, {**flow, "enabled": False}, None, audit=False)
     c.execute("UPDATE automation_versions SET status='pending' WHERE automation_id=? AND n=?", (aid, row["version"]))
@@ -1520,7 +1520,7 @@ def install(app, store, auth, mutate):
             flow = _checked(c, fields, store.settings)
             if flow["builtin"]:
                 raise Problem("forbidden", "Built-in automations come with Tico; the hub makes them", 403)
-            if who.role == "bot" and not may_change(c, who, flow):
+            if who.role == "bot" and _by_botops(who) and not may_change(c, who, flow):
                 return _bot_draft(c, who, flow)
             _require(c, who, flow, "make an automation for " + flow["owner"])
             return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)

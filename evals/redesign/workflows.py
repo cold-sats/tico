@@ -1299,7 +1299,7 @@ def wf8_before(f):
 
 def wf8_after(f):
     """After the edit, version 2 runs and labels the urgent task."""
-    setup(f, "auto", "helper", "task_2")
+    setup(f, "auto", "chat", "task_2")
     run = wf8_run(f, "task_2")
     return run.get("version") == 2 and status_of(run, "tag") == "ok", f"version {run.get('version')}, label " \
         f"{status_of(run, 'tag')}"
