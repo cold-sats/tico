@@ -1,16 +1,10 @@
-"""Automations over the API (backend/automations.py): dormant while the redesign is off, save and edit as versions with
-an audit row each, restore, delete, built-ins, run now and its run record, and paged lists."""
+"""Automations over the API (backend/automations.py): save and edit as versions with an audit row each, restore,
+delete, built-ins, run now and its run record, and paged lists."""
 import json
 
 from backend.tests.test_api import api, get, headers, post  # noqa: F401
 
 NOTE_STEP = {"id": "tell", "type": "action", "enabled": True, "do": "wake_bot", "args": {"bot": "ops", "text": "Look"}}
-
-
-def turn_on(api, token="ana-test"):
-    r = api.put("/api/v2/settings/redesign", json={"enabled": True}, headers=headers(token))
-    assert r.status_code == 200, r.text
-    return r.json()
 
 
 def flow(**extra):
@@ -46,32 +40,6 @@ def builtin(api, key="triage", owner="bot:ops"):
     return "auto_builtin_" + key
 
 
-def test_everything_is_404_while_the_redesign_is_off(api):
-    assert get(api, "settings/redesign") == {"enabled": False}
-    post(api, "automations", flow(), expected=404)
-    get(api, "automations", expected=404)
-    get(api, "automations/auto_x/runs", expected=404)
-
-
-def test_malformed_requests_are_404_while_the_redesign_is_off_too(api):
-    """Validation runs after the dormancy check: a body the route would refuse still answers 404, not 422."""
-    for method, path, body in (("POST", "automations", []), ("PATCH", "automations/auto_x", []),
-                               ("DELETE", "automations/auto_x/versions/nope", None),
-                               ("POST", "automations/mail-actions/claim", []),
-                               ("PATCH", "inboxes/ana@acme.example", []),
-                               ("POST", "redesign/migration/convert", []),
-                               ("GET", "audit?limit=many", None), ("GET", "people/ana/assistant", None)):
-        r = api.request(method, "/api/v2/" + path, json=body, headers=headers())
-        assert r.status_code == 404, (method, path, r.status_code, r.text)
-
-
-def test_only_the_owner_turns_the_redesign_on(api):
-    r = api.put("/api/v2/settings/redesign", json={"enabled": True}, headers=headers("ben-test"))
-    assert r.status_code == 403
-    assert turn_on(api) == {"enabled": True}
-    assert get(api, "settings/redesign", "ben-test") == {"enabled": True}
-
-
 def as_bot(api, slug):
     """A test token that signs in as bot:<slug>."""
     from backend.auth import Identity
@@ -89,7 +57,6 @@ EVENING = {"type": "schedule", "cron": "0 18 * * *", "tz": "UTC"}
 
 
 def test_a_change_to_what_it_does_is_a_version_a_rename_or_pause_is_not(api):
-    turn_on(api)
     made = make(api)
     aid = made["id"]
     assert aid.startswith("auto_") and made["version"] == 1 and made["owner"] == "person:ana" and made["can_edit"]
@@ -112,7 +79,6 @@ def test_a_change_to_what_it_does_is_a_version_a_rename_or_pause_is_not(api):
 
 
 def test_a_bot_proposes_and_a_person_restores_or_discards(api):
-    turn_on(api)
     aid = make(api)["id"]
     bot = as_bot(api, "finance")
     get(api, f"automations/{aid}", bot, expected=403)                            # not its own, so not shown
@@ -136,7 +102,6 @@ def test_a_bot_proposes_and_a_person_restores_or_discards(api):
 
 
 def test_a_bot_without_rights_proposes_and_a_bot_with_them_saves(api):
-    turn_on(api)
     aid = make(api, owner="bot:ops")["id"]
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET reports_to='human:ben' WHERE bot IN ('ops','finance')")
@@ -150,7 +115,6 @@ def test_a_bot_without_rights_proposes_and_a_bot_with_them_saves(api):
 
 
 def test_decide_steps_show_their_sets_questions_and_the_sets_are_listed(api):
-    turn_on(api)
     decide = {"id": "d", "type": "decide", "set": "mail-triage", "out": "d1"}
     shown = make(api, steps=[decide])["steps"][0]
     assert shown["set"] == "mail-triage" and "bucket" in shown["questions"]
@@ -161,7 +125,6 @@ def test_decide_steps_show_their_sets_questions_and_the_sets_are_listed(api):
 
 
 def test_a_bad_flow_is_refused_with_why(api):
-    turn_on(api)
     body = make(api, expected=422, steps=[{"id": "x", "type": "paths", "paths": [
         {"name": f"p{i}", "when": [], "steps": []} for i in range(11)]}])
     assert "1 to 10 paths" in json.dumps(body)
@@ -169,7 +132,6 @@ def test_a_bad_flow_is_refused_with_why(api):
 
 
 def test_delete_and_builtins(api):
-    turn_on(api)
     aid = make(api)["id"]
     post(api, f"automations/{aid}/delete", {})
     get(api, f"automations/{aid}", expected=404)
@@ -185,7 +147,6 @@ def test_delete_and_builtins(api):
 
 
 def test_only_the_top_pauses_a_builtin(api):
-    turn_on(api)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET reports_to='human:ben' WHERE bot='ops'")
     shipped = builtin(api)
@@ -197,7 +158,6 @@ def test_only_the_top_pauses_a_builtin(api):
 
 def test_what_wakes_bots_is_the_hubs_read_only_builtin_the_top_may_only_pause(api):
     from backend import automations
-    turn_on(api)
     automations.tick(api.app.state.store)
     automations.tick(api.app.state.store)                                  # made once
     wakes = [a for a in get(api, "automations")["automations"] if a["name"] == "What wakes bots"]
@@ -219,7 +179,6 @@ def test_what_wakes_bots_is_the_hubs_read_only_builtin_the_top_may_only_pause(ap
 
 
 def test_run_now_runs_the_flow_and_records_each_step(api):
-    turn_on(api)
     aid = make(api, steps=[NOTE_STEP, {"id": "off", "type": "action", "enabled": False, "do": "note", "args": {}}])["id"]
     run = post(api, f"automations/{aid}/run", {"input": {"task": {"title": "Sample"}}})["run"]
     assert run["status"] == "ok" and run["version"] == 1 and run["finished"]
@@ -235,7 +194,6 @@ def test_run_now_runs_the_flow_and_records_each_step(api):
 
 
 def test_a_run_that_fails_says_which_step(api):
-    turn_on(api)
     aid = make(api, steps=[{"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "{{who}}"}}])["id"]
     run = post(api, f"automations/{aid}/run", {"input": {"who": "nobody"}})["run"]
     assert run["status"] == "failed" and run["steps"][0]["status"] == "failed"
@@ -243,7 +201,6 @@ def test_a_run_that_fails_says_which_step(api):
 
 
 def test_lists_are_paged(api):
-    turn_on(api)
     for n in range(2):                                    # with What wakes bots, three
         make(api, name=f"Check {n}")
     first = get(api, "automations?limit=2")
@@ -253,7 +210,6 @@ def test_lists_are_paged(api):
 
 
 def test_runs_are_paged_newest_first_by_run_id(api):
-    turn_on(api)
     aid = make(api)["id"]
     made = [post(api, f"automations/{aid}/run", {})["run"]["id"] for _ in range(3)]
     first = get(api, f"automations/{aid}/runs?limit=2")
@@ -266,7 +222,6 @@ def test_runs_are_paged_newest_first_by_run_id(api):
 def test_the_answers_match_the_published_contract(api):
     """Each automation read and write against its docs/openapi/v2.json shape."""
     from backend.tests.test_openapi_v2 import conforms
-    turn_on(api)
     document = api.get("/api/v2/openapi.json", headers=headers()).json()
     shape = {op["operationId"]: op["responses"]["200"].get("content", {}).get("application/json", {}).get("schema")
              for ops in document["paths"].values() for op in ops.values() if op["tags"] == ["Automations"]}
@@ -296,7 +251,6 @@ def test_the_librarian_gets_the_market_builtins_which_stand_down_for_the_teams_o
     from backend.tests.test_api import put
     from backend.tests.test_market import _librarian
     _librarian(api)
-    turn_on(api)
     put(api, "listening/destinations/tools", {"category": "lead", "threshold": 0.5, "receiver": "bot:librarian",
                                                "readers": [], "what": "Dev tools"})
     automations.tick(api.app.state.store)
@@ -331,7 +285,6 @@ def test_the_librarian_gets_the_market_builtins_which_stand_down_for_the_teams_o
 def test_a_bot_may_not_make_an_automation_it_may_not_change(api):
     """A bot's own call to make an automation it may not change is refused (only BotOps, acting for it, saves a draft:
     test_botops_automations). One it may make (its own) is saved as asked."""
-    turn_on(api)
     bot = as_bot(api, "finance")
     post(api, "automations", flow(), bot, expected=403)
     post(api, "automations", flow(builtin=True), bot, expected=403)

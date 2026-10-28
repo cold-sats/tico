@@ -61,7 +61,6 @@ TEAM_RULES = [
 
 _USD = "hourly_usd, daily_usd, weekly_usd, monthly_usd"
 # A wake rule that sends a webhook or forwards the call sends outside: confirm, like an outgoing webhook.
-_SENDS_OUT = (("params.action", ("send_webhook", "forward")),)
 
 ENTRIES = TEAM_RULES + [
     # General
@@ -74,9 +73,6 @@ ENTRIES = TEAM_RULES + [
       "assistant/turn-on", value="json", card=_card("general", "settings-assistant-pane")),
     S("privacy.usage_count", "Count usage", GENERAL + " > Privacy", "owner", "direct", "PUT", "system/usage-count",
       "enabled", card=_card("general", "settings-privacy"), read="system/usage-count#enabled"),
-    S("general.redesign", "New design", GENERAL, "owner", "direct", "PUT", "settings/redesign", "enabled",
-      card=_card("general", "settings-redesign"), read="settings/redesign#enabled",
-      words="redesign strategy budget automations sidebar"),
     S("privacy.usage_count.reset", "Reset the usage count", GENERAL + " > Privacy", "owner", "confirm", "POST",
       "system/usage-count/reset", value="json", card=_card("general", "settings-privacy")),
     S("company.server_connection", "Connect to the Tico company server", GENERAL + " > Tico company", "admin",
@@ -229,10 +225,6 @@ ENTRIES = TEAM_RULES + [
       value="json", card=_card("recurring", "set-system-card")),
     S("rules.task_rule.create", "New task rule", RULES + " > What Tico runs on its own", "anyone", "direct", "POST",
       "task-rules", value="json", card=_card("recurring", "set-system-card")),
-    S("rules.wake", "What wakes a bot", RULES + " > What wakes a bot", "anyone", "direct", "POST", "rules/{id}",
-      value="json", card=_card("recurring", "set-rules-card"), words="rule event trigger", confirm_when=_SENDS_OUT),
-    S("rules.wake.create", "New wake rule", RULES + " > What wakes a bot", "anyone", "direct", "POST", "rules",
-      value="json", card=_card("recurring", "set-rules-card"), confirm_when=_SENDS_OUT),
     S("release.on", "Daily release", RULES + " > Releases", "admin", "direct", "PATCH", "release-schedule", "on",
       card=_card("recurring", "set-release-card"), read="release-schedule#on"),
     S("release.times", "Release times", RULES + " > Releases", "admin", "direct", "PATCH", "release-schedule",
@@ -245,12 +237,6 @@ ENTRIES = TEAM_RULES + [
       value="json", card=_card("recurring", "set-task-manager-card")),
     S("task_manager.off", "Task Manager off", RULES + " > Task Manager", "owner", "direct", "POST",
       "task-manager/turn-off", value="json", card=_card("recurring", "set-task-manager-card")),
-    S("rules.routine", "A bot's routine", RULES + " > Bots routines", "bot", "direct", "POST", "routines/{id}",
-      value="json", card=_card("recurring"), words="cron schedule"),
-    S("rules.routine.create", "New bot routine", RULES + " > Bots routines", "bot", "direct", "POST",
-      "bots/{bot}/routines", value="json", card=_card("recurring")),
-    S("rules.routine.delete", "Delete a bot routine", RULES + " > Bots routines", "bot", "confirm", "POST",
-      "routines/{id}/delete", value="json", card=_card("recurring")),
     # Webhooks: `incoming`, `outgoing` and `gateway` are the Webhooks tab's own parts, which ui/app/router.js opens from
     # `#/settings/webhooks/<part>` before the catalogue's generic `#/settings/<tab>/<card>` branch: rename them
     # together.
@@ -320,7 +306,7 @@ ENTRIES = TEAM_RULES + [
 NO_CARD_YET = ("assistant.on", "privacy.usage_count.reset", "company.server_connection.remove", "storage.s3.remove",
                "storage.move", "people.person.delete", "me.tokens.revoke", "team.turn_levels",
                "bot.budget", "ceo.checks", "ceo.level",
-               "repos.product.create", "rules.wake", "rules.wake.create", "hooks.wake_url", "webhooks.outgoing.create",
+               "repos.product.create", "hooks.wake_url", "webhooks.outgoing.create",
                "listening.destination", "listening.destination.remove", "roadmap.public",
                "inbound.inbox.release", "inbound.phone_request", "inbound.phone_request.accept", "pool.limit.usd")
 _NO_CARD_WHY = " needs a person's yes, and BotOps can't ask for it on a Confirm card yet"
@@ -337,7 +323,6 @@ ALIASES = {
     ("POST", "runners/{x}/inbox-only"): "computer.inbox_only",
     ("POST", "inbound/phone-requests/{x}"): "inbound.phone_request.accept",
     ("POST", "system-routines/{x}"): "rules.system",
-    ("POST", "rules/suggestions/{x}/{x}"): "rules.wake",
     ("POST", "tags/{x}"): "tasks.tag",
 }
 
@@ -355,7 +340,6 @@ NOT_SETTINGS = {
     ("POST", "release/now"): "starts one release (`hub release now`)",
     ("POST", "{x}/deliveries/{x}/replay"): "replays one delivery",
     ("POST", "{x}/sends/{x}/retry"): "retries one send",
-    ("POST", "routines/{x}/run"): "runs a routine once",
     ("POST", "tasks/{x}/comments/{x}/moderate"): "moderates one comment on a public roadmap task",
     ("POST", "tasks/{x}/requesters/{x}/delete"): "removes one requester from a public roadmap task",
     ("POST", "tasks/{x}/requesters{x}"): "adds one requester to a public roadmap task",

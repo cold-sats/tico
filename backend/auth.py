@@ -660,13 +660,13 @@ class Auth:
 
         def context():
             if not shared:
-                from . import redesign, views
+                from . import views
                 roster = views.roster(c)
                 shared.update(
                     roster=roster, entries=views.entries(c),
                     archived={r["slug"] for r in H.bots(c) if r.get("state") == "archived"},
                     parents={r["bot"]: r["reports_to"] or "" for r in read_cache.configs(c)},
-                    bare=redesign.on(c))     # a bot's bare person id in reports_to is that person (people.py)
+                    bare=True)               # a bot's bare person id in reports_to is that person (people.py)
                 pid = H.actor_id(who.actor)
                 shared["person"] = pid
                 own = (P.person(pid, roster) or {}).get("team") or ""
@@ -795,10 +795,9 @@ class Auth:
             return True
         if who.role != "human":
             return False
-        from . import redesign, views
+        from . import views
         archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-        return P.manages(H.actor_id(who.actor), kind, ident, views.roster(c), views.entries(c), archived,
-                         redesign.on(c))
+        return P.manages(H.actor_id(who.actor), kind, ident, views.roster(c), views.entries(c), archived, True)
 
     def bot_admin(self, who):
         """Whether a person may administer bots assigned to their own operator identity. Tico support with app access

@@ -442,7 +442,6 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
 _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("PUT", r"/api/v2/access/(limits|allow)"), ("PUT", r"/api/v2/usage/limits(/[^/]+)?"),
     ("PUT", r"/api/v2/usage/pools/(company|groups/[^/]+)"),
-    ("POST", r"/api/v2/routines/[^/]+/delete"),
     ("DELETE", r"/api/v2/automations/[^/]+"), ("POST", r"/api/v2/automations/[^/]+/delete"),
     ("POST", r"/api/v2/(?:runners|computers)/[^/]+/(member-bots|revoke|restart)"),
     ("POST", r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke"), ("POST", r"/api/v2/system/update"),
@@ -450,7 +449,6 @@ _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
     ("POST", r"/api/v2/(slack|github/app)/disconnect"),
     ("POST", r"/api/v2/access/owner"), ("POST", r"/api/v2/enrollments"), ("POST", r"/api/v2/seats/[^/]+/hire"),
-    ("POST", r"/api/v2/redesign/migration/(convert|restore)"),
     # A webhook moved to another destination while it holds secret headers (app.py `destination_card`).
     ("POST", r"/api/v2/webhooks/[^/]+/update"),
 )]

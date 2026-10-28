@@ -31,7 +31,7 @@ from . import outcome_stats
 from . import ask_ingest, ceo_bot, invites, owner_link
 from . import login_holds
 from . import step_age
-from . import bot_stops, turn_budgets, proposals, redesign, task_caps
+from . import bot_stops, turn_budgets, proposals, task_caps
 from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
@@ -407,8 +407,6 @@ def create_app(settings=None):
             return error["msg"]
         detail = "; ".join(".".join(str(part) for part in error["loc"]) + ": " + reason(error)
                            for error in exc.errors())
-        if request.url.path.endswith("/go-live") and any("routines" in error["loc"] for error in exc.errors()):
-            detail += ". routines must be " + M.ROUTINES_SHAPE
         return JSONResponse({"error": {"code": "validation", "detail": detail, "retryable": False}}, status_code=422)
 
     app.state.observability = telemetry
@@ -868,7 +866,6 @@ def create_app(settings=None):
             if cause_reset is not None:
                 wake_rules.CAUSE.reset(cause_reset)
 
-    from . import routines
 
     def may_edit_routines(c, who, bot):
         """The bot itself, or a person who manages it (its owners, its operator, an Admin, whoever it reports up
@@ -981,109 +978,6 @@ def create_app(settings=None):
         if who.role != "owner" and who.actor != "bot:botops":
             raise Problem("forbidden", "Request timings are for the owner and BotOps", 403)
         return app.state.timing.summary()
-
-    @app.get('/api/v2/bots/{bot}/routines')
-    def bot_routines(bot: str, request: Request, include_deleted: bool = False):
-        who = request.state.identity
-        with store.read() as c:
-            if not (who.actor == "bot:" + bot or who.role in ('human', 'owner') or auth.bot_above(c, who, bot)):
-                raise Problem('forbidden', 'Only people, the bot itself and the bots above it read its routines', 403)
-            auth.require_read(c, who, bot)
-            return {'routines': routines.listing(c, bot, include_deleted)}
-
-    @app.post('/api/v2/bots/{bot}/routines')
-    def routine_create(request: Request, bot: str, body: M.RoutineCreate):
-        who = request.state.identity
-        def work(c):
-            may_edit_routines(c, who, bot)
-            try:
-                return {'routine': routines.create(c, who.actor, bot, body.model_dump(), key=body.key)}
-            except ValueError as exc:
-                raise Problem('routine', str(exc), 422)
-        return mutate(request, body, work)
-
-    def routine_owner(c, who, sid):
-        found = c.execute('SELECT bot FROM schedules WHERE id=?', (sid,)).fetchone()
-        if not found:
-            raise Problem('not_found', 'Routine not found', 404)
-        may_edit_routines(c, who, found['bot'])
-        return found['bot']
-
-    @app.post('/api/v2/routines/{schedule_id}')
-    def routine_update(request: Request, schedule_id: str, body: M.RoutineUpdate):
-        who = request.state.identity
-        def work(c):
-            routine_owner(c, who, schedule_id)
-            try:
-                return {'routine': routines.update(c, who.actor, schedule_id, body.model_dump())}
-            except ValueError as exc:
-                raise Problem('routine', str(exc), 422)
-        return mutate(request, body, work)
-
-    @app.post('/api/v2/routines/{schedule_id}/delete')
-    def routine_delete(request: Request, schedule_id: str, body: M.Empty):
-        who = request.state.identity
-        def work(c):
-            routine_owner(c, who, schedule_id)
-            return {'routine': routines.remove(c, who.actor, schedule_id)}
-        return mutate(request, body, work)
-
-    @app.post('/api/v2/routines/{schedule_id}/run')
-    def routine_run_now(request: Request, schedule_id: str, body: M.Empty):
-        """Open one manual occurrence of a recurring routine for its bot."""
-        who = request.state.identity
-        def work(c):
-            bot = routine_owner(c, who, schedule_id)
-            schedule = routines.row(c, schedule_id)
-            if schedule["deleted_at"] or schedule["event_name"]:
-                raise Problem("routine", "Only an existing timed routine can run now", 422)
-            if schedule["enabled"] != 1 or (H.bot(c, bot) or {}).get("state") != "active":
-                raise Problem("routine", "Resume the routine and bot before running it", 409)
-            setup = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (bot,)).fetchone()
-            if setup and is_parked(setup["onboarding_state"]):
-                raise Problem("onboarding", f"{H.bot(c, bot)['display_name'] or bot} is still onboarding, so it can't run "
-                              "its routines yet. Someone above it on the org chart marks onboarding complete when it is "
-                              "ready", 409)
-            current = routines.latest_task(c, schedule_id)
-            if current and current["status"] in ("open", "doing", "waiting", "review", "ready"):
-                raise Problem("routine", "This routine already has unfinished work", 409)
-            task = routines.open_task(c, auth, schedule, schedule["title"], schedule["playbook"], H.now(),
-                                      trigger="person_message" if H.is_human(who.actor) else "other")
-            occurrence = "manual:" + H.new_id()
-            c.execute("INSERT INTO schedule_occurrences VALUES(?,?,?,?)",
-                      (schedule_id, occurrence, task["id"], "created"))
-            H.event(c, who.actor, "routine.run_now", schedule_id, {"task": task["id"]})
-            return {"task_id": task["id"], "occurrence": occurrence}
-        return mutate(request, body, work)
-
-    @app.get('/api/v2/routines')
-    def all_routines(request: Request, response: Response, include_deleted: bool = False):
-        from . import task_reads as reads
-        who = request.state.identity
-        if who.role not in ('human', 'owner'):
-            raise Problem('forbidden', 'This endpoint is available only to people', 403)
-        with store.read() as c:
-            readable = auth.bot_accesses(c, who)
-            rows = [row for row in routines.listing(c, include_deleted=include_deleted, summary=True)
-                    if readable.get(row['bot'], auth.FULL)['read']]
-            # The rows are one small query; the answer's names and bytes are what a match saves.
-            tag = reads.etag('routines', rows, reads.names(c))
-            if reads.fresh(request, tag):
-                return reads.not_modified(tag)
-            response.headers['ETag'] = tag
-            return {'routines': rows}
-
-    @app.get('/api/v2/routines/{schedule_id}/occurrences')
-    def routine_occurrences(schedule_id: str, request: Request, limit: int = 50):
-        who = request.state.identity
-        with store.read() as c:
-            row = c.execute('SELECT bot FROM schedules WHERE id=?', (schedule_id,)).fetchone()
-            if who.role not in ('human', 'owner') and not (row and auth.bot_above(c, who, row['bot'])):
-                raise Problem('forbidden', 'This endpoint is available only to people and the bots above the routine\'s bot', 403)
-            if not row:
-                raise Problem('not_found', 'Routine not found', 404)
-            auth.require_read(c, who, row['bot'], 'Routine not found')
-            return {'occurrences': routines.occurrences(c, schedule_id, limit, who=who, auth=auth)}
 
     def mutate(request, body, fn, check=None):
         def current_access(c):
@@ -1374,7 +1268,7 @@ def create_app(settings=None):
                 # A reply to a bot's update (backend/updates.py): the update must exist.
                 if not isinstance(values, str) or not updates.one(c, values):
                     raise Problem("reference", "Unknown update", 422)
-            elif kind == "automation" and redesign.on(c):
+            elif kind == "automation":
                 # A chat about one automation (BotOps edits the one a person has open): the caller must be able to see it.
                 if not automations.may_reference(c, who, values):
                     raise Problem("reference", "Unknown automation", 422)
@@ -1505,8 +1399,7 @@ def create_app(settings=None):
         """Everything a client needs to name this environment and reach its runner."""
         from .onboarding import config_view
         with store.read_transaction() as c:
-            return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True},
-                    "redesign": redesign.on(c)}
+            return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True}}
 
     def updater_only(who, what):
         """The owner, or an `update` service key (backend/service_keys.py) held by a release bot on another install."""
@@ -2389,9 +2282,8 @@ def create_app(settings=None):
             from . import ceo_bot
             hide_ceo = ceo_bot.hidden_for(c, who)
             chart = ceo_bot.chart_entries(c, settings, roster, configs, archived, hidden=hide_ceo)
-            from . import redesign
-            bare = redesign.on(c)          # a bot's bare person id in reports_to is that person (backend/people.py)
-            view = P.org_view(roster, chart, archived, person_id=person or "", team=team or "", bare_people=bare)
+            # A bot's bare person id in reports_to is that person (backend/people.py).
+            view = P.org_view(roster, chart, archived, person_id=person or "", team=team or "", bare_people=True)
             view["org_groups"] = ceo_bot.chart_groups(roster, configs, chart, view["org_groups"], archived,
                                                       hidden=hide_ceo)
             for row in view["bots"]:
@@ -2433,7 +2325,7 @@ def create_app(settings=None):
             seats, every = [], lifecycle.all_seats(c)
             parents = {}
             for seat in c.execute("SELECT * FROM seats WHERE closed_at IS NULL ORDER BY created,id").fetchall():
-                parent, seen = lifecycle.org_parent(seat, roster, chart, archived, every, bare), set()
+                parent, seen = lifecycle.org_parent(seat, roster, chart, archived, every, True), set()
                 while parent.startswith("b:") and parent[2:] in by_id and parent not in seen and not drawn(parent[2:]):
                     seen.add(parent)
                     parent = by_id[parent[2:]]["org_parent"]
@@ -6034,27 +5926,10 @@ def create_app(settings=None):
 
     GO_LIVE_PENDING = pending_go_lives.PREFIX
 
-    def check_routines(c, who, bot, expected):
-        """The live Routines match the schedule the caller asked to go live with (`--routines-file`)."""
-        settings_admin._manager(c, who, bot)
-        live = {r["id"]: r for r in routines.listing(c, bot)}
-        requested = {r.id for r in expected}
-        for want in expected:
-            row = live.get(want.id)
-            if not row or any((row.get(key) if key == "enabled" else row.get(key) or "") != value for key, value in (
-                    ("title", want.title), ("cron", want.cron), ("timezone", want.timezone),
-                    ("enabled", int(want.enabled)), ("event_name", want.on))):
-                raise Problem("routine_mismatch", f"The live Routine {want.id} does not match the requested schedule; "
-                              "verify it before activating", 409)
-        if any(r["enabled"] and rid not in requested for rid, r in live.items()):
-            raise Problem("routine_mismatch", "An unrelated Routine is enabled; disable it before activating", 409)
-
-    def finish_go_live(c, who, bot, setup, expected):
+    def finish_go_live(c, who, bot, setup):
         """What going live does once the bot's computer has its repository: active, its setup started with the
-        person, and its first routine on (or the requested schedule checked). Shared by the request itself and by
-        the readiness report that completes a go-live that was waiting for the repository."""
-        if expected is not None:
-            check_routines(c, who, bot, expected)
+        person, and its first routine on. Shared by the request itself and by the readiness report that completes a
+        go-live that was waiting for the repository."""
         row = H.bot(c, bot)
         if row["state"] == "quarantined":
             raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
@@ -6068,7 +5943,7 @@ def create_app(settings=None):
             send(c, who, M.MessageCreate(to="bot:" + bot, text="Let's set you up."))
             started = True
         # Going live turns its first routine on too: nobody approves it separately.
-        armed = onboarding.arm_first_routine(c, who, bot) if expected is None else None
+        armed = onboarding.arm_first_routine(c, who, bot)
         c.execute("DELETE FROM registry_metadata WHERE key=?", (GO_LIVE_PENDING + bot,))
         return {"activated": activated, "setup_started": started, "routine_armed": armed}
 
@@ -6083,7 +5958,6 @@ def create_app(settings=None):
                       "bot": bot, "runner_id": runner["runner_id"] if runner else "", "computer": computer,
                       "actor": who.actor, "role": who.role, "email": who.email, "via": who.via,
                       "setup": body.setup,
-                      "routines": None if body.routines is None else [r.model_dump() for r in body.routines],
                       "requested_at": H.now()})))
         H.event(c, who.actor, "bot.go_live_waiting", bot, {"computer": computer, "github_asked": github_asked})
         message = (f"Waiting for {computer} to get the repository. Tico finishes going live by itself "
@@ -6128,10 +6002,8 @@ def create_app(settings=None):
                 if role == "owner" and H.actor_id(pending.get("actor") or "") != auth.owner_id(c):
                     role = "human"
                 who = Identity(pending.get("actor") or "", role, pending.get("email") or "", via=pending.get("via") or "")
-                expected = (None if pending.get("routines") is None
-                            else [M.RoutineExpectation(**r) for r in pending["routines"]])
                 validate_identity(c, who)
-                done = finish_go_live(c, who, bot, bool(pending.get("setup", True)), expected)
+                done = finish_go_live(c, who, bot, bool(pending.get("setup", True)))
                 H.event(c, who.actor, "bot.go_live_finished", bot, {"computer": pending.get("computer") or "", **done})
                 c.execute("RELEASE go_live_finish")
             except Exception as exc:
@@ -6190,8 +6062,6 @@ def create_app(settings=None):
         history = history_on_github(bot)
 
         def work(c):
-            if body.routines is not None:
-                check_routines(c, who, bot, body.routines)
             # An external agent (a Hermes profile) has a credential, not a computer.
             placed = ({"computer": None, "placed": False} if agents.external_harness(c, bot)
                       else place_now(c, who, bot, body.computer, history))
@@ -6226,7 +6096,7 @@ def create_app(settings=None):
                     else:
                         raise Problem("repository_missing", "It has no repository yet. Ask BotOps to build it "
                                       f"(`hub bot repo-create {bot}`), then run `hub bot go-live {bot}` again", 409)
-            done = finish_go_live(c, who, bot, body.setup, body.routines)
+            done = finish_go_live(c, who, bot, body.setup)
             return {"bot": bot, "state": H.bot(c, bot)["state"], "computer": placed["computer"], "placed": placed["placed"],
                     **done,
                     **({"building": True, "note": "The computer is building its repository; queued work starts when it is ready"}
@@ -6911,14 +6781,11 @@ def create_app(settings=None):
     system_routines.install(app, store, auth, mutate)
     from . import task_rules
     task_rules.install(app, store, auth, mutate)
-    from . import rule_suggestions, rules as wake_rules_api
-    rule_suggestions.install(app, store, auth, mutate)      # before the rules' `/{rule_id}`
-    wake_rules_api.install(app, store, auth, mutate)
+    from . import rules as wake_rules_api
+    wake_rules_api.install(app, store, auth)                # the event catalog; wake rules are automations now
     turn_budgets.install(app, store, auth, mutate, settings_admin)
-    from . import automations, redesign, redesign_migration
-    redesign.install(app, store, auth, mutate)
+    from . import automations
     automations.install(app, store, auth, mutate)
-    redesign_migration.install(app, store, auth, mutate)
     from . import audit_log
     audit_log.install(app, store, auth)
     task_caps.install(app, store, auth, mutate)

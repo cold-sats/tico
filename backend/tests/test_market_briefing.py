@@ -114,9 +114,8 @@ def test_market_labels_a_briefing_by_how_often_it_is_posted(seeded):
     from types import SimpleNamespace
 
     from backend import market_briefing as MB
-    from backend.tests.test_automation_api import NOTE_STEP, turn_on
+    from backend.tests.test_automation_api import NOTE_STEP
     assert brief(seeded)["briefing"]["cadence"] == "weekly"
-    turn_on(seeded)
     made = {cron: post(seeded, "automations", {"name": "Briefing " + cron, "owner": "person:ana", "steps": [NOTE_STEP],
                                                "trigger": {"type": "schedule", "cron": cron, "tz": "UTC"}})["id"]
             for cron in ("0 7 * * *", "0 7 * * 1-5", "0 7 * * 1", "0 7 * * MON")}

@@ -48,7 +48,7 @@ ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 # Bots cannot set ready; a task is closed through its separate requester action.
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status not in ("ready", "closed"))
-# task_cap, spend_limit, group and org: the redesign's proposals (backend/proposals.py), refused while it is off.
+# task_cap, spend_limit, group and org: proposals (backend/proposals.py).
 APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
@@ -66,7 +66,6 @@ CLI_TOOL_ALIASES = {
     "hub_automation_show": ("hub_automation_get",), "hub_automation_inbox": ("hub_inbox_send",),
     "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
     "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
-    "hub_redesign": ("hub_redesign", "hub_redesign_migrate"),   # `hub redesign migrate --dry-run|...`
     "hub_task_manager_status": ("hub_task_manager",), "hub_task_manager_on": ("hub_task_manager_set",),
     "hub_task_manager_off": ("hub_task_manager_set",), "hub_task_manager_schedule": ("hub_task_manager_set",),
     "hub_task_manager_bot": ("hub_task_manager_set",),
@@ -2429,7 +2428,6 @@ def history(api, args):
             "has_more": bool(page.get("has_more")), "next_before": page.get("next_before")}
 
 
-# ----------------------------------------------------------------------------- routines
 # ----------------------------------------------------------------------------- tools
 # What a bot uses, as its page shows it (docs/creating-bots.md, "What people see about a bot's tools"). Adding one
 # never carries a credential: `env` is a variable's name, and its stored Credential is granted to the bot.
@@ -2548,61 +2546,10 @@ def _bot_of(api, args):
     return args.get("bot") or api.get("me")["actor"].split(":", 1)[-1]
 
 
-def _routine_api(api, bot):
-    return _as_person(api) if bot != _bot_of(api, {}) else api
-
-
-@tool("hub_routine_list", "The routines a bot runs on a schedule: what it is told, and when. "
-      "Yours unless `bot` is given.", {"bot": _s("Another bot's slug")})
-def routine_list(api, args):
-    bot = _bot_of(api, args)
-    return _routine_api(api, bot).get(f"bots/{bot}/routines")["routines"]
-
-
-@tool("hub_routine_set", "Create a routine, or update the one with this key. Tico opens a "
-      "task with `text` each time it is due; a bot sets up its own, an operator sets a bot's. "
-      "Give `cron` (five fields, in `timezone`) or `on` (a Tico event), never both.",
-      {"key": _s("A stable name: letters, digits, dots, dashes or underscores"),
-       "title": _s("What the task is called"),
-       "text": _s("What the bot is told each time", default=""),
-       "cron": _s("Five-field cron, e.g. `0 7 * * 1-5`"),
-       "on": _s("A Tico event instead of a time: `meeting.ready`, `release_published`, or `webhook.<id>` for a trigger in hub_trigger_list"),
-       "timezone": _s("IANA zone for the cron; America/Los_Angeles by default"),
-       "enabled": {"type": "boolean", "default": True},
-       "bot": _s("Set it on another bot you operate; yourself by default")},
-      required=("key", "title"), writes=True)
-def routine_set(api, args):
-    body = {"key": args["key"], "title": args["title"], "text": args.get("text") or "",
-            "cron": args.get("cron") or "", "on": args.get("on") or "", "timezone": args.get("timezone") or "",
-            "enabled": args.get("enabled", True)}
-    bot = _bot_of(api, args)
-    return _routine_api(api, bot).post(f"bots/{bot}/routines", body, key=_key(args))["routine"]
-
-
-@tool("hub_routine_update", "Change one routine: title, text, cron, on, timezone, or `enabled` to turn it on or off. "
-      "Name it by its id or its key. For another bot's routine (`bot`) it acts as the person who asked you, with their "
-      "rights (BotOps).",
-      {"id": _s("The routine's id from hub_routine_list, or its key"), "title": _s("New title"), "text": _s("New text"),
-       "cron": _s("New five-field cron"), "on": _s("New event"), "timezone": _s("New zone"),
-       "enabled": {"type": "boolean", "description": "true turns it on, false turns it off"},
-       "bot": _s("The bot it belongs to, when it is not yours")},
-      required=("id",), writes=True)
-def routine_update(api, args):
-    body = {k: args.get(k) for k in ("title", "text", "cron", "on", "timezone", "enabled")}
-    ident = args["id"]
-    bot = args.get("bot") or (str(ident).split(":", 1)[0] if ":" in str(ident) else _bot_of(api, {}))
-    who = _routine_api(api, bot)
-    if args.get("bot") or ":" not in str(ident):      # an id is `<bot>:<key>`; a bare key is looked up on the bot
-        rows = who.get(f"bots/{_bot_of(api, args)}/routines")["routines"]
-        row = next((r for r in rows if ident in (r.get("id"), r.get("key"))), None)
-        if not row:
-            raise ValueError("No routine " + ident + ". Routines: " + ", ".join(str(r.get("key") or r.get("id")) for r in rows))
-        ident = row["id"]
-    return who.post(f"routines/{ident}", body, key=_key(args))["routine"]
 
 
 @tool("hub_event_types", "Every event Tico names (task.done, release.published, webhook.received, custom.<name>...), each with "
-      "its group, a plain description, its version and an example payload (`data`). Routines (`on`), rules (`event`) and "
+      "its group, a plain description, its version and an example payload (`data`). Automations (an event trigger), wake rules and "
       "outgoing webhooks read this one list; some events have an older spelling (`aliases`) that still works, and "
       "`sourceless` marks the events a rule judges with no task (webhook.received, tico.notice); `outbound` is false "
       "for those two, which an outgoing webhook cannot subscribe to.",
@@ -2613,11 +2560,11 @@ def event_types(api, args):
 
 
 @tool("hub_trigger_list", "The webhook triggers people and bots made: each one's `event` "
-      "(`webhook.<id>`) is what a routine's `on` names to run whenever something posts to it, with its "
+      "(`webhook.<id>`) is what an automation's webhook trigger names to run whenever something posts to it, with its "
       "verification `preset`, `type_from`, `hourly` limit, `keep_days` and `unheard` setting.", {})
 def trigger_list(api, args):
     return [{k: t.get(k) for k in ("id", "name", "event", "signed", "preset", "type_from", "hourly", "keep_days",
-                                   "unheard", "last_received", "received_24h", "refused_24h", "routines")}
+                                   "unheard", "last_received", "received_24h", "refused_24h", "automations")}
             for t in api.get("triggers")["triggers"]]
 
 
@@ -2631,15 +2578,15 @@ def _delivery_path(delivery):
 
 
 @tool("hub_trigger_create", "Make a webhook trigger. The answer's `url` is the address a sender posts to; it carries "
-      "the secret and is shown only now (hub_trigger_rotate makes a new one). A routine runs on it with "
-      "`on: webhook.<id>`.",
+      "the secret and is shown only now (hub_trigger_rotate makes a new one). An automation runs on it with "
+      "the trigger {type: webhook, id}.",
       {"name": _s("What it is for, e.g. Orders"), "id": _s("Optional id: lowercase letters, digits and dashes")},
       required=("name",), writes=True)
 def trigger_create(api, args):
     return _as_person(api).post("triggers", {"name": args["name"], "id": args.get("id") or ""}, key=_key(args))["trigger"]
 
 
-@tool("hub_trigger_show", "One trigger: address without the secret, settings, 24-hour counts and its routines.",
+@tool("hub_trigger_show", "One trigger: address without the secret, settings, 24-hour counts and its automations.",
       TRIGGER, required=("id",))
 def trigger_show(api, args):
     return api.get(f"triggers/{args['id']}")["trigger"]
@@ -2714,7 +2661,7 @@ def trigger_recover(api, args):
     return _as_person(api).post(f"triggers/{args['id']}/recover", {"since_hours": args.get("since") or 24}, key=_key(args))["recover"]
 
 
-@tool("hub_trigger_replay", "Run one stored call again: its routines and rules start as a new occurrence "
+@tool("hub_trigger_replay", "Run one stored call again: its automations and wake rules start as a new occurrence "
       "(`<delivery>:replay:<n>`). The call's body must still be kept (see `expires_at`).",
       {**TRIGGER, "delivery": _s("The delivery id from hub_trigger_deliveries")},
       required=("id", "delivery"), writes=True)
@@ -2831,23 +2778,7 @@ def release_now(api, args):
     return _as_person(api).post("release/now", {"note": args["note"]} if args.get("note") else {}, key=_key(args))
 
 
-@tool("hub_routine_delete", "Delete a routine. Its history stays; an occurrence nobody has "
-      "claimed yet closes. BotOps acting for a person gets a Confirm card in their chat (`needs_confirm`) instead.",
-      {"id": _s("Routine id")}, required=("id",), writes=True)
-def routine_delete(api, args):
-    bot = str(args["id"]).split(":", 1)[0]
-    answer = _routine_api(api, bot).post(f"routines/{args['id']}/delete", {}, key=_key(args))
-    return answer if answer.get("needs_confirm") else answer["routine"]
-
-
-@tool("hub_routine_run", "Run a scheduled routine now, with your own rights or BotOps's requester rights.",
-      {"id": _s("Routine id")}, required=("id",), writes=True)
-def routine_run(api, args):
-    bot = str(args["id"]).split(":", 1)[0]
-    return _routine_api(api, bot).post(f"routines/{args['id']}/run", {}, key=_key(args))
-
-
-# Automations (backend/automations.py, dormant until the team turns the redesign on). One permission rule for every
+# Automations (backend/automations.py). One permission rule for every
 # surface: the owner, anyone above the owner, the group's lead; BotOps acts with the requester's rights. A bot that may
 # not change one proposes: its edit comes back as a pending version for a person to restore.
 _AUTO_FIELDS = {
@@ -3056,7 +2987,7 @@ def bot_register(api, args):
       "own the bot). Each of see, read and write is `everyone`, or a comma list of person ids, `group:<id>` and "
       "`bot:<slug>`. Anyone who may read or write can also see it. Levels you leave out stay as they are.",
       {"slug": _s("The bot"), "see": _s("everyone, or ben,group:legal,bot:analyst"),
-       "read": _s("Who may read its work: tasks, updates, files, status, routines"),
+       "read": _s("Who may read its work: tasks, updates, files, status, automations"),
        "write": _s("Who may send it messages and tasks")},
       required=("slug",), writes=True)
 def bot_access(api, args):
@@ -3099,7 +3030,7 @@ def bot_owners(api, args):
 
 
 @tool("hub_bot_setup_done", "Mark a bot's onboarding complete, as a person above it on the org chart (its manager, their "
-      "managers or the owner): it becomes Active, its routines run and it takes tasks. Nobody else may. A bot calling it "
+      "managers or the owner): it becomes Active, its automations run and it takes tasks. Nobody else may. A bot calling it "
       "on itself says it is ready instead, like hub_bot_ready, and stays Onboarding. Repeating it changes nothing. A "
       "member's bot counts toward their limit of active bots from here on, so this can answer `bot_limit`: tell the "
       "person to archive a bot or ask an admin.",
@@ -3369,17 +3300,11 @@ def bot_place(api, args):
       "does not have its repository yet the answer is state waiting_for_repository: the placement is kept and Tico "
       "finishes going live by itself when the computer reports the repository, so do not call it again or wait.",
       {"bot": _s("The bot's slug"), "computer": _s("A computer's label or id; leave out to pick one"),
-       "setup": {"type": "boolean", "default": True, "description": "Start its setup chat when it is a starter bot"},
-       "routines": {"type": "array", "items": {"type": "object"}, "description":
-                    "The bot's live Routines as they must be, checked before activation (nothing is created): "
-                    '[{"id": "<bot>:<routine>", "title": "...", "cron": "0 9 * * 1-5", "timezone": "America/Los_Angeles", '
-                    '"enabled": true}]; id, title and timezone required, cron and on (an event) default "", enabled '
-                    "defaults to true, no other fields"}},
+       "setup": {"type": "boolean", "default": True, "description": "Start its setup chat when it is a starter bot"}},
       required=("bot",), writes=True)
 def bot_go_live(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/go-live", {"computer": args.get("computer") or "",
-                                                              "setup": args.get("setup", True),
-                                                              **({"routines": args["routines"]} if args.get("routines") is not None else {})}, key=_key(args))
+                                                              "setup": args.get("setup", True)}, key=_key(args))
 
 
 @tool("hub_bot_restore", "Bring an archived bot back, as the person who asked you (its owner or an admin): to the status it had "
@@ -3487,304 +3412,6 @@ def bot_keep_tasks_going(api, args):
         "keep_tasks_going": args['limit'], "expected_revision": bot['revision']}, key=_key(args))
 
 
-_RULE_SCOPES = ["team", "type", "department", "bot", "task"]
-_RULE_THEN = ["ignore", "note", "batch", "wake", "ask", "action"]
-_RULE_FIELDS = {
-    "event": _s("The event the rule is for, or * for every event that is not always-wake (hub_rule_list shows them). "
-                "webhook.received and tico.notice (or a prefix like webhook.*) have no "
-                "task: team, department and bot scopes only (hub_event_types)"),
-    "then": {"type": "string", "enum": _RULE_THEN,
-             "description": "wake: start a run; note: write it quietly and carry a note to the next run; batch: hold it "
-                            "with the bot's other notices; ignore: write it quietly, no note; ask: one Needs-you item for "
-                            "the task's person; action: run params.action. For an event with no task, wake and note go to "
-                            "the bot the rule is set on (or params.bot) and batch is refused"},
-    "when": {"type": "object", "description": "All must hold: actor (human|bot|keeper), step, role (owner|requester|qa|"
-                                              "release_manager|other), tag, state (a task status); each a word or a list. "
-                                              "For a webhook event only trigger (the webhook's id) and type (order.* "
-                                              "matches a prefix)"},
-    "params": {"type": "object", "description": "An action rule names params.action: close, move_step, set_wait, relate, "
-                                                "note, assign {owner (a bot or person)}, add_tag {tag}, remove_tag {tag} "
-                                                "(a tag or a list), wake_bot {bot, text},send_webhook {webhook, type, data}, "
-                                                "create_task {owner (a bot), title, body} or forward {webhook} (the last two "
-                                                "only on webhook.received); text, data, title and body may hold {{path}} "
-                                                "placeholders (data.order, type, trigger.name). "
-                                                "A wake rule for an event with no task names params.bot and params.text"},
-    "on": {"type": "boolean", "description": "false turns the rule off"},
-    "position": {"type": "integer", "minimum": 0, "description": "Order inside its scope; lower first"},
-    "note": _s("Why the rule exists, 500 characters at most"),
-}
-
-
-def _rule_body(args, keys):
-    """The fields given; `when` and `params` come as an object from a tool call and as JSON text from the command."""
-    body = {k: args[k] for k in keys if k in args}
-    for key in ("when", "params"):
-        if isinstance(body.get(key), str):
-            try:
-                body[key] = json.loads(body[key])
-            except ValueError:
-                raise APIError("invalid", f"{key} is JSON, like {{\"actor\": \"bot\"}}", 422)
-    return body
-
-
-@tool("hub_rule_list", "List the wake rules that decide whether a message starts a bot's run: the built-in rules and the "
-      "rules set for the team, a task type, a department, a bot or a task, each with its 7-day run count and the share of "
-      "those runs that did nothing. A scoped rule overrides the built-ins; a person's message always wakes. Rules also say "
-      "what an event with no task does (a webhook arriving, a Tico notice): `sourceless_events` names them. When `more` is "
-      "true, list again from `next_offset`.",
-      {"scope_kind": {"type": "string", "enum": ["builtin"] + _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task"),
-       "event": _s("Only this event"), "limit": {"type": "integer", "minimum": 1, "maximum": 500},
-       "offset": {"type": "integer", "minimum": 0}})
-def rule_list(api, args):
-    return api.get("rules", scope_kind=args.get("scope_kind"), scope_id=args.get("scope_id"), event=args.get("event"),
-                   limit=args.get("limit"), offset=args.get("offset"))
-
-
-# ----------------------------------------------------------------------------- outgoing webhooks
-_WEBHOOK_EVENTS = {"type": "array", "items": {"type": "string"},
-                   "description": "Event names (`task.done`), groups (`task.*`) or `*`; see hub_event_types"}
-
-
-_WEBHOOK_FILTER = {"type": "object", "description": "Which events the endpoint gets, beyond its event names: departments, bots "
-                   "(slugs) and task_types (ids or names), each a list; empty or missing means all. Applies to events about a "
-                   "task or a bot; the rest (a release, a health finding) always pass",
-                   "properties": {"departments": {"type": "array", "items": {"type": "string"}},
-                                  "bots": {"type": "array", "items": {"type": "string"}},
-                                  "task_types": {"type": "array", "items": {"type": "string"}}}}
-_WEBHOOK_HEADERS = {"type": "array", "maxItems": 10, "description": "Up to 10 custom headers sent with every post, replacing the "
-                    "list. A `secret` header's value is sealed and never shown again: leave `value` out to keep it. Tico sets "
-                    "webhook-*, host, content-length, content-type, transfer-encoding and connection itself",
-                    "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"},
-                                                              "secret": {"type": "boolean"}}, "required": ["name"]}}
-
-
-def webhook_options(fields):
-    """The CLI's flags as the tool's arguments: `--departments/--bots/--task-types` become `filter`, `--header` and
-    `--secret-header` ("Name: value") become `headers`; `--no-filter` and `--no-headers` clear them."""
-    picked = {k: fields.pop(k) for k in ("departments", "bots", "task_types") if k in fields}
-    if picked:
-        fields["filter"] = picked
-    if fields.pop("no_filter", False):
-        fields["filter"] = {}
-    headers = []
-    for flag, secret in (("header", False), ("secret_header", True)):
-        for text in fields.pop(flag, None) or []:
-            name, colon, value = text.partition(":")
-            if not colon and not secret:
-                raise ValueError(f"--header is Name: value, not {text!r}")
-            # A plain header sends no `secret` key: BotOps' requests refuse any key named like a secret.
-            headers.append({"name": name.strip(), **({"secret": True} if secret else {}),
-                            **({"value": value.strip()} if colon else {})})
-    if headers:
-        fields["headers"] = headers
-    if fields.pop("no_headers", False):
-        fields["headers"] = []
-    return fields
-
-
-def _hook_path(args, *tail):
-    from urllib.parse import quote
-    return "/".join(["webhooks", quote(args["id"], safe=""), *tail])
-
-
-@tool("hub_webhook_list", "Outgoing webhook endpoints you may see (an admin sees everyone's), each with its events, state "
-      "and 7-day delivered, failed and pending counts. A bot sees names and hosts only.",
-      {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0},
-       "on_behalf_of": ON_BEHALF_OF})
-def webhook_list(api, args):
-    return _as_person(api, args.get("on_behalf_of")).get("webhooks", limit=args.get("limit"), offset=args.get("offset"))
-
-
-@tool("hub_webhook_create", "Make an outgoing webhook endpoint: Tico posts the chosen events to an https address, signed "
-      "(Standard Webhooks). A person's call returns the signing `secret` once; save it. A bot's call files a `send` approval "
-      "and returns it as `approval`; once a person approves, repeat the same call and the endpoint is made, owned by that person.",
-      {"name": _s("What it is for"), "url": _s("The https address Tico posts to"), "events": _WEBHOOK_EVENTS,
-       "rate_per_hour": {"type": "integer", "minimum": 1, "description": "Most sends an hour (default 600); more wait"},
-       "allow_http": {"type": "boolean", "description": "Owner only: allow plain http to this computer (localhost), for development"},
-       "filter": _WEBHOOK_FILTER, "headers": _WEBHOOK_HEADERS,
-       "on_behalf_of": ON_BEHALF_OF}, required=("name", "url"), writes=True)
-def webhook_create(api, args):
-    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "filter", "headers") if args.get(k) is not None}
-    return _as_person(api, args.get("on_behalf_of")).post("webhooks", body, key=_key(args))
-
-
-@tool("hub_webhook_show", "One endpoint and its last ten delivery attempts.",
-      {"id": _s("The endpoint id (ep_...)"), "on_behalf_of": ON_BEHALF_OF}, required=("id",))
-def webhook_show(api, args):
-    return _as_person(api, args.get("on_behalf_of")).get(_hook_path(args))
-
-
-@tool("hub_webhook_update", "Change an endpoint's name, address, events, filter, custom headers or hourly rate (and, for the owner, the plain-http switch).",
-      {"id": _s("The endpoint id"), "name": _s("New name"), "url": _s("New https address"), "events": _WEBHOOK_EVENTS,
-       "rate_per_hour": {"type": "integer", "minimum": 1},
-       "allow_http": {"type": "boolean", "description": "Owner only"},
-       "filter": _WEBHOOK_FILTER, "headers": _WEBHOOK_HEADERS,
-       "expected_revision": {"type": "integer", "minimum": 1, "description": "The revision you read; a stale one answers 409. "
-                             "Needed to change the address"},
-       "credentials": {"type": "string", "enum": ["keep", "clear"],
-                       "description": "When the new address is another destination and secret headers keep their saved "
-                                      "values (the update answers 409 destination_change): keep sends them there, clear "
-                                      "removes them and pauses the endpoint until they are typed again. Ask the person"},
-       "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def webhook_update(api, args):
-    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "filter", "headers", "expected_revision",
-                                 "credentials")
-            if args.get(k) is not None}
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "update"), body, key=_key(args))
-
-
-@tool("hub_webhook_rotate", "Make a new signing secret (returned once). The old one keeps signing beside it for 24 hours.",
-      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def webhook_rotate(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "rotate"), {}, key=_key(args))
-
-
-@tool("hub_webhook_pause", "Stop sending to an endpoint; what is queued waits.",
-      {"id": _s("The endpoint id"), "reason": _s("Why, shown on the endpoint"), "on_behalf_of": ON_BEHALF_OF},
-      required=("id",), writes=True)
-def webhook_pause(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "pause"), {"reason": args.get("reason") or ""},
-                                                           key=_key(args))
-
-
-@tool("hub_webhook_resume", "Send to a paused endpoint again.",
-      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def webhook_resume(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "resume"), {}, key=_key(args))
-
-
-@tool("hub_webhook_delete", "Delete an endpoint and cancel what is waiting to be sent to it.",
-      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def webhook_delete(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "delete"), {}, key=_key(args))
-
-
-@tool("hub_webhook_send", "Send a custom event (`custom.<name>`) to one endpoint. A bot needs its send switch on and an "
-      "endpoint that listens for the name.",
-      {"id": _s("The endpoint id"), "type": _s("custom.<name>, lowercase"),
-       "data": {"type": "object", "description": "The event's data, up to 64 KB"},
-       "subject": _s("What it is about (an id); defaults to the type"), "on_behalf_of": ON_BEHALF_OF},
-      required=("id", "type"), writes=True)
-def webhook_send(api, args):
-    body = {"type": args["type"], "data": args.get("data") or {}, "subject": args.get("subject") or ""}
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "send"), body, key=_key(args))
-
-
-@tool("hub_webhook_sends", "An endpoint's send log, newest first: type, subject, state (ready, sending, delivered, failed, "
-      "cancelled, withheld), attempts, last status and next attempt. Give `send` for one send with its attempts.",
-      {"id": _s("The endpoint id"), "send": _s("One send's id (wh_...)"),
-       "state": {"type": "string", "enum": ["ready", "sending", "delivered", "failed", "cancelled", "withheld"]},
-       "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0},
-       "on_behalf_of": ON_BEHALF_OF}, required=("id",))
-def webhook_sends(api, args):
-    who = _as_person(api, args.get("on_behalf_of"))
-    if args.get("send"):
-        from urllib.parse import quote
-        return who.get(_hook_path(args, "sends", quote(args["send"], safe="")))
-    return who.get(_hook_path(args, "sends"), state=args.get("state"), limit=args.get("limit"), offset=args.get("offset"))
-
-
-@tool("hub_webhook_retry", "Send a failed, cancelled or delivered send again now (a delivered one is a resend); it keeps its id, so a receiver that already got it drops the repeat.",
-      {"id": _s("The endpoint id"), "send": _s("The send's id (wh_...)"), "on_behalf_of": ON_BEHALF_OF},
-      required=("id", "send"), writes=True)
-def webhook_retry(api, args):
-    from urllib.parse import quote
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "sends", quote(args["send"], safe=""), "retry"),
-                                                           {}, key=_key(args))
-
-
-@tool("hub_webhook_recover", "Send again every send that gave up since a date (`2026-10-20` or a time): same ids and bodies, so a "
-      "receiver that kept the first one drops the repeat. At most 500 at a time (`more` says run it again). The endpoint must be on.",
-      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time"), "on_behalf_of": ON_BEHALF_OF},
-      required=("id", "since"), writes=True)
-def webhook_recover(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "recover"), {"since": args["since"]}, key=_key(args))
-
-
-@tool("hub_webhook_replay", "Send the events since a date that this endpoint should have had and has no send for (it was added "
-      "late, or its filter changed). The same tests as a live event: its event names, its filter, and what its owner may read. "
-      "Events are kept 30 days. A round looks at 500 events; when it answers `more`, call again with its `next_since` as `since` "
-      "and its `next_after` as `after`. The endpoint must be on.",
-      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time (or the last round's next_since)"),
-       "after": _s("The last round's next_after, when continuing"), "on_behalf_of": ON_BEHALF_OF},
-      required=("id", "since"), writes=True)
-def webhook_replay(api, args):
-    body = {"since": args["since"], **({"after": args["after"]} if args.get("after") else {})}
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "replay"), body, key=_key(args))
-
-
-@tool("hub_webhook_enable", "Turn an endpoint back on. After Tico turned it off for failing (five days of failed attempts), "
-      "the answer's `recover` says the date to give hub_webhook_recover to send again what it held back.",
-      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def webhook_enable(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "enable"), {}, key=_key(args))
-
-
-@tool("hub_webhook_example", "Send an event type's example to one endpoint, to test the receiver (default `custom.example`).",
-      {"id": _s("The endpoint id"), "type": _s("An event name from hub_event_types"), "on_behalf_of": ON_BEHALF_OF},
-      required=("id",), writes=True)
-def webhook_example(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "example"), {"type": args.get("type") or ""},
-                                                           key=_key(args))
-
-
-@tool("hub_rule_set", "Create a wake rule for the team, a task type, a department, a bot or one task, as the person who asked you. "
-      "The most specific scope wins: task, bot, department, type, team, then the built-in rules. A rule for an event with no "
-      "task (webhook.received) fires every matching row, one per bot, endpoint and asker, and does nothing when none match.",
-      {"scope_kind": {"type": "string", "enum": _RULE_SCOPES}, "scope_id": _s("The type, department, bot or task; leave out for the team"),
-       **_RULE_FIELDS, "on_behalf_of": ON_BEHALF_OF},
-      required=("scope_kind", "event", "then"), writes=True)
-def rule_set(api, args):
-    body = _rule_body(args, ("scope_kind", "scope_id", "event", "then", "when", "params", "on", "position", "note"))
-    return _as_person(api, args.get("on_behalf_of")).post("rules", body, key=_key(args))
-
-
-@tool("hub_rule_update", "Change a wake rule you may edit, as the person who asked you. Built-in rules are read-only: "
-      "override one with hub_rule_set.",
-      {"id": _s("The rule's id"), **_RULE_FIELDS,
-       "expected_revision": {"type": "integer", "minimum": 1, "description": "The revision you read; omit to use the current one"},
-       "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def rule_update(api, args):
-    who = _as_person(api, args.get("on_behalf_of"))
-    revision = args.get("expected_revision") or who.get("rules/" + quote(args["id"], safe=""))["rule"].get("revision")
-    body = _rule_body(args, ("event", "then", "when", "params", "on", "position", "note"))
-    return who.post("rules/" + quote(args["id"], safe=""), {**body, "expected_revision": revision}, key=_key(args))
-
-
-@tool("hub_rule_delete", "Delete a wake rule you may edit, as the person who asked you.",
-      {"id": _s("The rule's id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def rule_delete(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post("rules/" + quote(args["id"], safe="") + "/delete", {},
-                                                           key=_key(args))
-
-
-@tool("hub_rule_suggestions", "List the wake rules Tico suggests making a note because over half of their runs in the last week "
-      "did nothing (at least 20 runs), each with its 7-day runs and no-op share. Only the suggestions the person who asked "
-      "may act on. Nothing changes until hub_rule_apply.",
-      {"status": {"type": "string", "enum": ["open", "all"], "description": "open (default), or all: also applied and dismissed in the last 30 days"},
-       "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0},
-       "on_behalf_of": ON_BEHALF_OF})
-def rule_suggestions(api, args):
-    return _as_person(api, args.get("on_behalf_of")).get("rules/suggestions", status=args.get("status"), limit=args.get("limit"),
-                                                          offset=args.get("offset"))
-
-
-@tool("hub_rule_apply", "Make a suggested rule a note, as the person who asked you: a table rule is edited, a built-in gets a "
-      "team rule for its event. Needs the right to edit that rule. hub_rule_dismiss on the applied suggestion puts it back.",
-      {"id": _s("The suggestion's id (hub_rule_suggestions)"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def rule_apply(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post("rules/suggestions/" + quote(args["id"], safe="") + "/apply", {},
-                                                           key=_key(args))
-
-
-@tool("hub_rule_dismiss", "Decline a suggested rule change (Tico does not suggest that rule again for 28 days), or, on one "
-      "already applied, take it back: the rule returns to how it was, if nobody has changed it since. As the person who asked you.",
-      {"id": _s("The suggestion's id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
-def rule_dismiss(api, args):
-    return _as_person(api, args.get("on_behalf_of")).post("rules/suggestions/" + quote(args["id"], safe="") + "/dismiss", {},
-                                                           key=_key(args))
-
-
 BUDGET_VALUE = {"type": ["integer", "string"], "minimum": 0, "maximum": 100000,
                 "description": "Runs allowed; 0 is no limit, \"default\" follows the team"}
 
@@ -3824,7 +3451,7 @@ _PROFILES = ["doer", "reviewer", "lead", "manager", "responder", "monitor", "cus
        "sweep_seconds": {"type": "integer", "minimum": 0, "maximum": 604800, "description": "Least time between two runs of a sweep"},
        "digest_hour": {"type": "integer", "minimum": 0, "maximum": 23, "description": "Hour of a lead's daily digest, team time"},
        "pulls": {"type": "string", "enum": ["all", "review", "none"], "description": "Custom: which open tasks it starts by itself"},
-       "sweeps": {"type": "boolean", "description": "Custom: whether stall checks and routines may wake it"},
+       "sweeps": {"type": "boolean", "description": "Custom: whether stall checks and automations may wake it"},
        "takes": {"type": "string", "enum": ["all", "review", "watcher", "none"], "description": "Custom: which tasks it may be given"},
        "confirm_drop_rules": {"type": "boolean", "description": "Leaving custom: delete the rules it copied"}},
       ("bot",), writes=True)
@@ -3855,7 +3482,7 @@ def team_budget(api, args):
     return _as_person(api).post("settings/turn-budgets", body, key=_key(args)) if body else _as_person(api).get("settings/turn-budgets")
 
 
-@tool("hub_task_caps", "Read the task caps (redesign on): how many tasks each teammate may create for another per day, with "
+@tool("hub_task_caps", "Read the task caps: how many tasks each teammate may create for another per day, with "
       "today's count, the tasks closed before the receiver acted, and the refused creates. Also the changes bots asked "
       "for, which a person approves or declines as approvals. A cap is off until someone sets one.", {})
 def task_caps_read(api, args):
@@ -4415,7 +4042,7 @@ def stall_triage(api, args):
     return _as_person(api).call("PUT", "system-routines/stall_triage", {"on": bool(args["on"])}, _key(args))
 
 
-@tool("hub_audit", "Who changed what in the redesign's caps, spend, groups, automations and inboxes, newest first. "
+@tool("hub_audit", "Who changed what in the caps, spend, groups, automations and inboxes, newest first. "
       "The owner reads every row; anyone else reads their own changes. Page with `before` from `next`.",
       {"object": _s("One object, such as automation:<id> or inbox:<address>"),
        "limit": {"type": "integer", "default": 50, "description": "Rows a page, up to 200"},
@@ -4423,34 +4050,6 @@ def stall_triage(api, args):
 def audit(api, args):
     query = {k: args[k] for k in ("object", "limit", "before") if args.get(k) not in (None, "")}
     return _as_person(api).get("audit", **query)
-
-
-@tool("hub_redesign", "The new design (Strategy tabs, Budget, task caps, Automations, the new sidebar): one switch for the "
-      "whole team, off by default. Anyone reads it; only the owner (or BotOps for the owner) switches it. Omit `on` to read.",
-      {"on": {"type": "boolean", "description": "true switches it on, false off; leave out to read"}}, writes=True)
-def redesign(api, args):
-    if args.get("on") is None:
-        return _as_person(api).get("settings/redesign")
-    return _as_person(api).call("PUT", "settings/redesign", {"enabled": bool(args["on"])}, _key(args))
-
-
-@tool("hub_redesign_migrate", "Move this install's routines, wake rules, system jobs, inboxes, limits and budgets to the "
-      "redesign (redesign on, the owner or BotOps for the owner). `dry_run` lists every object, what it becomes and its "
-      "flags, writing nothing; `resolve` says yes to flags (`accept`: flag or object ids); `convert` snapshots, then "
-      "converts (refused while a flag has no yes); `restore` undoes a convert within a day.",
-      {"action": {"type": "string", "enum": ["dry_run", "resolve", "convert", "restore"],
-                  "description": "dry_run (default), resolve, convert or restore"},
-       "accept": {"type": "array", "items": {"type": "string"},
-                  "description": "flag ids (or object ids: every flag on it) to say yes to, for resolve or convert"}},
-      writes=True)
-def redesign_migrate(api, args):
-    action = (args.get("action") or "dry_run").replace("-", "_")
-    if action not in ("dry_run", "resolve", "convert", "restore"):
-        raise ValueError("action is dry_run, resolve, convert or restore")
-    body = {"accept": list(args["accept"])} if args.get("accept") and action in ("resolve", "convert") else {}
-    if action == "resolve" and not body:
-        raise ValueError("resolve needs accept: the flag ids to say yes to")
-    return _as_person(api).call("POST", "redesign/migration/" + action.replace("_", "-"), body, _key(args))
 
 
 # ----------------------------------------------------------------------------- approvals
@@ -4461,7 +4060,7 @@ def redesign_migrate(api, args):
       {"kind": {"type": "string", "enum": list(APPROVAL_KINDS)},
        "payload": {"type": "object", "description": "The exact action, as the approvals policy describes. "
                    "kind=send is to/cc/subject/body_sha256/mailbox. Skip this tool when the owner "
-                   "already said send; use mail send --approve <their-message-id>. With the redesign on, a "
+                   "already said send; use mail send --approve <their-message-id>. A "
                    "proposal the hub applies on approval: task_cap {sender, receiver, per_day}, spend_limit "
                    "{bot | pool: company|group:<id>, per_30m_usd, daily_usd, weekly_usd, monthly_usd}, group "
                    "{id?, name?, parent?, lead?, add?, remove?}, org {bot, from, to}."},
@@ -5549,7 +5148,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_apply", "hub_rule_dismiss", "hub_stall_triage", "hub_redesign", "hub_redesign_migrate", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_stall_triage", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
@@ -5633,7 +5232,7 @@ RENAMED_TOOLS = {
     "hub_bot_register": "hub_bot_create", "hub_bot_set": "hub_bot_update", "hub_bot_onboarded": "hub_bot_setup_done",
     "hub_turns": "hub_run_list", "hub_fleet": "hub_health_check", "hub_fleet-check": "hub_health_check",
     "hub_fleet_check": "hub_health_check", "hub_computers": "hub_computer_list", "hub_catalog": "hub_template_list",
-    "hub_routine_on": "hub_routine_update", "hub_routine_off": "hub_routine_update", "hub_org": "hub_team_show",
+    "hub_org": "hub_team_show",
     "hub_updates": "hub_update_list", "hub_integrations": "hub_tool_list", "hub_integration": "hub_tool_show",
     "hub_queries": "hub_tool_query_search", "hub_learn": "hub_tool_learn", "hub_decisions": "hub_decision_ask",
     "hub_judge": "hub_decision_ask", "hub_listen_judge": "hub_listening_decide",

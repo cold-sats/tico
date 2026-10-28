@@ -39,8 +39,6 @@ JOBS = {
     "repository_waits": ("open", "Finish tasks waiting on a repository or worktree."),
     "task_manager_report": ("open", "Task Manager: per department, list quiet tasks, overdue asks, review tickets without a PR and merged work whose step did not move."),
     "stall_triage": ("open", "Ask Decide what to do with a quiet task: set a wait, close it, or wake once."),
-    "propose_demotions": ("open", "Suggest turning noisy wake rules into notes; changes nothing itself."),
-    "routine_timer": ("open", "Start each bot routine (these file tasks). Edit them in Tasks → Routines."),
     "stale_review": ("after", "Suggest what to do with open tasks that look finished or forgotten."),
 }
 
@@ -104,7 +102,7 @@ def describe_job(row):
                 f"Close a done task after {hours} hours untouched; skips tasks waiting on a person, snoozed, pinned, "
                 "or with an open question or approval; at most 50 a pass."}
     metadata = JOBS.get(row["key"])
-    wakes = {"assigned_tasks", "stall_checks", "waiting_checks", "due_reminders", "snooze_ends", "ask_deadlines", "github_sync", "repository_waits", "routine_timer"}
+    wakes = {"assigned_tasks", "stall_checks", "waiting_checks", "due_reminders", "snooze_ends", "ask_deadlines", "github_sync", "repository_waits"}
     return {**row, "task_trigger": metadata[0] if metadata else None,
             "task_effect": "Wakes" if row["key"] in wakes else "Quiet",
             "task_action": metadata[1] if metadata else None}

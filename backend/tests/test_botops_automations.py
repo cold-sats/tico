@@ -6,7 +6,7 @@ version a person turns on. Ana owns the company, Cara is a member (the base fixt
 from backend import botops_act
 from backend.store import H
 from backend.tests.test_api import api, claim, get, headers, post  # noqa: F401  (fixture)
-from backend.tests.test_automation_api import NOTE_STEP, audit_rows, turn_on
+from backend.tests.test_automation_api import NOTE_STEP, audit_rows
 from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401  (fixtures)
 from backend.tests.test_mcp import call as mcp
 
@@ -24,7 +24,6 @@ def flow(**extra):
 
 
 def test_a_person_asks_and_botops_saves_off_unless_asked_on(api, botops):
-    turn_on(api)
     attempt = turn(api, botops, person="cara-test", text="Archive receipts from my inbox")
     err, made = mcp(api, "hub_automation_create", flow(), attempt["token"])
     assert not err, made
@@ -41,7 +40,6 @@ def test_a_person_asks_and_botops_saves_off_unless_asked_on(api, botops):
 
 def test_a_persons_edits_are_applied_as_they_could(api, botops):
     """Update, pause, run and restore go straight through, with no card and no pending version."""
-    turn_on(api)
     aid = post(api, "automations", flow(enabled=True), "cara-test")["id"]
     attempt = turn(api, botops, person="cara-test", text="Label receipts first")
     err, edited = mcp(api, "hub_automation_update", {"id": aid, "steps": [LABEL, ARCHIVE], "summary": "Label first"},
@@ -64,7 +62,6 @@ def test_a_persons_edits_are_applied_as_they_could(api, botops):
 
 def test_a_persons_delete_waits_for_their_own_tap(api, botops):
     """Deleting an automation is a Confirm card in the person's BotOps chat, as deleting a routine is."""
-    turn_on(api)
     aid = post(api, "automations", flow(enabled=True), "cara-test")["id"]
     attempt = turn(api, botops, person="cara-test", text="Delete my receipts automation")
     err, card = mcp(api, "hub_automation_delete", {"id": aid}, attempt["token"])
@@ -79,7 +76,6 @@ def test_a_persons_delete_waits_for_their_own_tap(api, botops):
 
 
 def test_botops_never_goes_past_the_askers_rights(api, botops):
-    turn_on(api)
     anas = post(api, "automations", flow(owner="person:ana", trigger={"type": "message", "inbox": "ana@acme.example"}))
     attempt = turn(api, botops, person="cara-test", text="Draft replies to everything in Ana's inbox")
     err, refused = mcp(api, "hub_automation_create", flow(trigger={"type": "message", "inbox": "ana@acme.example"}),
@@ -97,7 +93,6 @@ def test_botops_never_goes_past_the_askers_rights(api, botops):
 
 
 def test_a_bot_asks_and_botops_proposes_where_that_bot_may_not_change(api, botops):
-    turn_on(api)
     anas = post(api, "automations", flow(owner="person:ana", trigger={"type": "event", "name": "x.y"}))["id"]
     with api.app.state.store.transaction() as c:
         H.task_create(c, "bot:finance", "Automate the receipts", "Archive receipts.", "bot:botops", lint=False)
@@ -131,7 +126,6 @@ def test_a_bot_asks_and_botops_proposes_where_that_bot_may_not_change(api, botop
 
 def test_the_guide_is_dormant_and_carries_the_flow_format(api, botops):
     assert api.get("/api/v2/automations/guide", headers=headers()).status_code == 404
-    turn_on(api)
     attempt = turn(api, botops, person="cara-test", text="Make me an automation")
     err, guide = mcp(api, "hub_automation_guide", {}, attempt["token"])
     assert not err and "hub automation create --file -" in guide["text"] and "`send_reply`" in guide["text"], guide

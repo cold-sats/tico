@@ -4,7 +4,7 @@ refused, and seeing follows the same rule. BotOps has whoever asked it's rights 
 from backend import automations as AU
 from backend.auth import Identity
 from backend.tests.test_api import api, get, headers, post  # noqa: F401
-from backend.tests.test_automation_api import as_bot, turn_on
+from backend.tests.test_automation_api import as_bot
 
 
 class Chart:
@@ -61,7 +61,6 @@ def test_the_top_of_the_org_may_change_anything_and_a_runner_nothing():
 
 
 def test_seeing_follows_the_same_rule_on_every_surface(api):
-    turn_on(api)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET reports_to='human:ben' WHERE bot='ops'")
     aid = post(api, "automations", {"name": "Ops", "owner": "bot:ops", "trigger": {"type": "event", "name": "x.y"},
@@ -78,7 +77,6 @@ def test_seeing_follows_the_same_rule_on_every_surface(api):
 
 def test_automations_follow_their_owner_into_a_new_group(api):
     """A bot moved to another group takes its automations with it, so the new group's lead may change them."""
-    turn_on(api)
     eng = post(api, "groups", {"name": "Engineering", "add": {"bots": ["ops"]}})["id"]
     rel = post(api, "groups", {"name": "Release"})["id"]
     aid = post(api, "automations", {"name": "Ops", "owner": "bot:ops", "group": f"group:{eng}",
@@ -97,7 +95,6 @@ def test_a_chat_may_name_only_an_automation_its_writer_can_see(api):
     chat = {"text": "Change this one", "refs": {"automation": "auto_missing"}}
     refused = api.post("/api/v2/chat/ops", json=chat, headers=headers())
     assert refused.status_code == 422 and "Unsupported reference kind: automation" in refused.text, refused.text
-    turn_on(api)
     aid = post(api, "automations", {"name": "Ops", "owner": "bot:ops", "trigger": {"type": "event", "name": "x.y"},
                                     "steps": []})["id"]
     named = {"text": "Change this one", "refs": {"automation": aid}}

@@ -21,7 +21,6 @@ from . import access as Access
 from . import hubdb as H
 from . import models as M
 from . import people as P
-from . import redesign
 from . import task_caps
 from .store import Problem, encode
 
@@ -73,7 +72,6 @@ def rows(roster, employees, archived=(), can_see=None, leads=False):
         team = P.team_of(slug, employees, roster)
         if team:
             bots.setdefault(team, []).append(slug)
-    # `lead` only with the redesign on (`leads`), so a group read is as before while it is off.
     return [{"id": gid, "name": g["name"], "parent": g["parent"], **({"lead": g.get("lead") or ""} if leads else {}),
              "people": people.get(gid, []), "bots": sorted(bots.get(gid, [])), "order": g.get("order", i),
              "bet_id": g.get("bet_id")}
@@ -95,14 +93,14 @@ def _save(c, roster, people=None):
 def _set_bot(c, slug, gid):
     declared = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0] or "{}")
     if declared.get("team") and declared["team"] != gid:
-        task_caps.forget(c, "bot:" + slug)      # its caps were its old group's (redesign on; CONTRACT §3)
+        task_caps.forget(c, "bot:" + slug)      # its caps were its old group's (CONTRACT §3)
     was, declared["team"] = declared.get("team") or "", gid
     c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(declared), slug))
     _follow(c, "bot:" + slug, was, gid)
 
 
 def _follow(c, owner, was, gid):
-    """Automations go with their owner to its new group (dormant until the redesign is on)."""
+    """Automations go with their owner to its new group."""
     from . import automations
     automations.follow(c, owner, was, gid)
 
@@ -180,7 +178,7 @@ def _finish(c, roster, people, changed):
 
 def one(c, roster, gid, can_see=None):
     configs = _configs(c)
-    return next(row for row in rows(roster, configs, _archived(c), can_see, redesign.on(c)) if row["id"] == gid)
+    return next(row for row in rows(roster, configs, _archived(c), can_see, True) if row["id"] == gid)
 
 
 def _may_change(auth, who):
@@ -189,9 +187,7 @@ def _may_change(auth, who):
 
 
 def led_groups(c, who, roster=None):
-    """With the redesign on, the groups `who` (an actor) leads and every group below them; empty when it is off."""
-    if not redesign.on(c):
-        return set()
+    """The groups `who` (an actor) leads and every group below them."""
     roster = roster or _roster(c)
     configs = _configs(c)
     out = set()
@@ -218,9 +214,7 @@ def _lead_move(c, who, gid, body, roster):
 
 
 def _snapshot(c):
-    """Every group's row, by id, for the audit; None while the redesign is off (nothing is audited then)."""
-    if not redesign.on(c):
-        return None
+    """Every group's row, by id, for the audit."""
     return {row["id"]: row for row in rows(_roster(c), _configs(c), _archived(c), leads=True)}
 
 
@@ -303,11 +297,9 @@ def _lead_check(c, roster, configs, gid, lead):
 
 
 def leads_follow(c, cause):
-    """With the redesign on, a lead who left its group (an add to another group, a remove, an approved move, its own
+    """A lead who left its group (an add to another group, a remove, an approved move, its own
     move) is cleared in the same write: one audit row per group, the hub's own change with `via` naming the change that
     moved it, and one notice to the top of the org."""
-    if not redesign.on(c):
-        return
     roster, configs = _roster(c), _configs(c)
     gone = {gid: g["lead"] for gid, g in roster["org_groups"].items()
             if g.get("lead") and not lead_of(gid, roster, configs)}
@@ -341,13 +333,11 @@ def create(c, auth, settings, who, body, via=None):
     groups[gid] = {"id": gid, "name": body.name.strip(), "reports_to": "", "parent": parent, "root": "",
                    "order": _next_order(groups)}
     _set_bet(c, who, groups[gid], body.bet_id)
-    leads = redesign.on(c)                 # off, a lead in the body is ignored, as before leads existed
-    if leads and body.lead:
+    if body.lead:
         groups[gid]["lead"] = _lead_ref(body.lead)
     people, changed = _apply_members(c, settings, roster, gid, body.add, M.GroupMembers())
     roster = _finish(c, roster, people, changed)
-    if leads:
-        _lead_check(c, roster, _configs(c), gid, groups[gid].get("lead", ""))
+    _lead_check(c, roster, _configs(c), gid, groups[gid].get("lead", ""))
     H.event(c, who.actor, "group.created", gid, {"name": body.name.strip(), "parent": parent})
     _audit(c, who.actor, before, via)
     leads_follow(c, via or f"group:{gid}")
@@ -373,14 +363,13 @@ def update(c, auth, settings, who, gid, body, via=None):
     if body.name is not None:
         group["name"] = body.name.strip()
     _set_bet(c, who, group, body.bet_id)
-    leads = redesign.on(c)                 # off, a lead in the body is ignored, as before leads existed
-    if leads and body.lead is not None:
+    if body.lead is not None:
         group["lead"] = _lead_ref(body.lead)
     if _named(groups, group["name"], group["parent"], skip=gid):
         raise Problem("conflict", "There is already a group with that name there", 409)
     people, changed = _apply_members(c, settings, roster, gid, body.add, body.remove)
     roster = _finish(c, roster, people, changed)
-    if leads and body.lead is not None:
+    if body.lead is not None:
         _lead_check(c, roster, _configs(c), gid, group.get("lead", ""))
     H.event(c, who.actor, "group.updated", gid, {"name": body.name, "parent": body.parent, "bet_id": body.bet_id,
                                                   "added": {"people": body.add.people, "bots": body.add.bots},
@@ -585,8 +574,7 @@ def install(app, store, auth, mutate, settings):
         auth.domain(who)
         with store.read() as c:
             access = auth.bot_accesses(c, who)
-            return rows(_roster(c), _configs(c), _archived(c), lambda slug: access.get(slug, auth.FULL)["see"],
-                        redesign.on(c))
+            return rows(_roster(c), _configs(c), _archived(c), lambda slug: access.get(slug, auth.FULL)["see"], True)
 
     @app.post("/api/v2/groups")
     def group_create(request: Request, body: M.GroupCreate):

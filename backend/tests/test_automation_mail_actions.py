@@ -14,7 +14,6 @@ import pytest
 import time_machine
 
 from backend.tests.test_api import api, get, headers, post, runner  # noqa: F401
-from backend.tests.test_automation_api import turn_on
 from clients.tico import APIError
 from connectors.mail import access, audit as audit_log, db, gmail as gm
 from connectors.mail import __main__ as cli
@@ -87,7 +86,6 @@ class Computer:
 
 @pytest.fixture
 def computer(api, tmp_path, monkeypatch):
-    turn_on(api)
     machine = runner(api)
     box = Computer(api, tmp_path, machine["token"])
     monkeypatch.setattr(cli, "open_gmail", lambda mailbox: gm.Gmail(box.gmail, mailbox, sleep=lambda s: None))
@@ -330,7 +328,6 @@ def test_a_slack_reply_delivered_after_the_switch_went_off_is_held_as_a_draft_ta
     from backend import automation_actions as A
     from backend import slack_gateway as G
     from backend.tests.test_slack_gateway import FakeSlack
-    turn_on(api)
     store = api.app.state.store
     slack_msg = {"message": {"source": "slack", "inbox": "slack:#general", "channel": "C1", "ts": "1.1", "text": "Help?"}}
     auto = {"id": automate(api, NOTE), "flow": {"owner": "person:ana"}, "assistant_bot": "coo"}

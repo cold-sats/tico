@@ -1,37 +1,30 @@
 """The redesign's converter (PLAN §8, CONTRACT §4): today's routines, wake rules, system jobs, inboxes, limits and
-budgets become automations and the new amounts, once per install, by the owner.
+budgets become automations and the new amounts, once per install, at startup (`cutover`).
 
-- **Dry run** reads every object and says what it becomes, with flags where the mapping needs a person's eye. It
-  writes nothing.
-- **Resolve** records the owner's yes to flags. Convert is refused while a flag has no yes.
-- **Convert** snapshots the affected rows first, then converts one object per transaction: the automation is saved
-  with its `source`, and in the same write the old row stops (a routine's row is soft-deleted, a wake rule's row
-  removed). A schedule automation takes the routine's own `next_due`, so an occurrence due across the cutover fires
-  once, from one system.
-- **Restore** within a day of the convert puts the snapshot back and soft-deletes the converted automations. After
-  the day the snapshot is dropped (the scheduler's hourly sweep, `prune`) and restore answers 410.
+- **Cutover** runs once (registry_metadata `redesign_cutover`): every object is planned, then converted one per
+  transaction: the automation is saved with its `source`, and in the same write the old row stops (a routine's row
+  is soft-deleted, a wake rule's row removed). A schedule automation takes the routine's own `next_due`, so an
+  occurrence due across the cutover fires once, from one system. Each object is recorded in `redesign_migrated` as it
+  goes, so a cutover a restart cut off goes on from where it was. An object that cannot move (its bot is gone, its
+  text too long, no person to own it) or that failed stays as it was and is listed once in a task for the top of the
+  org; the rest move.
+- **Adopt**: after the cutover, a routine or wake rule something still writes the old way (`routines.create`, a Dev
+  tickets type's hand-off rows, a Custom profile's rows) moves to an automation in the same write.
 
-What stays where it is (the engine of record does not move in this pass): task rules, system jobs and the Health
-Monitor show as read-only built-in automations (`readonly`, with the job's `controls`) and keep running from their
-own tables. A converted wake rule keeps deciding wakes from rules.py, which reads it from its "What wakes"
-automation (`wake_rows`), so an edit there (a rule's step turned off, deleted, its event or outcome changed) is what
-wakes the bot.
-
-Dormant: every route answers 404 while the `redesign` setting is off.
+What stays where it is: task rules, system jobs and the Health Monitor show as read-only built-in automations
+(`readonly`, with the job's `controls`) and keep running from their own tables. A converted wake rule keeps deciding
+wakes from rules.py, which reads it from its "What wakes" automation (`wake_rows`), so an edit there (a rule's step
+turned off, deleted, its event or outcome changed) is what wakes the bot. Old tables keep their rows.
 """
 import json
 import logging
 import math
-from datetime import datetime, timedelta, timezone
 
-from . import automation_flow as F, redesign
-from .models import Contract
+from . import automation_flow as F
 from .store import H, Problem
 
 log = logging.getLogger("tico.redesign_migration")
-KEEP_HOURS = 24
-# A migration in one of these may still be restored (or is still running): no second convert starts beside it.
-OPEN_STATES = ("converting", "interrupted", "converted")
+CUTOVER = "redesign_cutover"                 # registry_metadata: {state: running|done, migration, at, ...}
 WAKES_PREFIX = "auto_wakes_"                  # custom "What wakes" automations: rules.py reads its rows from these
 GUARD = {"turns_per_hour": 300, "turns_per_day": 2500}   # CONTRACT §1 run guard defaults
 STRATEGY_NAME = "Strategy Bot"
@@ -43,7 +36,6 @@ OUTCOME_DO = {"wake": "wake_bot", "batch": "wake_bot", "action": "wake_bot", "no
 # becomes a quoted data block after the instructions (automation_flow.render_prompt), never read as instructions.
 MESSAGE_PART = ("\n\nThe message to handle: id {{message.id}} in thread {{message.thread}}, from {{message.from}} "
                 "({{message.from_name}}), subject {{message.subject}}. Its body:\n{{message.body}}")
-JOB_MIRRORS_SKIP = ("stale_review",)          # a regular automation instead (PLAN §8)
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS redesign_migrations(id TEXT PRIMARY KEY, state TEXT NOT NULL, actor TEXT NOT NULL, "
     "created TEXT NOT NULL, expires TEXT NOT NULL, finished TEXT, restored_at TEXT, snapshot_json TEXT, "
@@ -64,24 +56,14 @@ def ensure(c):
     usage_limits.ensure(c)
     add_column(c, "usage_limits", "per_30m_usd", "REAL")
     add_column(c, "usage_pools", "per_30m_usd", "REAL")
-
-
-class Accept(Contract):
-    """Flags the owner says yes to: flag ids, object ids (every flag on it), or {id, flags} as the dry run lists them."""
-    accept: list[str | dict] | None = None
+    # What became of each object (`outcome` converted | kept | failed, `why`), and when the owner was told of it.
+    for column in ("outcome", "why", "title", "at", "told"):
+        add_column(c, "redesign_migrated", column, "TEXT")
 
 
 # ---------------------------------------------------------------------------------------------------- reading
 def _now():
     return H.now()
-
-
-def _at(stamp):
-    return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).astimezone(timezone.utc)
-
-
-def _stamp(at):
-    return at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _json(raw, default):
@@ -254,7 +236,18 @@ def _rule_step(n, row):
                        "then": [{"do": do, "args": {"outcome": row["then_outcome"], "params": params, "rule": rule}}]}]}
 
 
+def _wakes_name(c, scope, ident, me):
+    """A "What wakes" automation's name and owner for one scope."""
+    if scope == "bot" and H.bot(c, ident):
+        return f"What wakes {_bot_name(c, ident)}", "bot:" + ident
+    words = {"team": "every bot", "department": f"the {ident} bots", "type": f"bots on {ident} tasks",
+             "task": f"bots on task {ident}"}.get(scope, f"{scope} {ident}".strip())
+    return f"What wakes {words}", me
+
+
 def _wake_rules(c, done, me):
+    """The table's wake rules, one "What wakes" automation per scope (a flow holds at most F.MAX_STEPS steps, so a
+    longer list becomes more than one)."""
     from . import tico_notices
     rows = [r for r in c.execute("SELECT * FROM rules ORDER BY scope_kind, scope_id, position, created, id").fetchall()
             if not tico_notices.is_builtin_rule(r["id"]) and ("wake_rule", r["id"]) not in done]
@@ -262,27 +255,25 @@ def _wake_rules(c, done, me):
     for row in rows:
         groups.setdefault((row["scope_kind"], row["scope_id"] or ""), []).append(row)
     out = []
-    for (scope, ident), members in groups.items():
-        if scope == "bot" and H.bot(c, ident):
-            name, owner = f"What wakes {_bot_name(c, ident)}", "bot:" + ident
-        else:
-            words = {"team": "every bot", "department": f"the {ident} bots", "type": f"bots on {ident} tasks",
-                     "task": f"bots on task {ident}"}.get(scope, f"{scope} {ident}".strip())
-            name, owner = f"What wakes {words}", me
-        flow = {"name": name[:120], "owner": owner, "enabled": True, "wakes": {"scope_kind": scope, "scope_id": ident},
-                "trigger": {"type": "event", "name": "tico.wake"},
-                "steps": [_rule_step(n + 1, row) for n, row in enumerate(members)],
-                "source": [{"kind": "wake_rule", "id": row["id"]} for row in members]}
-        group = {"scope_kind": scope, "scope_id": ident, "rules": [row["id"] for row in members]}
-        for row in members:
-            flags = []
-            if owner != "bot:" + ident:
-                flags.append(_flag(row["id"], "scope", f"A {scope} rule, not one bot's: it goes in \"{name}\", owned "
-                                                       "by you"))
-            if not owner:
-                flags.append(_flag(row["id"], "no_owner", "No person to own it; it stays a rule", keeps=True))
-            out.append({"kind": "wake_rule", "id": row["id"], "title": f"{row['event']} → {row['then_outcome']}",
-                        "becomes": flow, "flags": flags, "_do": ("wakes", group)})
+    for (scope, ident), listed in groups.items():
+        base, owner = _wakes_name(c, scope, ident, me)
+        for part in range(0, len(listed), F.MAX_STEPS):
+            members = listed[part:part + F.MAX_STEPS]
+            name = f"{base[:110]} ({part // F.MAX_STEPS + 1})" if part else base
+            flow = {"name": name[:120], "owner": owner, "enabled": True,
+                    "wakes": {"scope_kind": scope, "scope_id": ident}, "trigger": {"type": "event", "name": "tico.wake"},
+                    "steps": [_rule_step(n + 1, row) for n, row in enumerate(members)],
+                    "source": [{"kind": "wake_rule", "id": row["id"]} for row in members]}
+            group = {"scope_kind": scope, "scope_id": ident, "part": part, "rules": [row["id"] for row in members]}
+            for row in members:
+                flags = []
+                if owner != "bot:" + ident:
+                    flags.append(_flag(row["id"], "scope", f"A {scope} rule, not one bot's: it goes in \"{name}\", "
+                                                           "owned by you"))
+                if not owner:
+                    flags.append(_flag(row["id"], "no_owner", "No person to own it; it stays a rule", keeps=True))
+                out.append({"kind": "wake_rule", "id": row["id"], "title": f"{row['event']} → {row['then_outcome']}",
+                            "becomes": flow, "flags": flags, "_do": ("wakes", group)})
     return out
 
 
@@ -475,152 +466,7 @@ def _budgets(c, done):
     return out
 
 
-# ---------------------------------------------------------------------------------------------------- the report
-def public(obj):
-    return {k: v for k, v in obj.items() if not k.startswith("_")}
-
-
-def report(c, who):
-    objects = plan(c, who)
-    counts = {}
-    for obj in objects:
-        counts[obj["kind"]] = counts.get(obj["kind"], 0) + 1
-    flags = [f for obj in objects for f in obj["flags"]]
-    open_ = [f["id"] for f in flags if not f["accepted"]]
-    return {"objects": [public(o) for o in objects], "counts": {**counts, "total": len(objects)},
-            "flags": {"total": len(flags), "open": len(open_)}, "ready": not open_, "migration": current(c)}
-
-
-def current(c):
-    """The latest migration: {id, state, created, expires, restorable}, or None."""
-    if not _table(c, "redesign_migrations"):
-        return None
-    row = c.execute("SELECT id, state, created, expires, finished, restored_at FROM redesign_migrations "
-                    "ORDER BY created DESC, id DESC LIMIT 1").fetchone()
-    if not row:
-        return None
-    out = dict(row)
-    out["restorable"] = row["state"] in ("converted", "interrupted") and row["expires"] > _now()
-    return out
-
-
-def _accept_ids(objects, accept):
-    """The flag ids `accept` names. Unknown names are refused, so a typo never reads as a yes."""
-    flags = {f["id"]: f for o in objects for f in o["flags"]}
-    by_obj = {o["id"]: [f["id"] for f in o["flags"]] for o in objects}
-    out = set()
-    for item in accept or []:
-        if isinstance(item, dict):
-            named = item.get("flags")
-            if named is None:
-                ident = item.get("id")
-                if ident in flags:
-                    out.add(ident)
-                elif ident in by_obj:
-                    out.update(by_obj[ident])
-                else:
-                    raise Problem("invalid", f"No flag or object {ident} in the dry run", 422)
-                continue
-            for flag in named if isinstance(named, list) else [named]:
-                fid = flag.get("id") if isinstance(flag, dict) else flag
-                if fid not in flags:
-                    raise Problem("invalid", f"No flag {fid} in the dry run", 422)
-                out.add(fid)
-        elif item in flags:
-            out.add(item)
-        elif item in by_obj:
-            out.update(by_obj[item])
-        else:
-            raise Problem("invalid", f"No flag or object {item} in the dry run", 422)
-    return out
-
-
-def resolve(c, who, accept):
-    objects = plan(c, who)
-    ids = _accept_ids(objects, accept)
-    for fid in sorted(ids):
-        c.execute("INSERT OR IGNORE INTO redesign_migration_accepts(flag, accepted_by, at) VALUES(?,?,?)",
-                  (fid, who.actor, _now()))
-    if ids:
-        H.event(c, who.actor, "redesign.migration.resolved", "", {"flags": len(ids)})
-    return report(c, who)
-
-
 # ---------------------------------------------------------------------------------------------------- convert
-def _limit_now(c, where):
-    """A spend limit's two amounts as stored now: a bot's or a pool's row, or the company default's JSON."""
-    from . import usage_limits
-    if where["table"] == "registry":
-        stored = _json(_meta(c, usage_limits.KEY), {})
-        return {"hourly_usd": stored.get("hourly_usd"), "per_30m_usd": stored.get("per_30m_usd")}
-    column = "bot" if where["table"] == "usage_limits" else "scope"
-    row = c.execute(f"SELECT * FROM {where['table']} WHERE {column}=?", (where["key"],)).fetchone()
-    row = dict(row) if row else {}
-    return {"hourly_usd": row.get("hourly_usd"), "per_30m_usd": row.get("per_30m_usd")}
-
-
-def _budget_now(c, bot):
-    """The declared turn budgets: the team's (bot None) or one bot's."""
-    from . import turn_budgets as TB
-    if bot is None:
-        return _json(_meta(c, TB.TEAM_KEY), {})
-    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
-    return _json(row["config_json"] if row else None, {})
-
-
-def _same(a, b):
-    """Two stored values alike (amounts compared to the cent's fraction, so 0.2 == 0.20000000001)."""
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
-        return abs(float(a) - float(b)) < 1e-6
-    return a == b
-
-
-def _snapshot(c, objects):
-    """What the convert will change, as it is now, and what the convert changes it to: restore puts back only those
-    fields, and only where they still hold what the convert wrote. Nothing the convert does not touch is kept."""
-    from . import ceo_bot
-    routine_ids = [o["id"] for o in objects if o["kind"] == "routine"]
-    rule_ids = [o["id"] for o in objects if o["kind"] == "wake_rule"]
-
-    def rows(sql, ids):
-        found = []
-        for start in range(0, len(ids), 500):
-            chunk = ids[start:start + 500]
-            found += [dict(r) for r in c.execute(sql.format(",".join("?" * len(chunk))), chunk)]
-        return found
-    snap = {"schedules": rows("SELECT * FROM schedules WHERE id IN ({})", routine_ids),
-            "schedule_config": rows("SELECT * FROM schedule_config WHERE schedule_id IN ({})", routine_ids),
-            "rules": rows("SELECT * FROM rules WHERE id IN ({})", rule_ids),
-            "changes": {}, "bots": {}}
-    for obj in objects:
-        do = obj.get("_do")
-        if not do:
-            continue
-        kind, args = do
-        if kind == "limit":
-            snap["changes"][obj["id"]] = {"kind": "limit", "where": {k: args.get(k) for k in ("table", "key")},
-                                          "before": _limit_now(c, args),
-                                          "after": {"hourly_usd": None, "per_30m_usd": args["per_30m_usd"]}}
-        if kind == "budget_team" and args["raise"]:
-            now = _budget_now(c, None)
-            keys = [k for k, v in obj["becomes"].items() if not _same(now.get(k), v)]
-            snap["changes"][obj["id"]] = {"kind": "budget", "bot": None, "before": {k: now.get(k) for k in keys},
-                                          "after": {k: obj["becomes"][k] for k in keys}}
-        if kind == "budget_bot":
-            now = _budget_now(c, args["bot"])
-            keys = [k for k, v in args["values"].items() if not _same(now.get(k), v)]
-            snap["changes"][obj["id"]] = {"kind": "budget", "bot": args["bot"], "before": {k: now.get(k) for k in keys},
-                                          "after": {k: args["values"][k] for k in keys}}
-        if kind == "inbox":
-            snap["bots"][args["bot"]] = {"state": args["state"], "object": obj["id"]}
-        if kind == "rename":
-            snap["bots"][ceo_bot.SLUG] = {"display_name": args["before"], "renamed": bool(args["rename"]),
-                                          "object": obj["id"]}
-        if kind == "stale_review":
-            snap["stale_review"] = args["on"]
-    return snap
-
-
 def _save(c, who, flow):
     from . import automations
     aid = (WAKES_PREFIX if flow.get("wakes") else "auto_mig_") + H.new_id()
@@ -644,9 +490,9 @@ def _adopt(c, who, flow):
     return aid
 
 
-def _mark(c, kind, ident, mid, aid):
-    c.execute("INSERT OR REPLACE INTO redesign_migrated(kind, id, migration, automation) VALUES(?,?,?,?)",
-              (kind, ident, mid, aid))
+def _mark(c, kind, ident, mid, aid, outcome="converted", why="", title=""):
+    c.execute("INSERT OR REPLACE INTO redesign_migrated(kind, id, migration, automation, outcome, why, title, at) "
+              "VALUES(?,?,?,?,?,?,?,?)", (kind, ident, mid, aid, outcome, why[:1000], (title or "")[:300], _now()))
 
 
 def _convert_one(c, who, mid, obj, group_done):
@@ -667,7 +513,7 @@ def _convert_one(c, who, mid, obj, group_done):
         _mark(c, "routine", obj["id"], mid, aid)
         return aid
     if kind == "wakes":
-        key = (args["scope_kind"], args["scope_id"])
+        key = (args["scope_kind"], args["scope_id"], args.get("part", 0))
         if key in group_done:
             return group_done[key]
         aid = _save(c, who, obj["becomes"])
@@ -731,241 +577,313 @@ def _convert_one(c, who, mid, obj, group_done):
     raise AssertionError(kind)
 
 
-def convert(store, who, accept=None):
-    """Snapshot, then one transaction per object. Refused while a flag has no yes (409) or a converted migration can
-    still be restored (409: restore it or let it expire first)."""
-    with store.transaction() as c:
-        _require_on(c)
-        ensure(c)
-        _expire(c, _now())
-        # In the same write that starts a convert, so two converts can never both start (each would make its own
-        # "What wakes" automations from the same rules).
-        busy = c.execute("SELECT id, state, expires FROM redesign_migrations WHERE state IN "
-                         f"({','.join('?' * len(OPEN_STATES))}) ORDER BY created DESC LIMIT 1", OPEN_STATES).fetchone()
-        if busy and busy["state"] == "converting":
-            raise Problem("conflict", "A convert is running; wait for it to finish", 409)
-        if busy:
-            raise Problem("conflict", f"The last convert ({busy['state']}) can still be restored; restore it or wait "
-                                      f"until {busy['expires']}", 409)
-        objects = plan(c, who)
-        if accept:
-            for fid in sorted(_accept_ids(objects, accept)):
-                c.execute("INSERT OR IGNORE INTO redesign_migration_accepts(flag, accepted_by, at) VALUES(?,?,?)",
-                          (fid, who.actor, _now()))
-            objects = plan(c, who)
-        open_ = [f["id"] for o in objects for f in o["flags"] if not f["accepted"]]
-        if open_:
-            raise Problem("flags_open", f"{len(open_)} flag(s) need your yes first (resolve, or convert with accept)",
-                          409, extra={"flags": open_[:200]})
-        work = [o for o in objects if o["_do"] and not any(f.get("keeps") for f in o["flags"])]
-        mid, now = "mig_" + H.new_id(), _now()
-        expires = _stamp(_at(now) + timedelta(hours=KEEP_HOURS))
-        c.execute("INSERT INTO redesign_migrations(id, state, actor, created, expires, snapshot_json) "
-                  "VALUES(?,?,?,?,?,?)", (mid, "converting", who.actor, now, expires,
-                                          json.dumps(_snapshot(c, work), sort_keys=True, default=str)))
-        H.event(c, who.actor, "redesign.migration.snapshot", mid, {"objects": len(work)})
-    converted, failed, groups = [], [], {}
-    for obj in work:
+# ---------------------------------------------------------------------------------------------------- cutover
+class _System:
+    """Who the cutover acts as: the top of the org (owner rights, so scope rules have a person to own them), or the
+    keeper on an install with nobody yet."""
+    def __init__(self, actor, role):
+        self.actor, self.role, self.via = actor, role, "cutover"
+
+
+def system_who(c):
+    from . import automations
+    top = automations.top_person(c)
+    return _System("human:" + top, "owner") if top else _System(H.KEEPER, "keeper")
+
+
+def state(c):
+    """The cutover's record ({} before it started)."""
+    return _json(_meta(c, CUTOVER), {})
+
+
+def _why(obj, failure=None):
+    texts = [f["text"] for f in obj["flags"] if f.get("keeps")] or ([failure] if failure else [])
+    return "; ".join(t for t in texts if t) or "it did not convert"
+
+
+PEOPLES = ("routine", "wake_rule", "inbox")
+
+
+def _tell_owner(c, who, mid):
+    """Once, to the top of the org: what moved, and what did not (and why). A task when something needs a look (an
+    object that stayed as it was or failed, or moved with a change); otherwise one notice. Every object it covers is
+    marked told, so a later pass (`catch_up`) never repeats it. Nothing while there is nobody to tell."""
+    person = H.actor_id(who.actor) if who.role == "owner" else ""
+    if not person:
+        return None
+    rows = [dict(r) for r in c.execute("SELECT * FROM redesign_migrated WHERE migration=? AND told IS NULL "
+                                       "ORDER BY rowid", (mid,))]
+    if not rows:
+        return None
+    c.execute("UPDATE redesign_migrated SET told=? WHERE migration=? AND told IS NULL", (_now(), mid))
+    converted = [r for r in rows if _outcome(r) == "converted"]
+    kept = [r for r in rows if _outcome(r) in ("kept", "failed")]
+    changed = [r for r in converted if r.get("why")]
+    # What a person made counts; the hub's own read-only mirrors (system jobs, built-ins) and amounts go unsaid.
+    moved = [r for r in converted if r["kind"] in PEOPLES]
+    summary = f"Moved to Automations: {len(moved)}. Not moved: {len(kept)}."
+    if not (kept or changed):
+        if not moved:
+            return None
+        found = H.notice(c, H.KEEPER, "human:" + person, "Routines and wake rules now run as Automations. " + summary,
+                         refs={"redesign_migration": mid})
+        return "message:" + found["id"]
+    lines = [summary]
+    for heading, listed in (("Not moved (no longer runs):", kept), ("Moved, with a change:", changed)):
+        if listed:
+            lines += ["", heading, *[f"- {r.get('title') or r['kind'] + ' ' + r['id']}: {r.get('why') or 'it did not convert'}"
+                                     for r in listed[:100]]]
+            if len(listed) > 100:
+                lines.append(f"- and {len(listed) - 100} more")
+    title = (f"{len(kept)} routine{'s' if len(kept) != 1 else ''} or rule{'s' if len(kept) != 1 else ''} did not move "
+             "to Automations") if kept else "Check what moved to Automations"
+    task = H.task_create(c, H.KEEPER, title[:300], "\n".join(lines), "human:" + person, lint=False, deduplicate=False,
+                         capped=False)
+    return task["id"]
+
+
+def _outcome(mark):
+    """A mark's outcome; one written before outcomes were recorded is converted when it names an automation."""
+    return mark.get("outcome") or ("converted" if mark.get("automation") else "kept")
+
+
+def _title(obj):
+    return f"{obj['kind'].replace('_', ' ')} {obj.get('title') or obj['id']}"
+
+
+def _done(c, obj):
+    """Whether another pass already took this object (a wake rule: any member of its group)."""
+    ids = obj["_do"][1]["rules"] if obj["_do"] and obj["_do"][0] == "wakes" else [obj["id"]]
+    kind = "wake_rule" if obj["kind"] == "wake_rule" else obj["kind"]
+    return any(c.execute("SELECT 1 FROM redesign_migrated WHERE kind=? AND id=?", (kind, i)).fetchone() for i in ids)
+
+
+def _waits_for_owner(obj):
+    """Whether an object only waits for a person to own it (a team-wide wake rule on an install with nobody yet): it is
+    left for `catch_up`, and its rule keeps working from the rules table meanwhile."""
+    keeps = [f for f in obj["flags"] if f.get("keeps")]
+    return bool(keeps) and all(f["kind"] == "no_owner" for f in keeps)
+
+
+def _run(store, who, mid, objects):
+    """Convert each object in its own write. Returns (converted, kept, changed, failed, waiting)."""
+    converted, kept, changed, failed, waiting, groups = 0, [], [], [], 0, {}
+    for obj in objects:
+        if not obj["_do"]:
+            continue
+        if _waits_for_owner(obj):
+            waiting += 1
+            continue
+        holds_back = any(f.get("keeps") for f in obj["flags"])
         try:
             with store.transaction() as c:
-                aid = _convert_one(c, who, mid, obj, groups)
-            converted.append({"kind": obj["kind"], "id": obj["id"], **({"automation": aid} if aid else {})})
-        except Problem as exc:
-            failed.append({"kind": obj["kind"], "id": obj["id"], "detail": exc.detail})
-        except Exception as exc:   # one object's surprise must not leave the rest half-converted
-            log.exception("redesign migration: %s %s did not convert", obj["kind"], obj["id"])
-            failed.append({"kind": obj["kind"], "id": obj["id"], "detail": type(exc).__name__})
-    kept = [{"kind": o["kind"], "id": o["id"]} for o in objects if o["_do"] and o not in work]
-    result = {"converted": len(converted), "failed": failed, "kept": kept}
+                if _done(c, obj):
+                    continue
+                if holds_back:
+                    _mark(c, obj["kind"], obj["id"], mid, None, "kept", _why(obj), _title(obj))
+                    kept.append({"kind": obj["kind"], "id": obj["id"], "title": _title(obj), "why": _why(obj)})
+                    continue
+                _convert_one(c, who, mid, obj, groups)
+                why = "; ".join(f["text"] for f in obj["flags"] if f["kind"] != "scope")
+                c.execute("UPDATE redesign_migrated SET why=?, title=? WHERE kind=? AND id=?",
+                          (why[:1000], _title(obj)[:300], obj["kind"], obj["id"]))
+            converted += 1
+            if why:
+                changed.append({"kind": obj["kind"], "id": obj["id"], "title": _title(obj), "why": why})
+        except Exception as exc:   # one object's surprise must not stop the rest
+            log.exception("redesign cutover: %s %s did not convert", obj["kind"], obj["id"])
+            detail = exc.detail if isinstance(exc, Problem) else type(exc).__name__
+            failed.append({"kind": obj["kind"], "id": obj["id"], "title": _title(obj), "why": _why(obj, detail)})
+            with store.transaction() as c:
+                _mark(c, obj["kind"], obj["id"], mid, None, "failed", _why(obj, detail), _title(obj))
+    # A wake rule moves with the rest of its scope: each member's mark gets its own title for the report.
     with store.transaction() as c:
-        c.execute("UPDATE redesign_migrations SET state='converted', finished=?, result_json=? WHERE id=? "
-                  "AND state IN ('converting','interrupted')",
-                  (_now(), json.dumps(result, sort_keys=True), mid))
+        for obj in objects:
+            if obj["_do"] and obj["_do"][0] == "wakes":
+                c.execute("UPDATE redesign_migrated SET title=? WHERE kind=? AND id=? AND coalesce(title,'')=''",
+                          (_title(obj)[:300], obj["kind"], obj["id"]))
+    return converted, kept, changed, failed, waiting
+
+
+def totals(c, mid):
+    """What a migration did so far, from its marks: {converted, kept, failed}."""
+    out = {"converted": 0, "kept": 0, "failed": 0}
+    for r in c.execute("SELECT * FROM redesign_migrated WHERE migration=?", (mid,)):
+        out[_outcome(dict(r))] += 1
+    return out
+
+
+def _finish(c, who, mid, waiting):
+    """Record a pass, log it and tell the owner once. With nobody to tell yet, `owner_wait` keeps it for `catch_up`."""
+    told = _tell_owner(c, who, mid)
+    previous = state(c)
+    total = totals(c, mid)
+    untold = c.execute("SELECT 1 FROM redesign_migrated WHERE migration=? AND told IS NULL LIMIT 1", (mid,)).fetchone()
+    record = {"state": "done", "migration": mid, "at": _now(), **total, "told": told or previous.get("told"),
+              "owner_wait": who.role != "owner" or bool(waiting) or bool(untold)}
+    c.execute("UPDATE redesign_migrations SET state='converted', finished=?, result_json=? WHERE id=?",
+              (_now(), json.dumps({**total, "waiting": waiting}, sort_keys=True), mid))
+    _set_meta(c, CUTOVER, json.dumps(record, sort_keys=True))
+    log.warning("redesign cutover %s: %d moved to automations, %d kept as they were, %d failed, %d wait for an owner; "
+                "owner told: %s", mid, total["converted"], total["kept"], total["failed"], waiting,
+                told or ("no one yet" if record["owner_wait"] else "nothing new"))
+    if told:
         from . import audit_log
-        audit_log.write(c, who.actor, "redesign_migration:" + mid, None, {"converted": len(converted),
-                                                                          "failed": len(failed)}, who.via or None)
-        H.event(c, who.actor, "redesign.migration.converted", mid, {"converted": len(converted), "failed": len(failed)})
-    return {"migration": mid, "snapshot": {"id": mid, "expires": expires}, "expires": expires,
-            "converted": converted, "failed": failed, "kept": kept,
-            "counts": {"converted": len(converted), "failed": len(failed), "kept": len(kept)}}
+        audit_log.write(c, who.actor, "redesign_migration:" + mid, None, total, "cutover")
+        H.event(c, who.actor, "redesign.cutover", mid, {**total, "told": told})
+    return told
 
 
-# ---------------------------------------------------------------------------------------------------- restore
-def _expire(c, now):
-    """A snapshot past its day is dropped, a convert cut off by a restart included. What it converted stays converted
-    (and its routines stay held)."""
-    if not _table(c, "redesign_migrations"):
-        return 0
-    return c.execute("UPDATE redesign_migrations SET state='expired', snapshot_json=NULL "
-                     "WHERE state IN ('converted','interrupted','converting') AND expires<=?", (now,)).rowcount
-
-
-def prune(c, now):
-    """The scheduler's hourly sweep: snapshots older than a day go."""
-    return _expire(c, now)
-
-
-def interrupted(c):
-    """At startup: a convert still `converting` was cut off by the restart. It is marked `interrupted`, which restore
-    undoes from its snapshot like a finished one (only what it converted) and the sweep expires after its day."""
-    if not _table(c, "redesign_migrations"):
-        return 0
-    return c.execute("UPDATE redesign_migrations SET state='interrupted', finished=? WHERE state='converting'",
-                     (_now(),)).rowcount
-
-
-def _put(c, table, row):
-    columns = [k for k in row if k in _columns(c, table)]
-    c.execute(f"INSERT OR REPLACE INTO {table}({','.join(columns)}) VALUES({','.join('?' * len(columns))})",
-              [row[k] for k in columns])
-
-
-def _set_limit(c, where, values):
-    from . import usage_limits
-    if where["table"] == "registry":
-        stored = _json(_meta(c, usage_limits.KEY), {})
-        stored.update(values)
-        _set_meta(c, usage_limits.KEY, json.dumps(stored, sort_keys=True))
-        return
-    column = "bot" if where["table"] == "usage_limits" else "scope"
-    c.execute(f"UPDATE {where['table']} SET hourly_usd=?, per_30m_usd=? WHERE {column}=?",
-              (values.get("hourly_usd"), values.get("per_30m_usd"), where["key"]))
-
-
-def _set_budget(c, bot, values):
-    from . import turn_budgets as TB
-    declared = _budget_now(c, bot)
-    for k, v in values.items():
-        if v is None:
-            declared.pop(k, None)
+def cutover(store):
+    """Once per install, at startup (before the scheduler starts): every routine, wake rule, system job, inbox, limit
+    and budget moves to the redesign. Each object moves in its own write and is marked in the same write, so a restart
+    part way goes on where it stopped and nothing moves twice. An object with a `keeps` flag, or one that fails,
+    stays as it was (marked, never tried again) and is listed once for the owner. What needs a person to own it, on an
+    install with nobody yet, waits for `catch_up`. Returns the result, or None when it already ran."""
+    with store.transaction() as c:
+        ensure(c)
+        record = state(c)
+        if record.get("state") == "done":
+            return None
+        who = system_who(c)
+        mid = record.get("migration") or "mig_" + H.new_id()
+        if not record:
+            now = _now()
+            c.execute("INSERT OR IGNORE INTO redesign_migrations(id, state, actor, created, expires) "
+                      "VALUES(?,?,?,?,?)", (mid, "converting", who.actor, now, now))
+            _set_meta(c, CUTOVER, json.dumps({"state": "running", "migration": mid, "at": now}, sort_keys=True))
         else:
-            declared[k] = v
-    if bot is None:
-        _set_meta(c, TB.TEAM_KEY, json.dumps(declared, sort_keys=True))
-    else:
-        c.execute("UPDATE bot_config SET config_json=?, revision=revision+1 WHERE bot=?",
-                  (json.dumps(declared, sort_keys=True), bot))
+            log.warning("redesign cutover %s: resuming after a restart", mid)
+        objects = plan(c, who)
+    converted, kept, changed, failed, waiting = _run(store, who, mid, objects)
+    with store.transaction() as c:
+        told = _finish(c, who, mid, waiting)
+    return {"converted": converted, "kept": kept, "failed": failed, "changed": changed, "waiting": waiting,
+            "migration": mid, "told": told}
 
 
-def _held_runs(c, aid, ref_prefix):
-    """What restore does with a converted automation's unfinished runs. A run that did something (a turn started, an
-    action done) is left to finish, and so is one the old object cannot take back (an event's): firing it again
-    would do it twice. A run that has done nothing yet on what the old object takes back itself (a schedule's
-    occurrence, a mail the Inbox Manager reads) is skipped, so the old object does it once. Returns the earliest
-    schedule occurrence skipped, for the routine to fire."""
-    now, back = _now(), None
-    for run in c.execute("SELECT id, trigger_ref, state_json FROM automation_runs WHERE automation_id=? "
-                         "AND status='queued'", (aid,)).fetchall():
-        ref = str(run["trigger_ref"] or "")
-        if not ref.startswith(ref_prefix) or _json(run["state_json"], {}).get("steps"):
-            continue
-        c.execute("UPDATE automation_runs SET status='skipped', finished=? WHERE id=? AND status='queued'",
-                  (now, run["id"]))
-        if ref.startswith("schedule:"):
-            due = ref[len("schedule:"):]
-            back = due if back is None or due < back else back
-    return back
+def catch_up(store):
+    """After a cutover that ran with nobody to own things (a new install): once a person is at the top of the org,
+    the system jobs' and built-ins' read-only automations are made, the team-wide wake rules move, and the owner is
+    told what the cutover did. Cheap when there is nothing to do; called by the automations tick."""
+    with store.read() as c:
+        try:
+            record = state(c)
+        except Exception:
+            return None
+        if record.get("state") != "done" or not record.get("owner_wait"):
+            return None
+        who = system_who(c)
+        if who.role != "owner":
+            return None
+    with store.transaction() as c:
+        record = state(c)
+        if record.get("state") != "done" or not record.get("owner_wait"):
+            return None
+        _set_meta(c, CUTOVER, json.dumps({**record, "state": "running"}, sort_keys=True))
+        objects = plan(c, who)
+    mid = record["migration"]
+    converted, kept, changed, failed, waiting = _run(store, who, mid, objects)
+    with store.transaction() as c:
+        told = _finish(c, who, mid, waiting)
+    return {"converted": converted, "kept": kept, "failed": failed, "changed": changed, "waiting": waiting,
+            "migration": mid, "told": told}
 
 
-def restore(c, who):
-    """Put back what the convert changed and delete what it made. A finished convert and one cut off by a restart
-    (`interrupted`) are restored alike: only the objects it converted. A field changed since the convert is left as it
-    is and listed in `skipped`. 404 with no migration, 410 once it expired."""
-    from . import ceo_bot, team_rules
-    from .scheduler import next_due
-    _require_on(c)
-    ensure(c)
-    now = _now()
-    _expire(c, now)
-    live = current(c)
-    if not live or live["state"] in ("restored",):
-        raise Problem("not_found", "There is no converted migration to restore", 404)
-    if live["state"] not in ("converted", "interrupted"):
-        raise Problem("gone", "The snapshot is kept one day after converting; this one has expired", 410)
-    mid = live["id"]
-    snap = json.loads(c.execute("SELECT snapshot_json FROM redesign_migrations WHERE id=?", (mid,)).fetchone()[0])
-    marked = {(r["kind"], r["id"]): r["automation"]
-              for r in c.execute("SELECT kind, id, automation FROM redesign_migrated WHERE migration=?", (mid,))}
-    done = {ident for _, ident in marked}
-    made = {aid for aid in marked.values() if aid}
-    skipped = []
-    # The routines: the row as it was, firing next when its automation would have (no double fire, no gap). A run
-    # its automation queued and has not started gives its occurrence back to the routine.
-    routines_back = 0
-    for row in snap["schedules"]:
-        aid = marked.get(("routine", row["id"]))
-        if not aid:
+def _wakes_of(c, scope_kind, scope_id):
+    """The "What wakes" automations of one scope, oldest first."""
+    from . import automations
+    out = []
+    for row in c.execute("SELECT * FROM automations WHERE id>=? AND id<? AND deleted_at IS NULL ORDER BY created, id",
+                         (WAKES_PREFIX, WAKES_PREFIX[:-1] + "`")).fetchall():
+        flow = automations.flow_of(row)
+        if (flow.get("wakes") or {}) == {"scope_kind": scope_kind, "scope_id": scope_id}:
+            out.append((row, flow))
+    return out
+
+
+def adopt(c, kind, ident):
+    """After the cutover, in the caller's write: a routine (`kind` "routine", its schedule id) or one scope's wake
+    rules (`kind` "wake_rules", `ident` (scope_kind, scope_id)) written the old way moves to an automation. Wake rules
+    join the scope's "What wakes" automation while it has room. Before the cutover this does nothing (the cutover
+    takes them). Returns the automation ids."""
+    record = state(c)
+    if not record:
+        return []
+    from . import automations
+    who, mid = system_who(c), record["migration"]
+    done = {(r["kind"], r["id"]) for r in c.execute("SELECT kind, id FROM redesign_migrated")}
+    if kind == "routine":
+        objects = [o for o in _routines(c, done) if o["id"] == ident]
+        made = []
+        for obj in objects:
+            if any(f.get("keeps") for f in obj["flags"]):
+                log.warning("redesign adopt: routine %s stays as it was: %s", obj["id"], _why(obj))
+                _mark(c, "routine", obj["id"], mid, None, "kept", _why(obj), _title(obj))
+                continue
+            made.append(_convert_one(c, who, mid, obj, {}))
+        return [m for m in made if m]
+    scope_kind, scope_id = ident
+    me = _owner_person(who)
+    objects = [o for o in _wake_rules(c, done, me)
+               if (o["_do"][1]["scope_kind"], o["_do"][1]["scope_id"]) == (scope_kind, scope_id)]
+    if not objects:
+        return []
+    if any(f.get("keeps") for o in objects for f in o["flags"]):
+        return []                     # no person to own them: they stay rules, which rules.py still reads
+    rows = {r["id"]: r for r in c.execute("SELECT * FROM rules WHERE scope_kind=? AND coalesce(scope_id,'')=?",
+                                          (scope_kind, scope_id))}
+    ids = list(dict.fromkeys(rid for o in objects for rid in o["_do"][1]["rules"]))
+    for row, flow in reversed(_wakes_of(c, scope_kind, scope_id)):
+        if len(flow["steps"]) + len(ids) > F.MAX_STEPS:
             continue
-        auto = c.execute("SELECT next_due FROM automations WHERE id=?", (aid,)).fetchone()
-        due = (auto["next_due"] if auto else None) or row.get("next_due")
-        owed = _held_runs(c, aid, "schedule:")
-        if row.get("cron") and not row.get("event_name"):
-            if owed:
-                due = owed
-            elif not due or due <= now:
-                tz = next((sc.get("timezone") for sc in snap["schedule_config"] if sc["schedule_id"] == row["id"]),
-                          None)
-                due = _stamp(next_due(row["cron"], _at(now), tz or "America/Los_Angeles"))
-        _put(c, "schedules", {**row, "deleted_at": None, "next_due": due if row.get("cron") else None,
-                              "updated_at": now})
-        routines_back += 1
-    restored_routines = {r["id"] for r in snap["schedules"] if ("routine", r["id"]) in marked}
-    for row in snap["schedule_config"]:
-        if row["schedule_id"] in restored_routines:
-            _put(c, "schedule_config", row)
-    rules_back = 0
-    for row in snap["rules"]:
-        if ("wake_rule", row["id"]) in marked:
-            _put(c, "rules", row)
-            rules_back += 1
-    for oid, change in (snap.get("changes") or {}).items():
-        if oid not in done:
+        start = len(flow["steps"])
+        after = {**flow, "steps": [*flow["steps"], *[{**_rule_step(start + n + 1, rows[rid]), "id": f"r{start + n + 1}"}
+                                                      for n, rid in enumerate(ids)]],
+                 "source": [*(flow.get("source") or []), *[{"kind": "wake_rule", "id": rid} for rid in ids]]}
+        taken = {s["id"] for s in flow["steps"]}
+        for n, step in enumerate(after["steps"][start:]):
+            while step["id"] in taken:
+                step["id"] = f"r{start + n + 1}x{H.new_id()[:4]}"
+            taken.add(step["id"])
+        automations._save(c, who.actor, row["id"], automations._checked(c, after), flow, via="cutover, migration")
+        for rid in ids:
+            c.execute("DELETE FROM rules WHERE id=?", (rid,))
+            _mark(c, "wake_rule", rid, mid, row["id"])
+        return [row["id"]]
+    groups, made = {}, []
+    for obj in objects:
+        made.append(_convert_one(c, who, mid, obj, groups))
+    return list(dict.fromkeys(m for m in made if m))
+
+
+def drop_wake_rules(c, scope_kind, scope_id, created_by):
+    """Take out of a scope's "What wakes" automations the rules `created_by` made (a Custom profile's copied rows,
+    when the bot changes profile), the way deleting their table rows did before. Returns how many went."""
+    from . import automations
+    who, gone = system_who(c), 0
+    for row, flow in _wakes_of(c, scope_kind, scope_id):
+        keep = [s for s in flow["steps"]
+                if not any(((t.get("args") or {}).get("rule") or {}).get("created_by") == created_by
+                           for r in s.get("rules") or [] for t in r.get("then") or []
+                           if isinstance((t.get("args") or {}).get("rule"), dict))]
+        if len(keep) == len(flow["steps"]):
             continue
-        now_values = _limit_now(c, change["where"]) if change["kind"] == "limit" else _budget_now(c, change["bot"])
-        if not all(_same(now_values.get(k), v) for k, v in change["after"].items()):
-            skipped.append({"id": oid, "why": "changed after the convert; left as it is"})
-            continue
-        if change["kind"] == "limit":
-            _set_limit(c, change["where"], change["before"])
+        gone += len(flow["steps"]) - len(keep)
+        if keep:
+            automations._save(c, who.actor, row["id"], automations._checked(c, {**flow, "steps": keep}), flow,
+                              via="profile")
         else:
-            _set_budget(c, change["bot"], change["before"])
-    for bot, was in snap["bots"].items():
-        if was.get("object") and was["object"] not in done:
-            continue
-        if "display_name" in was and was.get("renamed", True):
-            if ((H.bot(c, bot) or {}).get("display_name") or "") == STRATEGY_NAME:
-                ceo_bot._rename(c, who.actor, was["display_name"] or "")
-            else:
-                skipped.append({"id": was.get("object") or "bot:" + bot, "why": "renamed after the convert"})
-        if was.get("state") == "active":
-            if (H.bot(c, bot) or {}).get("state") == "paused":
-                H.status_set(c, who.actor, bot, state="active", reason="The redesign's convert was restored")
-            else:
-                skipped.append({"id": was.get("object") or "bot:" + bot, "why": "its bot changed after the convert"})
-    for (kind, _), aid in marked.items():
-        if kind == "inbox" and aid:
-            _held_runs(c, aid, "mail:")
-    if snap.get("stale_review") and any(k == "system_job" and i == "job:stale_review" for k, i in marked):
-        team_rules.save(c, who.actor, {"stale_review": True})
-    for aid in sorted(made):
-        # Its runs already under way finish (above).
-        if aid.startswith("auto_builtin_"):
-            # An adopted built-in is the hub's: it stays, paused, while the routine it took over runs again.
-            from . import automations
-            row = c.execute("SELECT * FROM automations WHERE id=? AND deleted_at IS NULL", (aid,)).fetchone()
-            if row and row["enabled"]:
-                before = automations.flow_of(row)
-                automations._save(c, who.actor, aid, {**before, "enabled": False}, before, via="migration restore")
-        else:
-            c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=? AND deleted_at IS NULL", (now, aid))
-    c.execute("DELETE FROM redesign_migrated WHERE migration=?", (mid,))
-    c.execute("UPDATE redesign_migrations SET state='restored', restored_at=?, snapshot_json=NULL WHERE id=?", (now, mid))
-    from . import audit_log
-    audit_log.write(c, who.actor, "redesign_migration:" + mid, {"state": live["state"]}, {"state": "restored"},
-                    who.via or None)
-    H.event(c, who.actor, "redesign.migration.restored", mid, {"automations": len(made), "skipped": len(skipped)})
-    return {"migration": mid, "restored": True, "automations_removed": len(made), "routines": routines_back,
-            "rules": rules_back, "skipped": skipped}
+            c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (_now(), row["id"]))
+    return gone
+
+
+def wake_rules_by(c, scope_kind, scope_id, created_by):
+    """How many rules `created_by` made are in a scope's "What wakes" automations."""
+    return sum(1 for _, flow in _wakes_of(c, scope_kind, scope_id) for s in flow["steps"]
+               for r in s.get("rules") or [] for t in r.get("then") or []
+               if isinstance((t.get("args") or {}).get("rule"), dict)
+               and t["args"]["rule"].get("created_by") == created_by)
 
 
 # ---------------------------------------------------------------------------------------------------- hooks
@@ -979,11 +897,9 @@ def holds(c, kind, ident):
 
 
 def converted(c):
-    """Whether a convert happened that was not restored (its snapshot kept or already expired)."""
+    """Whether the cutover started (it may still be going on)."""
     try:
-        return c.execute("SELECT 1 FROM redesign_migrations WHERE state IN ('converting','interrupted','converted',"
-                         "'expired') "
-                         "LIMIT 1").fetchone() is not None
+        return bool(state(c))
     except Exception:   # sqlite3.OperationalError: a database from before the converter
         return False
 
@@ -1084,57 +1000,316 @@ def wake_rows(c, event=None):
     return out
 
 
-# ---------------------------------------------------------------------------------------------------- routes
-def _require_on(c):
-    if not redesign.on(c):
-        raise Problem("not_found", "Not Found", 404)
+# ---------------------------------------------------------------------------------------------------- the report
+# What each kind still runs from once it moved: a mirror only shows a job Tico still runs from its own table.
+RUNS_FROM = {"routine": "Automations", "wake_rule": "rules.py, read from its What wakes automation",
+             "inbox": "Automations", "builtin": "rules.py (built in); shown read-only",
+             "task_rule": "the task rules engine; shown read-only", "system_job": "the scheduler; shown read-only",
+             "health_monitor": "its bot; shown read-only"}
+GONE_JOBS = {"job:routine_timer": "Bot routine timer: the automations tick runs schedules now",
+             "job:propose_demotions": "Suggest quieter rules: rule suggestions went with the rules editor"}
 
 
-def install(app, store, auth, mutate):
-    from fastapi import Request
-    from .models import Empty
+def inventory(c):
+    """Every object the old system ran or set, and what it is now, in report order: [{kind, id, title, now, automation,
+    name, why}]. `now` is moved | kept | failed (both: no longer run, listed for the owner) | runs as before | pending
+    (the cutover has not taken it yet: would move | would stay | waits for an owner) | unchanged | removed."""
+    from . import rules, system_routines as SR, tico_notices
+    out = []
+    marked = []
+    if _table(c, "redesign_migrated"):
+        marked = [dict(r) for r in c.execute(
+            "SELECT m.*, a.name AS automation_name, a.enabled AS automation_on, a.deleted_at AS automation_gone "
+            "FROM redesign_migrated m LEFT JOIN automations a ON a.id=m.automation ORDER BY m.rowid")]
+    for m in marked:
+        outcome = _outcome(m)
+        now = {"converted": "moved"}.get(outcome, outcome)
+        if outcome == "converted" and m["id"] == "job:stale_review":
+            now = "moved"
+        elif outcome == "converted" and m["kind"] in ("builtin", "task_rule", "system_job", "health_monitor"):
+            now = "runs as before"
+        if m["id"] in GONE_JOBS:
+            continue
+        state_of = "" if not m["automation"] else ("deleted" if m["automation_gone"] else
+                                                     "on" if m["automation_on"] else "off")
+        out.append({"kind": m["kind"], "id": m["id"], "title": m.get("title") or m["id"], "now": now,
+                    "automation": m["automation"], "name": m.get("automation_name"), "state": state_of,
+                    "runs_from": ("Automations" if m["id"] == "job:stale_review" else RUNS_FROM.get(m["kind"], ""))
+                    if outcome == "converted" else "",
+                    "why": m.get("why") or ""})
+    seen = {(m["kind"], m["id"]) for m in marked}
+    who = system_who(c)
+    for obj in plan(c, who):
+        if (obj["kind"], obj["id"]) in seen:
+            continue
+        if not obj["_do"]:
+            now, why = "unchanged", ""
+        elif _waits_for_owner(obj):
+            now, why = "pending: waits for an owner", _why(obj)
+        elif any(f.get("keeps") for f in obj["flags"]):
+            now, why = "pending: would stay", _why(obj)
+        else:
+            now, why = "pending: would move", "; ".join(f["text"] for f in obj["flags"] if f["kind"] != "scope")
+        becomes = obj["becomes"] if isinstance(obj["becomes"], dict) else {}
+        out.append({"kind": obj["kind"], "id": obj["id"], "title": obj.get("title") or obj["id"], "now": now,
+                    "automation": None, "name": becomes.get("name") or "",
+                    "state": ("on" if becomes.get("enabled", True) else "off") if becomes.get("name") else "",
+                    "runs_from": "", "why": why})
+    seen |= {(r["kind"], r["id"]) for r in out}
+    for job in SR.JOBS:
+        if ("system_job", "job:" + job.key) not in seen:
+            out.append({"kind": "system_job", "id": "job:" + job.key, "title": job.name, "now": "runs as before",
+                        "automation": None, "name": "", "state": "", "runs_from": "the scheduler",
+                        "why": "its read-only automation waits for a person" if who.role != "owner" else ""})
+    for oid, why in GONE_JOBS.items():
+        out.append({"kind": "system_job", "id": oid, "title": why.split(":")[0], "now": "removed", "automation": None,
+                    "name": "", "state": "", "runs_from": "", "why": why.split(": ", 1)[1]})
+    if _table(c, "rules"):
+        for r in c.execute("SELECT id, event, then_outcome FROM rules ORDER BY id"):
+            if tico_notices.is_builtin_rule(r["id"]):
+                out.append({"kind": "wake_rule", "id": r["id"], "title": f"{r['event']} → {r['then_outcome']}",
+                            "now": "runs as before", "automation": None, "name": "", "state": "",
+                            "runs_from": "rules.py (Tico Team notice rule)", "why": ""})
+    if not any(r["kind"] == "builtin" for r in out):
+        out.append({"kind": "builtin", "id": "wake-builtins", "title": f"Built-in wake rules ({len(rules._builtins())})",
+                    "now": "runs as before", "automation": None, "name": "", "state": "", "runs_from": "rules.py",
+                    "why": "its read-only automation waits for a person" if who.role != "owner" else ""})
+    return out
 
-    dormant = redesign.dormant()
 
-    def owner(c, who):
-        _require_on(c)
-        auth.domain(who)
-        if who.role != "owner":
-            raise Problem("forbidden", "Only the owner (or BotOps for the owner) runs the redesign's migration", 403)
+def report(c):
+    """The cutover's record and the inventory, as the CLI prints it."""
+    items = inventory(c)
+    counts = {}
+    for item in items:
+        counts[item["now"]] = counts.get(item["now"], 0) + 1
+    return {"cutover": state(c) if _table(c, "registry_metadata") else {}, "counts": counts, "items": items}
 
-    @app.post("/api/v2/redesign/migration/dry-run", **dormant)
-    def migration_dry_run(request: Request, body: Empty | None = None):
-        """Every object today's install has, what it becomes and its flags. Writes nothing."""
-        who = request.state.identity
+
+def _text(found):
+    record, lines = found["cutover"], [found["error"]] if found.get("error") else []
+    lines.append("Cutover: " + (f"{record.get('state')} ({record.get('migration')}, {record.get('at')}); owner told: "
+                                f"{record.get('told') or 'not yet'}" if record else "not run on this database"))
+    lines.append("Counts: " + ", ".join(f"{k} {v}" for k, v in sorted(found["counts"].items())))
+    lines.append("")
+    for item in found["items"]:
+        became = ""
+        if item["automation"]:
+            became = f" -> {item['automation']} \"{item['name'] or ''}\" ({item['state']})"
+        elif item["name"]:
+            became = f" -> \"{item['name']}\"" + (f" ({item['state']})" if item["state"] else "")
+        where = f" [runs from {item['runs_from']}]" if item["runs_from"] else ""
+        why = f" — {item['why']}" if item["why"] else ""
+        lines.append(f"{item['now']:<28} {item['kind']:<14} {item['id']}: {item['title']}{became}{where}{why}")
+    return "\n".join(lines)
+
+
+def _copy(source, directory):
+    """A private copy of `source` by sqlite's online backup. Nothing beside the source is created or changed: with no
+    -wal it is opened immutable; with one (a live server's) it is only read, as any reader does."""
+    import os
+    import sqlite3
+    from pathlib import Path
+    from urllib.parse import quote
+    target = Path(directory) / "rehearsal.db"
+    live = Path(str(source) + "-wal").exists()
+    src = sqlite3.connect(f"file:{quote(str(source))}?{'mode=ro' if live else 'immutable=1'}", uri=True)
+    try:
+        dst = sqlite3.connect(str(target))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    os.chmod(target, 0o600)
+    return target
+
+
+def main(argv=None):
+    """`python -m backend.redesign_migration report --db PATH [--json]`: the cutover's report for an install. The
+    database is never written: it is copied (sqlite backup), the copy is brought up to this version (schema and the
+    cutover, as the server does at startup, with nothing scheduled), the report is read from the copy and the copy is
+    deleted. Before an upgrade it is the dry run (what would move, stay or wait); after, the record of what did. It
+    needs no opt-in: only the copy moves.
+
+    `python -m backend.redesign_migration guard [--db PATH]` (default $TICO_DB): exit 1 with the refusal when the
+    database still holds what the cutover would change and TICO_MIGRATE_TO_AUTOMATIONS is not set; the container runs
+    it before anything else opens the database (docker/entrypoint.sh)."""
+    import argparse
+    import os
+    import sys
+    import tempfile
+    from pathlib import Path
+    from .config import Settings
+    from .store import Store
+    parser = argparse.ArgumentParser(prog="python -m backend.redesign_migration")
+    parser.add_argument("command", choices=("report", "guard"))
+    parser.add_argument("--db", default=os.environ.get("TICO_DB"), help="the install's database (only read)")
+    parser.add_argument("--json", action="store_true", help="print JSON instead of text")
+    args = parser.parse_args(argv)
+    if not args.db:
+        raise SystemExit("redesign_migration: name the database with --db (or TICO_DB)")
+    if args.command == "guard":
+        logging.basicConfig(format="%(message)s")
+        try:
+            guard(args.db)
+        except NotOptedIn:
+            raise SystemExit(1)
+        return {}
+    source = Path(args.db).expanduser().resolve()
+    if not source.is_file():
+        raise SystemExit(f"redesign_migration: no database at {source}")
+    with tempfile.TemporaryDirectory(prefix="tico-cutover-") as directory:
+        os_dir = Path(directory)
+        copy = _copy(source, os_dir)
+        try:
+            with sqlite_ro(copy) as c:
+                before = report(c)
+        except Exception as exc:   # a database from an older version: its tables are not this version's yet
+            before = {"cutover": {}, "counts": {}, "items": [], "error": f"not readable as it is ({exc}); "
+                                                                         "the rehearsal below is the dry run"}
+        waits = waiting(copy)
+        registry = os_dir / "registry"
+        registry.mkdir()
+        store = Store(Settings(db_path=copy, registry_dir=registry, migrate_to_automations=True))
+        store.initialize(seed_market=False)
         with store.read() as c:
-            owner(c, who)
-            return report(c, who)
+            after = report(c)
+        for c in store.pool:
+            c.close()
+    found = {"database": str(source), "waiting": waits, "before": before, "after": after}
+    if args.json:
+        json.dump(found, sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+    else:
+        starts = ("yes: nothing waits to move" if not waits else "no, it needs " + OPT_IN + "=1 (waiting to move: "
+                  + ", ".join(f"{k} {v}" for k, v in sorted(waits.items())) + ")")
+        print(f"Database: {source}\nStarts this version without {OPT_IN}: {starts}\n\n== As it is now ==\n"
+              f"{_text(before)}\n\n== After this version starts on it (rehearsed on a copy) ==\n{_text(after)}")
+    return found
 
-    @app.post("/api/v2/redesign/migration/resolve", **dormant)
-    def migration_resolve(request: Request, body: Accept):
-        """Say yes to flagged mappings, as the dry run lists them; returns the dry run again."""
-        who = request.state.identity
 
-        def work(c):
-            owner(c, who)
-            ensure(c)
-            return resolve(c, who, body.accept)
-        return mutate(request, body, work)
+# ---------------------------------------------------------------------------------------------------- the opt-in
+# An install moves once, when its operator chooses: a database that still holds what the cutover would change starts
+# only with TICO_MIGRATE_TO_AUTOMATIONS=1 (docs/updates.md, "Moving to Automations (one time)"). Before that the
+# server refuses to start without opening the database for writing, so the updater rolls back to the release before.
+OPT_IN = "TICO_MIGRATE_TO_AUTOMATIONS"
+REFUSAL = ("This release moves rules and routines to Automations once. Set TICO_MIGRATE_TO_AUTOMATIONS=1 to go ahead; "
+           "see docs/updates.md#moving-to-automations-one-time")
 
-    @app.post("/api/v2/redesign/migration/convert", **dormant)
-    def migration_convert(request: Request, body: Accept | None = None):
-        """Snapshot, then convert one object per transaction. 409 while a flag has no yes; `accept` says yes here."""
-        who = request.state.identity
-        with store.read() as c:
-            owner(c, who)
-        return convert(store, who, (body.accept if body else None))
 
-    @app.post("/api/v2/redesign/migration/restore", **dormant)
-    def migration_restore(request: Request, body: Empty | None = None):
-        """Within a day of converting: the old objects back, the converted automations gone. 410 after the day."""
-        who = request.state.identity
+class NotOptedIn(RuntimeError):
+    """The database holds old-system objects the cutover has not taken and the install has not opted in."""
 
-        def work(c):
-            owner(c, who)
-            return restore(c, who)
-        return mutate(request, body or Empty(), work)
+
+def opted_in(environ=None):
+    import os
+    return (environ if environ is not None else os.environ).get(OPT_IN, "").strip().lower() in ("1", "true", "yes")
+
+
+def pending(c):
+    """What the cutover would still change in this database, counted by kind ({} for nothing). Read only, and from
+    plain SQL so a database an older release wrote is read as it is: routines, wake rules (not Tico Team's notice
+    rules), inboxes, hourly spend limits, turn budgets below the guard, the stale review job when on, and the CEO
+    bot's rename. Nothing once the cutover started (the install opted in) or finished; read-only mirrors of jobs Tico
+    keeps running count for nothing."""
+    from . import ceo_bot, team_rules, tico_notices, turn_budgets as TB, usage_limits
+    if not _table(c, "registry_metadata") or state(c):
+        return {}
+    done = ({(r[0], r[1]) for r in c.execute("SELECT kind, id FROM redesign_migrated")}
+            if _table(c, "redesign_migrated") else set())
+    found = {}
+
+    def add(kind, n):
+        if n:
+            found[kind] = found.get(kind, 0) + n
+
+    if _table(c, "schedules"):
+        live = " WHERE deleted_at IS NULL" if "deleted_at" in _columns(c, "schedules") else ""
+        add("routine", sum(("routine", r[0]) not in done for r in c.execute("SELECT id FROM schedules" + live)))
+    if _table(c, "rules"):
+        add("wake_rule", sum(not tico_notices.is_builtin_rule(r[0]) and ("wake_rule", r[0]) not in done
+                             for r in c.execute("SELECT id FROM rules")))
+    people = _json(_meta(c, "people"), {}).get("people") or []
+    bots = ({r[0]: r[1] for r in c.execute("SELECT slug, state FROM bots")} if _table(c, "bots") else {})
+    add("inbox", sum(bool(p.get("inbox_bot")) and not p.get("hidden") and bots.get(p["inbox_bot"]) not in (None, "archived")
+                     for p in people if isinstance(p, dict)))
+    for table, key in (("usage_limits", "bot"), ("usage_pools", "scope")):
+        if _table(c, table) and "hourly_usd" in _columns(c, table):
+            add("spend_limit", c.execute(f"SELECT count(*) FROM {table} WHERE hourly_usd > 0").fetchone()[0])
+    if usage_limits._amount(_json(_meta(c, usage_limits.KEY), {}).get("hourly_usd")):
+        add("spend_limit", 1)
+
+    def low(values):
+        return any(isinstance(values.get(k), int) and 0 < values[k] < GUARD[k] for k in GUARD)
+
+    add("turn_budget", int(low(_json(_meta(c, TB.TEAM_KEY), {}))))
+    if _table(c, "bot_config"):
+        add("turn_budget", sum(low(_json(r[0], {})) for r in c.execute("SELECT config_json FROM bot_config")))
+    if team_rules.load(c).get("stale_review") and ("system_job", "job:stale_review") not in done:
+        add("system_job", 1)
+    ceo = bots.get(ceo_bot.SLUG)
+    if ceo and ceo != "archived" and ("bot", "bot:" + ceo_bot.SLUG) not in done:
+        name = (c.execute("SELECT display_name FROM bots WHERE slug=?", (ceo_bot.SLUG,)).fetchone()[0] or "").strip() \
+            if "display_name" in _columns(c, "bots") else ""
+        add("bot", int(name in ("", ceo_bot.NAME, ceo_bot.OLD_NAME)))
+    return found
+
+
+def waiting(path):
+    """`pending` for the database at `path` ({} for no file or an empty one: a new install). Nothing beside it is
+    created or changed, not even SQLite's -wal and -shm files: a database with no -wal is opened immutable, and one
+    with a -wal (a server that stopped without closing it) is read from a private copy of the two."""
+    import shutil
+    import sqlite3
+    import tempfile
+    from pathlib import Path
+    from urllib.parse import quote
+    path = Path(path)
+    if str(path) == ":memory:" or not path.is_file() or path.stat().st_size == 0:
+        return {}
+    wal = Path(str(path) + "-wal")
+    if not wal.exists():
+        c = sqlite3.connect(f"file:{quote(str(path.resolve()))}?immutable=1", uri=True)
+        try:
+            c.row_factory = sqlite3.Row
+            return pending(c)
+        finally:
+            c.close()
+    with tempfile.TemporaryDirectory(prefix="tico-guard-") as directory:
+        copy = Path(directory) / "hub.db"
+        shutil.copyfile(path, copy)
+        shutil.copyfile(wal, str(copy) + "-wal")
+        with sqlite_ro(copy) as c:
+            return pending(c)
+
+
+def guard(path, allowed=None):
+    """Refuse to start (NotOptedIn) when the database at `path` still holds what the cutover would change and the
+    install has not opted in. Reads only: a refused start leaves the database byte for byte as it was."""
+    if allowed if allowed is not None else opted_in():
+        return
+    found = waiting(path)
+    if found:
+        log.error("%s (waiting to move: %s)", REFUSAL, ", ".join(f"{k} {v}" for k, v in sorted(found.items())))
+        raise NotOptedIn(REFUSAL)
+
+
+class sqlite_ro:
+    """A read-only connection to `path` (the file is never written, a live server may hold it)."""
+    def __init__(self, path):
+        self.path = path
+
+    def __enter__(self):
+        import sqlite3
+        self.c = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+        self.c.row_factory = sqlite3.Row
+        return self.c
+
+    def __exit__(self, *exc):
+        self.c.close()
+
+
+if __name__ == "__main__":
+    main()

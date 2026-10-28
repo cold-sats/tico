@@ -7,7 +7,7 @@ import pytest
 
 from backend.tests.test_api import api, get, headers  # noqa: F401
 from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401  (fixtures)
-from backend.tests.test_automation_api import NOTE_STEP, as_bot, turn_on
+from backend.tests.test_automation_api import NOTE_STEP, as_bot
 from clients import hubcli, remotecli, hubtools
 
 
@@ -50,7 +50,6 @@ def flow_file(tmp_path):
 
 
 def test_the_cli_creates_runs_edits_and_restores_as_the_ui_does(api, flow_file):
-    turn_on(api)
     made = cli(api, "ana-test", "create", "--file", str(flow_file))
     aid = made["id"]
     assert made["can_edit"] and cli(api, "ana-test", "show", aid)["version"] == 1
@@ -65,7 +64,6 @@ def test_the_cli_creates_runs_edits_and_restores_as_the_ui_does(api, flow_file):
 
 
 def test_a_bot_without_rights_proposes_through_the_tool(api, flow_file):
-    turn_on(api)
     aid = cli(api, "ana-test", "create", "--file", str(flow_file))["id"]
     proposed = hubtools.BY_NAME["hub_automation_update"]["fn"](
         Client(api, as_bot(api, "finance")), {"id": aid, "steps": [], "summary": "Drop the wake"})
@@ -75,7 +73,6 @@ def test_a_bot_without_rights_proposes_through_the_tool(api, flow_file):
 
 
 def test_the_inbox_send_switch_from_the_cli(api):
-    turn_on(api)
     assert cli(api, "ana-test", "inbox", "ana@acme.example") == {"inbox": "ana@acme.example", "send": True}
     assert cli(api, "ana-test", "inbox", "slack:#general", "--send", "off")["send"] is False
     with pytest.raises(remotecli.APIError):
@@ -86,7 +83,6 @@ def test_botops_acts_with_the_askers_rights(api, botops):
     """BotOps over MCP: the owner's ask lets it save; a member's ask is refused what she may not change."""
     from backend.tests.test_mcp import call as mcp
 
-    turn_on(api)
     flow = {"name": "Ops", "owner": "bot:ops", "trigger": {"type": "event", "name": "x.y"}, "steps": []}
     attempt = turn(api, botops, person="ana-test", text="Make ops an automation")
     err, made = mcp(api, "hub_automation_create", flow, attempt["token"])
@@ -100,7 +96,6 @@ def test_botops_acts_with_the_askers_rights(api, botops):
 
 
 def test_the_cli_discards_a_proposal_and_lists_the_question_sets_and_the_guide(api, flow_file):
-    turn_on(api)
     aid = cli(api, "ana-test", "create", "--file", str(flow_file))["id"]
     hubtools.BY_NAME["hub_automation_update"]["fn"](
         Client(api, as_bot(api, "finance")), {"id": aid, "steps": [], "summary": "Drop the wake"})
@@ -119,7 +114,6 @@ def test_the_cli_discards_a_proposal_and_lists_the_question_sets_and_the_guide(a
 def test_botops_sets_an_email_inboxs_send_switch_for_its_owner_only(api, botops):
     from backend.tests.test_mcp import call as mcp
 
-    turn_on(api)
     ana = turn(api, botops, person="ana-test", text="Turn off replies from my inbox")
     err, out = mcp(api, "hub_inbox_send", {"inbox": "ana@acme.example", "send": False}, ana["token"])
     assert not err and out["send"] is False, out

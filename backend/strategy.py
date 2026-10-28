@@ -740,9 +740,6 @@ def publish(c, actor, note="", revision=None):
     _event(c, actor, "published", {"n": n, "note": note})
     H.event(c, actor, "strategy.publish", f"v{n}", {"n": n})
     published = version(c, n)
-    from . import routines
-    routines.emit(c, EVENT, f"v{n}", {"n": n, "note": note, "published_by": actor}, title=f"Strategy v{n}",
-                  content=summary_text(c, published))
     H.hook(c, "strategy.published", f"v{n}", lambda: {"version": n, "note": note, "published_by": actor}, actor, revision=0)
     if last:
         realign(c, actor, last, published)

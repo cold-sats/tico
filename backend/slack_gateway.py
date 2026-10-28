@@ -619,13 +619,11 @@ class Gateway:
     def offer(self):
         """A stored channel message (the readers' copy) is offered once to `automations.on_slack`, after the same sender
         and channel checks as a DM. The row keeps its `stored` state, so the readers, the edit path and an `@Tico` copy
-        that promotes it are unchanged; `processed` alone records the offer. Only while the redesign is on and an enabled
-        message automation names a channel, and only for messages that arrived after the oldest such automation was made,
-        so switching the redesign on does not replay the channel's history."""
-        from . import automations, redesign
+        that promotes it are unchanged; `processed` alone records the offer. Only while an enabled message automation
+        names a channel, and only for messages that arrived after the oldest such automation was made, so a new one does
+        not replay the channel's history."""
+        from . import automations
         with self.store.read() as c:
-            if not redesign.on(c):
-                return []
             since = c.execute(
                 "SELECT MIN(created) FROM automations WHERE trigger_type='message' AND enabled=1 AND deleted_at IS NULL "
                 "AND flow_json LIKE '%slack:#%'").fetchone()[0]
@@ -1056,17 +1054,13 @@ class Gateway:
             LOG.info("Event %s denied: %s", event["event_id"], denied)
             return {"event_id": event["event_id"], "state": "denied", "reason": denied}
         from . import automations
-        from . import redesign
-        with self.store.read() as c:
-            listening = redesign.on(c)
-        if listening:
-            # A message automation on this channel handles it (backend/automations.py); the server drains its run.
-            with self.store.transaction() as c:
-                taken = automations.on_slack(c, event, person, channel, self.settings)
-                if taken:
-                    self.finish(c, event, "recorded", actor="human:" + person["id"], reason="automation")
+        # A message automation on this channel handles it (backend/automations.py); the server drains its run.
+        with self.store.transaction() as c:
+            taken = automations.on_slack(c, event, person, channel, self.settings)
             if taken:
-                return {"event_id": event["event_id"], "state": "recorded", "reason": "automation"}
+                self.finish(c, event, "recorded", actor="human:" + person["id"], reason="automation")
+        if taken:
+            return {"event_id": event["event_id"], "state": "recorded", "reason": "automation"}
         with self.store.read() as c:
             state = self.state(c, event, person, channel)
         fleet, thread = state["roster"], state["thread"]

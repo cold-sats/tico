@@ -1,0 +1,215 @@
+"""The one-time move to Automations at startup (backend/redesign_migration.py): the opt-in guard, the cutover it lets
+run, and the report an operator reads before and after. docs/updates.md, "Moving to Automations (one time)"."""
+import hashlib
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from backend import redesign_migration as M
+from backend.store import H, Store
+from backend.tests.test_api import api_settings
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def close(store):
+    for c in store.pool:
+        c.close()
+    store.pool.clear()
+
+
+def old_install(tmp_path, *, routines=True):
+    """An install as the release before left it: a routine, a wake rule and an hourly limit, and no cutover record.
+    Its server stopped cleanly, so there is no -wal beside it."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    settings = api_settings(tmp_path)
+    store = Store(settings)
+    store.initialize(seed_market=False)
+    with store.transaction() as c:
+        H.sync_registry(c, {"coo": {"name": "coo", "runtime": "fake", "status": "active"}},
+                        {"people": [{"id": "ana", "email": "ana@acme.example"}]})
+        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('people',?)", (json.dumps({"people": [
+            {"id": "ana", "email": "ana@acme.example", "primary_for": ["*"]}]}),))
+        c.execute("INSERT OR IGNORE INTO bot_config(bot, config_json) VALUES('coo', '{}')")
+        if routines:
+            c.execute("INSERT INTO schedules(id, bot, cron, title, playbook, next_due) VALUES(?,?,?,?,?,?)",
+                      ("sch_notes", "coo", "0 9 * * *", "Morning notes", "Post yesterday's work.",
+                       "2026-11-02T09:00:00Z"))
+            c.execute("INSERT INTO rules(id, scope_kind, scope_id, event, then_outcome, created_by, created, updated) "
+                      "VALUES('rule_comment','bot','coo','comment','wake','human:ana','2026-10-01','2026-10-01')")
+            c.execute("INSERT INTO usage_limits(bot, hourly_usd) VALUES('coo', 0.35)")
+        c.execute("DELETE FROM registry_metadata WHERE key=?", (M.CUTOVER,))
+        c.execute("DELETE FROM redesign_migrated")
+        c.execute("DELETE FROM redesign_migrations")
+    close(store)
+    return settings
+
+
+def files(path):
+    """Every file of the database (main, -wal, -shm, journal) by name, with its hash."""
+    path = Path(path)
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(path.parent.glob(path.name + "*"))}
+
+
+def start(settings, allowed, **changes):
+    store = Store(replace(settings, migrate_to_automations=allowed, **changes))
+    store.initialize(seed_market=False)
+    return store
+
+
+def read(store, sql, args=()):
+    with store.read() as c:
+        return [dict(r) for r in c.execute(sql, args)]
+
+
+def test_a_refused_start_leaves_the_database_byte_for_byte_as_it_was(tmp_path, caplog):
+    settings = old_install(tmp_path)
+    before = files(settings.db_path)
+    assert list(before) == ["hub.db"]
+    with pytest.raises(M.NotOptedIn):
+        start(settings, False)
+    assert files(settings.db_path) == before                  # same hash, and no -wal or -shm made beside it
+    assert M.REFUSAL in caplog.text and "routine 1" in caplog.text and "wake_rule 1" in caplog.text
+
+
+def test_a_database_a_server_left_with_a_wal_is_read_from_a_copy_and_neither_file_changes(tmp_path):
+    settings = old_install(tmp_path)
+    # A server that stopped without closing: its last writes are still in the -wal.
+    crashed = tmp_path / "crashed"
+    crashed.mkdir()
+    live = sqlite3.connect(settings.db_path)
+    live.execute("PRAGMA wal_autocheckpoint=0")
+    live.execute("INSERT INTO schedules(id, bot, cron, title, playbook) VALUES('sch_wal','coo','0 8 * * *','In the wal','x')")
+    live.commit()
+    for name in ("hub.db", "hub.db-wal"):
+        shutil.copyfile(tmp_path / name, crashed / name)
+    live.close()
+    before = files(crashed / "hub.db")
+    assert set(before) == {"hub.db", "hub.db-wal"}
+    assert M.waiting(crashed / "hub.db")["routine"] == 2       # the -wal's routine is counted
+    with pytest.raises(M.NotOptedIn):
+        start(settings, False, db_path=crashed / "hub.db")
+    assert files(crashed / "hub.db") == before
+
+
+def test_a_new_install_and_one_with_nothing_to_move_start_without_the_setting(tmp_path):
+    (tmp_path / "fresh").mkdir()
+    store = start(api_settings(tmp_path / "fresh"), False)
+    with store.read() as c:
+        assert M.state(c)["state"] == "done"
+    close(store)
+    quiet = old_install(tmp_path / "quiet", routines=False)
+    assert M.waiting(quiet.db_path) == {}
+    store = start(quiet, False)
+    with store.read() as c:
+        assert M.state(c)["state"] == "done"
+    close(store)
+
+
+def test_with_the_setting_it_moves_once_and_later_starts_need_nothing(tmp_path):
+    settings = old_install(tmp_path)
+    store = start(settings, True)
+    [routine] = read(store, "SELECT * FROM redesign_migrated WHERE kind='routine'")
+    assert routine["outcome"] == "converted" and routine["automation"]
+    [flow] = read(store, "SELECT * FROM automations WHERE id=?", (routine["automation"],))
+    assert flow["next_due"] == "2026-11-02T09:00:00Z"        # the routine's own next run, once, from one system
+    assert read(store, "SELECT deleted_at FROM schedules WHERE id='sch_notes'")[0]["deleted_at"]
+    assert not read(store, "SELECT 1 FROM rules WHERE id='rule_comment'")
+    assert read(store, "SELECT per_30m_usd, hourly_usd FROM usage_limits WHERE bot='coo'") == [
+        {"per_30m_usd": 0.2, "hourly_usd": None}]
+    with store.read() as c:
+        record = M.state(c)
+    assert record["state"] == "done" and record["told"]
+    automations = read(store, "SELECT id FROM automations ORDER BY id")
+    close(store)
+    for allowed in (False, True):                              # moved: starts with or without it, and nothing repeats
+        store = start(settings, allowed)
+        with store.read() as c:
+            assert M.state(c)["migration"] == record["migration"]
+        assert read(store, "SELECT id FROM automations ORDER BY id") == automations
+        assert len(read(store, "SELECT 1 FROM tasks WHERE id=? UNION ALL SELECT 1 FROM messages WHERE id=?",
+                        (record["told"], record["told"].removeprefix("message:")))) == 1
+        close(store)
+
+
+def test_the_report_reads_an_old_copy_without_the_setting_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv(M.OPT_IN, raising=False)
+    settings = old_install(tmp_path)
+    before = files(settings.db_path)
+    found = M.main(["report", "--db", str(settings.db_path)])
+    assert files(settings.db_path) == before
+    assert found["waiting"] == {"routine": 1, "spend_limit": 1, "wake_rule": 1}
+    now = {(i["kind"], i["id"]): i["now"] for i in found["before"]["items"]}
+    after = {(i["kind"], i["id"]): i["now"] for i in found["after"]["items"]}
+    assert now[("routine", "sch_notes")] == "pending: would move" and after[("routine", "sch_notes")] == "moved"
+    assert after[("wake_rule", "rule_comment")] == "moved"
+    assert not [k for k, v in after.items() if v.startswith("pending")]
+    text = capsys.readouterr().out
+    assert "Starts this version without TICO_MIGRATE_TO_AUTOMATIONS: no" in text and "sch_notes" in text
+
+
+def test_the_guard_command_and_the_server_exit_1_with_the_reason(tmp_path):
+    settings = old_install(tmp_path)
+    before = files(settings.db_path)
+    env = {k: v for k, v in os.environ.items() if k != M.OPT_IN}
+    run = [sys.executable, "-m", "backend.redesign_migration", "guard", "--db", str(settings.db_path)]
+    refused = subprocess.run(run, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+    assert refused.returncode == 1 and M.REFUSAL in refused.stderr
+    allowed = subprocess.run(run, cwd=ROOT, env={**env, M.OPT_IN: "1"}, capture_output=True, text=True, timeout=120)
+    assert allowed.returncode == 0, allowed.stderr
+    server = subprocess.run([sys.executable, "-c", "from backend import server; server.refuse_unmoved()"], cwd=ROOT,
+                            env={**env, "TICO_DB": str(settings.db_path)}, capture_output=True, text=True, timeout=120)
+    assert server.returncode == 1 and M.REFUSAL in server.stderr
+    assert files(settings.db_path) == before
+
+
+def test_the_setting_is_read_from_the_environment_and_passed_through_compose(monkeypatch):
+    import yaml
+    from backend.config import Settings
+    monkeypatch.setenv("TICO_DB", "/tmp/never-opened.db")
+    for value, expected in (("1", True), ("true", True), ("", False), ("0", False)):
+        monkeypatch.setenv(M.OPT_IN, value)
+        assert Settings.from_env().migrate_to_automations is expected
+    server = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]["server"]["environment"]
+    assert M.OPT_IN in server and server[M.OPT_IN] is None
+    assert M.OPT_IN + "=1" in (ROOT / ".env.example").read_text()
+    entrypoint = (ROOT / "docker" / "entrypoint.sh").read_text()
+    assert entrypoint.index("redesign_migration guard") < entrypoint.index("\n  environment_identity\n")
+
+
+def test_pending_reads_a_database_an_older_release_wrote(tmp_path):
+    """Plain SQL over the tables as they were: no automations table, no cutover columns."""
+    path = tmp_path / "old.db"
+    c = sqlite3.connect(path)
+    c.executescript("CREATE TABLE registry_metadata(key TEXT PRIMARY KEY, value_json TEXT);"
+                    "CREATE TABLE schedules(id TEXT PRIMARY KEY, bot TEXT, cron TEXT, title TEXT, playbook TEXT, "
+                    "last_fired TEXT, next_due TEXT);"
+                    "INSERT INTO schedules(id, bot) VALUES('s1', 'coo'), ('s2', 'coo');")
+    c.commit()
+    c.close()
+    assert M.waiting(path) == {"routine": 2}
+    assert M.waiting(tmp_path / "missing.db") == {}
+
+
+@pytest.mark.slow
+def test_the_container_refuses_before_anything_writes_and_starts_once_opted_in(tmp_path):
+    """docker/entrypoint.sh `prepare` (what `server` runs first): the guard comes before the install's id is written."""
+    from backend.tests.test_replication import prepare
+    settings = old_install(tmp_path / "old")
+    (tmp_path / "data").mkdir()
+    database = tmp_path / "data" / "hub.sqlite"
+    shutil.copyfile(settings.db_path, database)
+    before = files(database)
+    refused, _ = prepare(tmp_path, TICO_BACKUP="off", **{M.OPT_IN: ""})
+    assert refused.returncode != 0 and M.REFUSAL in refused.stderr
+    assert files(database) == before
+    allowed, _ = prepare(tmp_path, TICO_BACKUP="off", **{M.OPT_IN: "1"})
+    assert allowed.returncode == 0, allowed.stderr
+    assert files(database) != before          # the install's id is written; the cutover itself runs in the server

@@ -5,7 +5,6 @@ import json
 from backend import automation_actions as A
 from backend.store import H
 from backend.tests.test_api import api, post  # noqa: F401
-from backend.tests.test_automation_api import turn_on
 from backend.tests.test_market import _librarian
 
 MAIL = {"message": {"source": "mail", "mailbox": "ana@acme.example", "id": "m1", "subject": "Invoice"}}
@@ -33,7 +32,6 @@ def sql(api, query, args=()):
 
 
 def test_create_task_files_it_from_the_owner(api):
-    turn_on(api)
     done = act(api, "create_task", {"title": "Follow up", "owner": "coo"})
     row = sql(api, "SELECT owner, requester FROM tasks WHERE id=?", (done["task"],))[0]
     assert done["ok"] and row == {"owner": "bot:coo", "requester": "human:ana"}
@@ -41,7 +39,6 @@ def test_create_task_files_it_from_the_owner(api):
 
 
 def test_label_note_and_assign_work_on_the_runs_task(api):
-    turn_on(api)
     values = task(api)
     assert act(api, "label", {"tag": "billing"}, values)["detail"] == "labelled"
     assert act(api, "label", {"tag": "billing"}, values)["detail"] == "already labelled"
@@ -53,7 +50,6 @@ def test_label_note_and_assign_work_on_the_runs_task(api):
 
 def test_a_note_with_no_task_or_bot_stays_in_the_run_log(api):
     """A schedule, a mail or a sample task with no id has nothing to note on: the step keeps the note itself."""
-    turn_on(api)
     for values in ({}, MAIL, {"task": {"title": "No id"}}):
         done = act(api, "note", {"text": "Seen"}, values)
         assert done == {"ok": True, "detail": "noted in the run log", "note": "Seen"}, done
@@ -61,7 +57,6 @@ def test_a_note_with_no_task_or_bot_stays_in_the_run_log(api):
 
 
 def test_wake_bot_wakes_it_with_the_run_on_the_notice(api):
-    turn_on(api)
     assert act(api, "wake_bot", {"bot": "ops", "text": "Look"})["ok"]
     woke = sql(api, "SELECT body, refs_json FROM messages WHERE to_actor='bot:ops' ORDER BY created DESC")[0]
     assert woke["body"] == "Look" and json.loads(woke["refs_json"])["automation_run"] == "run_1"
@@ -69,7 +64,6 @@ def test_wake_bot_wakes_it_with_the_run_on_the_notice(api):
 
 
 def test_post_update_posts_as_the_owner(api):
-    turn_on(api)
     assert act(api, "post_update", {"text": "Shipped the fix"}, owner="bot:ops")["ok"]
     assert act(api, "post_update", {}) == {"ok": False, "detail": "post_update needs text"}
 
@@ -82,7 +76,6 @@ def test_post_update_to_market_and_updates_posts_the_turns_briefing(api):
     """With no text it posts what the turn before wrote: the week's briefing on Market, one line on the Librarian's
     daily update pointing at it. Both name the run; a second run the same day keeps one line."""
     _librarian(api)
-    turn_on(api)
     with api.app.state.store.transaction() as c:
         from backend import updates
         updates.post(c, "librarian", "- Mapped three new competitors.", kind="daily")
@@ -103,7 +96,6 @@ def test_post_update_to_market_and_updates_posts_the_turns_briefing(api):
 
 def test_post_update_to_market_is_the_librarians_or_the_top_of_the_orgs(api):
     _librarian(api)
-    turn_on(api)
     assert act(api, "post_update", {"to": ["market"], "text": "Acme week"}, owner="bot:ops") == {
         "ok": False, "detail": "only the Librarian and the top of the org post to Market"}
     assert act(api, "post_update", {"to": ["market"], "text": "Acme week"}, owner="person:ana")["ok"]
@@ -119,7 +111,6 @@ def test_post_update_to_market_is_the_librarians_or_the_top_of_the_orgs(api):
 
 
 def test_call_webhook_queues_a_delivery_to_a_saved_hook_only(api):
-    turn_on(api)
     hook = post(api, "webhooks", {"name": "crm", "url": "https://hooks.acme.example/crm", "events": ["custom.*"]})
     done = act(api, "call_webhook", {"webhook": hook["webhook"]["id"], "data": {"lead": "Acme"}})
     assert done["ok"], done
@@ -127,7 +118,6 @@ def test_call_webhook_queues_a_delivery_to_a_saved_hook_only(api):
 
 
 def test_mail_actions_queue_for_the_mailboxs_computer(api):
-    turn_on(api)
     for do in ("archive", "leave_for_you", "draft_reply", "forward", "label"):
         assert act(api, do, {"tag": "x"}, MAIL)["ok"]
     queued = [r["action"] for r in sql(api, "SELECT action FROM automation_mail_actions ORDER BY created")]
@@ -136,7 +126,6 @@ def test_mail_actions_queue_for_the_mailboxs_computer(api):
 
 
 def test_slack_send_reply_posts_in_the_thread_and_off_leaves_a_draft_task(api):
-    turn_on(api)
     assert act(api, "send_reply", {"body": "On it", "bot": "ops"}, SLACK)["detail"] == "posted"
     post_row = sql(api, "SELECT channel, thread_ts, bot, text FROM slack_posts")[0]
     assert post_row == {"channel": "C1", "thread_ts": "1.1", "bot": "ops", "text": "On it"}
@@ -147,7 +136,6 @@ def test_slack_send_reply_posts_in_the_thread_and_off_leaves_a_draft_task(api):
 
 
 def test_an_unknown_action_is_refused(api):
-    turn_on(api)
     assert not act(api, "explode")["ok"]
 
 

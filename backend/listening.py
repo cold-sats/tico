@@ -883,9 +883,7 @@ def install(app, store, auth, mutate):
             dests = destinations(store.settings, c)
             require_reader(who, dests)
             out = stats(c, since)
-            from . import redesign
-            if redesign.on(c):
-                out.update(timeline(c, who, dests, out["since"]))
+            out.update(timeline(c, who, dests, out["since"]))
             return out
 
     @app.get("/api/v2/intake")

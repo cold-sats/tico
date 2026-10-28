@@ -1948,8 +1948,7 @@ def install_views(app, store, auth, mutate, task_view):
         from . import ceo_bot
         hide_ceo = ceo_bot.hidden_for(c, who)
         chart = ceo_bot.chart_entries(c, store.settings, people, configs, archived, hidden=hide_ceo)
-        from . import redesign
-        bare = redesign.on(c)              # a bot's bare person id in reports_to is that person (backend/people.py)
+        bare = True                        # a bot's bare person id in reports_to is that person (backend/people.py)
 
         def icon_of(config):
             return str(config.get("icon") or "") or icons.get(str(config.get("template") or ""), "")
@@ -2109,8 +2108,7 @@ def install_views(app, store, auth, mutate, task_view):
             r, configs = roster(c), entries(c)
             from . import people_photos
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            from . import redesign
-            bare = redesign.on(c)          # a bot's bare person id in reports_to is that person (backend/people.py)
+            bare = True                    # a bot's bare person id in reports_to is that person (backend/people.py)
             view = P.org_view(r, configs, archived, bare_people=bare)
             # The CEO Bot switch hangs the Heads' groups under it on the chart (backend/ceo_bot.py).
             from . import ceo_bot
