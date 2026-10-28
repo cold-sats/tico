@@ -61,7 +61,7 @@ async function answered(browser, viewport) {
   const button = (id, decision) => shown.locator(`[data-stale-row="${id}"] [data-stale-decision="${decision}"]`);
 
   await button('s-2', 'skip').click();
-  let now = await settle(v => v.rows.length === 2 && v.count === '2', 'Skip takes the row out of the card on screen');
+  let now = await settle(v => v.rows.length === 2 && v.count === '2' && v.busy === 0 && v.focus === 's-3', 'Skip takes the row out of the card on screen');
   assert.deepEqual(sent.shift(), ['s-2', {decision: 'skip'}]);
   assert.deepEqual(now, {same: true, title: 'Stale tickets: 2 suggestions', count: '2', rows: ['s-1@4', 's-3@9'],
     busy: 0, all: 1, focus: 's-3'}, 'the same card, title and count follow, nothing left busy, focus on the next row');
@@ -89,7 +89,7 @@ async function answered(browser, viewport) {
   }), {row: true, button: true, focused: ['s-3', 'accept']}, 'an equal-count update keeps the focused row and button');
 
   await button('s-7', 'accept').click();
-  now = await settle(v => !v.rows.includes('s-7@1') && v.count === '2', 'Accept takes only its own row out');
+  now = await settle(v => !v.rows.includes('s-7@1') && v.count === '2' && v.busy === 0, 'Accept takes only its own row out');
   assert.deepEqual(sent.shift(), ['s-7', {decision: 'accept', version: 1}]);
   assert.deepEqual([now.same, now.title, now.count, now.rows, now.busy], [true, 'Stale tickets: 2 suggestions', '2', ['s-3@9', 's-5@3'], 0]);
 
@@ -98,7 +98,7 @@ async function answered(browser, viewport) {
   server.rows.find(r => r.id === 's-3').version = 10;
   server.rows.push(row('s-6', 't-6', 'Old chore six', 'done', 1));
   await page.locator('#need-card [data-stale-all]').click();
-  now = await settle(v => v.rows.includes('s-6@1'), 'Accept all draws the list the server hands back');
+  now = await settle(v => v.rows.includes('s-6@1') && v.busy === 0, 'Accept all draws the list the server hands back');
   assert.deepEqual(sent.shift(), ['accept-all', {rows: [{id: 's-3', version: 9}]}]);
   assert.deepEqual([now.same, now.title, now.rows, now.busy, now.all],
     [true, 'Stale tickets: 3 suggestions', ['s-3@10', 's-5@3', 's-6@1'], 0, 1],
