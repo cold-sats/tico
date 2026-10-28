@@ -403,6 +403,8 @@ def delete(c, auth, who, gid):
             person = {**person, "team": up}
             changed.append(person)
         people.append(person)
+    from . import automations
+    automations.regroup(c, gid, up)
     del groups[gid]
     c.execute("DELETE FROM subscription_assignments WHERE scope='group' AND target=?", (gid,))
     _finish(c, roster, people, changed)

@@ -159,3 +159,22 @@ def test_deleting_a_group_takes_its_peoples_automations_to_the_group_above(api):
     send(api, "DELETE", "groups/" + inner)
     with api.app.state.store.read() as c:
         assert c.execute("SELECT grp FROM automations WHERE id=?", (aid,)).fetchone()[0] == "group:" + outer
+
+
+def test_deleting_a_group_moves_what_it_owns_and_what_outsiders_tagged_with_it(api):
+    outer = send(api, "POST", "groups", {"name": "Product"})["id"]
+    inner = send(api, "POST", "groups", {"name": "Web", "parent": outer})["id"]
+    owned = post(api, "automations", {"name": "Acme web digest", "owner": "group:" + inner, "group": "group:" + inner,
+                                      "trigger": {"type": "event", "name": "x.y"}, "steps": []})["id"]
+    tagged = post(api, "automations", {"name": "Acme web check", "owner": "person:ana", "group": "group:" + inner,
+                                       "trigger": {"type": "event", "name": "x.y"}, "steps": []})["id"]
+    send(api, "DELETE", "groups/" + inner)
+    with api.app.state.store.read() as c:
+        rows = {r[0]: (r[1], r[2]) for r in c.execute("SELECT id, owner, grp FROM automations WHERE id IN (?,?)",
+                                                       (owned, tagged))}
+    assert rows[owned] == ("group:" + outer, "group:" + outer)
+    assert rows[tagged] == ("person:ana", "group:" + outer)
+    send(api, "DELETE", "groups/" + outer)       # the top group: no group left, the group's own goes to the top person
+    with api.app.state.store.read() as c:
+        owner, grp = c.execute("SELECT owner, grp FROM automations WHERE id=?", (owned,)).fetchone()
+    assert owner.startswith("person:") and grp is None

@@ -225,6 +225,24 @@ def follow(c, owner, old, new):
         _save(c, H.KEEPER, row["id"], flow, before, via="group:" + (new or old))
 
 
+def regroup(c, old, new):
+    """A group was deleted: what is still in it or owned by it (its members' went with them, `follow`) moves to the
+    group it was in; with none, the group tag goes and a group-owned automation goes to the top of the org."""
+    gone = "group:" + old
+    top = top_person(c)
+    for row in c.execute("SELECT * FROM automations WHERE (grp=? OR owner=?) AND deleted_at IS NULL",
+                         (gone, gone)).fetchall():
+        before = flow_of(row)
+        flow = {k: v for k, v in before.items() if k != "group"}
+        if before.get("group") and before["group"] != gone:
+            flow["group"] = before["group"]
+        elif new:
+            flow["group"] = "group:" + new
+        if before["owner"] == gone:
+            flow["owner"] = "group:" + new if new else "person:" + top if top else H.KEEPER
+        _save(c, H.KEEPER, row["id"], flow, before, via="group:" + (new or old))
+
+
 def _propose(c, actor, aid, flow, before, summary):
     """A bot's change it may not make itself: kept as a pending version that a person with edit rights restores."""
     n = _next_n(c, aid)
@@ -680,6 +698,14 @@ def _absorbed(c, row):
                                      "absorbed into this open task; continue it or mark it done.",
                  refs={"task": open_task["id"], "wake": "occurrence"})
     return True
+
+
+def _bot_away(c, row):
+    """Why a schedule owned by a bot that is not active (paused, being set up) is passed over until it is back, as the
+    routine scheduler passed over its routines, or None."""
+    owner = flow_of(row).get("owner") or ""
+    found = H.bot(c, owner[4:]) if owner.startswith("bot:") else None
+    return f"its bot is {found.get('state')}" if found and found.get("state") != "active" else None
 
 
 def _no_input(c, row, settings, at, zone):
@@ -1376,7 +1402,7 @@ def tick(store, at=None):
                 continue
             if row["next_due"] > now:
                 continue
-            if why := _no_input(c, row, getattr(store, "settings", None), at, zone):
+            if why := _bot_away(c, row) or _no_input(c, row, getattr(store, "settings", None), at, zone):
                 # A converted built-in routine with nothing to work on is passed over, as the routine was.
                 _count(c, row["id"], "dropped")
                 H.event(c, H.KEEPER, "automation.skipped", row["id"], {"at": row["next_due"], "reason": why})

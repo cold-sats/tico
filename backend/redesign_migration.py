@@ -190,16 +190,18 @@ def _routines(c, done, fresh=False):
         if not found or found.get("state") == "archived":
             flags.append(_flag(sid, "no_bot", f"Its bot {bot} is gone; it stays a routine", keeps=True))
         elif found.get("state") != "active" and not (fresh and found.get("state") == "planned"):
-            enabled = False
-            flags.append(_flag(sid, "bot_not_active", f"{_bot_name(c, bot)} is {found.get('state')}: the automation "
-                                                      "starts off; turn it on when the bot is back"))
+            # It keeps its own switch: the tick passes over a schedule whose bot is away (automations `_bot_away`).
+            flags.append(_flag(sid, "bot_not_active", f"{_bot_name(c, bot)} is {found.get('state')}: it runs again "
+                                                      "when the bot is back"))
         if bot in inbox_bots and enabled:
             enabled = False
             flags.append(_flag(sid, "inbox_bot", f"{_bot_name(c, bot)} reads an inbox and retires with it: this "
                                                  "routine starts off"))
         if len(text) > F.MAX_PROMPT:
-            flags.append(_flag(sid, "too_long", f"Its text is longer than {F.MAX_PROMPT:,} characters; it stays a "
-                                                "routine until it is shorter", keeps=True))
+            # Nothing runs a routine left behind, so it moves off, its text cut to fit, for its owner to finish.
+            text, enabled = text[:F.MAX_PROMPT], False
+            flags.append(_flag(sid, "too_long", f"Its text was longer than {F.MAX_PROMPT:,} characters: it moved "
+                                                "off with the text cut to fit; shorten it and turn it on"))
         if "{{" in text:
             flags.append(_flag(sid, "placeholders", "Its text has {{placeholders}}: a Bot turn fills them from the "
                                                     "automation's values, which may differ from the routine's"))

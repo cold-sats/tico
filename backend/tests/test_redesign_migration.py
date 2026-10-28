@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from backend import automation_flow as F
 from backend import redesign_migration as M
 from backend import rules as R
 from backend.tests.test_api import api, get, post  # noqa: F401
@@ -158,7 +159,6 @@ def test_a_cutover_a_restart_cut_off_resumes_and_moves_nothing_twice(api, monkey
 
 def test_what_cannot_move_stays_as_it_was_and_the_owner_is_told_once(api, monkeypatch):
     routine(api, "sch_gone", bot="nobody-here", title="Orphaned routine")
-    routine(api, "sch_long", text="x" * 40_000, title="Long routine")
     routine(api, "sch_fails", title="Fails")
     routine(api, "sch_ok", title="Fine")
     real = M._convert_one
@@ -171,14 +171,13 @@ def test_what_cannot_move_stays_as_it_was_and_the_owner_is_told_once(api, monkey
     done = first_start(api)
     found = marks(api)
     assert found[("routine", "sch_gone")]["outcome"] == "kept" and "gone" in found[("routine", "sch_gone")]["why"]
-    assert found[("routine", "sch_long")]["outcome"] == "kept"
     assert found[("routine", "sch_fails")]["outcome"] == "failed"
     assert found[("routine", "sch_ok")]["outcome"] == "converted"
     # Kept and failed ones stay routines, untouched: nothing deletes them, nothing runs them.
     assert rows(api, "SELECT id FROM schedules WHERE deleted_at IS NULL AND id LIKE 'sch_%' ORDER BY id") == [
-        {"id": "sch_fails"}, {"id": "sch_gone"}, {"id": "sch_long"}]
+        {"id": "sch_fails"}, {"id": "sch_gone"}]
     tasks, _ = told(api, done["migration"])
-    assert len(tasks) == 1 and tasks[0]["title"].startswith("3 routines or rules did not move")
+    assert len(tasks) == 1 and tasks[0]["title"].startswith("2 routines or rules did not move")
     assert "Orphaned routine" in tasks[0]["body"] and "Fails" in tasks[0]["body"]
     monkeypatch.setattr(M, "_convert_one", real)
     db(api).initialize(seed_market=False)                                      # a restart neither retries nor retells
@@ -266,8 +265,8 @@ def test_rehearsal_cases_team_rules_paused_bots_and_long_inbox_instructions(api)
     assert step["type"] == "llm" and step["prompt"].startswith(LONG.rstrip())
     assert dept["owner"] == "person:ana" and dept["wakes"]["scope_kind"] == "department"
     paused = [a for a in get(api, "automations")["automations"] if a["name"] == "Weekly ops check"]
-    assert paused and paused[0]["enabled"] is False
-    assert "paused" in found[("routine", "sch_ops")]["why"]                   # moved, with the change told
+    assert paused and paused[0]["enabled"] is True                          # its own switch; the tick waits for the bot
+    assert "paused" in found[("routine", "sch_ops")]["why"]                   # moved, with the bot's state told
 
 
 def test_the_moved_inbox_hands_the_assistant_the_mail_it_runs_on(api, monkeypatch):
@@ -324,3 +323,14 @@ def test_a_turn_prompt_runs_whole_up_to_32000_characters():
     E.execute({"name": "T", "owner": "person:ana", "trigger": {"type": "event", "name": "x.y"},
                "steps": [{"id": "t", "type": "bot_turn", "bot": "coo", "prompt": words}]}, {}, services)
     assert services.turns[0]["prompt"] == words
+
+
+def test_a_routine_longer_than_an_automation_takes_moves_off_with_its_text_cut(api):
+    """Nothing runs a routine left behind, so one past the prompt cap moves too, off, for its owner to finish."""
+    routine(api, "sch_long", text="Read every Acme account. " * 2000)
+    done = first_start(api)
+    assert not done["kept"] and not done["failed"]
+    mark = marks(api)[("routine", "sch_long")]
+    assert mark["outcome"] == "converted" and "cut to fit" in mark["why"]
+    flow = json.loads(rows(api, "SELECT flow_json FROM automations WHERE id=?", (mark["automation"],))[0]["flow_json"])
+    assert flow["enabled"] is False and len(flow["steps"][0]["prompt"]) == F.MAX_PROMPT

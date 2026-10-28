@@ -241,3 +241,26 @@ def test_the_old_systems_routes_and_tools_are_gone(api):
     assert hubtools.renamed_to("hub_routine_set") == "hub_automation_create"
     assert hubtools.renamed_to("hub_rule_update") == "hub_automation_update"
     assert all(new in hubtools.BY_NAME for new in hubtools.RENAMED_TOOLS.values())
+
+
+def test_a_paused_bots_routine_keeps_its_switch_and_runs_again_when_the_bot_is_back(tmp_path):
+    from datetime import datetime, timezone
+    from backend import automations
+    settings = old_install(tmp_path)
+    store = Store(settings)
+    with store.transaction() as c:
+        c.execute("UPDATE bots SET state='paused' WHERE slug='coo'")
+    close(store)
+    store = start(settings, True)
+    [routine] = read(store, "SELECT automation FROM redesign_migrated WHERE kind='routine'")
+    aid = routine["automation"]
+    assert read(store, "SELECT enabled FROM automations WHERE id=?", (aid,)) == [{"enabled": 1}]
+    runs = "SELECT 1 FROM automation_runs WHERE automation_id=?"
+    automations.tick(store, at=datetime(2026, 11, 2, 9, 1, tzinfo=timezone.utc))      # due while the bot is paused
+    assert not read(store, runs, (aid,))
+    assert read(store, "SELECT next_due FROM automations WHERE id=?", (aid,))[0]["next_due"] > "2026-11-02T09:01"
+    with store.transaction() as c:
+        c.execute("UPDATE bots SET state='active' WHERE slug='coo'")
+    automations.tick(store, at=datetime(2026, 11, 3, 9, 1, tzinfo=timezone.utc))      # back: the next one runs
+    assert len(read(store, runs, (aid,))) == 1
+    close(store)
