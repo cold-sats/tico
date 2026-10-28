@@ -2899,7 +2899,9 @@ class Execution:
         if (task and task['owner'] == 'bot:' + row['bot']
                 and not auto_tasks.refusal(c, task, followed, woken=True, message=msg)
                 and not (msg.get("refs") or {}).get("run_now")):
-            task = auto_tasks.started(c, task, message=msg)
+            from . import automations   # the claim starts the turn: its task's change acts for the turn
+            with automations.acting_for((msg.get("refs") or {}).get("automation_chain") or ()):
+                task = auto_tasks.started(c, task, message=msg)
         roots, lanes = roots_on(runner), lanes_on(runner)
         # A turn in a task's own session runs on the bot's task model when it has one, or on its own model when that
         # cannot run here; a check keeps its check model (backend/task_models.py).

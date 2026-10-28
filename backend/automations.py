@@ -25,6 +25,7 @@ MAIL_TRIES claims at most) and reports each result; their step and run wait unti
 The run state keeps every step's outputs for 30 days; after that `prune` keeps the status, cost and times only.
 """
 import asyncio
+import contextlib
 import contextvars
 import json
 import threading
@@ -703,14 +704,35 @@ def _turn_chain(c):
     """The chain of the bot turn this write comes from, when an automation's notice or task started it: what the
     automation wrote carries `automation_chain` in its refs, and the turn's writes inherit it."""
     attempt = H.RUN.get()
-    if not attempt:
-        return ()
+    return _attempt_chain(c, attempt) if attempt else ()
+
+
+def _attempt_chain(c, attempt):
+    """The chain on the message that started this attempt's job (empty when no automation started the turn)."""
     found = c.execute("SELECT m.refs_json FROM attempts a JOIN jobs j ON j.id=a.job_id JOIN messages m ON m.id=j.message_id "
                       "WHERE a.id=?", (attempt,)).fetchone()
     try:
         return tuple((json.loads(found[0] or "{}") if found else {}).get("automation_chain") or ())
     except (TypeError, ValueError):
         return ()
+
+
+@contextlib.contextmanager
+def acting_for(chain):
+    """What a runner does for a turn (its claim, start and end) acts with the chain of the automation that started the
+    turn, as the turn's own writes do, so the change it makes (a task's state, say) cannot start that automation again.
+    Without it, a turn that moves its own task re-runs the automation on task.state_changed, and each run's turn does the
+    same. An empty chain changes nothing."""
+    token = CHAIN.set(tuple(chain) or CHAIN.get())
+    try:
+        yield
+    finally:
+        CHAIN.reset(token)
+
+
+def for_attempt(c, attempt):
+    """The chain of the attempt's turn, for `acting_for` around the runner's start or end of it."""
+    return acting_for(_attempt_chain(c, attempt))
 
 
 def turn_source(c):
@@ -1104,7 +1126,8 @@ class HubServices:
         def work(c):
             if cap is not None and _spent(c, self.row["id"], self.run_id) + float(ctx.get("cost") or 0) >= float(cap):
                 return None
-            started = A.start_turn(c, self.auto, self.run_id, ctx["step"], who, prompt, self.hub.settings.assistant_bot)
+            started = A.start_turn(c, self.auto, self.run_id, ctx["step"], who, prompt, self.hub.settings.assistant_bot,
+                                   ctx["key"])
             c.execute("INSERT OR REPLACE INTO automation_holds(ref,automation_id,run_id,amount,at) VALUES(?,?,?,?,?)",
                       (started["ref"], self.row["id"], self.run_id, _usual_cost(c, started["turn"]["bot"]), H.now()))
             return started
