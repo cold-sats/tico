@@ -531,13 +531,41 @@ def _guard(c, row):
     return True
 
 
+def _absorbed(c, row):
+    """A converted cron routine keeps its routine's rule (CONTRACT section 4, Overlap): an occurrence while the task its
+    last run opened is unfinished starts no run. It counts as dropped and its owner bot is told, as the routine told it
+    (backend/scheduler.py), so the open task is never left in silence."""
+    flow = flow_of(row)
+    source = flow.get("source")   # a dict for a converted routine; a list for an inbox or a "What wakes" group
+    if not isinstance(source, dict) or source.get("kind") != "routine":
+        return False
+    if (flow.get("trigger") or {}).get("type") != "schedule":
+        return False
+    last = c.execute("SELECT json_extract(refs_json,'$.task') AS task FROM messages "
+                     "WHERE json_extract(refs_json,'$.automation')=? ORDER BY created DESC LIMIT 1", (row["id"],)).fetchone()
+    open_task = c.execute("SELECT id FROM tasks WHERE id=? AND status IN ('open','doing','waiting','review','ready')",
+                          (last["task"],)).fetchone() if last and last["task"] else None
+    if not open_task:
+        return False
+    _count(c, row["id"], "dropped")
+    owner = str(flow.get("owner") or "")
+    if owner.startswith("bot:"):
+        H.notice(c, H.KEEPER, owner, f"Scheduled occurrence {H.now()[:16].replace('T', ' ')}Z of {flow.get('name')} "
+                                     "absorbed into this open task; continue it or mark it done.",
+                 refs={"task": open_task["id"], "wake": "occurrence"})
+    return True
+
+
 def queue(c, row, payload, ref="", *, manual=False, chain=()):
     """A queued run of this automation's current version, or None: an automation with a `find` runs one at a time (an
-    occurrence while one is unfinished is passed over, counted as dropped), and the run guard may pause it."""
+    occurrence while one is unfinished is passed over, counted as dropped), a converted cron routine absorbs an
+    occurrence while its last task is open (`_absorbed`), and the run guard may pause it."""
     if (not manual and _finds(flow_of(row)["steps"]) and c.execute(
             "SELECT 1 FROM automation_runs WHERE automation_id=? AND status IN ('queued','running','waiting') LIMIT 1",
             (row["id"],)).fetchone()):
         _count(c, row["id"], "dropped")
+        return None
+    if not manual and _absorbed(c, row):
         return None
     if _guard(c, row):
         return None

@@ -303,3 +303,26 @@ def test_an_automation_that_finds_runs_one_at_a_time(api):
     assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
     hub(api).drain()
     assert queued(api, aid)
+
+
+def test_a_converted_cron_routine_absorbs_an_occurrence_while_its_last_task_is_open(api):
+    """CONTRACT section 4 (Overlap): the routine's rule carries over. An occurrence while the task its last run opened is
+    unfinished starts no run; it counts as dropped and the owner bot is told. Once that task is closed, the next runs."""
+    turn_on(api)
+    aid = make(api, [{"id": "turn", "type": "bot_turn", "bot": "ops", "prompt": "Sweep"}],
+               trigger={"type": "schedule", "cron": "30 * * * *", "tz": "UTC"}, owner="bot:ops")
+    with api.app.state.store.transaction() as c:
+        flow = json.loads(c.execute("SELECT flow_json FROM automations WHERE id=?", (aid,)).fetchone()[0])
+        c.execute("UPDATE automations SET flow_json=? WHERE id=?",
+                  (json.dumps({**flow, "source": {"id": "ops:sweep", "kind": "routine"}}), aid))
+    assert queued(api, aid)
+    hub(api).drain()
+    assert queued(api, aid) is None
+    assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
+    told = sql(api, "SELECT body FROM messages WHERE to_actor='bot:ops' AND kind='notice' AND body LIKE 'Scheduled occurrence%'")
+    assert len(told) == 1 and "absorbed into this open task" in told[0]["body"]
+    turn_tasks = sql(api, "SELECT id FROM tasks WHERE owner='bot:ops' AND title LIKE 'Automation Test: turn (%'")
+    assert len(turn_tasks) == 1
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='closed' WHERE id=?", (turn_tasks[0]["id"],))
+    assert queued(api, aid)
