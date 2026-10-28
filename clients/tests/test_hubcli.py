@@ -570,6 +570,29 @@ def test_keep_tasks_going_cli_preserves_explicit_unlimited(monkeypatch):
     assert [row['limit'] for row in sent[1:]] == [None, 0, 3]
 
 
+def test_turns_at_once_cli_preserves_explicit_unlimited(monkeypatch):
+    from clients import remotecli
+    from clients.hubtools import BY_NAME
+    sent = []
+    monkeypatch.setitem(BY_NAME['hub_bot_turns_at_once'], 'fn', lambda api, args: sent.append(args))
+    for argv in (['bot', 'turns-at-once', 'ops'], ['bot', 'turns-at-once', 'ops', 'unlimited'],
+                 ['bot', 'turns-at-once', 'ops', '3']):
+        remotecli.via_tool(None, hubcli.parser().parse_args(argv))
+    assert 'limit' not in sent[0]
+    assert [row['limit'] for row in sent[1:]] == [None, 3]
+
+
+def test_computer_turns_at_once_cli_sends_automatic_as_null(monkeypatch):
+    from clients import remotecli
+    from clients.hubtools import BY_NAME
+    sent = []
+    monkeypatch.setitem(BY_NAME['hub_computer_turns_at_once'], 'fn', lambda api, args: sent.append(args))
+    for argv in (['computer', 'turns-at-once', 'rig-1', 'automatic'], ['computer', 'turns-at-once', 'rig-1', '3']):
+        remotecli.via_tool(None, hubcli.parser().parse_args(argv))
+    assert [row['limit'] for row in sent] == [None, 3]
+    assert all(row['computer'] == 'rig-1' for row in sent)
+
+
 def test_market_watch_and_briefing_commands_reach_their_routes(monkeypatch, tmp_path):
     from clients import remotecli
     calls = []

@@ -1338,7 +1338,12 @@ class Heartbeat(Contract):
     platform: str = Field(max_length=100)
     capacity: int = Field(default=4, ge=1, le=256)
     # The assignment_* values name the retired temporary assignments (#420); an older runner still sends them.
-    capabilities: list[Literal["assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1", "task_goals_v1", "screen_v1", "model_sign_out_v1", "model_keys_v1", "model_switch_type_v1", "model_remove_v1", "model_switch_to_key_v1", "computer_logins_v1", "capacity_continue_v1", "source_continue_v1"]] = Field(default_factory=list, max_length=20)
+    capabilities: list[Literal[
+        "assignment_instances_v1", "assignment_cleanup_v1", "task_lanes_v1", "task_lanes_v2", "session_roots_v1",
+        "task_goals_v1", "screen_v1", "model_sign_out_v1", "model_keys_v1", "model_switch_type_v1", "model_remove_v1",
+        "model_switch_to_key_v1", "computer_logins_v1", "capacity_continue_v1", "source_continue_v1",
+        "turns_at_once_v1"]] = Field(
+        default_factory=list, max_length=20)
     # The bool map remains accepted during runner rollout. The server normalizes both
     # shapes before storing them, so every read path sees one structured document.
     readiness: StructuredReadiness | dict[str, bool] = Field(default_factory=dict)
@@ -1386,6 +1391,12 @@ Heartbeat.model_rebuild()
 
 class RunnerMemberBots(Contract):
     accepts: bool
+
+
+class RunnerTurnsAtOnce(Contract):
+    # Required: an omitted field is a 422, not a null that would silently set automatic. Null itself clears it.
+    turns_at_once: int | None = Field(..., ge=1, le=256, strict=True,
+        description="Most turns this computer runs at once. Null is automatic: its own capacity.")
 
 
 class Assignment(Contract):
@@ -1778,6 +1789,13 @@ class BotFallback(Contract):
     expected_revision: int = Field(ge=1)
 
 
+class BotTurnsAtOnce(Contract):
+    # Required, as for a computer: omission is refused; null is no limit.
+    turns_at_once: int | None = Field(..., ge=1, le=256, strict=True,
+        description="Most turns this bot runs at once across all computers. Null is no limit.")
+    expected_revision: int
+
+
 class BotKeepTasksGoing(Contract):
     keep_tasks_going: int | None = Field(None, ge=0, le=1000, strict=True,
         description="Automatic assigned-task starts: null is unlimited (default), 0 is off, N caps active work. Reviews have no cap.")
@@ -2136,7 +2154,8 @@ class LoadSnapshot(Contract):
 
 
 class StartPlace(Contract):
-    waiting: Literal["", "shared login", "pre-start requirements"] = ""
+    # The reasons runner-rs reports while a claimed turn gives its computer place back (execute.rs wait_before_start).
+    waiting: Literal["", "shared login", "pre-start requirements", "Docker turn user"] = ""
 
 
 class Started(Contract):
