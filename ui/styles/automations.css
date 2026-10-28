@@ -29,9 +29,9 @@
 
 /* the header */
 .au-c{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
-/* a narrow pane keeps the owner's circle and drops the name (it is the circle's title); a phone hides both */
+/* a narrow pane puts the spend limit and Flow/Runs on a second row, as a phone does, so the name stays whole */
 @media (min-width:761px){.au-c{container-type:inline-size}}
-@container (max-width:640px){.au-own-n{display:none}}
+@container (max-width:640px){.au-hd{flex-wrap:wrap}.au-hd2{order:10;flex-basis:100%}.au-hd2 .au-sp-phone{display:block;flex:1}}
 .au-hd{display:flex;align-items:center;flex-wrap:nowrap;gap:8px 10px;padding:10px 20px;min-height:53px;border-bottom:1px solid var(--line)}
 .au-hd:empty{border:0;padding:0;min-height:0}
 .au-name{margin:0;font-size:var(--t-lg);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -82,6 +82,8 @@ button.au-chip:hover{background:var(--surface2)}
 .au-pth{min-width:0;padding:8px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--surface) 55%,var(--bg))}
 .au-pth.fb{border-style:dashed}
 .au-pth>.au-chips{margin-top:6px}
+/* a narrow path column wraps its condition rather than cutting it */
+.au-pth .au-c1{white-space:normal;overflow-wrap:anywhere;border-radius:10px}
 .au-pname{padding:1px 8px;border:0;border-radius:6px;background:var(--ok-bg);color:var(--accent);font:inherit;font-size:var(--t-sm);font-weight:600;cursor:pointer}
 .au-pth.fb .au-pname{background:var(--surface2);color:var(--muted)}
 .au-cond{color:var(--accent)}
@@ -125,6 +127,10 @@ button.au-chip:hover{background:var(--surface2)}
 .au-ir{display:flex;align-items:center;gap:6px;min-width:0}
 .au-ir>:is(input,select){flex:1;min-width:0}
 .au-cond-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.7fr) minmax(0,1fr) 62px auto;gap:6px;align-items:center}
+/* the minimum confidence reads as a percent once filled in */
+.au-pct{position:relative;display:block;min-width:0}
+.au-pct input{width:100%;padding-right:20px}
+.au-pct::after{content:'%';position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:var(--t-sm);pointer-events:none}
 .au-then{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .au-then .nav-icon{font-size:15px;width:15px;height:15px;color:var(--muted)}
 .au-then select{width:auto}

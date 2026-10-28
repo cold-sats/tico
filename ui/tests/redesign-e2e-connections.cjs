@@ -23,6 +23,8 @@ run('redesign-e2e-connections', ['org', 'toured', 'redesign_on', 'connection'], 
   await page.locator('#int-detail h1').waitFor();
   assert.equal(await page.locator('#int-detail .int-key, #int-learn-text, #int-learn-add, [data-delete-learning]').count(), 0,
     `${tag}: read only`);
+  assert.equal(await page.locator('#int-detail .int-meta dd').evaluateAll(dd => dd.filter(d => !d.textContent.trim()).length), 0,
+    `${tag}: no label without a value`);
   assert.equal(await sideways(page), false);
   await shot(page, `${tag}-02-tool`);
   assert.deepEqual(page.errors, [], `${tag}: no page errors`);

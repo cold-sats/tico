@@ -89,7 +89,7 @@ function auCondRows(at, when) {
     ${auIn(`${at}.${j}.field`, c.field, 'Field', 'list="au-fields" aria-label="Field"')}
     ${auSel(`${at}.${j}.op`, Object.entries(AU_OPS), c.op || 'is', 'aria-label="Test"')}
     ${auIn(`${at}.${j}.value`, c.value, 'Value', 'aria-label="Value"')}
-    <input type="number" data-b="${at}.${j}.min" data-pct min="0" max="100" step="5" value="${c.min != null && c.min !== '' ? Math.round(c.min * 100) : ''}" placeholder="Min %" aria-label="Minimum confidence, percent"${auDis()}>
+    <span class="au-pct"><input type="number" data-b="${at}.${j}.min" data-pct min="0" max="100" step="5" value="${c.min != null && c.min !== '' ? Math.round(c.min * 100) : ''}" placeholder="Min" aria-label="Minimum confidence, percent"${auDis()}></span>
     ${auX(at, j, 'Remove condition')}</div>`).join('');
 }
 

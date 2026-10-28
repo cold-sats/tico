@@ -77,7 +77,8 @@ async function pageAutomations() {
       // A slow answer for an automation left behind must not land on the one now open.
       let cur;
       try { cur = auNormal(await get(auApi(id))); }
-      catch (e) { if (AU === state && state.id === id) { state.cur = null; state.root.querySelector('.au-pane').innerHTML = `<p class="err">${esc(e.message)}</p>`; } return; }
+      catch (e) { if (AU === state && state.id === id) { state.cur = null; state.root.querySelector('.au-pane').innerHTML = [403, 404].includes(e.status)
+        ? '<p class="muted au-pad">Not shared with you</p>' : `<p class="err">${esc(e.message)}</p>`; } return; }
       if (AU !== state || state.id !== id) return;
       state.cur = cur;
     }

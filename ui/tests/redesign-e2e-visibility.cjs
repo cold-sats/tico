@@ -30,7 +30,8 @@ run('redesign-e2e-visibility', ['org', 'toured', 'redesign_on', 'automations'], 
 
   // Dana's address opens nothing of it for Priya.
   await go(priya, `#/automations/${triage.id}`);
-  await priya.waitForTimeout(500);
+  await priya.locator('.au-pane:has-text("Not shared with you")').waitFor({timeout: t(5000)});
+  assert.equal(await priya.locator('.au-pane .err').count(), 0, `${tag}: a short line, not the hub's refusal`);
   assert.equal(await priya.locator('.au-pane .au-card[data-open="sort"]').count(), 0, `${tag}: no flow shown`);
   assert.notEqual(await priya.locator('.au-hd .au-name').innerText().catch(() => ''), 'Inbox triage');
   await shot(priya, `${tag}-03-priya-direct`);
