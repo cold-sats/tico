@@ -874,13 +874,15 @@ def install(app, store, auth, mutate):
     from fastapi import Request
     from .models import Empty
 
+    dormant = redesign.dormant()
+
     def owner(c, who):
         _require_on(c)
         auth.domain(who)
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner (or BotOps for the owner) runs the redesign's migration", 403)
 
-    @app.post("/api/v2/redesign/migration/dry-run")
+    @app.post("/api/v2/redesign/migration/dry-run", **dormant)
     def migration_dry_run(request: Request, body: Empty | None = None):
         """Every object today's install has, what it becomes and its flags. Writes nothing."""
         who = request.state.identity
@@ -888,7 +890,7 @@ def install(app, store, auth, mutate):
             owner(c, who)
             return report(c, who)
 
-    @app.post("/api/v2/redesign/migration/resolve")
+    @app.post("/api/v2/redesign/migration/resolve", **dormant)
     def migration_resolve(request: Request, body: Accept):
         """Say yes to flagged mappings, as the dry run lists them; returns the dry run again."""
         who = request.state.identity
@@ -899,7 +901,7 @@ def install(app, store, auth, mutate):
             return resolve(c, who, body.accept)
         return mutate(request, body, work)
 
-    @app.post("/api/v2/redesign/migration/convert")
+    @app.post("/api/v2/redesign/migration/convert", **dormant)
     def migration_convert(request: Request, body: Accept | None = None):
         """Snapshot, then convert one object per transaction. 409 while a flag has no yes; `accept` says yes here."""
         who = request.state.identity
@@ -907,7 +909,7 @@ def install(app, store, auth, mutate):
             owner(c, who)
         return convert(store, who, (body.accept if body else None))
 
-    @app.post("/api/v2/redesign/migration/restore")
+    @app.post("/api/v2/redesign/migration/restore", **dormant)
     def migration_restore(request: Request, body: Empty | None = None):
         """Within a day of converting: the old objects back, the converted automations gone. 410 after the day."""
         who = request.state.identity

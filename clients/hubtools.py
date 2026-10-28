@@ -2925,6 +2925,20 @@ def automation_restore(api, args):
     return _as_person(api).post(f"automations/{args['id']}/versions/{int(args['n'])}/restore", {}, key=_key(args))
 
 
+@tool("hub_automation_discard", "Discard a pending version: a proposal a bot made, which then goes away. The "
+      "automation stays as it is; any other version is refused (409).",
+      {"id": _s("auto_..."), "n": {"type": "integer", "description": "The pending version's number"}},
+      required=("id", "n"), writes=True)
+def automation_discard(api, args):
+    return _as_person(api).call("DELETE", f"automations/{args['id']}/versions/{int(args['n'])}", None, _key(args))
+
+
+@tool("hub_automation_question_sets", "The question sets a Decide step may name (`set`: id@version), each with its "
+      "questions in judge.py's format.", {})
+def automation_question_sets(api, args):
+    return _as_person(api).get("automations/question-sets")
+
+
 @tool("hub_inbox_send", "Read or set an inbox's send switch (on by default). Off, an automation's send_reply saves a "
       "draft instead. The inbox's person or the top of the org sets it.",
       {"inbox": _s("An email address, slack:dm or slack:#<channel>"),
@@ -4367,6 +4381,16 @@ def stall_triage(api, args):
     if args.get("on") is None:
         return {"job": next(job for job in _as_person(api).get("system-routines")["jobs"] if job["key"] == "stall_triage")}
     return _as_person(api).call("PUT", "system-routines/stall_triage", {"on": bool(args["on"])}, _key(args))
+
+
+@tool("hub_audit", "Who changed what in the redesign's caps, spend, groups, automations and inboxes, newest first. "
+      "The owner reads every row; anyone else reads their own changes. Page with `before` from `next`.",
+      {"object": _s("One object, such as automation:<id> or inbox:<address>"),
+       "limit": {"type": "integer", "default": 50, "description": "Rows a page, up to 200"},
+       "before": _s("`next` from the page before")})
+def audit(api, args):
+    query = {k: args[k] for k in ("object", "limit", "before") if args.get(k) not in (None, "")}
+    return _as_person(api).get("audit", **query)
 
 
 @tool("hub_redesign", "The new design (Strategy tabs, Budget, task caps, Automations, the new sidebar): one switch for the "

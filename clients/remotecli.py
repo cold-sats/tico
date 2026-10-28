@@ -84,7 +84,7 @@ def automation(client, args):
         fields.update({k: getattr(args, k) for k in ("limit", "before") if getattr(args, k) is not None})
     elif args.sub == "versions" and args.pending:
         fields["status"] = "pending"
-    elif args.sub == "restore":
+    elif args.sub in ("restore", "discard"):
         fields["n"] = args.n
     return run(tool_name(args.fn), fields)
 
@@ -269,7 +269,7 @@ def run(args, who=None):
                                                   "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if fn == "redesign" and (getattr(args, "action", None) or getattr(args, "accept", None)):
         raise SystemExit("hub redesign: --dry-run, --resolve, --convert, --restore and --accept go with migrate")
-    if fn in ("stall-triage", "redesign"):
+    if fn in ("stall-triage", "redesign", "audit"):
         return via_tool(client, args)
     if fn and fn.startswith("task-manager "):
         from clients import hubtools
