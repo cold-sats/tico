@@ -1,5 +1,6 @@
 """What starts an automation (backend/automations.py): a task received, a catalog event, mail, Slack, an incoming
 webhook, listening and a schedule (DST-safe), with trigger filters, batch times, the chain guard and the redesign off."""
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -86,10 +87,10 @@ def test_mail_runs_the_inboxs_automation_and_queues_mail_actions_for_its_compute
     aid = make(api, {"type": "message", "inbox": "ana@acme.example"}, [archive])
     assert len(fire(api, automations.on_mail, "ANA@acme.example", mail())) == 1
     assert fire(api, automations.on_mail, "ben@acme.example", mail("m2")) == []
-    assert runs(api, aid)["runs"][0]["status"] == "ok"
+    assert runs(api, aid)["runs"][0]["status"] == "waiting"       # until the mail computer reports the archive
     with api.app.state.store.read() as c:
         queued = [dict(r) for r in c.execute("SELECT mailbox, msg_id, action, state FROM automation_mail_actions")]
-    assert queued == [{"mailbox": "ANA@acme.example", "msg_id": "m1", "action": "archive", "state": "queued"}]
+    assert queued == [{"mailbox": "ana@acme.example", "msg_id": "m1", "action": "archive", "state": "queued"}]
 
 
 def test_send_reply_follows_the_inbox_send_switch(api):
@@ -121,8 +122,16 @@ def test_only_the_inboxs_person_or_the_top_sets_its_switch(api):
 
 
 # ---------------------------------------------------------------------------------------------- Slack, webhooks, listening
+def listed(api, name, readers=()):
+    """A channel on the team's Slack list (Settings > Tools > Slack)."""
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO slack_channels(key,name,readers_json,created,updated) VALUES(?,?,?,?,?)",
+                  ("#" + name, name, json.dumps(list(readers)), "2026-10-28T00:00:00Z", "2026-10-28T00:00:00Z"))
+
+
 def test_slack_messages_reach_the_dm_or_channel_inbox(api):
     turn_on(api)
+    listed(api, "general")
     dm = make(api, {"type": "message", "inbox": "slack:dm"})
     general = make(api, {"type": "message", "inbox": "slack:#general"})
     person = {"id": "ana"}
@@ -174,7 +183,9 @@ def test_a_batched_inbox_filters_on_receipt_and_runs_the_rest_at_the_batch_time(
     with time_machine.travel(datetime(2026, 10, 28, 13, 0, 5, tzinfo=timezone.utc), tick=False):
         automations.tick(api.app.state.store)
         done = runs(api, aid)["runs"][0]
-    assert done["status"] == "ok" and [s["id"] for s in done["steps"]] == ["gate", "tell"]
+    # Every step ran; the run still waits for the mail computer to report the label.
+    assert [(s["id"], s["status"]) for s in done["steps"]] == [("gate", "waiting"), ("tell", "ok")]
+    assert done["status"] == "waiting"
 
 
 # ---------------------------------------------------------------------------------------------- retention

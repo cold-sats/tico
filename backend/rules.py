@@ -1009,9 +1009,10 @@ def _bot_room(conn, slug):
     return H._pair_conversation(conn, H.KEEPER, H.bot_actor(slug), "notice", allow_held=True)
 
 
-def _tell_bot(conn, rule_id, slug, text, refs, *, wake, task=None):
+def _tell_bot(conn, rule_id, slug, text, refs, *, wake, task=None, room=None):
     """The keeper's notice to a bot, decided here: it wakes the bot (`wake`) or waits quietly as a note. With a task it
-    goes in the task's room, and only to a bot that may read the task. Returns (ok, detail)."""
+    goes in the task's room, and only to a bot that may read the task; else in `room` when given (an automation's
+    note to its owner's Assistant), else the bot's own room. Returns (ok, detail)."""
     found = H.bot(conn, slug) if slug else None
     if not found:
         return False, f"No bot {slug}" if slug else "The rule names no bot"
@@ -1024,7 +1025,7 @@ def _tell_bot(conn, rule_id, slug, text, refs, *, wake, task=None):
         conv = H.conversation(conn, task["conversation_id"])
         refs = {**refs, "task": task["id"]}
     else:
-        conv = _bot_room(conn, slug)
+        conv = room or _bot_room(conn, slug)
     decided = Decision(WAKE, rule_id) if wake else Decision(NOTE, rule_id, HOLD_ROW)
     H._write_message(conn, H.KEEPER, target, text, conv, "notice", refs, None, None, decided=decided)
     return True, "woke it" if wake else "left it a note"

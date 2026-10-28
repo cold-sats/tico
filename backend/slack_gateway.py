@@ -1025,7 +1025,7 @@ class Gateway:
         if listening:
             # A message automation on this channel handles it (backend/automations.py); the server drains its run.
             with self.store.transaction() as c:
-                taken = automations.on_slack(c, event, person, channel)
+                taken = automations.on_slack(c, event, person, channel, self.settings)
                 if taken:
                     self.finish(c, event, "recorded", actor="human:" + person["id"], reason="automation")
             if taken:
@@ -1352,6 +1352,9 @@ class Gateway:
                 if not privacy.public_message(c, H.message(c, post["message_id"])):
                     c.execute("UPDATE slack_posts SET state='cancelled',text='',error='Task privacy prevents delivery',updated=? "
                               "WHERE message_id=? AND state IN ('ready','rate_limited')", (self.clock(), post["message_id"]))
+                    continue
+                from . import automation_actions
+                if automation_actions.slack_held(c, post):    # its inbox's send switch went off since it was queued
                     continue
                 shaped = self.rendered(c, post)
                 claimed = c.execute("UPDATE slack_posts SET state='sending',attempts=attempts+1,updated=? "
