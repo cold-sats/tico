@@ -165,7 +165,8 @@ async function taskModalShow(task, d = taskModal(), opts = {}) {
   await taskMenuSettled(d);                 // never pull a menu out from under the pointer
   if (!d.open || String(d.dataset.task) !== String(task.id) || d.drawSeq !== seq) return;
   if (d.liveTask && Number(detail.task.version) < Number(d.liveTask.version)) return;   // a save landed since this was asked for
-  const full = {...detail.task, children: detail.children || []};
+  // The task's own model sits beside the task in the detail (GET /v2/tasks/{id} `run_model`), as its children do.
+  const full = {...detail.task, children: detail.children || [], ...('run_model' in detail ? {run_model: detail.run_model} : {})};
   // the redraw keeps the focus where it was (a header button, the title, a property)
   const a = d.contains(document.activeElement) ? document.activeElement : null;
   const keep = !a ? '' : a.matches('[data-modal-close]') ? '[data-modal-close]' : a.matches('[data-task-more]') ? '[data-task-more]' : a.matches('.tmodal-title') ? '.tmodal-title'
@@ -340,8 +341,11 @@ function taskRunWords(run, rows) {
   const row = (rows || []).find(m => m.id === run.model);
   return [row?.label || run.model, (row?.harnesses || []).length > 1 ? harnessWords(run.harness) : '', run.reasoning_effort].filter(Boolean).join(' · ');
 }
-function taskRunModelBody(run, rows, pick) {
+// Only whoever may change the bot's model sets a task's (the server's rule): anyone else reads what it runs on.
+const taskRunMay = t => settingsCanManageBot((S.emps || []).find(e => e.name === String(t.owner || '').replace(/^bot:/, '')));
+function taskRunModelBody(run, rows, pick, may = true) {
   const head = '<h3 class="rail-h">Runs on</h3>', now = `<p class="task-run-now">${esc(taskRunWords(run, rows))}</p>`;
+  if (!may) return head + now;
   if (!rows) return `${head}${now}<p class="muted">Loading the models…</p>`;
   const row = rows.find(m => m.id === pick.model), harnesses = (row?.harnesses || []).length > 1 ? row.harnesses : [];
   return `${head}${now}<form class="task-run-form" data-run-model-form>
@@ -350,21 +354,21 @@ function taskRunModelBody(run, rows, pick) {
     ${row?.efforts?.length ? `<label><span>Effort</span><select data-run-effort>${taskRunOpts(row.efforts.map(e => [e, e]), pick.effort)}</select></label>` : ''}
     <button type="submit" class="ghost" data-run-model-apply disabled>Apply</button></form>`;
 }
-// Shown on a bot's task, from the task as GET /v2/tasks/{id} answers it (list rows leave out run_model).
+// Shown on a bot's task once GET /v2/tasks/{id} has answered (list rows leave out run_model).
 function taskRunModelHTML(t) {
   if (!String(t.owner || '').startsWith('bot:') || t.run_model === undefined) return '';
-  return `<section class="tsec task-run-model" data-task-run-model aria-label="Runs on">${taskRunModelBody(t.run_model, TASK_RUN_ROWS, taskRunPick(t.run_model))}</section>`;
+  return `<section class="tsec task-run-model" data-task-run-model aria-label="Runs on">${taskRunModelBody(t.run_model, TASK_RUN_ROWS, taskRunPick(t.run_model), taskRunMay(t))}</section>`;
 }
 // A model change redraws the harness and effort it offers, starting on that model's own (or the task's saved ones when
 // it is the model already saved). Apply saves what is picked; a blank model clears the task's own choice.
 function taskRunModelBind(d, task) {
   const sec = $('[data-task-run-model]', d);
   if (!sec) return;
-  const id = String(task.id), run = task.run_model || null, state = {pick: taskRunPick(run)};
+  const id = String(task.id), run = task.run_model || null, state = {pick: taskRunPick(run)}, may = taskRunMay(task);
   const same = () => state.pick.model === (run?.model || '') && (!state.pick.model || (state.pick.harness === (run.harness || '')
     && state.pick.effort === (run.reasoning_effort || '')));
   const paint = () => {
-    sec.innerHTML = taskRunModelBody(run, TASK_RUN_ROWS, state.pick);
+    sec.innerHTML = taskRunModelBody(run, TASK_RUN_ROWS, state.pick, may);
     const apply = sec.querySelector('[data-run-model-apply]'); if (apply) apply.disabled = same();
   };
   if (!TASK_RUN_ROWS) void taskRunCatalog().then(() => { if (sec.isConnected && TASK_RUN_ROWS) paint(); });

@@ -2,7 +2,7 @@
 tasks keep theirs, a check subtask keeps its check model over it, a model that cannot run falls back and says so,
 whoever may change the bot's model may set a task's and a bot never does, change and clear are in the task's
 history, and a routine's Bot turn step stamps its model on the task its run opens."""
-from backend.tests.test_api import api, claim, get, post  # noqa: F401  (api is a fixture)
+from backend.tests.test_api import api, claim, get, headers, post  # noqa: F401  (api is a fixture)
 from backend.tests.test_check_models import finish, heartbeat
 from backend.tests.test_task_models import ops_on_sonnet, task_turn
 
@@ -127,3 +127,22 @@ def test_a_routine_step_stamps_its_model_on_the_task_its_run_opens(api):
         notes = c.execute("SELECT note FROM task_events WHERE task_id=? AND field='run_model'", (task_id,)).fetchall()
     assert [n[0] for n in notes] == ["Set by routine step audit"]
     assert get(api, "bots/ops")["task_model"] is None
+
+
+def test_a_routine_step_model_from_someone_who_may_not_set_it_waits_for_a_person_who_may(api):
+    ops_on_sonnet(api)
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops", "prompt": "Run the audit.", **HAIKU}
+    flow = {"name": "Haiku audit", "owner": "human:cara", "trigger": {"type": "event", "name": "x.y"}, "steps": [step]}
+    # Cara may make her own routine but not choose ops' model: it is saved off, its first version pending.
+    draft = post(api, "automations", flow, token="cara-test")
+    assert draft["pending"] == 1
+    # Turning on her own draft would set the model all the same, so she may not; Ana, who manages ops, may.
+    post(api, f"automations/{draft['id']}/versions/1/restore", {}, token="cara-test", expected=403)
+    assert get(api, f"automations/{draft['id']}")["enabled"] is False
+    on = post(api, f"automations/{draft['id']}/versions/1/restore", {})
+    assert on["enabled"] is True
+    # A later edit of hers that changes the step's model is proposed, never saved over the live one.
+    changed = {"steps": [{**step, "effort": "high"}]}
+    proposed = api.patch(f"/api/v2/automations/{draft['id']}", json=changed, headers=headers("cara-test"))
+    assert proposed.status_code == 200 and proposed.json()["pending"], proposed.text
+    assert get(api, f"automations/{draft['id']}")["steps"][0]["effort"] == "low"

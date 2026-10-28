@@ -1878,7 +1878,8 @@ def install(app, store, auth, mutate):
             flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"]),
                                 **({"enabled": True} if draft else {})}, store.settings)
             _require(c, who, flow, "restore this version")
-            blocked = _stamp_blocked(c, auth, who, flow, before)
+            # A draft's row already holds the steps its pending version turns on, so nothing of it counts as kept.
+            blocked = _stamp_blocked(c, auth, who, flow, None if draft else before)
             if blocked:
                 raise Problem("forbidden", f"Only whoever may change {blocked}'s model may restore a version that "
                               "sets the model its tasks run on", 403)
