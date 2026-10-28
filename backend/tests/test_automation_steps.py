@@ -73,7 +73,7 @@ def test_decide_asks_once_and_keeps_answers_under_out():
     asked = services.judged[0]
     assert asked["questions"] == questions and asked["level"] == "high" and asked["label"] == "automation.triage"
     assert asked["values"]["message"]["subject"] == "Weekly digest"
-    assert run["steps"][0]["outputs"]["bucket"]["choice"] == "reply"
+    assert run["steps"][0]["outputs"]["bucket"]["choice"] == "reply" and run["steps"][0]["outputs"]["level"] == "high"
     assert run["steps"][0]["cost"] == 0.01 and run["cost"] == 0.01
     assert services.acted == [("label", {})]
 
@@ -131,7 +131,7 @@ def test_decide_off_skips_the_step_and_paths_fall_to_otherwise():
         {"field": "d1.bucket", "op": "is", "value": "reply"}], "steps": [note("r")]}], "otherwise": {"steps": [note("o")]}}
     services = Services(fail={"decide"})
     run = E.execute(flow({"id": "d", "type": "decide", "set": "x", "out": "d1"}, route), MESSAGE, services)
-    assert statuses(run)[0] == ("d", "skipped") and run["steps"][0]["outputs"] == {"off": True}
+    assert statuses(run)[0] == ("d", "skipped") and run["steps"][0]["outputs"] == {"off": True, "level": "low"}
     assert services.acted == [("note", {"text": "hi"})] and run["status"] == "ok"
     assert run["steps"][1]["outputs"] == {"path": "otherwise"}
 

@@ -1019,13 +1019,13 @@ class Gateway:
             LOG.info("Event %s denied: %s", event["event_id"], denied)
             return {"event_id": event["event_id"], "state": "denied", "reason": denied}
         from . import automations
-        from .redesign import redesign_on
+        from . import redesign
         with self.store.read() as c:
-            listening = redesign_on(c)
+            listening = redesign.on(c)
         if listening:
             # A message automation on this channel handles it (backend/automations.py); the server drains its run.
             with self.store.transaction() as c:
-                taken = automations.on_slack(c, event, person)
+                taken = automations.on_slack(c, event, person, channel)
                 if taken:
                     self.finish(c, event, "recorded", actor="human:" + person["id"], reason="automation")
             if taken:

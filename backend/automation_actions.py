@@ -9,7 +9,7 @@ forward on a message from mail are queued in `automation_mail_actions` for its r
 (GET .../mail-actions/claim, POST .../mail-actions/{id}/result). On a Slack message, send_reply posts in the thread
 (the `slack_posts` outbox) and draft_reply leaves the draft with the owner as a task.
 
-`send_reply` honors the inbox's send switch, `trigger.send` (on unless set false): off saves a draft and logs
+`send_reply` honors the inbox's send switch (`automation_inboxes`, on unless set off): off saves a draft and logs
 `automation.send_off`.
 """
 import json
@@ -69,8 +69,14 @@ def _queue_mail(c, auto, run_id, action, message, args):
     return {"ok": True, "detail": f"{action} queued", "mail_action": aid}
 
 
-def _send_on(auto):
-    return (auto["flow"].get("trigger") or {}).get("send", True) is not False
+def send_on(c, inbox):
+    """The inbox's send switch: on unless its person (or the top of the org) turned it off."""
+    row = c.execute("SELECT send FROM automation_inboxes WHERE inbox=?", (str(inbox or "").strip().lower(),)).fetchone()
+    return row is None or bool(row["send"])
+
+
+def _inbox(message):
+    return message.get("inbox") or message.get("mailbox") or ""
 
 
 def _mail_or_slack(do):
@@ -81,7 +87,7 @@ def _mail_or_slack(do):
         if message.get("source") == "slack":
             return _slack(c, auto, run_id, do, args, message)
         action = MAIL_ACTIONS[do]
-        if do == "send_reply" and not _send_on(auto):
+        if do == "send_reply" and not send_on(c, _inbox(message)):
             H.event(c, actor_of(auto["flow"]["owner"]), "automation.send_off", auto["id"],
                     {"run": run_id, "mailbox": message.get("mailbox"), "msg_id": message.get("id")})
             return {**_queue_mail(c, auto, run_id, "draft", message, args), "detail": "send_off"}
@@ -93,7 +99,7 @@ def _mail_or_slack(do):
 
 def _slack(c, auto, run_id, do, args, message):
     text = _text(args, "body", "text")
-    if do == "send_reply" and _send_on(auto):
+    if do == "send_reply" and send_on(c, _inbox(message)):
         if not text:
             return _fail("send_reply needs a body")
         bot = R._slug(args.get("bot")) or _owner_bot(c, auto)
@@ -240,7 +246,8 @@ def start_turn(c, auto, run_id, step_id, who, prompt, assistant_bot):
         conv = R._bot_room(c, bot)
     msg = H._write_message(c, H.KEEPER, H.bot_actor(bot), prompt, conv, "notice", refs, None, None,
                            decided=R.Decision(R.WAKE, "automation:" + auto["id"]))
-    return {"ref": msg["id"]}
+    # Where it runs, so a reader can see it is the bot's own room and never the sender's conversation.
+    return {"ref": msg["id"], "turn": {"bot": bot, "task": None, "session": conv["id"]}}
 
 
 # ---------------------------------------------------------------------------------------------------- find

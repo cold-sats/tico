@@ -15,7 +15,7 @@ services:
   judge(values, questions, label, level) -> {"answers": {...}, "cost_usd": n}, or None while Decide is off
   question_set(ref) -> questions
   act(do, args, ctx) -> {"ok": bool, "detail": str, ...}
-  start_turn(who, prompt, ctx, wait) -> {"ref": str}
+  start_turn(who, prompt, ctx, wait) -> {"ref": str, "turn": {bot, task, session}}
   find(source, query, limit) -> [item, ...]
   spent_30m() -> dollars this automation's other runs spent in the last 30 minutes
   next_batch() -> the next batch time (ISO), and now() -> now (ISO)
@@ -67,7 +67,8 @@ def answer(state, ref, text, cost=0.0, ok=True):
         wait = thread.get("wait") or {}
         if thread["state"] == WAITING and wait.get("kind") == "turn" and wait.get("ref") == ref:
             record = state["steps"][wait["record"]]
-            outputs = {"text": text, "ref": ref} if ok else {"error": str(text or "the turn did not finish")[:300], "ref": ref}
+            outputs = ({**record["outputs"], "text": text} if ok
+                       else {**record["outputs"], "error": str(text or "the turn did not finish")[:300]})
             record.update(status="ok" if ok else "failed", outputs=outputs, cost=round(record["cost"] + cost, 6))
             state["cost"] = round(state["cost"] + cost, 6)
             if ok:
@@ -181,16 +182,17 @@ def _act(services, do, args, values, step):
 def _decide(flow, state, thread, step, services):
     questions = step.get("questions") or services.question_set(step["set"])
     values = values_of(state, thread)
-    result = services.judge(values, questions, f"automation.{step['id']}", step.get("level", "low"))
+    level = step.get("level", "low")
+    result = services.judge(values, questions, f"automation.{step['id']}", level)
     if result is None:
         # Decide is off (no decision model, or the month's cap): carry on as callers elsewhere do, with no answers,
         # so a path on them falls to Otherwise.
         thread["outputs"][step["out"]] = {}
-        _record(state, thread, step, "skipped", {"off": True})
+        _record(state, thread, step, "skipped", {"off": True, "level": level})
         return
     answers = result.get("answers") or {}
     thread["outputs"][step["out"]] = answers
-    _record(state, thread, step, "ok", answers, float(result.get("cost_usd") or 0))
+    _record(state, thread, step, "ok", {**answers, "level": level}, float(result.get("cost_usd") or 0))
 
 
 def _turn(flow, state, thread, step, services, who, prompt, wait):
@@ -201,10 +203,11 @@ def _turn(flow, state, thread, step, services, who, prompt, wait):
     values = values_of(state, thread)
     started = services.start_turn(who, F.render(prompt, values), {"values": values, "step": step["id"]}, wait)
     ref = started["ref"]
+    outputs = {"ref": ref, **({"turn": started["turn"]} if started.get("turn") else {})}
     if not wait:
-        _record(state, thread, step, "ok", {"ref": ref})
+        _record(state, thread, step, "ok", outputs)
         return
-    record = _record(state, thread, step, "waiting", {"ref": ref})
+    record = _record(state, thread, step, "waiting", outputs)
     thread.update(state=WAITING, wait={"kind": "turn", "ref": ref, "out": step["out"], "record": record})
 
 

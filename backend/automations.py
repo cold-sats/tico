@@ -26,7 +26,7 @@ from . import automation_engine as E
 from . import automation_flow as F
 from . import people as P
 from .models import Contract
-from .redesign import audit, redesign_on, require_on
+from . import audit_log, redesign
 from .store import H, Problem
 
 SCHEMA = (
@@ -49,6 +49,9 @@ SCHEMA = (
     "mailbox TEXT NOT NULL, msg_id TEXT NOT NULL, action TEXT NOT NULL, args_json TEXT NOT NULL, state TEXT NOT NULL, "
     "created TEXT NOT NULL, claimed_at TEXT, claimed_by TEXT, result_json TEXT)",
     "CREATE INDEX IF NOT EXISTS automation_mail_queue ON automation_mail_actions(mailbox, state, created)",
+    # An inbox's send switch (on unless a row says off): off, send_reply saves a draft instead.
+    "CREATE TABLE IF NOT EXISTS automation_inboxes(inbox TEXT PRIMARY KEY, send INTEGER NOT NULL, updated TEXT NOT NULL, "
+    "updated_by TEXT NOT NULL)",
 )
 KEEP_DAYS = 30           # step detail; the daily counts and the run rows stay
 TURN_WAIT_DAYS = 1
@@ -67,6 +70,16 @@ _BELL = threading.Event()
 def ensure(c):
     for statement in SCHEMA:
         c.execute(statement)
+
+
+def _require_on(c):
+    if not redesign.on(c):
+        raise Problem("not_found", "Not found", 404)
+
+
+def _via(who):
+    """Who acted for the actor, for the audit row: the Assistant, or a personal token's assistant."""
+    return who.via or (f"token:{who.token_label}" if who.via_token and who.token_label else None)
 
 
 # ---------------------------------------------------------------------------------------------------- the rows
@@ -89,6 +102,12 @@ def view(c, row, who=None, detail=False):
                      "ORDER BY started DESC LIMIT 1", (row["id"],)).fetchone()
     out = {"id": row["id"], **flow, "version": row["version"], "created": row["created"],
            "created_by": row["created_by"], "updated": row["updated"], "last_run": dict(last) if last else None}
+    if detail:
+        today = c.execute("SELECT runs, dropped FROM automation_daily WHERE automation_id=? AND day=?",
+                          (row["id"], H.now()[:10])).fetchone()
+        out["counts"] = {"today": {"runs": today["runs"] if today else 0, "dropped": today["dropped"] if today else 0}}
+        if flow["trigger"]["type"] == "schedule":
+            out["next_run"] = row["next_due"] or _iso(_due(flow["trigger"], datetime.now(timezone.utc)))
     if who is not None:
         out["can_edit"] = may_change(c, who, flow)
     return out
@@ -121,7 +140,7 @@ def _next_n(c, aid):
     return (row[0] or 0) + 1
 
 
-def _save(c, actor, aid, flow, before, action, *, current=None, summary=None, new_version=False):
+def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_version=False, via=None):
     """Write the automation, with its audit row. A change to what it does (trigger, steps, batch) is a new version; a
     rename, pause or cap is not. `current` makes that pending version the current one instead; `new_version` writes
     one even when nothing it does changed (restoring an old version)."""
@@ -143,7 +162,7 @@ def _save(c, actor, aid, flow, before, action, *, current=None, summary=None, ne
     else:
         c.execute("INSERT INTO automations(name,owner,grp,trigger_type,enabled,builtin,flow_json,version,updated,id,"
                   "created,created_by,found_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (*columns, aid, now, actor, now))
-    audit(c, actor, "automation", aid, action, before, flow)
+    audit_log.write(c, actor, "automation:" + aid, before, flow, via)
     return _row(c, aid)
 
 
@@ -153,7 +172,6 @@ def _propose(c, actor, aid, flow, before, summary):
     c.execute("INSERT INTO automation_versions(automation_id,n,actor,at,flow_json,status,summary) "
               "VALUES(?,?,?,?,?,'pending',?)", (aid, n, actor, H.now(), json.dumps(_versioned(flow), sort_keys=True),
                                                 summary))
-    audit(c, actor, "automation", aid, f"propose {n}", before, flow)
     return n
 
 
@@ -248,6 +266,26 @@ def _checked(c, flow):
     return flow
 
 
+# ---------------------------------------------------------------------------------------------------- built-ins
+# The automations Tico ships, made by the hub on the scheduler's pass (its first runs at startup) once the redesign is
+# on, never by POST. Each is {key, name, owner, trigger, steps}. The system jobs move here with their migration; until then the old
+# jobs run as they do and this list is empty.
+BUILTINS = ()
+
+
+def ensure_builtins(c, catalog=None):
+    """Make each built-in that does not exist yet; one already made is left as its people changed it."""
+    made = []
+    for spec in BUILTINS if catalog is None else catalog:
+        aid = "auto_builtin_" + spec["key"]
+        if c.execute("SELECT 1 FROM automations WHERE id=?", (aid,)).fetchone():
+            continue
+        flow = F.check({**{k: v for k, v in spec.items() if k != "key"}, "builtin": True, "enabled": True})
+        _save(c, H.KEEPER, aid, flow, None)
+        made.append(aid)
+    return made
+
+
 # ---------------------------------------------------------------------------------------------------- triggers
 def _count(c, aid, field):
     c.execute(f"INSERT INTO automation_daily(automation_id,day,{field}) VALUES(?,?,1) "
@@ -278,7 +316,7 @@ def fire(c, kind, payload, ref="", match=None):
     filters hold; one they drop counts toward its day. Returns the queued run ids. Never raises: an automation
     problem must not undo the write that triggered it."""
     try:
-        if not redesign_on(c):
+        if not redesign.on(c):
             return []
         chain = CHAIN.get()
         if len(chain) >= MAX_CHAIN:
@@ -312,7 +350,7 @@ def hub_checks(c, task):
 def on_event(c, type_, subject, data, actor):
     """A catalog event (backend/event_catalog.py): `event` automations on it, and `task_received` on a task that now
     has an owner."""
-    if not redesign_on(c):
+    if not redesign.on(c):
         return
     from . import event_catalog as CAT
     name = CAT.canonical(type_) or type_
@@ -341,15 +379,18 @@ def on_mail(c, mailbox, message):
                 lambda t: str(t["inbox"]).lower() == str(mailbox).lower())
 
 
-def on_slack(c, event, person):
-    """A Slack message the gateway let in: queued for a `message` automation on `slack:<channel>` (or `slack:*`).
-    Returns the run ids; any means the automation handles it and the gateway's own routing does not."""
-    channel = str(event.get("channel") or "")
-    payload = {"message": {"source": "slack", "channel": channel, "ts": event.get("ts"),
-                           "thread_ts": event.get("thread_ts") or event.get("ts"), "from": "person:" + person["id"],
-                           "text": str(event.get("text") or "")[:8000], "kind": event.get("channel_kind")}}
-    return fire(c, "message", payload, f"slack:{channel}:{event.get('ts')}",
-                lambda t: str(t["inbox"]) in ("slack:" + channel, "slack:*"))
+def on_slack(c, event, person, channel=None):
+    """A Slack message the gateway let in: queued for a `message` automation on its inbox, `slack:dm` for a direct
+    message or `slack:#<channel>`. Returns the run ids; any means the automation handles it and the gateway's own
+    routing does not."""
+    channel = channel or {}
+    dm = event.get("channel_kind") == "im" or channel.get("kind") == "im"
+    inbox = "slack:dm" if dm else "slack:#" + str(channel.get("name") or event.get("channel") or "").lstrip("#").lower()
+    payload = {"message": {"source": "slack", "inbox": inbox, "channel": str(event.get("channel") or ""),
+                           "ts": event.get("ts"), "thread_ts": event.get("thread_ts") or event.get("ts"),
+                           "from": "person:" + person["id"], "text": str(event.get("text") or "")[:8000]}}
+    return fire(c, "message", payload, f"slack:{event.get('channel')}:{event.get('ts')}",
+                lambda t: str(t["inbox"]).lower() == inbox)
 
 
 def on_webhook(c, trigger_id, name, type_, delivery, payload, content):
@@ -372,7 +413,7 @@ def turn_done(c, attempt, outcome, text):
     """A bot's turn ended (after `H.turn_finish` priced it): the run that started it (its notice carries
     `automation_run`) is charged its cost, which counts toward the spend cap, and a run waiting on it takes its answer
     and is queued."""
-    if not redesign_on(c):
+    if not redesign.on(c):
         return
     job = c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone() if attempt["job_id"] else None
     msg = H.message(c, job["message_id"]) if job and job["message_id"] else None
@@ -468,7 +509,9 @@ class HubServices:
         if engine is None:   # no decision model, or the month's decision cap is reached
             return None
         J.validate(values, questions, label)
-        result = engine(_trim(values), questions, label)
+        import inspect
+        takes_level = "level" in inspect.signature(engine).parameters
+        result = engine(_trim(values), questions, label, **({"level": level} if takes_level else {}))
         actor = A.actor_of(self.flow["owner"])
         self._write(lambda c: H.event(c, actor, "judge.call", label, {
             "label": label, "automation": self.row["id"], "run": self.run_id, "level": level,
@@ -545,11 +588,12 @@ def tick(store, at=None):
     queue, runs cut off are failed, and the queue is drained."""
     hub = getattr(store, "automations", None)
     with store.read() as c:
-        if not redesign_on(c):
+        if not redesign.on(c):
             return 0
     at = at or datetime.now(timezone.utc)
     now = at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     with store.transaction() as c:
+        ensure_builtins(c)
         from .scheduler import next_due
         for row in c.execute("SELECT * FROM automations WHERE deleted_at IS NULL AND enabled=1 "
                              "AND trigger_type='schedule'").fetchall():
@@ -571,6 +615,12 @@ def tick(store, at=None):
         c.execute("UPDATE automation_runs SET status='failed',finished=? WHERE status='waiting' AND wake_at IS NULL "
                   "AND started<?", (now, H.shift(now, days=-TURN_WAIT_DAYS)))
     return hub.drain() if hub else 0
+
+
+def _due(trigger, at):
+    """The schedule's next time after `at`, in its zone's wall clock, so 09:00 stays 09:00 across a DST change."""
+    from .scheduler import next_due
+    return next_due(trigger["cron"], at, trigger.get("tz") or "UTC")
 
 
 def _iso(at):
@@ -612,8 +662,12 @@ class Empty(Contract):
     pass
 
 
+class InboxSend(Contract):
+    send: bool
+
+
 class RunNow(Contract):
-    payload: dict = Field(default_factory=dict)
+    input: dict = Field(default_factory=dict)   # shaped like the trigger's output: message, task, item, event, body
 
 
 FLOW_KEYS = ("name", "owner", "group", "enabled", "builtin", "spend_cap", "batch", "trigger", "steps")
@@ -672,7 +726,7 @@ def install(app, store, auth, mutate):
         return response
 
     def found(c, who, aid, what="see this automation", rule=None):
-        require_on(c)
+        _require_on(c)
         auth.domain(who)
         row = _row(c, aid)
         if not row:
@@ -686,7 +740,7 @@ def install(app, store, auth, mutate):
         """The automations the caller may change (the same rule decides what they see), newest first."""
         who = request.state.identity
         with store.read() as c:
-            require_on(c)
+            _require_on(c)
             auth.domain(who)
             rows = c.execute("SELECT * FROM automations WHERE deleted_at IS NULL"
                              + (" AND owner=?" if owner else "") + " ORDER BY created DESC",
@@ -700,7 +754,7 @@ def install(app, store, auth, mutate):
         """The saved question sets a Decide step may name, each with its questions."""
         from clients import judge as J
         with store.read() as c:
-            require_on(c)
+            _require_on(c)
             auth.domain(request.state.identity)
         sets = []
         for listed in J.list_sets():
@@ -717,13 +771,13 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            require_on(c)
+            _require_on(c)
             auth.domain(who)
             flow = _checked(c, {k: v for k, v in body.model_dump().items() if v is not None})
             _require(c, who, flow, "make an automation for " + flow["owner"])
-            if flow["builtin"] and who.role != "owner":
-                raise Problem("forbidden", "Only the top of the org makes a built-in automation", 403)
-            return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, "create"), who, detail=True)
+            if flow["builtin"]:
+                raise Problem("forbidden", "Built-in automations come with Tico; the hub makes them", 403)
+            return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)
         return mutate(request, body, work)
 
     @app.get("/api/v2/automations/{aid}")
@@ -766,7 +820,7 @@ def install(app, store, auth, mutate):
                     raise Problem("forbidden", "Only the top of the org pauses a built-in automation", 403)
                 warning = "This is a built-in automation: the work it does stops until it is turned back on."
             if flow != before:
-                row = _save(c, who.actor, aid, flow, before, "update", summary=summary)
+                row = _save(c, who.actor, aid, flow, before, summary=summary, via=_via(who))
             return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
         return mutate(request, body, work)
 
@@ -780,7 +834,7 @@ def install(app, store, auth, mutate):
             c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (H.now(), aid))
             c.execute("UPDATE automation_runs SET status='skipped',finished=? WHERE automation_id=? "
                       "AND status IN ('queued','waiting')", (H.now(), aid))
-            audit(c, who.actor, "automation", aid, "delete", flow_of(row), None)
+            audit_log.write(c, who.actor, "automation:" + aid, flow_of(row), None, _via(who))
             return {"id": aid, "deleted": True}
         return mutate(request, body, work)
 
@@ -795,13 +849,13 @@ def install(app, store, auth, mutate):
 
     @app.post("/api/v2/automations/{aid}/run")
     def automations_run(request: Request, aid: str, body: RunNow | None = None):
-        """Run it now, whatever its trigger and batch times say: `payload` stands in for the trigger's. Answers with
-        the run once it has gone as far as it can now."""
+        """Run it now, whatever its trigger and batch times say; `input` stands in for the trigger's output (the page's
+        "Test with sample"). Answers with the run once it has gone as far as it can now."""
         who, body = request.state.identity, body or RunNow()
 
         def work(c):
             row = found(c, who, aid, "run this automation")
-            rid = queue(c, row, {**body.payload, "manual": {"by": who.actor}}, "manual", manual=True, chain=(aid,))
+            rid = queue(c, row, {**body.input, "manual": {"by": who.actor}}, "manual", manual=True, chain=(aid,))
             return {"run": rid}
         rid = mutate(request, body, work)["run"]
         hub.drain()
@@ -856,8 +910,8 @@ def install(app, store, auth, mutate):
             flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"])})
             _require(c, who, flow, "restore this version")
             pending = old["status"] == "pending"
-            saved = _save(c, who.actor, aid, flow, before, f"restore {n}", current=n if pending else None,
-                          new_version=not pending)
+            saved = _save(c, who.actor, aid, flow, before, current=n if pending else None, new_version=not pending,
+                          via=_via(who))
             return view(c, saved, who, detail=True)
         return mutate(request, body, work)
 
@@ -874,9 +928,52 @@ def install(app, store, auth, mutate):
             if old["status"] != "pending":
                 raise Problem("not_pending", "Only a pending version can be discarded", 409)
             c.execute("DELETE FROM automation_versions WHERE automation_id=? AND n=?", (aid, n))
-            audit(c, who.actor, "automation", aid, f"discard {n}", None, None)
             return view(c, row, who, detail=True)
         return mutate(request, body, work)
+
+    # An inbox's send switch: on by default; off, send_reply saves a draft and logs send_off.
+    def inbox_rights(c, who, inbox):
+        _require_on(c)
+        auth.domain(who)
+        if who.role == "owner":
+            return
+        person = H.human(c, H.actor_id(who.actor)) if who.role == "human" else None
+        if not (person and "@" in inbox and str(person.get("email") or "").lower() == inbox):
+            raise Problem("forbidden", "Only the inbox's person or the top of the org sets its send switch", 403)
+
+    @app.get("/api/v2/inboxes/{inbox}")
+    def inbox_view(request: Request, inbox: str):
+        inbox = inbox.strip().lower()
+        with store.read() as c:
+            inbox_rights(c, request.state.identity, inbox)
+            return {"inbox": inbox, "send": A.send_on(c, inbox)}
+
+    @app.patch("/api/v2/inboxes/{inbox}")
+    def inbox_update(request: Request, inbox: str, body: InboxSend):
+        who, inbox = request.state.identity, inbox.strip().lower()
+
+        def work(c):
+            inbox_rights(c, who, inbox)
+            before = {"inbox": inbox, "send": A.send_on(c, inbox)}
+            c.execute("INSERT INTO automation_inboxes(inbox,send,updated,updated_by) VALUES(?,?,?,?) "
+                      "ON CONFLICT(inbox) DO UPDATE SET send=excluded.send,updated=excluded.updated,"
+                      "updated_by=excluded.updated_by", (inbox, int(body.send), H.now(), who.actor))
+            after = {"inbox": inbox, "send": body.send}
+            if after != before:
+                audit_log.write(c, who.actor, "inbox:" + inbox, before, after, _via(who))
+            return after
+        return mutate(request, body, work)
+
+    @app.get("/api/v2/people/{person}/assistant")
+    def person_assistant(request: Request, person: str):
+        """The bot an `assistant:<person>` step runs on, once one has run (null before)."""
+        from . import assistant
+        with store.read() as c:
+            _require_on(c)
+            auth.domain(request.state.identity)
+            if not H.human(c, person):
+                raise Problem("not_found", "No such person", 404)
+            return {"bot": hub.settings.assistant_bot if assistant.find_room(c, "human:" + person) else None}
 
     # The runner that reads a mailbox carries out the mail actions queued for it.
     @app.post("/api/v2/automations/mail-actions/claim")
@@ -886,7 +983,7 @@ def install(app, store, auth, mutate):
             raise Problem("forbidden", "A computer claims mail actions", 403)
 
         def work(c):
-            require_on(c)
+            _require_on(c)
             rows = [dict(r) for r in c.execute(
                 "SELECT * FROM automation_mail_actions WHERE state='queued' AND mailbox=? ORDER BY created LIMIT 20",
                 (body.mailbox,))]
@@ -904,7 +1001,7 @@ def install(app, store, auth, mutate):
             raise Problem("forbidden", "A computer reports mail actions", 403)
 
         def work(c):
-            require_on(c)
+            _require_on(c)
             done = c.execute("UPDATE automation_mail_actions SET state=?,result_json=? WHERE id=? AND claimed_by=?",
                              ("done" if body.ok else "failed", json.dumps({"ok": body.ok, "detail": body.detail}),
                               mid, who.runner_id)).rowcount

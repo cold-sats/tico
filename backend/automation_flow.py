@@ -97,8 +97,10 @@ def _check_trigger(trigger):
         _need(len(trigger["cron"].split()) == 5 and croniter.is_valid(trigger["cron"]), "trigger",
               "cron is a five-field schedule such as 0 9 * * 1-5")
         _check_zone(trigger.get("tz") or "UTC", "trigger")
-    if "send" in trigger:
-        _need(isinstance(trigger["send"], bool), "trigger", "send is true or false")
+    if kind == "message":
+        inbox = trigger["inbox"]
+        _need("@" in inbox or inbox == "slack:dm" or re.fullmatch(r"slack:#[a-z0-9][a-z0-9._-]{0,79}", inbox), "trigger",
+              "inbox is an email address, slack:dm or slack:#<channel>")
     check_conds(trigger.get("filters") or [], "trigger filters")
 
 

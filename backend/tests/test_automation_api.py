@@ -28,9 +28,22 @@ def patch(api, aid, body, token="ana-test", expected=200):
     return r.json()
 
 
-def audit_rows(api, target):
+def audit_rows(api, aid):
+    """The automation's audit rows, oldest first, with before and after read back."""
+    from backend import audit_log
     with api.app.state.store.read() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM audit_log WHERE target=? ORDER BY id", (target,))]
+        return audit_log.rows(c, obj="automation:" + aid, limit=200)["rows"][::-1]
+
+
+def builtin(api, key="triage", owner="bot:ops"):
+    """A built-in as the hub makes it."""
+    from backend import automations
+    spec = {"key": key, "name": "Triage", "owner": owner, "trigger": {"type": "event", "name": "task.created"},
+            "steps": [NOTE_STEP]}
+    with api.app.state.store.transaction() as c:
+        automations.ensure_builtins(c, [spec])
+        automations.ensure_builtins(c, [spec])          # idempotent
+    return "auto_builtin_" + key
 
 
 def test_everything_is_404_while_the_redesign_is_off(api):
@@ -45,7 +58,6 @@ def test_only_the_owner_turns_the_redesign_on(api):
     assert r.status_code == 403
     assert turn_on(api) == {"enabled": True}
     assert get(api, "settings/redesign", "ben-test") == {"enabled": True}
-    assert audit_rows(api, "redesign")[-1]["actor"] == "human:ana"
 
 
 def as_bot(api, slug):
@@ -82,9 +94,9 @@ def test_a_change_to_what_it_does_is_a_version_a_rename_or_pause_is_not(api):
     assert restored["name"] == "Morning check · weekdays" and restored["enabled"] is False   # not part of a version
     post(api, f"automations/{aid}/versions/9/restore", {}, expected=404)
     rows = audit_rows(api, aid)
-    assert [r["action"] for r in rows] == ["create", "update", "update", "update", "restore 1"]
-    assert rows[0]["before"] is None and json.loads(rows[1]["before"])["enabled"] is True
-    assert json.loads(rows[1]["after"])["enabled"] is False and all(r["actor"] == "human:ana" for r in rows)
+    assert len(rows) == 5 and rows[0]["before"] is None and rows[1]["before"]["enabled"] is True
+    assert rows[1]["after"]["enabled"] is False and rows[4]["after"]["trigger"]["cron"] == "0 9 * * *"
+    assert all(r["actor"] == "human:ana" for r in rows)
 
 
 def test_the_automations_bot_proposes_and_a_person_restores_or_discards(api):
@@ -106,7 +118,7 @@ def test_the_automations_bot_proposes_and_a_person_restores_or_discards(api):
     assert r.status_code == 200 and r.json()["version"] == 2
     assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
     assert api.delete(f"/api/v2/automations/{aid}/versions/1", headers=headers()).status_code == 409
-    assert [r["action"] for r in audit_rows(api, aid)][-4:] == ["propose 2", "propose 3", "restore 2", "discard 3"]
+    assert [r["actor"] for r in audit_rows(api, aid)] == ["human:ana", "human:ana"]   # proposals change nothing
 
 
 def test_a_bot_without_rights_proposes_and_a_bot_with_them_saves(api):
@@ -147,28 +159,30 @@ def test_delete_and_builtins(api):
     aid = make(api)["id"]
     post(api, f"automations/{aid}/delete", {})
     get(api, f"automations/{aid}", expected=404)
-    assert audit_rows(api, aid)[-1]["action"] == "delete"
-    builtin = make(api, builtin=True, owner="bot:ops")["id"]
-    r = api.delete(f"/api/v2/automations/{builtin}", headers=headers())
+    assert audit_rows(api, aid)[-1]["after"] is None
+    make(api, expected=403, builtin=True)                                   # the hub makes built-ins, not POST
+    shipped = builtin(api)
+    listed = get(api, "automations")["automations"]
+    assert [a["builtin"] for a in listed if a["id"] == shipped] == [True]
+    r = api.delete(f"/api/v2/automations/{shipped}", headers=headers())
     assert r.status_code == 409
-    paused = patch(api, builtin, {"enabled": False})
+    paused = patch(api, shipped, {"enabled": False})
     assert paused["enabled"] is False and "warning" in paused
 
 
-def test_only_the_top_pauses_or_makes_a_builtin(api):
+def test_only_the_top_pauses_a_builtin(api):
     turn_on(api)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET reports_to='human:ben' WHERE bot='ops'")
-    make(api, "ben-test", expected=403, builtin=True, owner="bot:ops")
-    builtin = make(api, builtin=True, owner="bot:ops")["id"]
-    patch(api, builtin, {"name": "Renamed by Ben"}, "ben-test")          # ops reports to Ben: he may edit it
-    patch(api, builtin, {"enabled": False}, "ben-test", expected=403)
+    shipped = builtin(api)
+    patch(api, shipped, {"name": "Renamed by Ben"}, "ben-test")          # ops reports to Ben: he may edit it
+    patch(api, shipped, {"enabled": False}, "ben-test", expected=403)
 
 
 def test_run_now_runs_the_flow_and_records_each_step(api):
     turn_on(api)
     aid = make(api, steps=[NOTE_STEP, {"id": "off", "type": "action", "enabled": False, "do": "note", "args": {}}])["id"]
-    run = post(api, f"automations/{aid}/run", {})["run"]
+    run = post(api, f"automations/{aid}/run", {"input": {"task": {"title": "Sample"}}})["run"]
     assert run["status"] == "ok" and run["version"] == 1 and run["finished"]
     assert [(s["id"], s["status"]) for s in run["steps"]] == [("tell", "ok"), ("off", "skipped")]
     with api.app.state.store.read() as c:
@@ -177,6 +191,8 @@ def test_run_now_runs_the_flow_and_records_each_step(api):
     runs = get(api, f"automations/{aid}/runs")
     assert runs["runs"][0]["id"] == run["id"] and runs["daily"][0]["runs"] == 1 and runs["next"] is None
     assert get(api, "automations")["automations"][0]["last_run"]["id"] == run["id"]
+    shown = get(api, f"automations/{aid}")
+    assert shown["counts"] == {"today": {"runs": 1, "dropped": 0}} and shown["next_run"].endswith("T09:00:00.000000Z")
 
 
 def test_a_run_that_fails_says_which_step(api):
