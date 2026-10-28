@@ -197,7 +197,7 @@ function decideRender(st, enter = false) {
   stage.innerHTML = `<article class="dc-card${enter ? ' in' : ''}" data-key="${esc(c.key)}">
     <div class="dc-who">${face}
       <div class="dc-who-text"><div class="dc-who-name">${chat ? `<a class="dc-who-link" href="${esc(chat)}" title="${esc(`Open ${name}`)}">${esc(name)}</a>` : esc(name)}${origin ? `<span class="dc-origin"> · ${esc(origin)}</span>` : ''}</div>
-        <div class="dc-who-sub">${esc(c.type === 'pick' ? qcardSub(c.it) : c.type !== 'task' ? plainActors(c.it.title || '') : decideMeta(c.it))}</div></div>
+        <div class="dc-who-sub">${esc(c.type === 'pick' ? qcardSub(c.it) : c.type !== 'task' ? plainActors(approvalTitle(c.it) || c.it.title || '') : decideMeta(c.it))}</div></div>
       ${decideDue(c.it) ? `<span class="tl-due${decideDue(c.it).late ? ' late' : ''}">${esc(decideDue(c.it).words)}</span>` : ''}
       <span class="pill ${decide ? 'needs' : ''}">${esc(needLabel(c.it.need || (decide ? 'decide' : 'do')))}</span></div>
     <div class="dc-body"></div>
@@ -273,7 +273,8 @@ function decideTick(st, i, on) {
   qcardRetick($('.decide .dc-actions'), c.it, c.q, ticked, 'dc');
 }
 const DEC_APPROVAL_Q = {send: 'Send this email?', spend: 'Approve this spend?', publish: 'Publish this?', merge: 'Merge this?',
-  support: 'Send this to Tico support?'};
+  support: 'Send this to Tico support?', org: 'Move this teammate?', task_cap: 'Set this task cap?', spend_limit: 'Set this spend limit?',
+  group: 'Change this group?'};
 function decideApprovalHTML(c) {
   return `<p class="dc-q">${esc(DEC_APPROVAL_Q[c.it.what] || 'Approve this?')}</p>${approvalPayloadNode(c.it).outerHTML}`;
 }

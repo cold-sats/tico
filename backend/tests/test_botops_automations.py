@@ -40,7 +40,7 @@ def test_a_person_asks_and_botops_saves_off_unless_asked_on(api, botops):
 
 
 def test_a_persons_edits_are_applied_as_they_could(api, botops):
-    """Update, pause, run, restore and delete go straight through, with no card and no pending version."""
+    """Update, pause, run and restore go straight through, with no card and no pending version."""
     turn_on(api)
     aid = post(api, "automations", flow(enabled=True), "cara-test")["id"]
     attempt = turn(api, botops, person="cara-test", text="Label receipts first")
@@ -54,15 +54,28 @@ def test_a_persons_edits_are_applied_as_they_could(api, botops):
     assert not err, ran
     err, back = mcp(api, "hub_automation_restore", {"id": aid, "n": 1}, attempt["token"])
     assert not err and back["version"] == 3 and len(back["steps"]) == 1, back
-    err, gone = mcp(api, "hub_automation_delete", {"id": aid}, attempt["token"])
-    assert not err and gone["deleted"] is True, gone
-    for answer in (edited, paused, ran, back, gone):
+    for answer in (edited, paused, ran, back):
         assert "needs_confirm" not in answer                                  # nothing waited on a card
     for method, path in (("POST", "automations"), ("PATCH", f"automations/{aid}"), ("POST", f"automations/{aid}/run"),
-                         ("POST", f"automations/{aid}/versions/1/restore"), ("DELETE", f"automations/{aid}/versions/2"),
-                         ("POST", f"automations/{aid}/delete"), ("DELETE", f"automations/{aid}")):
+                         ("POST", f"automations/{aid}/versions/1/restore"), ("DELETE", f"automations/{aid}/versions/2")):
         assert botops_act.classify(method, path) == "do" and not botops_act.card_for_person(method, path), path
     assert {r["actor"] for r in audit_rows(api, aid)} == {"human:cara"}
+
+
+def test_a_persons_delete_waits_for_their_own_tap(api, botops):
+    """Deleting an automation is a Confirm card in the person's BotOps chat, as deleting a routine is."""
+    turn_on(api)
+    aid = post(api, "automations", flow(enabled=True), "cara-test")["id"]
+    attempt = turn(api, botops, person="cara-test", text="Delete my receipts automation")
+    err, card = mcp(api, "hub_automation_delete", {"id": aid}, attempt["token"])
+    assert not err and card["needs_confirm"], card
+    assert get(api, f"automations/{aid}", "cara-test")["id"] == aid          # nothing changed yet
+    for method, path in (("POST", f"automations/{aid}/delete"), ("DELETE", f"automations/{aid}")):
+        assert botops_act.classify(method, path) == "confirm" and botops_act.card_for_person(method, path), path
+        assert botops_act.card_summary(method, path) == "Delete an automation"
+    post(api, f"assistant/actions/{card['action']['id']}/confirm", {}, token=attempt["token"], expected=403)
+    assert post(api, f"assistant/actions/{card['action']['id']}/confirm", {}, token="cara-test")["action"]["status"] == "done"
+    get(api, f"automations/{aid}", "cara-test", expected=404)
 
 
 def test_botops_never_goes_past_the_askers_rights(api, botops):

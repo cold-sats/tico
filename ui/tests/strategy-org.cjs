@@ -32,7 +32,12 @@ async function chart(page, tag) {
       const tag = 'phone owner';
       const {page, errors, writes} = await openStrategy(browser);
       await chart(page, tag);
-      assert.match(await page.locator('.rdo-props').innerText(), /Proposed · Reviewer: Engineering → Web/, tag + ': the proposal row');
+      // One row per move, whole on a phone: who and where to, with its own Approve and Decline.
+      const prop = page.locator('.rdo-prop[data-rdo-prop="ap_org1"]');
+      assert.match(await prop.innerText(), /Reviewer → Web/, tag + ': the proposal row');
+      assert.equal(await prop.locator('.rdo-props-t').evaluate(el => el.scrollWidth <= el.clientWidth), true, tag + ': the row is not cut');
+      assert.equal(await prop.getByRole('button', {name: 'Approve'}).isVisible(), true, tag + ': Approve');
+      assert.equal(await prop.getByRole('button', {name: 'Decline'}).isVisible(), true, tag + ': Decline');
       assert.equal(await page.locator('.rdo-card.pv' + `[data-rdo-ref="bot:reviewer"]`).count(), 1, tag + ': the teammate it moves is marked');
       // Opens readable (names 12px or more), centred on the owner, the frame down to the tab bar, the page still.
       const look = await page.evaluate(() => {

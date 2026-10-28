@@ -111,13 +111,16 @@ function rdoChartHtml() {
   return (top ? `<div class="rdo-top${cols.length ? ' has-row' : ''}">${rdoCard(top, {top: true, moving})}</div>` : '')
     + (cols.length ? `<ul class="rdo-row">${cols.map(c => `<li>${c}</li>`).join('')}</ul>` : '');
 }
+// One row per proposed move: who → where (where from in its title), decided on its own.
 function rdoPropsHtml() {
   const props = rdoProposals();
   if (!props.length) return '';
-  const line = p => `${rdoRefName(p.payload.bot)}: ${rdoGroupName(p.payload.from)} → ${rdoGroupName(p.payload.to)}`;
-  return `<div class="rdo-props" role="region" aria-label="Proposed moves"><span class="rdo-props-t" title="${esc(props.map(line).join('\n'))}">
-      <b>Proposed</b> · ${props.length > 1 ? `${props.length} moves · ` : ''}${esc(props.map(line).join(' · '))}</span>
-    <span class="rdo-props-b"><button type="button" class="ghost" data-rdo-decide="declined">Decline</button><button type="button" class="primary" data-rdo-decide="approved">Approve</button></span></div>`;
+  const row = p => {
+    const who = rdoRefName(p.payload.bot), to = rdoGroupName(p.payload.to), id = esc(p.id);
+    return `<div class="rdo-prop" data-rdo-prop="${id}"><span class="rdo-props-t" title="${esc(`${who}: ${rdoGroupName(p.payload.from)} → ${to}`)}"><span class="rdo-props-k">Proposed</span> <b>${esc(who)}</b> → ${esc(to)}</span>
+      <span class="rdo-props-b"><button type="button" class="ghost" data-rdo-decide="declined" data-rdo-id="${id}" aria-label="Decline" title="Decline"><span aria-hidden="true">✕</span></button><button type="button" class="primary" data-rdo-decide="approved" data-rdo-id="${id}" aria-label="Approve" title="Approve"><span class="nav-icon" aria-hidden="true">check</span></button></span></div>`;
+  };
+  return `<div class="rdo-props" role="region" aria-label="Proposed moves">${props.map(row).join('')}</div>`;
 }
 function rdoDraw() {
   const cv = $('#rdo-cv'), pane = $('#rdo-pane');
@@ -250,10 +253,10 @@ document.addEventListener('click', ev => {
 });
 
 async function rdoDecide(button) {
-  const decision = button.dataset.rdoDecide, bar = button.closest('.rdo-props');
-  bar.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  const decision = button.dataset.rdoDecide, id = button.dataset.rdoId;
+  button.closest('.rdo-prop').querySelectorAll('button').forEach(b => { b.disabled = true; });
   try {
-    for (const p of rdoProposals()) await post(`/v2/approvals/${encodeURIComponent(p.id)}`, {decision});
+    await post(`/v2/approvals/${encodeURIComponent(id)}`, {decision});
     toast(decision === 'approved' ? 'Approved' : 'Declined');
   } catch (e) { toast(e.message, true); }
   await rdoReload();

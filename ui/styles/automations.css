@@ -151,7 +151,13 @@ button.au-chip:hover{background:var(--surface2)}
 .au-bh h2{margin:0;font-size:var(--t-md);font-weight:600}
 .au-bav{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:var(--ok-bg);color:var(--accent);font-size:16px}
 .au-bm{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:12px}
-.au-msgs{margin-top:auto}
+.au-msgs{margin-top:auto;overflow-wrap:anywhere}
+/* the app's chat look, as Goals: the name once, inside the bubble */
+.au-msgs .conv-run.chat{border:0;padding:6px 0}
+.au-msgs .conv-run-head{display:none}
+.au-msgs .bubble{margin:0}
+.au-msgs .bubble.you{border:0}
+.au-msgs .bubble.bot.reply{background:transparent;border-radius:0}
 .au-berr{margin:0 12px}
 .au-bf{display:flex;align-items:center;gap:12px;padding:6px 12px 12px}
 .au-bf>.ask{flex:1 1 auto;min-width:0}
@@ -212,7 +218,7 @@ button.au-chip:hover{background:var(--surface2)}
   .au-hd{padding:8px 12px;border:0;flex-wrap:wrap}
   .au-back,.au-botbtn{display:inline-flex}
   .au-back{margin-left:-6px}
-  .au-own,.au-hd>.au-sw,.au-hd>.pill,.au-hd>.au-sp{display:none}
+  .au-own,.au-hd>.au-sp{display:none}
   .au-name{flex:1 1 0}
   .au-hd2{order:10;flex-basis:100%}
   .au-sp-phone{display:block;flex:1}

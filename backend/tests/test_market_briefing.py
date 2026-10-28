@@ -106,3 +106,25 @@ def test_a_replacement_that_touches_no_bet_sends_no_new_event(seeded, events):
     assert len(events) == 1
     with seeded.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM market_briefings").fetchone()[0] == 1
+
+
+def test_market_labels_a_briefing_by_how_often_it_is_posted(seeded):
+    """A briefing by hand is the week's; one an automation posts each day (the built-in, every morning) is the day's;
+    one posted by a once-a-week schedule is the week's again."""
+    from types import SimpleNamespace
+
+    from backend import market_briefing as MB
+    from backend.tests.test_automation_api import NOTE_STEP, turn_on
+    assert brief(seeded)["briefing"]["cadence"] == "weekly"
+    turn_on(seeded)
+    made = {cron: post(seeded, "automations", {"name": "Briefing " + cron, "owner": "person:ana", "steps": [NOTE_STEP],
+                                               "trigger": {"type": "schedule", "cron": cron, "tz": "UTC"}})["id"]
+            for cron in ("0 7 * * *", "0 7 * * 1-5", "0 7 * * 1", "0 7 * * MON")}
+    want = {"0 7 * * *": "daily", "0 7 * * 1-5": "daily", "0 7 * * 1": "weekly", "0 7 * * MON": "weekly"}
+    for cron, aid in made.items():
+        with seeded.app.state.store.transaction() as c:
+            MB.post(c, SimpleNamespace(actor="human:ana"), WEEK, "Today", "Body.", [], source={"automation": aid, "run": "r"})
+        latest = get(seeded, "market/briefings/latest")["briefing"]
+        assert latest["cadence"] == want[cron], cron
+        assert get(seeded, "market/briefings")["briefings"][0]["cadence"] == want[cron]
+    assert brief(seeded)["briefing"]["cadence"] == "weekly"          # a post by hand clears the source

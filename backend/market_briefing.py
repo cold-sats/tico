@@ -7,7 +7,9 @@ strategy whose `cites`, or whose thesis wrong-if `market_id`, is one of them. It
 touched bets, so the CEO Bot's routine on that event looks only at them; with none touched, it has nothing to do.
 One row per ISO week: posting the same week again replaces it and keeps `created`. A briefing an automation posted
 (`post_update` to market, backend/automation_actions.py) carries `source: {automation, run, task}`; a post by hand
-clears it.
+clears it. `cadence` says how Market labels it: `daily` when an automation posted it on a schedule that runs on more
+than one day a week (the built-in Market briefing, each morning) or on anything but a schedule, so it is dated by its
+day; `weekly` for one posted by hand or by a once-a-week schedule.
 """
 import hashlib
 import re
@@ -74,9 +76,27 @@ def touched(c, ids):
     return [{"id": b["id"], "n": n, "statement": b["statement"]} for n, b in enumerate(active, 1) if b["id"] in ids]
 
 
+def _once_a_week(cron):
+    """A five-field cron that runs on one day of the week only: `0 7 * * 1`, not `0 7 * * *` or `0 7 * * 1-5`."""
+    fields = str(cron or "").split()
+    return len(fields) == 5 and fields[2] == "*" and re.fullmatch(r"[0-7]|[A-Za-z]{3}", fields[4]) is not None
+
+
+def cadence(c, source):
+    """`daily` or `weekly` (see the module's note): read off the posting automation's trigger."""
+    aid = (source or {}).get("automation") if isinstance(source, dict) else None
+    if not aid:
+        return "weekly"
+    row = c.execute("SELECT flow_json FROM automations WHERE id=?", (aid,)).fetchone()
+    trigger = (MK.loads(row["flow_json"], {}) if row else {}).get("trigger")
+    trigger = trigger if isinstance(trigger, dict) else {}
+    return "weekly" if trigger.get("type") == "schedule" and _once_a_week(trigger.get("cron")) else "daily"
+
+
 def _view(c, row, body=True):
     out = _row(row, body)
     out["touched"] = touched(c, set(out["bets"]))
+    out["cadence"] = cadence(c, out.get("source"))
     return out
 
 

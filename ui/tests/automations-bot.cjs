@@ -31,6 +31,9 @@ async function ask(page, text) {
       assert.equal(await page.locator('.au-bf .ask').evaluate(el => getComputedStyle(el).borderTopWidth), '0px', 'one border, the pill’s');
       await ask(page, 'Archive receipts too');
       await page.waitForFunction(() => /Saved v8/.test(document.querySelector('.au-msgs').textContent));
+      // Each message names its speaker once, inside the bubble, as the app's other chats do.
+      assert.equal(await page.locator('.au-msgs .conv-run-head:visible').count(), 0, 'no second name line');
+      assert.deepEqual(await page.locator('.au-msgs .bubble .who:visible').count(), await page.locator('.au-msgs .bubble').count());
       const sent = writes.find(w => w.path === '/api/v2/chat/botops');
       assert.deepEqual(sent.body.refs, {automation: 'au_inbox'});
       assert.equal(sent.body.text, 'Archive receipts too');
@@ -67,6 +70,23 @@ async function ask(page, text) {
       await card.getByRole('link', {name: 'Open'}).click();
       await page.waitForFunction(() => document.querySelector('#au-root').dataset.screen === 'detail');
       assert.equal(await page.locator('.au-hd .au-sw').isChecked(), true);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+
+    // A phone: Blank makes an empty one, off, and its own page's header turns it on.
+    {
+      const {page, errors, writes} = await openAutomations(browser, {viewport: PHONE, hash: '#/automations/bot'});
+      await page.locator('.au-blank').click();
+      await page.waitForFunction(() => document.querySelector('#au-root').dataset.screen === 'detail' && /New automation/.test(document.querySelector('.au-name')?.textContent));
+      const sw = page.locator('.au-hd [data-on-cur]');
+      assert.equal(await sw.isVisible(), true, 'the switch shows on a phone');
+      assert.equal(await sw.isChecked(), false);
+      await sw.click();
+      await page.waitForFunction(() => document.querySelector('.au-hd [data-on-cur]')?.checked);
+      assert.equal(writes.filter(w => w.method === 'POST' && w.path === '/api/v2/automations').length, 1);
+      assert.deepEqual([writes.at(-1).method, writes.at(-1).body], ['PATCH', {enabled: true}]);
+      assert.equal(await sideways(page), false);
       assert.deepEqual(errors, []);
       await page.close();
     }

@@ -1,6 +1,6 @@
 {
   "briefing": {
-    "id": "br_44", "week": "2026-W44", "title": "Release tooling buyers move to bundles",
+    "id": "br_44", "week": "2026-W44", "cadence": "daily", "title": "Release tooling buyers move to bundles",
     "body": "Two of Acme's rivals now sell release checks inside a bigger bundle, and buyers on Reddit and X are asking for one bill.\n\n## Changes\n\n- Northwind bundled checks with its CI plan.\n\n## Signals\n\n- Pricing complaints doubled week over week.",
     "items": [
       {"text": "Northwind bundled release checks into its CI plan at no extra cost.", "kind": "change", "entity_ids": ["mk_northwind"]},

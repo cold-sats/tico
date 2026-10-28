@@ -27,7 +27,8 @@ The hub makes two built-in automations for the Librarian (see Automations):
   Librarian turn; the turn changes the graph through the market routes, never the match itself.
 
 What an automation's turn posts or changes names it: the briefing and the update carry `source: {automation, run,
-task}`, and each entity or edge on `GET /api/v2/market/graph` that a turn changed carries `source: {automation, run,
+task}` (each briefing read also says its `cadence`: `daily` when its automation posts more than once a week, so
+Market dates it by the day; else `weekly`), and each entity or edge on `GET /api/v2/market/graph` that a turn changed carries `source: {automation, run,
 turn: {attempt, bot, task}, match}`, `match` being the listening post that started it. The top of the org may pause
 either built-in; neither can be deleted. Each stands down while the team's own Librarian automation does the same
 work, and the briefing starts paused while a Librarian briefing routine still runs. Converting the routines turns
