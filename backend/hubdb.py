@@ -5645,11 +5645,23 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
         labels.append("qa")
     if labels and is_bot(actor) and not mover:
         _create_labels(conn, actor, labels)     # people, movers and the keeper as before
-    dup = _same_title(conn, "SELECT id,title FROM tasks WHERE requester=? AND owner=? "
-                            f"AND coalesce({TR.parent_sql()},'')=? "
-                            f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))}) ORDER BY created,id",
-                      (requester, target, parent_id or "", *ACTIVE_STATUSES), title)
-    if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (deduplicate or actor != KEEPER):
+    # An automation's turn is the same work as another only when its wake names the same run, step and record: two
+    # finds' items (or two runs) may share a title, and the title is never what makes a turn a duplicate.
+    turn = _turn_identity(wake_refs)
+    scope = ("SELECT id,title FROM tasks WHERE requester=? AND owner=? "
+             f"AND coalesce({TR.parent_sql()},'')=? "
+             f"AND status IN ({','.join('?' * len(ACTIVE_STATUSES))})")
+    if turn:
+        same_turn = " AND ".join(f"json_extract(m.refs_json,'$.{k}')=?" for k in AUTOMATION_TURN)
+        twins = _rows(conn.execute(
+            scope + f" AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=tasks.conversation_id AND {same_turn})"
+                    " ORDER BY created,id",
+            (requester, target, parent_id or "", *ACTIVE_STATUSES, *(turn[k] for k in AUTOMATION_TURN))))
+        dup = twins[0] if twins else None
+    else:
+        dup = _same_title(conn, scope + " ORDER BY created,id",
+                          (requester, target, parent_id or "", *ACTIVE_STATUSES), title)
+    if dup and task_private_readable(conn, actor, task(conn, dup["id"])) and (turn or deduplicate or actor != KEEPER):
         detail = ("An existing task already asks for this work" if VIA.get() and task_private(conn, task(conn, dup["id"]))
                   else f"{dup['id']} already asks {actor_id(target)} for this")
         refuse(conn, actor, "duplicate", detail)
@@ -5799,6 +5811,18 @@ def _same_title(conn, sql, args, title):
     """The first row `sql` reads (id, title) whose title is `title` by title_key, or None."""
     key = title_key(title)
     return next((r for r in _rows(conn.execute(sql, args)) if title_key(r["title"]) == key), None)
+
+
+AUTOMATION_TURN = ("automation_run", "automation_step", "automation_key")   # what names an automation's turn
+
+
+def _turn_identity(wake_refs):
+    """The run, step and record an automation turn's wake names (backend/automation_actions.py `start_turn`), or None
+    for any other task. Another action of the same automation (a create_task) names its run but not its step."""
+    refs = wake_refs or {}
+    if any(refs.get(k) in (None, "") for k in AUTOMATION_TURN):
+        return None
+    return {k: str(refs[k]) for k in AUTOMATION_TURN}
 
 
 def _retitle(conn, actor, row, title, owner, type_id):

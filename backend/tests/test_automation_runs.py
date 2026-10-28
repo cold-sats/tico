@@ -253,7 +253,18 @@ def test_a_resumed_run_gets_back_the_turn_it_started_and_its_own_hold_never_caps
     automations.tick(api.app.state.store, datetime.now(timezone.utc) + timedelta(minutes=20))
     done = run_row(api, rid)
     assert [(s["id"], s["status"]) for s in done["state"]["steps"]] == [("look", "ok"), ("tell", "ok")]
-    assert len(sql(api, "SELECT id FROM tasks WHERE title LIKE 'Automation Test: look%'")) == 1
+    assert len(sql(api, "SELECT id FROM tasks WHERE title = 'Test'")) == 1
+
+
+def test_a_turn_is_titled_with_exactly_its_automations_name(api):
+    turn_on(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    aid = post(api, "automations", {"name": "Morning check", "owner": "person:ana", "trigger": EVENT,
+                                    "steps": [{"id": "brief", "type": "bot_turn", "bot": "ops", "prompt": "Brief"}]})["id"]
+    post(api, f"automations/{aid}/run", {})
+    assert sql(api, "SELECT title FROM tasks WHERE title LIKE 'Morning check%'") == [{"title": "Morning check"}]
 
 
 def test_each_item_of_a_find_starts_its_own_turn(api):
@@ -269,7 +280,25 @@ def test_each_item_of_a_find_starts_its_own_turn(api):
     run = post(api, f"automations/{aid}/run", {})["run"]
     looks = [s for s in run["steps"] if s["id"] == "answer"]
     assert [s["status"] for s in looks] == ["ok", "ok"]   # the second item is not refused as a duplicate of the first
-    assert len(sql(api, "SELECT id FROM tasks WHERE title LIKE 'Automation Test: answer%'")) == 2
+    titles = [t["title"] for t in sql(api, "SELECT title FROM tasks WHERE title LIKE 'Test · %' ORDER BY title")]
+    assert titles == ["Test · Acme batch one", "Test · Acme batch two"]
+
+
+def test_items_that_share_a_title_each_start_their_own_turn(api):
+    turn_on(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    aid = make(api, [{**FIND, "limit": 10}, {"id": "answer", "type": "bot_turn", "bot": "ops", "prompt": "Look"}])
+    ids = [post(api, "tasks", {"owner": "ops", "title": f"Acme batch {word}", "body": "x"})["id"]
+           for word in ("one", "two")]
+    with api.app.state.store.transaction() as c:
+        # Both items now carry one title, so only the turns' own identity tells them apart.
+        c.execute("UPDATE tasks SET created=?, title='Acme batch' WHERE id IN (?,?)", (H.now(), *ids))
+    run = post(api, f"automations/{aid}/run", {})["run"]
+    looks = [s for s in run["steps"] if s["id"] == "answer"]
+    assert [s["status"] for s in looks] == ["ok", "ok"]
+    assert len(sql(api, "SELECT id FROM tasks WHERE title = 'Test · Acme batch'")) == 2
 
 
 def test_a_turn_moving_its_own_task_does_not_start_its_automation_again(api):
