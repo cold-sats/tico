@@ -1375,6 +1375,10 @@ def create_app(settings=None):
                 # A reply to a bot's update (backend/updates.py): the update must exist.
                 if not isinstance(values, str) or not updates.one(c, values):
                     raise Problem("reference", "Unknown update", 422)
+            elif kind == "automation" and redesign.on(c):
+                # A chat about one automation (the Automations Bot's proposals): the caller must be able to see it.
+                if not automations.may_reference(c, who, values):
+                    raise Problem("reference", "Unknown automation", 422)
             elif kind not in ("depth", "turn_id"):
                 raise Problem("reference", f"Unsupported reference kind: {kind}", 422)
 
