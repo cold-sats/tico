@@ -186,7 +186,7 @@ function settingsEditBot(slug = '', inline = false) {
     <div class="bot-editor-body">
       <div class="bot-editor-grid">
         <h3 class="bot-editor-sec bot-editor-wide">Profile</h3>
-        <label class="bot-editor-wide">Name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required${ownerNamesIt ? ' readonly' : ''}>${ownerNamesIt ? '<small>Only the owner renames the CEO Bot.</small>' : ''}</label>
+        <label class="bot-editor-wide">Name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required${ownerNamesIt ? ' readonly' : ''}>${ownerNamesIt ? `<small>Only the owner renames the ${esc(ceoBotName())}.</small>` : ''}</label>
         ${editing && e.name === 'goal-manager' ? settingsCeoChartLine('bot-editor-wide') : ''}
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
@@ -324,12 +324,12 @@ function settingsEditBot(slug = '', inline = false) {
   void botReposMount(dialog.querySelector('[data-bot-repos]'), slug);   // ui/app/settings-repositories.js
   const remove = dialog.querySelector('[data-bot-remove]');
   if (remove) remove.onclick = async () => {
-    // Archive (#535): off the chart, no routines or new work; open tasks go to the picked heir. It asks first.
+    // Archive (#535): off the chart, no automations or new work; open tasks go to the picked heir. It asks first.
     const successor = form.elements.successor.value;
     const hermes = ['hermes', 'openclaw'].includes(e.agent?.harness);
     const heir = successor ? settingsBotName(successor) : settingsPersonName(e.operator);
     if (!await settingsConfirm({title: `Archive ${e.display_name}?`, ok: 'Archive bot',
-      text: `Its open tasks go to ${heir}. It leaves the team chart and its routines stop. You can restore it later from Archived bots.`})) return;
+      text: `Its open tasks go to ${heir}. It leaves the team chart and its automations stop. You can restore it later from Archived bots.`})) return;
     remove.disabled = true; status.textContent = 'Archiving…';
     try {
       const done = await post(`/v2/bots/${encodeURIComponent(slug)}/archive`, {successor: successor || null, expected_revision: e.revision,

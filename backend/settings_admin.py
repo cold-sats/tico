@@ -680,6 +680,8 @@ class SettingsAdmin:
         roster = self._roster(c)
         for slug in entries:
             c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, roster), slug))
+        from . import groups
+        groups.leads_follow(c, "bot:" + bot)          # a new manager can take a bot out of the group it leads
         after = self.definition(c, bot)
         self.record(c, who.actor, bot, "definition", before, after)
         H.event(c, who.actor, "bot.definition_changed", bot,

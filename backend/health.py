@@ -1034,7 +1034,7 @@ def _github_repo_create(c, github):
     return _check("github_repo_create", "GitHub can't create bot repositories", "warn", summary,
                   [_fix("Let BotOps create repositories", fix["permissions_url"]),
                    _fix("Create " + fix["repository"] if fix["repository"] else "Create a repository", fix["create_url"]),
-                   _fix("Open GitHub settings", "#/integrations")])
+                   _fix("Open GitHub settings", "#/integrations/github")])
 
 
 def _github_workflows(c, github):
@@ -1050,7 +1050,7 @@ def _github_workflows(c, github):
                       "accept it for the organisation. Waiting: " + ", ".join(waiting[:3])
                       + ("." if len(waiting) <= 3 else f"; and {len(waiting) - 3} more."),
                       [_fix("Change the App's permissions", permissions_url(c, github.row(c))),
-                       _fix("Open GitHub settings", "#/integrations")])
+                       _fix("Open GitHub settings", "#/integrations/github")])
     if refused := workflows_refused(c) if connected else []:
         # The installation reports Actions: Read and write, so the setting is not the cause and is not offered.
         return _check("github_workflows", "GitHub refused workflow tokens", "warn",
@@ -1059,7 +1059,7 @@ def _github_workflows(c, github):
                       "if this stays, check the installation's repository access and the organisation's Actions "
                       "policy on GitHub. Refused: " + ", ".join(refused[:3])
                       + ("." if len(refused) <= 3 else f"; and {len(refused) - 3} more."),
-                      [_fix("Open GitHub settings", "#/integrations")])
+                      [_fix("Open GitHub settings", "#/integrations/github")])
     return None
 
 
@@ -1076,14 +1076,14 @@ def _github_workflow_edits(c, github):
                       "permissions, then accept it for the organisation. Waiting: " + ", ".join(waiting[:3])
                       + ("." if len(waiting) <= 3 else f"; and {len(waiting) - 3} more."),
                       [_fix("Change the App's permissions", permissions_url(c, github.row(c))),
-                       _fix("Open GitHub settings", "#/integrations")])
+                       _fix("Open GitHub settings", "#/integrations/github")])
     if refused := workflows_refused(c, 'edit_workflows') if connected else []:
         return _check("github_workflow_edits", "GitHub refused workflow-editing tokens", "warn",
                       "These bots may edit workflow files but get only the ordinary write token: GitHub refused a "
                       "token with Workflows: write although the installation reports it. Tico asks again after a "
                       "minute; if this stays, check the installation's repository access on GitHub. Refused: "
                       + ", ".join(refused[:3]) + ("." if len(refused) <= 3 else f"; and {len(refused) - 3} more."),
-                      [_fix("Open GitHub settings", "#/integrations")])
+                      [_fix("Open GitHub settings", "#/integrations/github")])
     return None
 
 

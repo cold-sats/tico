@@ -1952,6 +1952,7 @@ def install_views(app, store, auth, mutate, task_view):
         from . import ceo_bot
         hide_ceo = ceo_bot.hidden_for(c, who)
         chart = ceo_bot.chart_entries(c, store.settings, people, configs, archived, hidden=hide_ceo)
+        bare = True                        # a bot's bare person id in reports_to is that person (backend/people.py)
 
         def icon_of(config):
             return str(config.get("icon") or "") or icons.get(str(config.get("template") or ""), "")
@@ -1973,7 +1974,7 @@ def install_views(app, store, auth, mutate, task_view):
             manager = (who.role == "owner" or (who.role == "human" and (
                 auth.bot_admin(who) or (registry and (registry["operator"] == pid
                                                       or pid in A.owner_ids(registry["bot_owners_json"])))
-                or P.manages(pid, "bot", slug, people, configs, archived))))
+                or P.manages(pid, "bot", slug, people, configs, archived, bare))))
             policy = {"can_manage": manager, "bot_owners": bot_owner_rows(c, registry, slug, people, configs, archived)}
             if manager:
                 policy["access_policy"] = A.document(registry["access_json"] if registry else None)
@@ -1988,7 +1989,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "reports_to": reports, "my_access": level, **policy,
                              "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                              "team": P.team_of(slug, configs, people),
-                             "org_parent": P.org_parent("bot", slug, people, chart, archived),
+                             "org_parent": P.org_parent("bot", slug, people, chart, archived, bare),
                              **ceo_bot.chart_hidden_row(slug, hide_ceo),
                              "report_position": places.get("bot:" + slug),
                              "operator": registry["operator"] if registry else None,
@@ -2001,8 +2002,6 @@ def install_views(app, store, auth, mutate, task_view):
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
             config = {k: v for k, v in config.items() if k not in ("cwd", "env", "token", "secrets")}
-            from .routines import listing
-            config['schedules'] = listing(c, slug, summary=True)
             location = machine(c, slug)
             # Read-only, for the quiet runtime label beside a bot's name; empty when nothing resolves.
             try:
@@ -2032,7 +2031,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
                          "gateway_department": gateway_tiers.department_of(departments.of("bot:" + slug)),
-                         "org_parent": P.org_parent("bot", slug, people, chart, archived),
+                         "org_parent": P.org_parent("bot", slug, people, chart, archived, bare),
                          **ceo_bot.chart_hidden_row(slug, hide_ceo),
                          "report_position": places.get("bot:" + slug),
                          "operator": registry["operator"] if registry else None,
@@ -2112,7 +2111,8 @@ def install_views(app, store, auth, mutate, task_view):
             r, configs = roster(c), entries(c)
             from . import people_photos
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            view = P.org_view(r, configs, archived)
+            bare = True                    # a bot's bare person id in reports_to is that person (backend/people.py)
+            view = P.org_view(r, configs, archived, bare_people=bare)
             # The CEO Bot switch hangs the Heads' groups under it on the chart (backend/ceo_bot.py).
             from . import ceo_bot
             hide_ceo = ceo_bot.hidden_for(c, who)          # this person hid it from their chart: nothing moves
@@ -2124,7 +2124,7 @@ def install_views(app, store, auth, mutate, task_view):
             from . import lifecycle
             seats = lifecycle.chart_seats(c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])
             return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "seats": seats, "people": [{
-                **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
+                **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived, bare),
                 "report_position": places.get("human:" + p["id"]),
                 **({"photo_url": "/api/humans/" + p["id"] + "/photo"}
                    if people_photos.may_have(store.settings, p.get("email"), p.get("photo")) else {}),
@@ -2321,7 +2321,7 @@ def install_views(app, store, auth, mutate, task_view):
             health = c.execute("SELECT * FROM service_health WHERE service='scheduler'").fetchone()
             tick = health["last_success"] if health else None
             age = max(0, (H.parse_ts(H.now()) - H.parse_ts(tick)).total_seconds()) if tick else None
-            active, queued, schedules = [], [], []
+            active, queued = [], []
             # Cancelled and uncertain jobs are not "up next": uncertain work already
             # surfaces as a health issue, cancelled work is history.
             readable = auth.bot_accesses(c, who)
@@ -2347,11 +2347,9 @@ def install_views(app, store, auth, mutate, task_view):
                         "state": row["state"], "created": row["created"],
                         "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
                 (queued if row["state"] == "queued" else active).append(item)
-            from .routines import listing
-            schedules = [{**row, 'last_checked': tick} for row in listing(c, summary=True) if readable.get(row['bot'], auth.FULL)['read']]
             return {"cloud": True, "last_tick": tick, "active": active, "queued": queued,
                     "recent_runs": [], "keeper_alive": age is not None and age < 60,
-                    "dispatcher_alive": False, "tick_age_s": age, "server_time": H.now(), "schedules": schedules,
+                    "dispatcher_alive": False, "tick_age_s": age, "server_time": H.now(),
                     "health_issues": operation_issues(c, who, auth)}
 
     @app.get("/api/runs")
