@@ -1,5 +1,5 @@
 /* ui/styles/automations.css — Automations (redesign, ui/app/automations*.js): the list, the flow, the editor, runs and
-   the Automations Bot. A computer shows list | flow | editor-or-bot; a phone shows one screen at a time
+   the BotOps chat. A computer shows list | flow | editor-or-bot; a phone shows one screen at a time
    (#au-root[data-screen]: list, detail, bot) and the editor as a sheet.
    The cascade runs in the order index.html links these files; keep rules in order. */
 #main.au-layout{max-width:none;padding:0;overflow:hidden;height:100%}
@@ -104,7 +104,7 @@ button.au-chip:hover{background:var(--surface2)}
 .au-menu button:hover:not(:disabled),.au-menu button:focus-visible{background:var(--surface2)}
 .au-menu .nav-icon{font-size:17px;width:18px;height:18px;color:var(--muted)}
 
-/* the side: an editor, else the Automations Bot */
+/* the side: an editor, else the BotOps chat */
 .au-side{display:flex;flex-direction:column;min-height:0;min-width:0;border-left:1px solid var(--line)}
 .au-scrim{display:none}
 .au-grab{display:none}
@@ -145,7 +145,7 @@ button.au-chip:hover{background:var(--surface2)}
 .au-vr .muted{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .au-vr>:not(.muted){flex:none}
 
-/* the Automations Bot */
+/* the BotOps chat */
 .au-botp{display:flex;flex-direction:column;min-height:0;height:100%}
 .au-bh{display:flex;align-items:center;gap:8px;padding:12px 16px;min-height:53px;box-sizing:border-box;border-bottom:1px solid var(--line)}
 .au-bh h2{margin:0;font-size:var(--t-md);font-weight:600}

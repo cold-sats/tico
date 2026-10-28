@@ -1,46 +1,54 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Mail triaged on arrival, drafts sent in batches",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
-        "type": "listening",
-        "destination": "market"
+        "type": "message",
+        "inbox": "dana@acme.example"
       },
       "steps": [
         {
           "id": "triage",
           "type": "decide",
           "enabled": true,
-          "set": "listening-item@5",
+          "set": "mail-triage@1",
           "level": "low",
           "out": "d1"
         },
         {
-          "id": "pick",
+          "id": "sort",
           "type": "filter",
           "enabled": true,
           "rules": [
             {
               "when": [
                 {
-                  "field": "d1.market",
+                  "field": "d1.bucket",
                   "op": "is",
-                  "value": "yes",
+                  "value": "reply",
                   "min": 0.7
                 }
               ],
               "then": [
                 {
-                  "do": "create_task",
-                  "args": {
-                    "title": "Market post to review"
-                  }
+                  "do": "draft_reply",
+                  "args": {}
                 }
               ],
               "stop": true
             }
           ]
         }
-      ]
+      ],
+      "batch": {
+        "times": [
+          "08:00",
+          "13:00",
+          "17:00"
+        ]
+      }
     }
   ]
 }

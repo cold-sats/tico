@@ -9,7 +9,6 @@
     {"name": "coo", "display_name": "Assistant", "org_parent": "", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "botops", "display_name": "BotOps", "org_parent": "", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "librarian", "display_name": "Librarian", "org_parent": "", "host": "keeper", "status": "active", "can_chat": true},
-    {"name": "automations-bot", "display_name": "Automations Bot", "org_parent": "", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "mail-sorter", "display_name": "Mail Sorter", "org_parent": "", "helper": true, "host": "keeper", "status": "active", "can_chat": true},
     {"name": "goal-manager", "display_name": "Strategy Bot", "role": "Strategy", "org_parent": "p:ana", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "release", "display_name": "Release Manager", "role": "Releases", "org_parent": "p:ana", "host": "keeper", "status": "active", "can_chat": true},

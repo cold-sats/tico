@@ -111,21 +111,23 @@ def test_a_change_to_what_it_does_is_a_version_a_rename_or_pause_is_not(api):
     assert all(r["actor"] == "human:ana" for r in rows)
 
 
-def test_the_automations_bot_proposes_and_a_person_restores_or_discards(api):
+def test_a_bot_proposes_and_a_person_restores_or_discards(api):
     turn_on(api)
     aid = make(api)["id"]
-    helper = as_bot(api, "automations-bot")
-    assert get(api, f"automations/{aid}", helper)["can_edit"] is False          # it sees every automation
-    patch(api, aid, {"enabled": False}, helper, expected=403)                   # it changes none
-    proposed = patch(api, aid, {"trigger": EVENING, "summary": "Evenings instead"}, helper)
-    assert proposed["pending"] == 2 and proposed["version"] == 1 and proposed["trigger"]["cron"] == "0 9 * * *"
-    second = patch(api, aid, {"steps": [NOTE_STEP | {"args": {"bot": "ops", "text": "Again"}}]}, helper)["pending"]
+    bot = as_bot(api, "finance")
+    get(api, f"automations/{aid}", bot, expected=403)                            # not its own, so not shown
+    patch(api, aid, {"enabled": False}, bot, expected=403)                      # and not changed
+    proposed = patch(api, aid, {"trigger": EVENING, "summary": "Evenings instead"}, bot)
+    assert proposed == {"id": aid, "pending": 2, "can_edit": False}
+    assert get(api, f"automations/{aid}")["trigger"]["cron"] == "0 9 * * *"
+    second = patch(api, aid, {"steps": [NOTE_STEP | {"args": {"bot": "ops", "text": "Again"}}]}, bot)["pending"]
     pending = get(api, f"automations/{aid}/versions?status=pending")["versions"]
-    assert [(v["n"], v["actor"], v["status"]) for v in pending] == [(3, "bot:automations-bot", "pending"),
-                                                                   (2, "bot:automations-bot", "pending")]
-    post(api, f"automations/{aid}/versions/2/restore", {}, helper, expected=403)
+    assert [(v["n"], v["actor"], v["status"]) for v in pending] == [(3, "bot:finance", "pending"),
+                                                                   (2, "bot:finance", "pending")]
+    post(api, f"automations/{aid}/versions/2/restore", {}, bot, expected=403)
     live = post(api, f"automations/{aid}/versions/2/restore", {})
     assert live["version"] == 2 and live["trigger"]["cron"] == "0 18 * * *"   # it keeps its number
+    assert api.delete(f"/api/v2/automations/{aid}/versions/{second}", headers=headers(bot)).status_code == 403
     r = api.delete(f"/api/v2/automations/{aid}/versions/{second}", headers=headers())
     assert r.status_code == 200 and r.json()["version"] == 2
     assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
@@ -326,37 +328,14 @@ def test_the_librarian_gets_the_market_builtins_which_stand_down_for_the_teams_o
         assert automations.fire(c, "schedule", {"schedule": {}}, "schedule:x", only="auto_builtin_market_briefing") == []
 
 
-def test_the_automations_bot_makes_a_draft_for_the_person_it_talks_to(api, monkeypatch):
-    """A new automation from the bot is that person's draft: off, version 1 pending, checked with their rights, and it
-    runs only after Turn on (the first pending version's restore). Its chat turn is what `_asker` reads from the attempt;
-    here the person it names is given directly, and a bot with no chat turn gets no draft at all."""
-    from backend import automations
+def test_a_bot_may_not_make_an_automation_it_may_not_change(api):
+    """A bot's own call to make an automation it may not change is refused (only BotOps, acting for it, saves a draft:
+    test_botops_automations). One it may make (its own) is saved as asked."""
     turn_on(api)
-    helper = as_bot(api, "automations-bot")
-    post(api, "automations", flow(), helper, expected=403)                       # no chat turn, no person
-    monkeypatch.setattr(automations, "_asker", lambda c, auth, who: auth.identity_for_actor(c, "human:ana"))
-    draft = post(api, "automations", flow(), helper)
-    aid = draft["id"]
-    assert draft["enabled"] is False and draft["owner"] == "person:ana" and draft["builtin"] is False
-    assert [(v["n"], v["status"]) for v in get(api, f"automations/{aid}/versions")["versions"]] == [(1, "pending")]
-    listed = [a for a in get(api, "automations")["automations"] if a["id"] == aid]
-    assert listed[0]["pending"] == 1
-    post(api, "automations", flow(owner="person:omar"), helper, expected=403)     # not for someone else
-    post(api, f"automations/{aid}/run", {}, helper, expected=403)
-    post(api, f"automations/{aid}/delete", {}, helper, expected=403)
-    post(api, f"automations/{aid}/versions/1/restore", {}, helper, expected=403)
-    assert api.delete(f"/api/v2/automations/{aid}/versions/1", headers=headers(helper)).status_code == 403
-    on = post(api, f"automations/{aid}/versions/1/restore", {})                 # Turn on: the draft is live
-    assert on["enabled"] is True and on["version"] == 1
-    assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
-    assert [r["actor"] for r in audit_rows(api, aid)][:1] == ["human:ana"]
-
-
-def test_the_bot_proposes_for_a_person_only_as_far_as_that_person_may(api, monkeypatch):
-    from backend import automations
-    turn_on(api)
-    aid = make(api)["id"]
-    helper = as_bot(api, "automations-bot")
-    monkeypatch.setattr(automations, "_asker", lambda c, auth, who: auth.identity_for_actor(c, "human:ben"))
-    patch(api, aid, {"trigger": EVENING, "summary": "Evenings"}, helper, expected=403)   # ben may not change ana's
-    assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
+    bot = as_bot(api, "finance")
+    post(api, "automations", flow(), bot, expected=403)
+    post(api, "automations", flow(builtin=True), bot, expected=403)
+    assert [a["id"] for a in get(api, "automations")["automations"] if a["owner"] == "person:ana"
+            and not a["builtin"]] == []
+    own = post(api, "automations", flow(owner="bot:finance"), bot)
+    assert own["enabled"] is True and own["can_edit"] is True                   # a bot's own: no BotOps, so on

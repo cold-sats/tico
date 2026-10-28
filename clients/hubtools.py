@@ -2885,8 +2885,15 @@ def automation_question_sets(api, args):
     return _as_person(api).get("automations/question-sets")
 
 
+@tool("hub_automation_guide", "How BotOps builds and edits automations: the rules and the flow format (triggers, "
+      "steps, actions and their args), generated from the hub's code. Read it before creating or updating one.", {})
+def automation_guide(api, args):
+    return _as_person(api).get("automations/guide")
+
+
 @tool("hub_automation_create", "Save a new automation (version 1). Checked on save: a bad flow is refused with why. "
-      "The Automations Bot saves a draft instead: off, its first version pending, for the person it is talking to.",
+      "BotOps saves it off unless `enabled` is sent. A bot without rights to it saves a proposal: off, its first "
+      "version pending, for a person to turn on.",
       {k: v for k, v in _AUTO_FIELDS.items()}, required=("name", "owner", "trigger"), writes=True)
 def automation_create(api, args):
     body = {k: args[k] for k in _AUTO_FIELDS if k in args}

@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Draft replies to investors, leave money for the owner",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "message",
         "inbox": "dana@acme.example"

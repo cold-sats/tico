@@ -1,7 +1,7 @@
 /* ui/app/redesign-org.js — Strategy › Org (redesign PLAN §6 wave 6): the org chart, top down, the same chart on a phone
    (pinch and pan) and a desktop. The owner on top; under them the teammates outside groups and every top-level group,
    a group a dashed outline with its name on a tab that folds it. Inside a group the lead comes first and teammates hang
-   under whoever they report to. Helpers (BotOps, the Librarian, the Automations Bot, Assistants, message bots) are off
+   under whoever they report to. Helpers (BotOps, the Librarian, Assistants, message bots) are off
    the chart. Tapping a teammate opens a sheet: their home group and Move to…. The owner and the leads above both groups
    move them at once (PATCH /api/v2/groups/{id}); anyone else's move is a proposal (POST /api/v2/approvals, kind `org`),
    and proposals waiting on the viewer show as one row on top with Approve and Decline (redesign CONTRACT §3, §5).

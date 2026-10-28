@@ -1,31 +1,32 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Archive receipts",
+      "owner": "person:dana",
+      "enabled": true,
       "trigger": {
         "type": "message",
-        "inbox": "slack:#sales"
+        "inbox": "dana@acme.example"
       },
       "steps": [
         {
-          "id": "sort",
+          "id": "receipts",
           "type": "filter",
           "enabled": true,
           "rules": [
             {
               "when": [
                 {
-                  "field": "message.text",
+                  "field": "message.subject",
                   "op": "contains",
-                  "value": "refund"
+                  "value": "receipt"
                 }
               ],
+              "match": "all",
               "then": [
                 {
-                  "do": "create_task",
-                  "args": {
-                    "owner": "person:priya",
-                    "title": "Refund mentioned in #sales"
-                  }
+                  "do": "archive",
+                  "args": {}
                 }
               ],
               "stop": true

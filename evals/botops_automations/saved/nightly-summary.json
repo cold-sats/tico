@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Weekday summary posted to updates",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "schedule",
         "cron": "0 18 * * 1-5"

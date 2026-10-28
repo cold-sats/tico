@@ -107,23 +107,12 @@ def automations(world):
                    steps=[_node("tell", "action", do="note", args={"text": "Standup"})]), "Standup notes")
 
 
-AUTOMATIONS_BOT = "automations-bot-test"
-
-
 @seed("bot_proposal")
 def bot_proposal(world):
-    """The Automations Bot's proposal on Inbox triage (after `automations`): a pending version that archives receipts
-    first, written as the bot writes it (PATCH as bot:automations-bot). No model runs."""
-    from backend.auth import Identity
-    from .harness import DANA, rows
-    from backend.store import H
-    # Signed in as backend/tests/test_automation_api.py as_bot signs it in: the bot's row and its agent credential.
-    world.app.state.auth.settings.test_identities[AUTOMATIONS_BOT] = Identity("bot:automations-bot", "bot", agent="test")
-    with world.store.transaction() as c:
-        c.execute("INSERT OR IGNORE INTO bots(slug,display_name,runtime,created) VALUES(?,?,'fake',?)",
-                  ("automations-bot", "Automations Bot", H.now()))
-        c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES(?,?,?,?,?)",
-                  ("automations-bot", "test", "x-automations-bot", H.now(), "human:dana"))
+    """A bot's proposal on Inbox triage (after `automations`): a pending version that archives receipts first, written
+    as BotOps writes it when Builder Claude asks (Builder Claude's rights, which do not reach Dana's automation, so the
+    PATCH is a proposal). No model runs."""
+    from .harness import CLAUDE, DANA, rows
     listed = _ok(world.api("get", "/api/v2/automations", who=DANA), "list")
     auto = next(a for a in rows(listed) if a.get("name") == "Inbox triage")
     full = _ok(world.api("get", f"/api/v2/automations/{auto['id']}", who=DANA), "read")
@@ -135,7 +124,7 @@ def bot_proposal(world):
                 "then": [{"do": "archive", "args": {}}], "stop": True}
     steps[0] = {**steps[0], "rules": [receipts, *steps[0]["rules"]]}
     _ok(world.api("patch", f"/api/v2/automations/{auto['id']}", {"steps": steps, "summary": "Archive receipts first"},
-                  who=AUTOMATIONS_BOT), "proposal")
+                  who=CLAUDE), "proposal")
 
 
 @seed("groups")

@@ -1,51 +1,49 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Market posts from listening become tasks",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
-        "type": "message",
-        "inbox": "dana@acme.example"
+        "type": "listening",
+        "destination": "market"
       },
       "steps": [
         {
           "id": "triage",
           "type": "decide",
           "enabled": true,
-          "set": "mail-triage@1",
+          "set": "listening-item@5",
           "level": "low",
           "out": "d1"
         },
         {
-          "id": "sort",
+          "id": "pick",
           "type": "filter",
           "enabled": true,
           "rules": [
             {
               "when": [
                 {
-                  "field": "d1.bucket",
+                  "field": "d1.market",
                   "op": "is",
-                  "value": "reply",
+                  "value": "yes",
                   "min": 0.7
                 }
               ],
               "then": [
                 {
-                  "do": "draft_reply",
-                  "args": {}
+                  "do": "create_task",
+                  "args": {
+                    "title": "Market post to review"
+                  }
                 }
               ],
               "stop": true
             }
           ]
         }
-      ],
-      "batch": {
-        "times": [
-          "08:00",
-          "13:00",
-          "17:00"
-        ]
-      }
+      ]
     }
   ]
 }

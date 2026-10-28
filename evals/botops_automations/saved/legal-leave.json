@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Legal threats left for the owner",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "message",
         "inbox": "dana@acme.example"

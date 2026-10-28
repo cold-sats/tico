@@ -1,19 +1,14 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Refund mentions in #sales become Priya's tasks",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "message",
-        "inbox": "dana@acme.example"
+        "inbox": "slack:#sales"
       },
       "steps": [
-        {
-          "id": "triage",
-          "type": "decide",
-          "enabled": true,
-          "set": "mail-triage@1",
-          "level": "low",
-          "out": "d1"
-        },
         {
           "id": "sort",
           "type": "filter",
@@ -22,17 +17,17 @@
             {
               "when": [
                 {
-                  "field": "d1.bucket",
-                  "op": "is",
-                  "value": "route",
-                  "min": 0.7
+                  "field": "message.text",
+                  "op": "contains",
+                  "value": "refund"
                 }
               ],
               "then": [
                 {
-                  "do": "forward",
+                  "do": "create_task",
                   "args": {
-                    "to": "omar@acme.example"
+                    "owner": "person:priya",
+                    "title": "Refund mentioned in #sales"
                   }
                 }
               ],

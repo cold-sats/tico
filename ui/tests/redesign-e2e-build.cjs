@@ -1,4 +1,4 @@
-// Journey 3 on a real hub (redesign TESTING.md §L3): + New, then Blank (New without waiting on the Automations Bot):
+// Journey 3 on a real hub (redesign TESTING.md §L3): + New opens BotOps, then Blank (New without waiting on BotOps):
 // the hub has an off "New automation" of Dana's, weekdays at 9, no steps, open in the editor. Each "+" adds a step in a
 // sheet (Filter, then Decide, then an LLM prompt); each save is a version on the hub; History lists them and restoring
 // v1 brings back the empty flow as a new version. Phone, then desktop.

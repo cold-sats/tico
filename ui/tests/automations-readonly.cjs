@@ -47,7 +47,7 @@ async function readOnly(page, writes) {
     {
       const {page, errors, writes, db} = await openAutomations(browser, {viewport: DESKTOP, viewer: 'priya', hash: '#/automations/au_inbox'});
       await readOnly(page, writes);
-      db.versions.au_inbox.push({n: 8, actor: 'bot:automations-bot', at: new Date().toISOString(), status: 'pending', summary: 'Archive receipts before triage',
+      db.versions.au_inbox.push({n: 8, actor: 'bot:support', at: new Date().toISOString(), status: 'pending', summary: 'Archive receipts before triage',
         flow: {trigger: db.list[0].trigger, steps: db.list[0].steps}});
       await page.locator('.au-row[data-row="au_tasks"] a').click();
       await page.waitForSelector('.au-hd .au-name:text("Task triage")');

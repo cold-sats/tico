@@ -1,6 +1,6 @@
 """Who may see and change an automation (backend/automations.py `may_change`), one rule for the UI, the CLI and MCP:
 the top of the org; the owner; anyone above the owner; the lead of its group and anyone above that lead. Peers are
-refused, and seeing follows the same rule (the Automations Bot sees every one, to propose)."""
+refused, and seeing follows the same rule. BotOps has whoever asked it's rights (test_botops_automations.py)."""
 from backend import automations as AU
 from backend.auth import Identity
 from backend.tests.test_api import api, get, headers, post  # noqa: F401
@@ -73,7 +73,7 @@ def test_seeing_follows_the_same_rule_on_every_surface(api):
     post(api, f"automations/{aid}/run", {}, "cara-test", expected=403)
     assert api.delete(f"/api/v2/automations/{aid}", headers=headers("cara-test")).status_code == 403
     assert get(api, f"automations/{aid}", as_bot(api, "ops"))["can_edit"] is True
-    assert get(api, "automations", as_bot(api, "automations-bot"))["automations"][0]["can_edit"] is False
+    assert get(api, "automations", as_bot(api, "finance"))["automations"] == []
 
 
 def test_automations_follow_their_owner_into_a_new_group(api):
@@ -89,3 +89,20 @@ def test_automations_follow_their_owner_into_a_new_group(api):
     moved = get(api, f"automations/{aid}")
     assert moved["group"] == f"group:{rel}" and moved["version"] == 1
     assert get(api, f"automations/{other}")["group"] == f"group:{eng}"
+
+
+def test_a_chat_may_name_only_an_automation_its_writer_can_see(api):
+    """A chat's refs.automation (BotOps edits the open one): an unsupported kind while the redesign is off; on, the
+    automation must exist and the writer must be able to see it, the rule GET /api/v2/automations/{aid} applies."""
+    chat = {"text": "Change this one", "refs": {"automation": "auto_missing"}}
+    refused = api.post("/api/v2/chat/ops", json=chat, headers=headers())
+    assert refused.status_code == 422 and "Unsupported reference kind: automation" in refused.text, refused.text
+    turn_on(api)
+    aid = post(api, "automations", {"name": "Ops", "owner": "bot:ops", "trigger": {"type": "event", "name": "x.y"},
+                                    "steps": []})["id"]
+    named = {"text": "Change this one", "refs": {"automation": aid}}
+    assert api.post("/api/v2/chat/ops", json=named, headers=headers()).status_code == 200
+    unknown = api.post("/api/v2/chat/ops", json=chat, headers=headers())
+    assert unknown.status_code == 422 and "Unknown automation" in unknown.text, unknown.text
+    peer = api.post("/api/v2/chat/ops", json=named, headers=headers("cara-test"))
+    assert peer.status_code == 422 and "Unknown automation" in peer.text, peer.text
