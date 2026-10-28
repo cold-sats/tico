@@ -254,10 +254,10 @@ def inventory(c, settings, auth, who, aliases=None):
 def custom_page(item):
     return {"service": item["service"], "title": item["title"], "kind": "mcp" if any(connection.get("mcp") for connection in item["connections"]) else "api",
             "summary": "Configured by a bot",
-            "access": "See the bot's Tools for scope and connection status", "credentials": [], "declared_as": "",
+            "access": "", "credentials": [], "declared_as": "",
             "writes": "allowed" if any(verb not in READ_VERBS
                                        for connection in item["connections"] for verb in connection["can"]) else "never", "owner": "owner", "aliases": [], "queries": [], "query_count": 0,
-            "body": "## Bots\n\n" + "\n".join("- " + bot for bot in item["bots"]), **item}
+            "body": "", **item}   # who has it is Library › Tools' Access card
 
 
 def learnings(c, service):

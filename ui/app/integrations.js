@@ -66,7 +66,7 @@ async function integrationDetail(service, load, {base = RD_TOOLS, head = '', fac
     <section class="card"><dl class="int-meta">${metaRow('Via', esc(page.access))}
       <dt>Writes</dt><dd>${toolWritePill(page.writes)} · owner ${esc(page.owner)}${page.aliases?.length ? ' · also <span class="mono">' + page.aliases.map(esc).join(', ') + '</span>' : ''}</dd>
       ${metaRow('Declared as', page.declared_as.trim() && `<pre class="mono">${esc(page.declared_as.trim())}</pre>`)}</dl></section>
-    <section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>
+    ${page.body?.trim() ? `<section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>` : ''}
     ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2></header>
       <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search queries" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
     <section class="card" id="int-learnings"><header><h2>Learnings <span class="muted" data-learning-count>${page.learnings.length}</span></h2></header>

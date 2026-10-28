@@ -251,8 +251,10 @@ function lcAccessHTML(item) {
   // Many teammates: each team folds; the team the list is narrowed to (and the teams under it) open, else the first.
   const many = lines.length > 24, picked = LC.filter.who.startsWith('group:') ? groups.find(g => g.id === LC.filter.who.slice(6)) : null;
   const opened = picked ? new Set([...byTeam.keys()].filter(label => label === path(picked) || label.startsWith(path(picked) + ' › '))) : null;
+  const sorted = xs => xs.sort((a, b) => a.sort.localeCompare(b.sort)).map(x => x.html).join('');
+  if (teams.length === 1 && teams[0][0] === 'No team') return sorted(teams[0][1]);   // no teams to tell apart
   return teams.map(([label, xs], i) => `<details class="lc-team"${!many || (opened?.size ? opened.has(label) : i === 0) ? ' open' : ''}><summary><span>${esc(label)}</span><span class="muted">${xs.length}</span></summary>
-    ${xs.sort((a, b) => a.sort.localeCompare(b.sort)).map(x => x.html).join('')}</details>`).join('');
+    ${sorted(xs)}</details>`).join('');
 }
 // One stored credential: name and variable, whether a value is stored, when a bot last used it, and what may be done.
 function lcCredHTML(cred) {
