@@ -105,7 +105,7 @@ async function shot(target, name) {
     await pick.locator('.tl-title').click();
     const dc = page.locator('#need-card .dc-card[data-key="task:t-pick"]');
     await dc.waitFor();
-    assert.ok((await page.locator('#need-card .dc-count').textContent()).includes('Decide'));
+    assert.equal((await dc.locator('.dc-who .pill.needs').textContent()).trim(), 'Decide');
     const dcRec = page.locator('.decide .dc-actions [data-dc="recommend"]');
     assert.ok((await dcRec.textContent()).includes('Do what you recommend'));
     assert.match(await dc.locator('.need-folded').innerText(), /Also waiting on this[\s\S]*Switch the payroll vendor/i);

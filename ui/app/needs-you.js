@@ -70,19 +70,21 @@ async function needsRecommend(button, ask, version) {
   } catch (e) { toast(e.message, true); button.disabled = false; button.textContent = label; }
 }
 // One line in Needs you for an item outside any task (an approval, a question, the Stale tickets card): who asks, what,
-// and its kind. A click opens its card (decide.js); nothing unfolds in the list. Its key is the card's.
-function needRowHTML(it) {
+// and its kind. A click opens its card (decide.js); nothing unfolds in the list. Its key is the card's. It keeps the
+// task rows' columns (task-list.js taskListRowHTML), with nothing to select and no status.
+function needRowHTML(it, ctx = {}) {
   const key = decideItemKey(it), stale = it.kind === 'stale';
   const from = stale ? '' : taskRequester(it) || it.requester || '';
   const name = stale ? 'Tico' : actorLabel(from) || 'Tico';
   const title = stale ? it.title || 'Stale tickets' : approvalTitle(it) || it.first_line || it.title || v2Firstline(it.body) || V2_KIND[it.kind] || 'Item';
   const kind = it.kind === 'approval' ? 'Approval' : stale ? 'Stale check' : 'Question';
   const face = stale ? personCircle('Tico', 18) : actorFace(from, 18);
-  return tasksSigned(`<div class="tl-row need-row" data-task-key="n${esc(key)}" data-need-card="${esc(key)}" role="listitem" aria-level="1" style="--depth:0">
-    <span class="tl-check-pad"></span><span class="tl-chev-pad"></span>
+  return tasksSigned(`<div class="tl-row tl-need" data-task-key="n${esc(key)}" data-need-card="${esc(key)}" role="listitem" aria-level="1" style="--depth:0">
+    <span class="tl-check-pad${ctx.select ? ' tl-check-room' : ''}"></span><span class="tl-chev-pad"></span>
     <button type="button" class="tl-open" data-open-task="n${esc(key)}" tabindex="-1" aria-haspopup="dialog"><span class="tl-title"><b class="req-from">${esc(name)}:</b> ${esc(plainActors(title))}</span></button>
     <span class="tl-fill"></span>
     <span class="tl-chips"><span class="pill needs">${esc(kind)}</span>${stale && (it.rows || []).length ? `<span class="tl-folded tnum">${(it.rows || []).length}</span>` : ''}</span>
+    ${ctx.by === 'status' ? '' : '<span class="tl-status-pad"></span>'}
     <span class="tl-people"><span class="tl-face" title="${esc(name)}">${face}</span></span>
     <time class="tl-age tnum" datetime="${esc(it.ready_since || it.created || '')}" title="${esc(fmt(it.ready_since || it.created))}">${esc(ageShort(it.ready_since || it.created))}</time>
   </div>`);

@@ -559,7 +559,7 @@ function tasksListHTML(items, state) {
   const byNeed = by === 'need' && queue;
   const lead = cards ? needsExtras() : [];
   const asks = lead.length && !byNeed ? `<section class="tl-group" data-group="asks"><header class="tl-ghead"><span class="tl-gname">Approvals and questions</span><span class="tl-gcount tnum">${lead.length}</span></header>
-    <div class="tl-rows" role="list" aria-label="Approvals and questions">${lead.map(needRowHTML).join('')}</div></section>` : '';
+    <div class="tl-rows" role="list" aria-label="Approvals and questions">${lead.map(it => needRowHTML(it, {by, select: tasksCanSelect()})).join('')}</div></section>` : '';
   const extra = new Map();
   if (byNeed) for (const it of lead) {
     const k = 'need:' + (it.need || 'do');
@@ -614,7 +614,7 @@ function tasksListHTML(items, state) {
 // A need group: its items outside any task among its tasks, all in the server's order.
 function tasksNeedRowsHTML(more, tops, ctx) {
   const at = id => needsIndex().byId.get(String(id))?.i ?? Infinity;
-  return [...more.map(it => [at(it.id), needRowHTML(it)]), ...tops.map(it => [at(it.id), taskListRowHTML(it, ctx)])]
+  return [...more.map(it => [at(it.id), needRowHTML(it, ctx)]), ...tops.map(it => [at(it.id), taskListRowHTML(it, ctx)])]
     .sort((a, b) => a[0] - b[0]).map(r => r[1]).join('');
 }
 // Done: everything finished, newest first, a page at a time (routine runs live under Recurring).

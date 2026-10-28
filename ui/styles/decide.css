@@ -15,12 +15,12 @@
 .dc-head{display:grid;grid-template-columns:80px 1fr 80px;align-items:center;min-height:52px}
 .dc-icon{display:grid;place-items:center;width:40px;height:40px;padding:0;border:0;border-radius:8px;background:none;color:var(--ink);cursor:pointer}
 .dc-icon .nav-icon{width:24px;height:24px;font-size:24px}
+.dc-x{font-size:18px;line-height:1}
 .dc-icon:hover:not(:disabled){background:var(--surface2)}
 .dc-icon:disabled{color:var(--muted);opacity:.4;cursor:default}
 .dc-head>.dc-icon{justify-self:start;margin-left:-8px}
 .dc-nav{justify-self:end;display:flex;margin-right:-8px}
 .dc-count{margin:0;text-align:center;font-size:var(--t-md);font-weight:650;line-height:1.2}
-.dc-count small{display:block;font-size:var(--t-xs);font-weight:500;color:var(--muted)}
 
 .dc-stage{flex:1 1 auto;min-height:0;position:relative}
 .dc-card{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;touch-action:pan-y;

@@ -102,7 +102,7 @@ function decideDialog() {
   d.id = 'need-card'; d.className = 'dc-dialog'; d.setAttribute('aria-label', 'Needs you');
   d.innerHTML = `<section class="decide">
     <header class="dc-head">
-      <button type="button" class="dc-icon" data-dc="close" aria-label="Close" title="Close"><span class="nav-icon" aria-hidden="true">close</span></button>
+      <button type="button" class="dc-icon dc-x" data-dc="close" aria-label="Close" title="Close (Esc)">✕</button>
       <h2 class="dc-count" aria-live="polite"></h2>
       <span class="dc-nav"><button type="button" class="dc-icon" data-dc="prev" aria-label="Previous" title="Previous (←)"><span class="nav-icon" aria-hidden="true">chevron_left</span></button><button type="button" class="dc-icon" data-dc="next" aria-label="Next" title="Next (→)"><span class="nav-icon" aria-hidden="true">chevron_right</span></button></span>
     </header>
@@ -277,7 +277,7 @@ function decidePaintHead(st) {
   if (!root) return;
   const live = decideLive(st), at = live.indexOf(st.at), c = decideCurrent(st);
   if (live.length - at <= DEC_MORE_AT) void needsMoreShow();     // the next page of cards, before the last one is reached
-  $('.dc-count', root).innerHTML = c ? `<span class="tnum">${at + 1} of ${live.length}</span><small>${esc(needLabel(c.it.need || 'decide'))}</small>` : '';
+  $('.dc-count', root).innerHTML = c ? `<span class="tnum">${at + 1} of ${live.length}</span>` : '';
   $('[data-dc="prev"]', root).disabled = !c || at <= 0;
   $('[data-dc="next"]', root).disabled = !c || at >= live.length - 1;
 }
@@ -302,7 +302,8 @@ function decideRender(st, enter = false) {
   const name = from === 'keeper' ? 'Tico' : actorLabel(from) || 'Tico', chat = decideChatHref(from);
   const origin = c.type === 'pick' ? '' : decideFromPerson(c.it, from);
   // A bot's face and name open the bot, as the side rail does; the face is a second way in for the pointer, the name the one for keys.
-  const face = chat ? `<a class="dc-who-face" href="${esc(chat)}" tabindex="-1" aria-hidden="true">${actorFace(from, 32)}</a>` : actorFace(from, 32);
+  const face = chat ? `<a class="dc-who-face" href="${esc(chat)}" tabindex="-1" aria-hidden="true">${actorFace(from, 32)}</a>`
+    : from === 'keeper' ? personCircle('Tico', 32) : actorFace(from, 32);
   const sub = c.type === 'pick' ? qcardSub(c.it) : c.type === 'approve' ? plainActors(approvalTitle(c.it) || c.it.title || '')
     : c.type === 'ask' ? `Question for you · ${ageShort(c.it.created)}` : c.type === 'stale' ? `Stale check · ${ageShort(c.it.created)}` : decideMeta(c.it);
   // A card the note goes with: a comment on a task, a note with a decision, the answer to a question.
