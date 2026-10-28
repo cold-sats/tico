@@ -34,18 +34,20 @@ def _row(r):
 
 
 def rows(c, obj=None, actor=None, limit=LIMIT, before=None):
-    """Newest first, paged by `before` (a row's `at`)."""
+    """Newest first, paged by `before`: the last row's `<at>|<id>`, so rows sharing a time are never skipped."""
     sql, args = "SELECT * FROM audit_log WHERE 1=1", []
     for column, value in (("object", obj), ("actor", actor)):
         if value:
             sql += f" AND {column}=?"
             args.append(value)
     if before:
-        sql += " AND at<?"
-        args.append(before)
+        at, _, row_id = before.partition("|")
+        sql += " AND (at<? OR (at=? AND id<?))"
+        args += [at, at, row_id]
     limit = max(1, min(int(limit or LIMIT), 200))
-    found = [_row(r) for r in c.execute(sql + " ORDER BY at DESC LIMIT ?", (*args, limit + 1))]
-    return {"rows": found[:limit], "next": found[limit - 1]["at"] if len(found) > limit else None}
+    found = [_row(r) for r in c.execute(sql + " ORDER BY at DESC, id DESC LIMIT ?", (*args, limit + 1))]
+    last = found[limit - 1] if len(found) > limit else None
+    return {"rows": found[:limit], "next": last and last["at"] + "|" + last["id"]}
 
 
 def install(app, store, auth):
