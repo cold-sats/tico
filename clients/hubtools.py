@@ -3734,6 +3734,24 @@ def team_budget(api, args):
     return _as_person(api).post("settings/turn-budgets", body, key=_key(args)) if body else _as_person(api).get("settings/turn-budgets")
 
 
+@tool("hub_task_caps", "Read the task caps (redesign on): how many tasks each teammate may create for another per day, with "
+      "today's count, the tasks closed before the receiver acted, and the refused creates. Also the changes bots asked "
+      "for, which a person approves or declines as approvals. A cap is off until someone sets one.", {})
+def task_caps_read(api, args):
+    return _as_person(api).get("task-caps")
+
+
+@tool("hub_task_cap_set", "Set how many tasks `sender` may create for `receiver` each day (teammate refs: bot:<slug> or "
+      "person:<id>). The receiver must be a manager above the sender at any level. per_day 0 blocks it; null removes the cap. "
+      "A bot's own change waits as an approval a person decides.",
+      {"sender": _s("bot:<slug> or person:<id>"), "receiver": _s("bot:<slug> or person:<id>, a manager above the sender"),
+       "per_day": {"type": ["integer", "null"], "minimum": 0, "description": "Tasks a day; null removes the cap"}},
+      ("sender", "receiver", "per_day"), writes=True)
+def task_cap_set(api, args):
+    body = {"sender": args["sender"], "receiver": args["receiver"], "per_day": args["per_day"]}
+    return _as_person(api).call("PUT", "task-caps", body, key=_key(args))
+
+
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
@@ -5358,6 +5376,8 @@ ASSISTANT_WRITES = {"hub_inbound_create_email", "hub_task_child_create", "hub_ta
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose", "hub_assistant_learn",
                     "hub_settings_set"}
 AUDIENCE = {
+    # Task caps (CONTRACT §1): people read and set them; a bot's own change is a proposal a person decides.
+    "hub_task_caps": REQUESTER_READ, "hub_task_cap_set": PEOPLE + BOTS,
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,

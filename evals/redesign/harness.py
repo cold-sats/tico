@@ -22,7 +22,7 @@ GAP = "CONTRACT gap"   # a check the CONTRACT cannot back yet: it names no route
 
 # Waves that have landed on main. The PR that merges a wave adds its label here: from then on a failing check prints
 # its detail instead of "not built yet".
-BUILT = set()
+BUILT = {W2}
 
 # Teammates: the test token each signs in with, the CONTRACT §3 ref and the bare id the API takes as an owner.
 CHRIS, LEAD, CLAUDE, OPENAI, RELEASE = "chris-test", "lead-test", "claude-test", "openai-test", "release-test"
@@ -210,7 +210,12 @@ class Org(World):
             facts[key] = unmet
 
     def redesign_on(self):
-        """Turn the redesign setting on. CONTRACT §0 names the setting but no route: this path is a placeholder."""
+        """Turn the redesign setting on in the database (backend/redesign.py `set_on`, the one switch every branch reads),
+        then ask the route for it: the route is wave 1's, so until it is registered the call is Unmet and the setting
+        check reports wave 1 while the wave 2 checks still run with the switch on."""
+        from backend import redesign
+        with self.store.transaction() as c:
+            redesign.set_on(c, True, "human:ana")
         return self.api("put", "/api/v2/settings/redesign", {"enabled": True}, wave=W1)
 
     def pass_time(self, delta):

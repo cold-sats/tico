@@ -150,11 +150,13 @@ TITLE_LINT = os.environ.get("TICO_TITLE_LINT", "warn")     # warn | refuse | off
 # the write accepted, refused only when TICO_STYLE_LINT=refuse. Bots lost whole runs rewriting
 # for them. A missing title or approval field is structural and always refused.
 STYLE_LINT = os.environ.get("TICO_STYLE_LINT", "warn")     # warn | refuse | off
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap")
 APPROVAL_FIELDS = {"send": ("to", "cc", "subject", "body_sha256", "mailbox"),
                    "spend": ("amount", "account", "what"),
                    "publish": ("url", "content_sha256"),
                    "merge": ("repo", "pr"),
+                   # A bot's own task cap (backend/task_caps.py): the pair; per_day null asks to remove the cap.
+                   "task_cap": ("sender", "receiver"),
                    # A report to the Tico team (backend/support.py `file_approved`): the message, its hash, and whether
                    # the version and install ID go with it. Nothing else may: no email, no diagnostics bundle.
                    "support": ("message", "content_sha256")}
@@ -818,6 +820,15 @@ CREATE TABLE IF NOT EXISTS market_sources (
   created TEXT NOT NULL);
 """
 
+# Task caps (backend/task_caps.py, redesign/CONTRACT.md §1): the cap per sender and manager, every send (kept per task,
+# so a hand-over counts too), and the caps a bot proposes for a person to approve.
+TASK_CAPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_caps(sender TEXT, receiver TEXT, per_day INTEGER, updated TEXT, updated_by TEXT,
+  PRIMARY KEY(sender, receiver));
+CREATE TABLE IF NOT EXISTS task_cap_sends(task_id TEXT PRIMARY KEY, sender TEXT, receiver TEXT, sent_at TEXT);
+CREATE INDEX IF NOT EXISTS task_cap_sends_pair ON task_cap_sends(sender, receiver, sent_at);
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -834,7 +845,8 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               TRIGGERS_INCOMING_SCHEMA, HOOK_RELAY_SCHEMA,
               WEBHOOKS_SCHEMA, SLEEP_IDLE_SCHEMA,
               TICO_NOTICES_SCHEMA, WEBHOOKS_V2_SCHEMA, WEBHOOKS_V3_SCHEMA,
-              WEBHOOKS_V4_SCHEMA, WEBHOOKS_V5_SCHEMA, WEBHOOKS_V6_SCHEMA, RUN_SESSION_SCHEMA]
+              WEBHOOKS_V4_SCHEMA, WEBHOOKS_V5_SCHEMA, WEBHOOKS_V6_SCHEMA, RUN_SESSION_SCHEMA,
+              TASK_CAPS_SCHEMA]
 
 
 class Refused(Exception):

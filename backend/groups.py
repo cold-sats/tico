@@ -21,6 +21,7 @@ from . import access as Access
 from . import hubdb as H
 from . import models as M
 from . import people as P
+from . import task_caps
 from .store import Problem, encode
 
 SYSTEM_BOTS = ("assistant", "botops", "librarian", "goal-manager", "health-monitor", "task-manager")
@@ -71,8 +72,9 @@ def rows(roster, employees, archived=(), can_see=None):
         team = P.team_of(slug, employees, roster)
         if team:
             bots.setdefault(team, []).append(slug)
-    return [{"id": gid, "name": g["name"], "parent": g["parent"], "people": people.get(gid, []),
-             "bots": sorted(bots.get(gid, [])), "order": g.get("order", i), "bet_id": g.get("bet_id")}
+    return [{"id": gid, "name": g["name"], "parent": g["parent"], "lead": g.get("lead") or "",
+             "people": people.get(gid, []), "bots": sorted(bots.get(gid, [])), "order": g.get("order", i),
+             "bet_id": g.get("bet_id")}
             for i, (gid, g) in sorted(enumerate(roster["org_groups"].items()), key=lambda row: row[1][1].get("order", row[0]))]
 
 
@@ -90,6 +92,8 @@ def _save(c, roster, people=None):
 
 def _set_bot(c, slug, gid):
     declared = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0] or "{}")
+    if declared.get("team") and declared["team"] != gid:
+        task_caps.forget(c, "bot:" + slug)      # its caps were its old group's (redesign on; CONTRACT §3)
     declared["team"] = gid
     c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(declared), slug))
 
@@ -127,6 +131,8 @@ def _place(c, roster, gid, people, bots):
     moved = []
     for i, person in enumerate(rosters):
         if person["id"] in people and person["team"] != gid:
+            if person["team"]:
+                task_caps.forget(c, "human:" + person["id"])
             rosters[i] = {**person, "team": gid}
             moved.append(rosters[i])
     for slug in bots:
@@ -141,6 +147,7 @@ def _apply_members(c, settings, roster, gid, add, remove):
     changed = []
     for i, person in enumerate(people):
         if person["id"] in remove.people and person["team"] == gid:
+            task_caps.forget(c, "human:" + person["id"])
             people[i] = {**person, "team": ""}
             changed.append(people[i])
     for slug in remove.bots:
@@ -195,6 +202,34 @@ def _next_order(groups):
     return max((group["order"] for group in groups.values()), default=-1) + 1
 
 
+def _lead_ref(value):
+    """A group's lead as CONTRACT §3 writes it: `bot:<slug>` or `person:<id>`; "" for none."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    kind, _, ident = text.partition(":")
+    kind = "person" if kind == "human" else kind
+    if kind not in ("bot", "person") or not ident:
+        raise Problem("validation", "The lead is bot:<slug> or person:<id>", 422)
+    return f"{kind}:{ident}"
+
+
+def _lead_check(c, roster, configs, gid, lead, explicit):
+    """The lead must be a teammate of the group. A lead dropped from the group is cleared unless one was asked for."""
+    if not lead:
+        return
+    kind, _, ident = lead.partition(":")
+    exists = (kind == "bot" and ident in configs) or (kind == "person" and P.person(ident, roster))
+    if not exists:
+        raise Problem("not_found", "Unknown lead: " + lead, 404)
+    member = P.team_of(ident, configs, roster) == gid if kind == "bot" else (P.person(ident, roster) or {}).get("team") == gid
+    if not member:
+        if explicit:
+            raise Problem("validation", "The lead must be in the group", 422)
+        roster["org_groups"][gid]["lead"] = ""
+        _save(c, roster)
+
+
 def create(c, auth, settings, who, body):
     _may_change(auth, who)
     roster = _roster(c)
@@ -208,8 +243,11 @@ def create(c, auth, settings, who, body):
     groups[gid] = {"id": gid, "name": body.name.strip(), "reports_to": "", "parent": parent, "root": "",
                    "order": _next_order(groups)}
     _set_bet(c, who, groups[gid], body.bet_id)
+    if body.lead:
+        groups[gid]["lead"] = _lead_ref(body.lead)
     people, changed = _apply_members(c, settings, roster, gid, body.add, M.GroupMembers())
     roster = _finish(c, roster, people, changed)
+    _lead_check(c, roster, _configs(c), gid, groups[gid].get("lead", ""), explicit=bool(body.lead))
     H.event(c, who.actor, "group.created", gid, {"name": body.name.strip(), "parent": parent})
     return one(c, roster, gid)
 
@@ -231,10 +269,13 @@ def update(c, auth, settings, who, gid, body):
     if body.name is not None:
         group["name"] = body.name.strip()
     _set_bet(c, who, group, body.bet_id)
+    if body.lead is not None:
+        group["lead"] = _lead_ref(body.lead)
     if _named(groups, group["name"], group["parent"], skip=gid):
         raise Problem("conflict", "There is already a group with that name there", 409)
     people, changed = _apply_members(c, settings, roster, gid, body.add, body.remove)
     roster = _finish(c, roster, people, changed)
+    _lead_check(c, roster, _configs(c), gid, group.get("lead", ""), explicit=body.lead is not None)
     H.event(c, who.actor, "group.updated", gid, {"name": body.name, "parent": body.parent, "bet_id": body.bet_id,
                                                   "added": {"people": body.add.people, "bots": body.add.bots},
                                                   "removed": {"people": body.remove.people, "bots": body.remove.bots}})
@@ -259,6 +300,7 @@ def delete(c, auth, who, gid):
     people, changed = [], []
     for person in roster["people"]:
         if person["team"] == gid:
+            task_caps.forget(c, "human:" + person["id"])
             person = {**person, "team": up}
             changed.append(person)
         people.append(person)
