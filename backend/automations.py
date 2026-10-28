@@ -558,6 +558,32 @@ def _turn_chain(c):
         return ()
 
 
+def turn_source(c):
+    """The automation run behind the bot turn this write comes from (`H.RUN`), as a market change names it:
+    {turn: {attempt, bot, task}, automation, run, match}; `match` is the listening post that started the run, when
+    one did. None for a write no automation's turn made."""
+    attempt = H.RUN.get()
+    found = c.execute("SELECT a.bot, m.refs_json FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                      "JOIN messages m ON m.id=j.message_id WHERE a.id=?", (attempt,)).fetchone() if attempt else None
+    try:
+        refs = json.loads(found["refs_json"] or "{}") if found else {}
+    except (TypeError, ValueError):
+        refs = {}
+    run = c.execute("SELECT automation_id, state_json FROM automation_runs WHERE id=?",
+                    (refs.get("automation_run"),)).fetchone() if refs.get("automation_run") else None
+    if not run:
+        return None
+    out = {"turn": {"attempt": attempt, "bot": found["bot"], "task": refs.get("task")},
+           "automation": run["automation_id"], "run": refs["automation_run"]}
+    try:
+        heard = (json.loads(run["state_json"] or "{}").get("payload") or {}).get("listening")
+    except (TypeError, ValueError, AttributeError):
+        heard = None
+    if isinstance(heard, dict):
+        out["match"] = {key: heard.get(key) for key in ("id", "destination", "url", "source")}
+    return out
+
+
 def fire(c, kind, payload, ref="", match=None, access=None, only=None):
     """Queue a run of every enabled automation on a `kind` trigger (or the one `only`) that `match(trigger)` takes,
     that may read what arrived (`access(row)`, its owner's rights now) and whose trigger filters hold; one dropped

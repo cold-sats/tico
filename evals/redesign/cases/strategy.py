@@ -100,8 +100,22 @@ def s36_steps(org, facts):
     org.step(facts, "judged", judge_match, org, facts)
     org.step(facts, "graph1", graph, org)
     org.step(facts, "runs", runs_of, org, facts, "auto")
-    org.step(facts, "turn", org.turn, "librarian")
+    org.step(facts, "turn", org.turn, "librarian", act=lambda token, attempt: curate(org, token))
     org.step(facts, "graph2", graph, org)
+
+
+def curate(org, token):
+    """The Librarian's turn on the match, through the market routes as the Librarian: the post as evidence, then the
+    product it names, citing it. The url stays on the evidence; the graph names the match only if the hub says so."""
+    seen = org.api("post", "/api/v2/market/evidence", {
+        "source_url": "https://news.acme.example/dev-tools", "source_kind": "news",
+        "quote": "A new dev tool for mapping markets."}, who=token, wave=W6)
+    evidence = ((seen.body or {}).get("evidence") or {}).get("id") if isinstance(seen.body, dict) else None
+    if not evidence:
+        raise Unmet(W6, f"the Librarian could not file the evidence: {seen.status} {seen.excerpt()}")
+    return org.api("post", "/api/v2/market/entities", {
+        "type": "product", "name": "Acme Mapper", "summary": "A dev tool for mapping markets.",
+        "evidence_ids": [evidence]}, who=token, wave=W6)
 
 
 def match_started_run(facts):
@@ -146,6 +160,9 @@ def graph_names_turn(facts):
 
 
 # ---------------------------------------------------------------------------------------------- 37
+BRIEFING = "# Acme market, Tuesday\n\n- Acme Mapper launched a dev tool for mapping markets.\n- No bet is touched."
+
+
 def s37_steps(org, facts):
     org.step(facts, "auto", automation, org, "Daily briefing", "bot:librarian",
              {"type": "schedule", "cron": "0 7 * * *", "tz": "UTC"},
@@ -155,7 +172,7 @@ def s37_steps(org, facts):
                "args": {"to": ["market", "updates"]}}])
     org.step(facts, "read", read_auto, org, facts, "auto")
     org.step(facts, "fired", advance_to_next_run, org, facts)
-    org.step(facts, "brief", org.turn, "librarian")
+    org.step(facts, "brief", org.turn, "librarian", text=BRIEFING)
     org.step(facts, "runs", runs_of, org, facts, "auto")
     org.step(facts, "market", org.api, "get", "/api/v2/market/briefings/latest", who=DANA, wave=W6)
     org.step(facts, "updates", org.api, "get", "/api/v2/updates", who=DANA, wave=W6)

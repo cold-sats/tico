@@ -239,9 +239,10 @@ class Org(World):
         self.advance(delta)
         self.scheduler_pass()
 
-    def turn(self, slug, tokens=2_000_000):
-        """The bot's next turn, run the way a runner runs it: claim, start, complete with its token use. None when
-        the hub held the bot (no job was claimed)."""
+    def turn(self, slug, tokens=2_000_000, act=None, text="done"):
+        """The bot's next turn, run the way a runner runs it: claim, start, `act(attempt_token, attempt)` (the bot's
+        own calls during the turn, as that bot), complete with `text` and its token use. None when the hub held the
+        bot (no job was claimed)."""
         self.scheduler_pass()
         claim = self.api("post", "/api/v2/jobs/claim", {"bot": slug, "start_places": True},
                          who=self.runner["token"], wave=W2)
@@ -254,10 +255,12 @@ class Org(World):
             raise RuntimeError(f"claim {claim.status}: {claim.excerpt()}")   # a harness or auth bug, not a hold
         base = f"/api/v2/attempts/{attempt['id']}"
         for step, payload in (("started", {"thread_id": "redesign"}),
-                              ("complete", {"outcome": "completed", "text": "done", "last_seq": 0, "limited": False,
+                              ("complete", {"outcome": "completed", "text": text, "last_seq": 0, "limited": False,
                                             "usage": {"input_tokens": tokens, "cached_tokens": 0,
                                                       "output_tokens": 10_000, "model": "claude-opus-5-5",
                                                       "runtime": "claude", "billing": "api"}})):
+            if step == "complete" and act:
+                act(attempt.get("token"), attempt)
             reply = self.api("post", f"{base}/{step}", payload, who=self.runner["token"], wave=W2)
             if not 200 <= reply.status < 300:
                 raise RuntimeError(f"attempt {step} {reply.status}: {reply.excerpt()}")

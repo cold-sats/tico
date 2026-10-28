@@ -1425,6 +1425,8 @@ class Store:
                 from .market_watch import ensure as ensure_market_watch
                 ensure_market_watch(c)
                 ensure_market_briefing(c)
+                from .market import ensure_turn_sources
+                ensure_turn_sources(c)                  # which automation turn changed the graph (redesign)
                 # Temporary task assignments are retired (#420): their actors are archived and off every computer,
                 # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
                 from .shared_bots import retire_assignments
