@@ -1025,7 +1025,7 @@ class Gateway:
         if listening:
             # A message automation on this channel handles it (backend/automations.py); the server drains its run.
             with self.store.transaction() as c:
-                taken = automations.on_slack(c, event, person, channel)
+                taken = automations.on_slack(c, event, person, channel, self.settings)
                 if taken:
                     self.finish(c, event, "recorded", actor="human:" + person["id"], reason="automation")
             if taken:
