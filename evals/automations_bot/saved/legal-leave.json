@@ -1,0 +1,47 @@
+{
+  "pending": [
+    {
+      "trigger": {
+        "type": "message",
+        "inbox": "dana@acme.example"
+      },
+      "steps": [
+        {
+          "id": "triage",
+          "type": "decide",
+          "enabled": true,
+          "set": "mail-triage@1",
+          "level": "low",
+          "out": "d1"
+        },
+        {
+          "id": "route",
+          "type": "paths",
+          "enabled": true,
+          "paths": [
+            {
+              "name": "legal",
+              "when": [
+                {
+                  "field": "d1.legal",
+                  "op": "is",
+                  "value": "yes",
+                  "min": 0.5
+                }
+              ],
+              "steps": [
+                {
+                  "id": "leave",
+                  "type": "action",
+                  "enabled": true,
+                  "do": "leave_for_you",
+                  "args": {}
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
