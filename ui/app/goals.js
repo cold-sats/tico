@@ -443,6 +443,9 @@ let GOAL_MANAGER_STOP = null;
 const GM = 'goal-manager';
 const GM_STATE = {paused: 'Paused', planned: 'Not set up', archived: 'Off', retired: 'Off', quarantined: 'Paused'};
 const GM_STARTERS = ['Set a goal', 'Fix my goals', 'Go through suggestions'];
+// On the Org tab the starters ask for org changes: it suggests them in words, and makes one when the owner says so.
+const GM_ORG_STARTERS = ['Suggest org changes', 'Who should lead each group?', 'Fix reporting lines'];
+const gmStarters = () => /^#\/strategy\/org(?:$|[/?])/.test(location.hash) ? GM_ORG_STARTERS : GM_STARTERS;
 // `rail`: the Strategy Bot's panel on the Strategy tabs (ui/app/redesign.js) mounts just the chat in its own host; it
 // lives across tabs, so its stop is its own (`rail.stop`), not GOAL_MANAGER_STOP, which every route calls.
 async function goalManagerMount(pageState, rail = null) {
@@ -455,7 +458,9 @@ async function goalManagerMount(pageState, rail = null) {
   const current = () => !stopped && (rail ? true : GOALS_ST === pageState) && host.isConnected;
   // `es` is the release of this chat's live events (ui/app/live.js).
   const stopStream = () => { try { es?.(); } catch { /* released */ } es = null; clearInterval(poll); poll = null; };
-  const stop = () => { stopped = true; stopStream(); if (composer) PILLS.delete(composer); };
+  const onHash = () => host._gmDraw?.();                  // the rail stays across tabs; its starters follow the tab
+  const stop = () => { stopped = true; stopStream(); if (composer) PILLS.delete(composer); removeEventListener('hashchange', onHash); };
+  if (rail) addEventListener('hashchange', onHash);
   if (rail) rail.stop = stop; else GOAL_MANAGER_STOP = stop;
   const off = !bot ? 'Not set up' : GM_STATE[bot.status] || '';
   host.innerHTML = rail ? '<section class="gm-chat" data-gm-chat></section>' : `<section class="rail-sec gm-info">
@@ -509,7 +514,7 @@ async function goalManagerMount(pageState, rail = null) {
       else if (noProvider()) rows.push('<p class="muted" data-gm-provider>The ' + esc(ceoBotName()) + ' needs an AI provider. <a href="#/settings" data-gs-tab="models">Settings &gt; Computers</a></p>');
       else if (messages.length && !isReply(messages.at(-1))) rows.push(`<p class="muted" role="status">${esc(execution?.label || 'Waiting for reply…')}</p>`);
       // An empty chat offers three starters; a tap sends its words as the owner's message.
-      const html = rows.join('') || `<div class="gm-starters">${GM_STARTERS.map(words =>
+      const html = rows.join('') || `<div class="gm-starters">${gmStarters().map(words =>
         `<button type="button" class="ghost" data-gm-starter>${esc(words)}</button>`).join('')}</div>`;
       if (html === rendered) return;
       // Keep an older message in view while new replies arrive (ui/app/stick-scroll.js).
