@@ -272,6 +272,19 @@ def test_each_item_of_a_find_starts_its_own_turn(api):
     assert len(sql(api, "SELECT id FROM tasks WHERE title LIKE 'Automation Test: answer%'")) == 2
 
 
+def test_a_turn_moving_its_own_task_does_not_start_its_automation_again(api):
+    turn_on(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    aid = make(api, [{"id": "work", "type": "bot_turn", "bot": "ops", "prompt": "Handle it"}],
+               trigger={"type": "event", "name": "task.state_changed"})
+    post(api, f"automations/{aid}/run", {})
+    finish(api, r)   # the turn ends, and the task its run started changes state
+    runs = get(api, f"automations/{aid}/runs")["runs"]
+    assert [run["trigger_ref"] for run in runs] == ["manual"], [run["trigger_ref"] for run in runs]
+
+
 def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_day(api):
     turn_on(api)
     turn = {"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}
