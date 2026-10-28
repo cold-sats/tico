@@ -174,8 +174,10 @@ def _check_step(step, where, seen, depth, counts):
         names = set()
         for n, path in enumerate(paths):
             at = f"{where} path {n + 1}"
-            _need(isinstance(path, dict) and set(path) <= {"name", "when", "steps"}, at, "a path has name, when and steps")
+            _need(isinstance(path, dict) and set(path) <= {"name", "when", "match", "steps"}, at,
+                  "a path has name, when, match and steps")
             _text(path.get("name"), at, "name", cap=80)
+            _need(path.get("match", "all") in ("all", "any"), at, "match is all or any")
             _need(path["name"] not in names, at, "path names are unique in the fork")
             names.add(path["name"])
             check_conds(path.get("when", []), at)

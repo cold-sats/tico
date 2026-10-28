@@ -36,7 +36,8 @@ SCHEMA = (
     "updated TEXT NOT NULL, deleted_at TEXT, next_due TEXT, found_since TEXT)",
     "CREATE INDEX IF NOT EXISTS automations_trigger ON automations(trigger_type, enabled) WHERE deleted_at IS NULL",
     "CREATE TABLE IF NOT EXISTS automation_versions(automation_id TEXT NOT NULL, n INTEGER NOT NULL, actor TEXT NOT NULL, "
-    "at TEXT NOT NULL, flow_json TEXT NOT NULL, PRIMARY KEY(automation_id, n))",
+    "at TEXT NOT NULL, flow_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', summary TEXT, "
+    "PRIMARY KEY(automation_id, n))",
     "CREATE TABLE IF NOT EXISTS automation_runs(id TEXT PRIMARY KEY, automation_id TEXT NOT NULL, version INTEGER NOT NULL, "
     "trigger_ref TEXT NOT NULL DEFAULT '', started TEXT NOT NULL, finished TEXT, status TEXT NOT NULL, "
     "cost REAL NOT NULL DEFAULT 0, state_json TEXT, claimed_at TEXT, wake_at TEXT, chain_json TEXT NOT NULL DEFAULT '[]')",
@@ -50,11 +51,14 @@ SCHEMA = (
     "CREATE INDEX IF NOT EXISTS automation_mail_queue ON automation_mail_actions(mailbox, state, created)",
 )
 KEEP_DAYS = 30           # step detail; the daily counts and the run rows stay
+TURN_WAIT_DAYS = 1
 STALE_MINUTES = 15       # a claimed run not saved by then was cut off: failed, never run twice
 MAX_CHAIN = 3            # automations started by automations: at most this deep, never the same one twice
 LIST_BYTES = 262_144
 RUN_BYTES = 524_288
 VALUES_BYTES = 60_000    # what a judge call is shown of a run's values
+HELPER = "bot:automations-bot"   # the Automations Bot: sees every automation, changes none, proposes versions
+VERSIONED = ("trigger", "steps", "batch")   # what the automation does; a change here is a new version
 # The automations a write in this context comes from: their own actions never start them again.
 CHAIN = contextvars.ContextVar("automation_chain", default=())
 _BELL = threading.Event()
@@ -75,18 +79,62 @@ def flow_of(row):
     return json.loads(row["flow_json"])
 
 
-def view(c, row):
+def view(c, row, who=None, detail=False):
+    """An automation as its readers get it: `can_edit` for `who`, and with `detail` each Decide step that names a set
+    carries that set's questions (read-only: a write sends `set` or `questions`, never both)."""
     flow = flow_of(row)
+    if detail:
+        flow["steps"] = _with_questions(flow["steps"])
     last = c.execute("SELECT id, status, started, finished FROM automation_runs WHERE automation_id=? "
                      "ORDER BY started DESC LIMIT 1", (row["id"],)).fetchone()
-    return {"id": row["id"], **flow, "version": row["version"], "created": row["created"],
-            "created_by": row["created_by"], "updated": row["updated"], "last_run": dict(last) if last else None}
+    out = {"id": row["id"], **flow, "version": row["version"], "created": row["created"],
+           "created_by": row["created_by"], "updated": row["updated"], "last_run": dict(last) if last else None}
+    if who is not None:
+        out["can_edit"] = may_change(c, who, flow)
+    return out
 
 
-def _save(c, actor, aid, flow, before, action):
-    """Write the flow as the automation's next version, with its audit row."""
+def _with_questions(steps):
+    out = []
+    for step in steps:
+        step = dict(step)
+        if step.get("type") == "decide" and step.get("set"):
+            try:
+                step["questions"] = F.question_set(step["set"])
+            except F.Invalid:
+                pass   # the set was removed since the save: the step shows its name only
+        if step.get("type") == "paths":
+            step["paths"] = [{**path, "steps": _with_questions(path.get("steps") or [])} for path in step["paths"]]
+            if step.get("otherwise") is not None:
+                step["otherwise"] = {"steps": _with_questions(step["otherwise"].get("steps") or [])}
+        out.append(step)
+    return out
+
+
+def _versioned(flow):
+    return {key: flow[key] for key in VERSIONED if flow.get(key) is not None}
+
+
+def _next_n(c, aid):
+    """Versions are numbered in the order they were written, proposals included, so a proposal keeps its number."""
+    row = c.execute("SELECT max(n) FROM automation_versions WHERE automation_id=?", (aid,)).fetchone()
+    return (row[0] or 0) + 1
+
+
+def _save(c, actor, aid, flow, before, action, *, current=None, summary=None, new_version=False):
+    """Write the automation, with its audit row. A change to what it does (trigger, steps, batch) is a new version; a
+    rename, pause or cap is not. `current` makes that pending version the current one instead; `new_version` writes
+    one even when nothing it does changed (restoring an old version)."""
     now, prior = H.now(), c.execute("SELECT version FROM automations WHERE id=?", (aid,)).fetchone()
-    n = (prior["version"] if prior else 0) + 1
+    n = prior["version"] if prior else None
+    if current is not None:
+        n = current
+        c.execute("UPDATE automation_versions SET status='active' WHERE automation_id=? AND n=?", (aid, n))
+    elif new_version or prior is None or _versioned(flow) != _versioned(before or {}):
+        n = _next_n(c, aid)
+        c.execute("INSERT INTO automation_versions(automation_id,n,actor,at,flow_json,status,summary) "
+                  "VALUES(?,?,?,?,?,'active',?)", (aid, n, actor, now, json.dumps(_versioned(flow), sort_keys=True),
+                                                    summary))
     columns = (flow["name"], flow["owner"], flow.get("group") or None, flow["trigger"]["type"], int(flow["enabled"]),
                int(flow["builtin"]), json.dumps(flow, sort_keys=True), n, now)
     if prior:
@@ -95,10 +143,18 @@ def _save(c, actor, aid, flow, before, action):
     else:
         c.execute("INSERT INTO automations(name,owner,grp,trigger_type,enabled,builtin,flow_json,version,updated,id,"
                   "created,created_by,found_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (*columns, aid, now, actor, now))
-    c.execute("INSERT INTO automation_versions(automation_id,n,actor,at,flow_json) VALUES(?,?,?,?,?)",
-              (aid, n, actor, now, json.dumps(flow, sort_keys=True)))
     audit(c, actor, "automation", aid, action, before, flow)
     return _row(c, aid)
+
+
+def _propose(c, actor, aid, flow, before, summary):
+    """A bot's change it may not make itself: kept as a pending version that a person with edit rights restores."""
+    n = _next_n(c, aid)
+    c.execute("INSERT INTO automation_versions(automation_id,n,actor,at,flow_json,status,summary) "
+              "VALUES(?,?,?,?,?,'pending',?)", (aid, n, actor, H.now(), json.dumps(_versioned(flow), sort_keys=True),
+                                                summary))
+    audit(c, actor, "automation", aid, f"propose {n}", before, flow)
+    return n
 
 
 # ---------------------------------------------------------------------------------------------------- who may
@@ -158,6 +214,11 @@ def may_change(c, who, flow):
     gid = (flow.get("group") or "").partition(":")[2] or (owner[2:] if owner.startswith("g:") else "")
     heads = ([] if owner.startswith("g:") else [owner]) + (chart.leads(gid) if gid else [])
     return any(me == head or me in chart.above(head) for head in heads)
+
+
+def may_see(c, who, flow):
+    """Seeing follows the change rule; the Automations Bot sees every automation so it can propose changes."""
+    return who.actor == HELPER or may_change(c, who, flow)
 
 
 def _require(c, who, flow, what="change this automation"):
@@ -307,21 +368,30 @@ def on_listening(c, intake, post):
     return fire(c, "listening", payload, f"listening:{intake['id']}", lambda t: t["destination"] == intake["destination"])
 
 
-def turn_done(c, attempt, outcome, text, cost=0.0):
-    """A bot's turn ended: a run waiting on it (its notice carries `automation_run`) takes its answer and is queued."""
+def turn_done(c, attempt, outcome, text):
+    """A bot's turn ended (after `H.turn_finish` priced it): the run that started it (its notice carries
+    `automation_run`) is charged its cost, which counts toward the spend cap, and a run waiting on it takes its answer
+    and is queued."""
     if not redesign_on(c):
         return
     job = c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone() if attempt["job_id"] else None
     msg = H.message(c, job["message_id"]) if job and job["message_id"] else None
     rid = ((msg or {}).get("refs") or {}).get("automation_run")
-    run = c.execute("SELECT * FROM automation_runs WHERE id=? AND status='waiting'", (rid,)).fetchone() if rid else None
-    if not run or not run["state_json"]:
+    run = c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone() if rid else None
+    if not run:
         return
-    state = json.loads(run["state_json"])
-    if E.answer(state, msg["id"], text or "", cost, ok=outcome == "completed"):
+    priced = c.execute("SELECT est_cost_usd FROM turns WHERE id=?", (attempt["id"],)).fetchone()
+    cost = float((priced and priced[0]) or 0)
+    state = json.loads(run["state_json"]) if run["state_json"] else None
+    if state and run["status"] == "waiting" and E.answer(state, msg["id"], text or "", cost, ok=outcome == "completed"):
         c.execute("UPDATE automation_runs SET status='queued',state_json=?,cost=? WHERE id=?",
                   (json.dumps(state, default=str), state["cost"], rid))
         _ring(c)
+    elif state and E.charge(state, msg["id"], cost):
+        c.execute("UPDATE automation_runs SET state_json=?,cost=? WHERE id=?",
+                  (json.dumps(state, default=str), state["cost"], rid))
+    elif cost:
+        c.execute("UPDATE automation_runs SET cost=round(cost+?,6) WHERE id=?", (cost, rid))
 
 
 # ---------------------------------------------------------------------------------------------------- running
@@ -395,8 +465,8 @@ class HubServices:
         store = self.hub.store
         with store.read() as c:
             engine = server_engine(store, c, self.hub.app.state.judge)
-        if engine is None:
-            raise RuntimeError("Decide is off: no decision model, or the month's decision cap is reached")
+        if engine is None:   # no decision model, or the month's decision cap is reached
+            return None
         J.validate(values, questions, label)
         result = engine(_trim(values), questions, label)
         actor = A.actor_of(self.flow["owner"])
@@ -457,7 +527,8 @@ class Hub:
                                 (run["automation_id"], run["version"])).fetchone()
         state = json.loads(run["state_json"] or "{}")
         try:
-            flow = json.loads(version["flow_json"])
+            # What it does comes from the run's version; its owner, cap and the rest are as they are now.
+            flow = {**{k: v for k, v in flow_of(row).items() if k not in VERSIONED}, **json.loads(version["flow_json"])}
             services = HubServices(self, dict(row), flow, rid, tuple(json.loads(run["chain_json"] or "[]")))
             state = E.advance(flow, state, services)
         except Exception as exc:  # noqa: BLE001 - a bug in a run fails that run, not the drain
@@ -496,6 +567,9 @@ def tick(store, at=None):
         c.execute("UPDATE automation_runs SET status='queued',wake_at=NULL WHERE status='waiting' AND wake_at<=?", (now,))
         c.execute("UPDATE automation_runs SET status='failed',finished=? WHERE status='running' AND claimed_at<?",
                   (now, H.shift(now, minutes=-STALE_MINUTES)))
+        # A turn that never answered (its bot gone, its job cancelled) would hold the run waiting for ever.
+        c.execute("UPDATE automation_runs SET status='failed',finished=? WHERE status='waiting' AND wake_at IS NULL "
+                  "AND started<?", (now, H.shift(now, days=-TURN_WAIT_DAYS)))
     return hub.drain() if hub else 0
 
 
@@ -531,6 +605,7 @@ class AutomationPatch(Contract):
     batch: dict | None = None
     trigger: dict | None = None
     steps: list | None = None
+    summary: str | None = Field(default=None, max_length=200)   # a few words on a new version or proposal
 
 
 class Empty(Contract):
@@ -555,11 +630,26 @@ def page(rows, limit, offset, cap):
     return out, None
 
 
+def _summary(state):
+    """A few words for the run's row: where it failed, else the paths it took, else what the cap stopped."""
+    steps = state.get("steps") or []
+    failed = next((s["id"] for s in steps if s["status"] == "failed"), None)
+    if failed:
+        return f"failed at {failed}"
+    taken = list(dict.fromkeys(str(s["outputs"].get("path")) for s in steps
+                               if s["type"] == "paths" and s["outputs"].get("path")))
+    capped = sum(s["status"] == "spend_cap" for s in steps)
+    words = (["path " + ", ".join(taken)] if taken else []) + ([f"{capped} stopped by the spend cap"] if capped else [])
+    return "; ".join(words)[:120] or None
+
+
 def run_view(run, detail=True):
     state = json.loads(run["state_json"]) if run["state_json"] else None
     out = {"id": run["id"], "automation_id": run["automation_id"], "version": run["version"],
            "trigger_ref": run["trigger_ref"], "started": run["started"], "finished": run["finished"],
            "status": run["status"], "cost": run["cost"]}
+    if state:
+        out["summary"] = _summary(state)
     if detail:
         out["steps"] = (state or {}).get("steps") if state else None   # None: pruned after KEEP_DAYS
         if state and state.get("error"):
@@ -581,13 +671,14 @@ def install(app, store, auth, mutate):
             await asyncio.to_thread(hub.drain)
         return response
 
-    def found(c, who, aid, what="see this automation"):
+    def found(c, who, aid, what="see this automation", rule=None):
         require_on(c)
         auth.domain(who)
         row = _row(c, aid)
         if not row:
             raise Problem("not_found", "No such automation", 404)
-        _require(c, who, flow_of(row), what)
+        if not (rule or may_change)(c, who, flow_of(row)):
+            raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
         return row
 
     @app.get("/api/v2/automations")
@@ -600,9 +691,25 @@ def install(app, store, auth, mutate):
             rows = c.execute("SELECT * FROM automations WHERE deleted_at IS NULL"
                              + (" AND owner=?" if owner else "") + " ORDER BY created DESC",
                              ((F.owner_ref(owner),) if owner else ())).fetchall()
-            visible = [view(c, dict(r)) for r in rows if may_change(c, who, flow_of(r))]
+            visible = [view(c, dict(r), who) for r in rows if may_see(c, who, flow_of(r))]
         shown, more = page(visible[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"automations": shown, "next": more}
+
+    @app.get("/api/v2/automations/question-sets")
+    def automations_question_sets(request: Request):
+        """The saved question sets a Decide step may name, each with its questions."""
+        from clients import judge as J
+        with store.read() as c:
+            require_on(c)
+            auth.domain(request.state.identity)
+        sets = []
+        for listed in J.list_sets():
+            if listed.get("error"):
+                continue
+            data = J.load_set(listed["id"])
+            sets.append({"id": f"{data['id']}@{data['version']}", "summary": data["summary"],
+                         "questions": data["questions"]})
+        return {"sets": sets}
 
     @app.post("/api/v2/automations")
     def automations_create(request: Request, body: AutomationIn):
@@ -616,34 +723,51 @@ def install(app, store, auth, mutate):
             _require(c, who, flow, "make an automation for " + flow["owner"])
             if flow["builtin"] and who.role != "owner":
                 raise Problem("forbidden", "Only the top of the org makes a built-in automation", 403)
-            return {**view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, "create"))}
+            return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, "create"), who, detail=True)
         return mutate(request, body, work)
 
     @app.get("/api/v2/automations/{aid}")
     def automations_get(request: Request, aid: str):
+        who = request.state.identity
         with store.read() as c:
-            return view(c, found(c, request.state.identity, aid))
+            return view(c, found(c, who, aid, rule=may_see), who, detail=True)
 
     @app.patch("/api/v2/automations/{aid}")
     def automations_update(request: Request, aid: str, body: AutomationPatch):
-        """Change an automation: every save is a new version. Pausing a built-in one is the top of the org's alone."""
+        """Change an automation. A change to its trigger, steps or batch times is a new version. A bot that may not
+        change it (and the Automations Bot always) proposes instead: a pending version a person restores. Pausing a
+        built-in one is the top of the org's alone."""
         who = request.state.identity
 
         def work(c):
-            row = found(c, who, aid, "change this automation")
+            row = found(c, who, aid, "change this automation", rule=lambda c, who, flow: True)
             before = flow_of(row)
             changes = body.model_dump(exclude_unset=True)
-            flow = _checked(c, {**before, **changes})
+            summary = changes.pop("summary", None)
+            if "spend_cap" in changes and changes["spend_cap"] is None:
+                changes.pop("spend_cap")
+                before_cap = {k: v for k, v in before.items() if k != "spend_cap"}
+            else:
+                before_cap = before
+            flow = _checked(c, {**before_cap, **changes})
+            if who.role == "bot" and (who.actor == HELPER or not may_change(c, who, before)):
+                if not changes or set(changes) - set(VERSIONED):
+                    raise Problem("forbidden", "A bot may only propose a change to an automation's trigger, steps "
+                                  "or batch times", 403)
+                n = _propose(c, who.actor, aid, flow, before, summary)
+                if may_see(c, who, before):
+                    return {**view(c, row, who, detail=True), "pending": n}
+                return {"id": aid, "pending": n, "can_edit": False}
+            _require(c, who, before, "change this automation")
             _require(c, who, flow, "give this automation to " + flow["owner"])
             warning = None
             if before.get("builtin") and changes.get("enabled") is False:
                 if who.role != "owner":
                     raise Problem("forbidden", "Only the top of the org pauses a built-in automation", 403)
                 warning = "This is a built-in automation: the work it does stops until it is turned back on."
-            if flow == before:
-                return {**view(c, row), **({"warning": warning} if warning else {})}
-            out = view(c, _save(c, who.actor, aid, flow, before, "update"))
-            return {**out, **({"warning": warning} if warning else {})}
+            if flow != before:
+                row = _save(c, who.actor, aid, flow, before, "update", summary=summary)
+            return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
         return mutate(request, body, work)
 
     def delete(request, aid, body):
@@ -685,41 +809,73 @@ def install(app, store, auth, mutate):
             return {"run": run_view(c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone())}
 
     @app.get("/api/v2/automations/{aid}/runs")
-    def automations_runs(request: Request, aid: str, limit: int = 20, cursor: int = 0):
-        """Its runs, newest first, each with its steps' status, outputs and cost (kept 30 days), and the daily counts
-        that include what the trigger's filters dropped."""
+    def automations_runs(request: Request, aid: str, limit: int = 25, before: str = ""):
+        """Its runs, newest first, each with its steps' status, outputs and cost (kept 30 days); `next` is the `before`
+        for the page after. `daily` holds the counts, which include what the trigger's filters dropped."""
+        limit = max(1, min(limit, 100))
         with store.read() as c:
-            found(c, request.state.identity, aid)
-            rows = c.execute("SELECT * FROM automation_runs WHERE automation_id=? ORDER BY started DESC LIMIT ? OFFSET ?",
-                             (aid, max(1, min(limit, 100)) + 1, max(cursor, 0))).fetchall()
+            found(c, request.state.identity, aid, rule=may_see)
+            at = c.execute("SELECT started, id FROM automation_runs WHERE id=? AND automation_id=?",
+                           (before, aid)).fetchone() if before else None
+            if before and not at:
+                raise Problem("not_found", "No such run", 404)
+            rows = c.execute("SELECT * FROM automation_runs WHERE automation_id=?"
+                             + (" AND (started<? OR (started=? AND id<?))" if at else "")
+                             + " ORDER BY started DESC, id DESC LIMIT ?",
+                             (aid, *((at["started"], at["started"], at["id"]) if at else ()), limit + 1)).fetchall()
             days = [dict(r) for r in c.execute("SELECT day, runs, dropped FROM automation_daily WHERE automation_id=? "
                                                "ORDER BY day DESC LIMIT 30", (aid,))]
-        runs, more = page([run_view(r) for r in rows], max(1, min(limit, 100)), max(cursor, 0), RUN_BYTES)
-        return {"runs": runs, "next": more, "daily": days}
+        runs, cut = page([run_view(r) for r in rows], limit, 0, RUN_BYTES)
+        return {"runs": runs, "next": runs[-1]["id"] if cut is not None and runs else None, "daily": days}
 
     @app.get("/api/v2/automations/{aid}/versions")
-    def automations_versions(request: Request, aid: str, limit: int = 50, cursor: int = 0):
+    def automations_versions(request: Request, aid: str, status: str = "", limit: int = 50, cursor: int = 0):
+        """Its versions, newest first; `status=pending` for the proposals waiting on a person."""
         with store.read() as c:
-            found(c, request.state.identity, aid)
-            rows = [{"n": r["n"], "actor": r["actor"], "at": r["at"], "flow": json.loads(r["flow_json"])}
-                    for r in c.execute("SELECT * FROM automation_versions WHERE automation_id=? ORDER BY n DESC",
-                                       (aid,))]
+            found(c, request.state.identity, aid, rule=may_see)
+            rows = [{"n": r["n"], "actor": r["actor"], "at": r["at"], "status": r["status"],
+                     **({"summary": r["summary"]} if r["summary"] else {}), "flow": json.loads(r["flow_json"])}
+                    for r in c.execute("SELECT * FROM automation_versions WHERE automation_id=?"
+                                       + (" AND status=?" if status else "") + " ORDER BY n DESC",
+                                       (aid, *((status,) if status else ())))]
         shown, more = page(rows[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"versions": shown, "next": more}
 
     @app.post("/api/v2/automations/{aid}/versions/{n}/restore")
     def automations_restore(request: Request, aid: str, n: int, body: Empty | None = None):
-        """Save an old version's flow as the newest version."""
+        """A pending version becomes the current one and keeps its number; an older one is saved as a new version.
+        Either way its trigger, steps and batch times replace the current ones."""
         who, body = request.state.identity, body or Empty()
 
         def work(c):
             row = found(c, who, aid, "change this automation")
-            old = c.execute("SELECT flow_json FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
+            old = c.execute("SELECT * FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
             if not old:
                 raise Problem("not_found", f"No version {n}", 404)
-            flow = _checked(c, json.loads(old["flow_json"]))
+            before = flow_of(row)
+            flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"])})
             _require(c, who, flow, "restore this version")
-            return view(c, _save(c, who.actor, aid, flow, flow_of(row), f"restore {n}"))
+            pending = old["status"] == "pending"
+            saved = _save(c, who.actor, aid, flow, before, f"restore {n}", current=n if pending else None,
+                          new_version=not pending)
+            return view(c, saved, who, detail=True)
+        return mutate(request, body, work)
+
+    @app.delete("/api/v2/automations/{aid}/versions/{n}")
+    def automations_discard(request: Request, aid: str, n: int, body: Empty | None = None):
+        """Discard a pending version (a proposal); any other version stays (409)."""
+        who, body = request.state.identity, body or Empty()
+
+        def work(c):
+            row = found(c, who, aid, "discard a proposal")
+            old = c.execute("SELECT status FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
+            if not old:
+                raise Problem("not_found", f"No version {n}", 404)
+            if old["status"] != "pending":
+                raise Problem("not_pending", "Only a pending version can be discarded", 409)
+            c.execute("DELETE FROM automation_versions WHERE automation_id=? AND n=?", (aid, n))
+            audit(c, who.actor, "automation", aid, f"discard {n}", None, None)
+            return view(c, row, who, detail=True)
         return mutate(request, body, work)
 
     # The runner that reads a mailbox carries out the mail actions queued for it.

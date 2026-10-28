@@ -27,6 +27,8 @@ class Services:
     def judge(self, values, questions, label, level):
         if "judge" in self.fail:
             raise RuntimeError("the judge is down")
+        if "decide" in self.fail:   # Decide is off
+            return None
         self.judged.append({"values": values, "questions": questions, "label": label, "level": level})
         return {"answers": {k: v for k, v in self.answers.items()}, "cost_usd": self.judge_cost}
 

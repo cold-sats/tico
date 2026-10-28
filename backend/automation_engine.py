@@ -7,12 +7,12 @@ A run is a list of threads. A thread is where one item is in the flow: the outpu
 the forks it took (`trail`) and the next step in that list. Paths never rejoin and a `paths` step ends its list, so
 that cursor is the whole position. A run starts with one thread; a `find` replaces it with one per item.
 
-A thread stops when its list ends, a filter rule says stop, a fork has no path, a step fails or the spend cap
-stops a turn. It waits for two things: the answer of an `llm` turn that has steps after it (`answer` fills it) and,
+A thread stops when its list ends, a filter rule says stop, a fork has no path or a step fails. A turn over the spend
+cap is recorded as `spend_cap` and the thread goes on without it; a decision with Decide off is `skipped` likewise. It waits for two things: the answer of an `llm` turn that has steps after it (`answer` fills it) and,
 with `batch` times, the next batch time once the leading filters ran (`advance` picks it up when the time comes).
 
 services:
-  judge(values, questions, label, level) -> {"answers": {...}, "cost_usd": n}
+  judge(values, questions, label, level) -> {"answers": {...}, "cost_usd": n}, or None while Decide is off
   question_set(ref) -> questions
   act(do, args, ctx) -> {"ok": bool, "detail": str, ...}
   start_turn(who, prompt, ctx, wait) -> {"ref": str}
@@ -75,6 +75,16 @@ def answer(state, ref, text, cost=0.0, ok=True):
             thread.update(state=READY if ok else FAILED, wait=None)
             if not ok:
                 state["status"] = _status(state)
+            return True
+    return False
+
+
+def charge(state, ref, cost):
+    """What a turn the run started (`ref`) cost, once it ends, on its step and the run. Returns whether `ref` is one."""
+    for record in state["steps"]:
+        if (record.get("outputs") or {}).get("ref") == ref and record["type"] in ("llm", "bot_turn"):
+            record["cost"] = round(record["cost"] + cost, 6)
+            state["cost"] = round(state["cost"] + cost, 6)
             return True
     return False
 
@@ -172,6 +182,12 @@ def _decide(flow, state, thread, step, services):
     questions = step.get("questions") or services.question_set(step["set"])
     values = values_of(state, thread)
     result = services.judge(values, questions, f"automation.{step['id']}", step.get("level", "low"))
+    if result is None:
+        # Decide is off (no decision model, or the month's cap): carry on as callers elsewhere do, with no answers,
+        # so a path on them falls to Otherwise.
+        thread["outputs"][step["out"]] = {}
+        _record(state, thread, step, "skipped", {"off": True})
+        return
     answers = result.get("answers") or {}
     thread["outputs"][step["out"]] = answers
     _record(state, thread, step, "ok", answers, float(result.get("cost_usd") or 0))
@@ -179,8 +195,8 @@ def _decide(flow, state, thread, step, services):
 
 def _turn(flow, state, thread, step, services, who, prompt, wait):
     if _capped(flow, state, services):
+        # The cap stops spending, not the run: later filters, decisions and actions still go.
         _record(state, thread, step, "spend_cap")
-        thread["state"] = DONE
         return
     values = values_of(state, thread)
     started = services.start_turn(who, F.render(prompt, values), {"values": values, "step": step["id"]}, wait)
@@ -218,7 +234,7 @@ def _paths(flow, state, thread, step, services):
     values = values_of(state, thread)
     index = thread["next"] - 1
     for n, path in enumerate(step.get("paths") or []):
-        if F.all_hold(path.get("when") or [], values):
+        if F.all_hold(path.get("when") or [], values, path.get("match", "all")):
             _record(state, thread, step, "ok", {"path": path["name"]})
             thread["trail"].append([index, n])
             thread["next"] = 0

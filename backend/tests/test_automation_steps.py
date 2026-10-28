@@ -126,13 +126,30 @@ def test_a_turn_that_cannot_start_fails_the_run():
     assert run["status"] == "failed"
 
 
-def test_the_spend_cap_stops_turns_but_not_filter_or_decide():
+def test_decide_off_skips_the_step_and_paths_fall_to_otherwise():
+    route = {"id": "route", "type": "paths", "paths": [{"name": "r", "when": [
+        {"field": "d1.bucket", "op": "is", "value": "reply"}], "steps": [note("r")]}], "otherwise": {"steps": [note("o")]}}
+    services = Services(fail={"decide"})
+    run = E.execute(flow({"id": "d", "type": "decide", "set": "x", "out": "d1"}, route), MESSAGE, services)
+    assert statuses(run)[0] == ("d", "skipped") and run["steps"][0]["outputs"] == {"off": True}
+    assert services.acted == [("note", {"text": "hi"})] and run["status"] == "ok"
+    assert run["steps"][1]["outputs"] == {"path": "otherwise"}
+
+
+def test_the_spend_cap_stops_turns_but_not_filter_decide_or_actions():
     services = Services(spent=1.99)
     f = flow({"id": "d", "type": "decide", "set": "x", "out": "d1"},
+             {"id": "w", "type": "llm", "as": "bot:coo", "prompt": "p", "out": "o"},
              {"id": "t", "type": "bot_turn", "bot": "coo", "prompt": "p"}, note("after"), spend_cap={"per_30m": 2})
     run = E.execute(f, MESSAGE, services)
-    assert statuses(run) == [("d", "ok"), ("t", "spend_cap")]
+    assert statuses(run) == [("d", "ok"), ("w", "spend_cap"), ("t", "spend_cap"), ("after", "ok")]
     assert services.turns == [] and len(services.judged) == 1 and run["status"] == "ok"
+
+
+def test_a_turn_that_ran_on_its_own_is_charged_to_its_step_and_run():
+    run = E.execute(flow({"id": "t", "type": "bot_turn", "bot": "coo", "prompt": "p"}), MESSAGE, Services())
+    assert E.charge(run, "msg_1", 0.25) and not E.charge(run, "msg_9", 1)
+    assert run["steps"][0]["cost"] == 0.25 and run["cost"] == 0.25
 
 
 def test_under_the_spend_cap_turns_run():
