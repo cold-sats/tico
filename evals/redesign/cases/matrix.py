@@ -18,6 +18,7 @@ outcome sets a 0.01 cap but does not spend first, so the cap is only reached if 
 args are empty for every action (CONTRACT names none). The sender's session is the one the task sample names (CONTRACT
 names no field for it): builder-claude's live session, which a warm-up turn opens before any automation exists."""
 import random
+from datetime import timedelta
 
 from ..fakes import ReplayJudge, attach_judge
 from ..harness import (DANA, DANA_REF, CLAUDE_ID, CLAUDE_REF, LEAD_ID, W3, Check, Reply, Scenario, Unmet, body,
@@ -33,6 +34,7 @@ WORKERS = ("llm", "bot_turn")
 # About one turn in ten fails, drawn per turn from the seed and the combination, so a seed replays exactly.
 TURN_FAIL_SHARE = 0.10
 CLAIM_LIMIT = 200   # claims per turn: each completes an older queued job for the bot before the turn's own
+FAILED_WAIT = timedelta(minutes=2)   # the clock after a failed turn: past a bot's first waits
 TURN_ROUNDS = 10   # answer passes per run: a turn that starts after an answer is answered by the next
 # The usage a completed turn reports: small, so the run cost is real and the spend limits stay out of the way.
 TURN_USAGE = {"input_tokens": 2_000, "cached_tokens": 0, "output_tokens": 200, "model": "claude-opus-5-5",
@@ -268,6 +270,9 @@ def claim_turn(org, bot, task, outcome):
         if mine:
             if outcome != "completed":
                 dismiss_held(org, attempt)
+                # A failed run makes its bot wait before the next (backend/run_backoff.py: 15 s, doubling), and a
+                # message counts as the retry only if sent after the failure: the clock moves on past the wait.
+                org.advance(FAILED_WAIT)
             return True, ""
         why = f"{CLAIM_LIMIT} claims, none of them the turn's"
     return False, why
