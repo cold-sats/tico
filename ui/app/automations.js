@@ -201,10 +201,15 @@ function auDrawPane() {
 }
 
 // The right side: an open editor, else BotOps. A phone shows the editor as a sheet over the flow.
+// A redraw while a field is being typed in (a late load of question sets or the last run) keeps that field focused.
 function auDrawSide() {
   const ed = AU.root.querySelector('.au-ed'), html = AU.ed ? auEdHTML() : '';
+  const typing = ed.contains(document.activeElement) ? document.activeElement : null, b = typing?.dataset?.b;
+  const sel = b && typeof typing.selectionStart === 'number' ? [typing.selectionStart, typing.selectionEnd] : null;
   ed.hidden = !html;
   ed.innerHTML = html;
+  const again = b && html ? ed.querySelector(`[data-b="${CSS.escape(b)}"]`) : null;
+  if (again) { again.focus({preventScroll: true}); if (sel) try { again.setSelectionRange(...sel); } catch { /* not a text field */ } }
   AU.root.classList.toggle('ed-open', !!html);
   AU.root.querySelector('.au-scrim').hidden = !html;
   AU.root.querySelector('.au-botp').hidden = !!html;

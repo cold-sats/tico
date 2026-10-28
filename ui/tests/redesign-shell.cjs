@@ -307,7 +307,8 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
     {
       const {page, sent} = await open(browser, {viewport: DESKTOP, route: '#/settings'});
       await page.locator('#redesign-switch').waitFor();
-      await Promise.all([page.waitForEvent('load'), page.locator('#redesign-switch').check()]);
+      // click, not check: check reads the switch again after clicking and, finding the reloaded page's, clicks again.
+      await Promise.all([page.waitForEvent('load'), page.locator('#redesign-switch').click()]);
       assert.deepEqual(sent.filter(([, p]) => p === '/api/v2/settings/redesign'), [['PUT', '/api/v2/settings/redesign', {enabled: true}]], 'switch: PUT');
       await page.close();
     }
