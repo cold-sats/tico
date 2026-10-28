@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from evals.factory.cases.freezes import spend_under
 from evals.factory.scenarios import board_keeps_moving
-from evals.factory.sim import Run, Scenario, at, tickets
+from evals.factory.sim import Run, Scenario, at, login_ready, tickets
 from evals.factory.world import START
 from backend import execution
 
@@ -74,6 +74,13 @@ def test_a_fallback_scenario_needs_a_judged_round_that_started_on_a_fallback():
 
 def test_a_run_with_no_claim_rounds_fails():
     assert not judge([])[0]
+
+
+def test_a_bot_is_ready_by_its_logins_as_the_claim_decides():
+    # A hold on its own login leaves the turn to a free fallback; with its own login free, its cooldown decides, and a
+    # free fallback does not lift it (execution._claim_refusal).
+    assert login_ready(None, False, False) and not login_ready(None, True, True)
+    assert login_ready("held", True, True) and not login_ready("held", False, False)
 
 
 def stall_run(seed=1):
