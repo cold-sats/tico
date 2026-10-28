@@ -105,3 +105,15 @@ def test_a_lead_sets_the_pools_of_its_group_and_those_below_but_not_the_team_or_
     put(api, f"usage/pools/groups/{other}", {"daily_usd": 10}, "lead-test", expected=403)
     put(api, "usage/pools/company", {"daily_usd": 10}, "lead-test", expected=403)
     put(api, "usage/pools/groups/nowhere", {"daily_usd": 10}, "lead-test", expected=403)       # no hint it exists
+
+
+def test_a_person_who_leads_reads_the_pools_of_what_it_leads_only_while_the_redesign_is_on(api):
+    make_engineering(api)
+    sales = send(api, "POST", "groups", {"name": "Sales", "add": {"people": ["cara"]}, "lead": "person:cara"})["id"]
+    outbound = send(api, "POST", "groups", {"name": "Outbound", "parent": sales})["id"]
+    assert get(api, "usage/limits", token="cara-test")["pools"] is None                         # off: as before
+    redesign_on(api)
+    pools = get(api, "usage/limits", token="cara-test")["pools"]
+    assert pools["company"] is None and set(pools["groups"]) == {sales, outbound}
+    assert all(g["may_edit"] for g in pools["groups"].values())
+    assert "may_edit" not in next(iter(get(api, "usage/limits")["pools"]["groups"].values()))  # the owner's rows as before

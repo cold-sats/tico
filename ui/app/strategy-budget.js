@@ -100,7 +100,8 @@ function budgetSpendRow(key, name, row, {pool = false} = {}) {
   const pct = cap ? Math.min(100, Math.round(spent / cap * 100)) : cap === 0 ? 100 : 0;
   const tone = row?.blocked ? 'bad' : bind && pct >= 90 ? 'warn' : '';
   const amount = bind ? `${budgetMoney(spent)} / ${budgetMoney(cap)} · ${bind[3]}` : 'No limit';
-  const may = pool ? !!BUDGET.limits?.may_edit_default : row?.may_edit !== false;
+  // A pool: the owner and admins, or a lead for the groups it leads (the hub marks those may_edit).
+  const may = pool ? !!(row?.may_edit ?? BUDGET.limits?.may_edit_default) : row?.may_edit !== false;
   const inner = `<span class="bd-name">${esc(name)}</span><span class="bd-amt">${amount}</span>
     <span class="bd-bar" aria-hidden="true"><i style="width:${pct}%"></i></span>${row?.blocked ? '<span class="bd-paused">Paused</span>' : ''}`;
   return `<li class="${pool ? 'bd-pool ' : ''}${tone}">${may

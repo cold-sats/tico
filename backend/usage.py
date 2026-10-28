@@ -247,11 +247,17 @@ def install(app, store, auth, mutate, settings):
         pools = {"pools": usage_limits.scopes_of(c, bot, default)} if redesign.on(c) else {}
         return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed, **pools}
 
-    def pool_views(c, default):
-        """Every group with what it and the whole team are capped at and have spent (the owner and administrators)."""
+    def pool_views(c, default, led=None):
+        """Every group with what it and the whole team are capped at and have spent (the owner and administrators).
+        With `led` (a lead who is not an administrator, the redesign on), only those groups, each `may_edit`, and no
+        company pool."""
         named, _ = usage_limits.groups(c, default)
         groups = {gid: {"name": g.get("name") or gid, "parent": g.get("parent") or None,
-                        **usage_limits.pool_state(c, "group:" + gid, default=default)} for gid, g in named.items()}
+                        **usage_limits.pool_state(c, "group:" + gid, default=default),
+                        **({"may_edit": True} if led is not None else {})}
+                  for gid, g in named.items() if led is None or gid in led}
+        if led is not None:
+            return {"company": None, "groups": groups}
         return {"company": usage_limits.pool_state(c, usage_limits.COMPANY, default=default), "groups": groups}
 
     @app.get("/api/v2/usage/limits")
@@ -266,7 +272,10 @@ def install(app, store, auth, mutate, settings):
             default = usage_limits.company(c)
             allowed = own_bots(c, auth, who)
             admin = bool(auth.bot_admin(who))
-            return {"default": default, "may_edit_default": admin, "pools": pool_views(c, default) if admin else None,
+            from . import groups as G
+            led = None if admin else G.led_groups(c, who.actor)          # empty while the redesign is off
+            pools = pool_views(c, default) if admin else pool_views(c, default, led) if led else None
+            return {"default": default, "may_edit_default": admin, "pools": pools,
                     "bots": {bot: limit_view(c, who, bot, default, allowed) for bot in sorted(allowed)}}
 
     @app.put("/api/v2/usage/limits")

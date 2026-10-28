@@ -22020,7 +22020,7 @@
     },
     "/api/v2/usage/limits": {
       "get": {
-        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits",
+        "summary": "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (with the redesign on, a lead who is not an administrator gets the groups it leads and those below)",
         "operationId": "getUsageLimits",
         "responses": {
           "200": {
@@ -22110,7 +22110,7 @@
     },
     "/api/v2/usage/limits/{bot}": {
       "put": {
-        "summary": "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD (the hourly one with the redesign off); empty follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group lead for the bots in the group (redesign on). A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "summary": "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD (the hourly one with the redesign off); empty follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group lead for the bots in the group and those below (redesign on). A bot over a limit takes no new job until the period turns over or the limit is raised",
         "operationId": "setBotUsageLimit",
         "parameters": [
           {
@@ -22223,7 +22223,7 @@
     },
     "/api/v2/usage/pools/groups/{group}": {
       "put": {
-        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators)",
+        "summary": "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none of them takes a new job (owner and bot administrators; with the redesign on, also the lead of the group or one above it, within the parent group's limit)",
         "operationId": "setGroupUsageLimit",
         "parameters": [
           {
@@ -41302,7 +41302,7 @@
               "object",
               "null"
             ],
-            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}",
+            "description": "Owner and administrators: company (UsagePoolView) and groups, {id: UsagePoolView with name and parent}. With the redesign on, a lead who is not an administrator: company null and only the groups it leads and those below, each with may_edit true",
             "additionalProperties": true
           },
           "bots": {
