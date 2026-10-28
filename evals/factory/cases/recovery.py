@@ -8,7 +8,6 @@ from evals.factory.world import START
 
 OUTAGE_AT, OUTAGE_FOR = at(2, 0), at(0, 15)        # the server stops at 2:00 and starts again at 2:15
 BACK_AT = OUTAGE_AT + OUTAGE_FOR
-SETTLE = at(0, 2)                                   # a computer's claims wait this long once its contact resumes
 RESTART_AT = at(2, 0)                               # the runner restarts at 2:00, under its running turns
 STALE_ROUNDS = 3                                    # claim rounds after the restart that still name one bot busy
 POISON_AT = at(0, 30)                               # the poisoned message is posted at 0:30
@@ -161,8 +160,7 @@ SCENARIOS = [
              checks=[*BASE,
                      ("the restart ended no turn running at the stop", None, lost_none),
                      ("the restart extended the lapsed leases", None, leases_extended),
-                     ("the board keeps moving after the restart", None,
-                      board_keeps_moving(BACK_AT, waits=((BACK_AT, BACK_AT + SETTLE),))),
+                     ("the board keeps moving after the restart", None, board_keeps_moving(BACK_AT)),
                      ("no run is left uncertain", None, no_uncertain_runs)]),
     Scenario("recover_runner_restart",
              "The computer's runner restarts at 2:00 under its running turns, each of which had edited a file: it files each "
