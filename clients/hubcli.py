@@ -373,7 +373,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot budget <bot> [--hour N] [--day N] | release
                                            read or set a bot's runs per hour and per day (0 no limit, default follows the
                                            team), or release it after Tico stopped it
-    hub bot release <bot>                  release a bot Tico stopped for failed runs or too many runs
+    hub bot release <bot>                  release a bot Tico stopped (failed runs, budget, or runs it could not start)
     hub bot profile <bot> [doer|reviewer|lead|manager|responder|monitor|custom] [--batch-seconds N] [--digest-hour H]
                                            read or set what wakes a bot and which tasks it takes (--sweeps/--pulls/--takes
                                            are for custom; --confirm-drop-rules when leaving custom deletes its own rules)
@@ -2457,7 +2457,9 @@ def parser():
     s.add_argument("--confirm-drop-rules", dest="confirm_drop_rules", action="store_true", default=None,
                    help="leaving custom deletes the wake rules it copied into the rules table")
     s.set_defaults(fn="bot profile")
-    s = bot.add_parser("release", help="release a bot Tico stopped (failed runs, or too many runs); its queue starts again")
+    s = bot.add_parser("release",
+                       help="release a bot Tico stopped (failed runs, too many runs, or a run it could not start); "
+                            "its queue starts again")
     s.add_argument("bot")
     s.set_defaults(fn="bot release")
     s = bot.add_parser("model", help="list the models, or change this bot's (BotOps)")
