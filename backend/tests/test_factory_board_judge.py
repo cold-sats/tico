@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from evals.factory.cases.freezes import spend_under
 from evals.factory.scenarios import board_keeps_moving
-from evals.factory.sim import Run, Scenario, at, tickets
+from evals.factory.sim import Run, Scenario, at, login_ready, tickets
 from evals.factory.world import START
 from backend import execution
 
@@ -58,6 +58,15 @@ def test_a_declared_wait_waives_only_the_rounds_inside_it():
     assert not judge([stalled, round_at(2, 1, ["a"], 0)], waits=[(at(0, 30), at(1, 15))])[0]
 
 
+def test_a_blocked_bot_does_not_waive_the_round_for_the_bots_that_are_ready():
+    # One bot cooling off says nothing about another that can run: the round is still judged on the ready one, beside
+    # a round that started what it could, so a judge that waived the round would pass.
+    stalled = round_at(1, 2, ["b"], 0)
+    stalled["blocked"] = {"a": "cooling off, no fallback free"}
+    passed, detail = judge([stalled, round_at(2, 1, ["b"], 1)])
+    assert not passed and "1 of 2 claim rounds" in detail and "ready b, started 0" in detail
+
+
 def test_a_fallback_scenario_needs_a_judged_round_that_started_on_a_fallback():
     assert not judge([round_at(1, 1, ["a"], 1)], fallback=True)[0]
     assert judge([round_at(1, 1, ["a"], 1), round_at(2, 1, ["a"], 1, fallback=1)], fallback=True)[0]
@@ -65,6 +74,13 @@ def test_a_fallback_scenario_needs_a_judged_round_that_started_on_a_fallback():
 
 def test_a_run_with_no_claim_rounds_fails():
     assert not judge([])[0]
+
+
+def test_a_bot_is_ready_by_its_logins_as_the_claim_decides():
+    # A hold on its own login leaves the turn to a free fallback; with its own login free, its cooldown decides, and a
+    # free fallback does not lift it (execution._claim_refusal).
+    assert login_ready(None, False, False) and not login_ready(None, True, True)
+    assert login_ready("held", True, True) and not login_ready("held", False, False)
 
 
 def stall_run(seed=1):

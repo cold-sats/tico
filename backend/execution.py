@@ -14,9 +14,9 @@ from clients import gateway, sessions
 
 from . import auto_tasks, start_places, org_turns, app_delivery, check_models, learned, rooms, rules as wake_rule_engine, updates_chat, gateway_connection, inbox_isolation, login_holds, models_preset, providers, quiet_work, routines, run_triggers, runner_versions, screen, task_models, usage_limits, wake_presets, wake_rules
 from . import task_privacy as privacy
-from . import quarantine_stops, run_backoff, turn_budgets
+from . import claim_holds, quarantine_stops, run_backoff, turn_budgets
 from .auth import Identity
-from .batch_work import isolated
+from .batch_work import isolated, report, shared_check, shared_scope, storage_error
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .verdict_moves import HANDOFF_FIRST_SQL
@@ -62,6 +62,36 @@ AWAKE_SETTLE = 120
 # one write a minute on an idle machine rather than four a second.
 CONTACT_EVERY = 10
 CLAIM_MAINTENANCE = 8       # a polling request never cleans up the whole install's backlog
+CLAIM_PICKS = 5            # candidates one claim may drop under its lock (no longer eligible) before it answers none
+CLAIM_HOLDS = 3            # jobs one claim may hold, for a check or a start that raised, before it picks no more
+
+
+class ClaimFaults:
+    """What one claim could not check or start, kept for the whole claim. `jobs`: (job id, error name) pairs to hold.
+    `bots`: the bots whose bot-wide check raised, with the error name; the claim passes each over for the rest of its
+    call, so its error is logged once and none of its runs is held. `holds`: the jobs the claim has held, which
+    CLAIM_HOLDS bounds, so one wide failure cannot hold a whole backlog in one claim. `clean`: the bots whose check
+    the backfill read without error, so a back-off left from an earlier failure ends."""
+
+    def __init__(self):
+        self.jobs, self.bots, self.holds = [], {}, 0
+        self.new_bots = []          # (bot, exception) whose failure Health has not recorded yet
+        self.clean = set()
+
+    def __bool__(self):
+        return bool(self.jobs or self.new_bots)
+
+    def full(self):
+        return self.holds >= CLAIM_HOLDS
+
+    def job(self, job_id, error):
+        self.jobs.append((job_id, error))
+        self.holds += 1
+
+    def bot(self, bot, exc):
+        if bot not in self.bots:
+            self.bots[bot] = type(exc).__name__
+            self.new_bots.append((bot, exc))
 
 
 # A runner that advertises this runs a bot's task-keyed turns in their own lanes, side by side;
@@ -284,7 +314,8 @@ def lift_after_connection_change(c, settings, actor, bot):
                             "Connection changed; the Tico AI Gateway key is still at its usage limit"),
                      reason="Connection changed")
         return
-    c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' AND wake_class='quota-reset'", (bot,))
+    c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' AND wake_class='quota-reset' "
+              "AND hold_reason IS NULL", (bot,))
     out = c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running') LIMIT 1", (bot,)).fetchone()
     H.status_set(c, actor, bot, state="running" if out else "idle",
                  focus="Working on other tasks" if out else "Connection changed; queued work resumes",
@@ -1318,7 +1349,7 @@ def clear_limits(c, settings, actor, bot):
         if (H.status(c, slug) or {}).get("state") == "limited":
             H.status_set(c, actor, slug, state="idle", focus="", reason="Try now")
         c.execute("UPDATE jobs SET held=0,hold_until=NULL WHERE bot=? AND state='queued' "
-                  "AND wake_class='quota-reset'", (slug,))
+                  "AND wake_class='quota-reset' AND hold_reason IS NULL", (slug,))
         H.event(c, actor, "limit.cleared", slug, {"from": bot, "runtime": mine})
     return len(bots)
 
@@ -1673,8 +1704,11 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     message = H.message(c, job["message_id"])
     if not privacy.message_readable(c, "bot:" + job["bot"], message):
         return "unreadable"
-    if why := turn_budgets.refusal(c, job["bot"], message) or run_backoff.job_refusal(c, job["bot"], message):
-        return why                  # over its run budget or waiting out failed runs: except for a person's message
+    # The bot's budget and back-off are the bot's own state: an error reading them is shared_check's, and the whole
+    # bot is passed over. The checks below depend on this job, so an error in them holds this job alone.
+    with shared_check():
+        if why := turn_budgets.refusal(c, job["bot"], message) or run_backoff.job_refusal(c, job["bot"], message):
+            return why              # over its run budget or waiting out failed runs: except for a person's message
     conversation = H.conversation(c, message["conversation_id"])
     if wake_rule_engine.notice_only(message):
         notice_task = H.task(c, H.message_task_id(message, conversation) or "")
@@ -1719,9 +1753,11 @@ def obsolete_notices_sql():
     idle claim asks the same question: when it counted notices the claim keeps, every claim from that computer went
     on to the write lock for nothing. It goes from this computer's bots to their queued jobs (jobs_queue): left to
     itself SQLite starts from every keeper notice ever sent, tens of milliseconds on each of a runner's claims."""
+    # A held job waits: a wake preset's or a quota reset's until its release, a claim's until its wait ends. The pass
+    # takes it once it is free, and the claim then closes the item its hold opened (claim_holds.clear).
     return ("FROM assignments x CROSS JOIN jobs j CROSS JOIN messages m "
             f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-            "WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND m.id=j.message_id "
+            f"WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND {H.unheld_sql()} AND m.id=j.message_id "
             "AND m.from_actor=? AND (m.kind='say' AND json_extract(m.refs_json,'$.review_gate') IS NOT NULL "
             "AND EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=t.id AND e.ts>m.created AND e.field='step') "
             "OR m.kind='notice' "
@@ -1952,6 +1988,9 @@ class Execution:
         # bot's repository (backend/app.py finish_pending_go_live).
         self.readiness_reported = None
         self.served_at = None   # when this process last answered a runner (heartbeat, claim, attempt call)
+        # Bot -> (when its claim check may run again, failed checks in a row), for a bot whose check raised. Kept in
+        # memory: a restart runs each check once more, which costs one traceback.
+        self.check_backoff = {}
         self.stall_lock = threading.Lock()
         self.stall_graces = []
         self.stall_seen = None
@@ -2569,9 +2608,12 @@ class Execution:
                           (json.dumps(runtimes), H.now(), runner_id, profile))
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
-    def candidate(self, c, who, body, runner, *, job_id=None, people_only=False):
+    def candidate(self, c, who, body, runner, *, job_id=None, people_only=False, failed=None, skip=()):
         """The queued job this runner would be given next, or None. Reads only. `people_only`: only a person's own
-        message (start_places.from_person), on a computer that holds every other start."""
+        message (start_places.from_person), on a computer that holds every other start. `failed`: the claim's
+        ClaimFaults, which takes each job whose checks raise and moves on to the next candidate, passes over the bot of
+        a bot-wide check that raises, and stops picking once CLAIM_HOLDS jobs are held; without it the error
+        propagates. `skip`: the job ids a claim has already dropped, which are passed over."""
         lanes, roots, continues = lanes_on(runner), roots_on(runner), capacity_continue_on(runner)
         # Taken lanes, each "bot|lane": the server's active attempts and the runner's own busy list. A runner
         # without lanes runs one turn per bot, so any active attempt takes the whole bot.
@@ -2603,12 +2645,25 @@ class Execution:
                              f"AND {queued}",
                              (who.runner_id, body.bot, body.bot, *((job_id,) if job_id is not None else ()))).fetchall():
             bot = row["bot"]
-            why, config = claim_refusal(c, self.store.settings, runner, bot, row["config_json"], row["draining"], ready,
-                                        held_bots, subscription_context, default)
-            if why:
+            if failed is not None and bot in failed.bots:
+                continue            # its check raised earlier in this claim: passed over for the rest of it
+            if self.check_waiting(bot):
+                continue            # its check raised and its back-off has not ended: the check does not run yet
+            try:
+                with shared_check():
+                    why, config = claim_refusal(c, self.store.settings, runner, bot, row["config_json"],
+                                                row["draining"], ready, held_bots, subscription_context, default)
+                    if why:
+                        continue
+                    followed_bot = follow(c, bot, config)
+            except Exception as exc:
+                # A check of one bot (its back-off or budget) that raises is that bot's alone: the claim passes it over.
+                if failed is None or storage_error(exc) or shared_scope(exc) == "team":
+                    raise
+                failed.bot(bot, exc)
                 continue
             bots.append(bot)
-            followed[bot] = follow(c, bot, config)
+            followed[bot] = followed_bot
         if not bots:
             return None
         marks = ",".join("?" for _ in bots)
@@ -2637,19 +2692,58 @@ class Execution:
              *(v for bot in bots for v in (bot, held.get(bot, 0)))))
         candidates = candidates.fetchall()
         for i, row in enumerate(candidates):
+            if failed is not None and failed.full():
+                break               # CLAIM_HOLDS jobs are held by this claim: it picks no more
+            if row["id"] in skip or (failed is not None and row["bot"] in failed.bots):
+                continue
             if i % PRIME_QUEUED == 0 and len(candidates) > 1:
                 # A backlog the claim passes over (lane held, check model, budget) is checked again on every claim, a
                 # few a second per computer: the next jobs' messages, rooms and tasks are read together, not one by one.
                 privacy.snapshot(c)
                 part = candidates[i:i + PRIME_QUEUED]
                 privacy.prime_queued(c, H.prime_messages(c, [job["message_id"] for job in part]).values())
-            if source_continuation(c, row["id"]) and SOURCE_CONTINUE not in _capability_set(runner["capabilities_json"]):
-                continue        # old strict-primary runners cannot route a saved fallback
-            if not continues and continuation_thread(c, row["id"]):
-                continue        # left queued for a runner that continues its thread: this one would start it afresh
-            if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None and not login_refusal(
-                    c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]], row["id"], subscription_context):
+            try:
+                if source_continuation(c, row["id"]) and (
+                        SOURCE_CONTINUE not in _capability_set(runner["capabilities_json"])):
+                    continue        # old strict-primary runners cannot route a saved fallback
+                if not continues and continuation_thread(c, row["id"]):
+                    continue        # left queued for a runner that continues its thread: this one would start it afresh
+                why = job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live)
+                if why != "unreadable":
+                    # The bot's checks ran for this job without raising: the back-off their last failure started ends.
+                    self.check_backoff.pop(row["bot"], None)
+                if why is None:
+                    # The job's own login hold: an error reading it holds this job alone. The bot's login as a whole is
+                    # checked once per bot, in claim_refusal, where an error passes the bot over.
+                    waiting = login_refusal(c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]],
+                                            row["id"], subscription_context)
+                    if not waiting:
+                        return row
+            except Exception as exc:
+                # Storage errors and a team's check fail the claim. A bot's check is not this job's: the claim passes
+                # the bot over, and its other runs wait for the check. This job's own error is logged once, and the
+                # claim holds the job, so no other claim evaluates it again.
+                scope = shared_scope(exc)
+                if failed is None or storage_error(exc) or scope == "team":
+                    raise
+                if scope:
+                    failed.bot(row["bot"], exc)
+                    continue
+                report("claim", row["id"], exc)
+                failed.job(row["id"], type(exc).__name__)
+        return None
+
+    def pick(self, c, who, body, runner, now, *, people_only=False, failed, passed):
+        """The next candidate a claim may hand out, or None. A job whose checks raise is held, and an obsolete notice
+        (obsolete_notice) is passed over, as the claim's own selection passes it over. A backfill or a retry after a
+        failed start picks this way too, so it never hands out what the selection would drop. At most CLAIM_PICKS
+        are passed over, then none, as the selection loop bounds it."""
+        for _ in range(CLAIM_PICKS):
+            row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed, skip=passed)
+            self.hold_failed(c, failed)
+            if row is None or not self.obsolete_notice(c, who, row["id"], now):
                 return row
+            passed.append(row["id"])
         return None
 
     @staticmethod
@@ -2668,7 +2762,7 @@ class Execution:
             return False, None
         return True, (None if start_places.person_queued(c, runner_id) else self.held_answer(c, runner_id))
 
-    def company_waiter(self, c, who, body, runner):
+    def company_waiter(self, c, who, body, runner, failed=None):
         """Oldest eligible stop-level waiter across computers; unavailable lanes do not block others.
         Another computer's waiter is eligible only while that computer claims: its claimed busy lists are the only
         record of lanes the attempts table does not show, and an empty list from a silent computer is not "free"."""
@@ -2691,11 +2785,11 @@ class Execution:
             busy_bots, busy_lanes = claimed_busy(rid, CLAIMED_WAITING_FRESH)
             scope = Claim(busy_bots=list(busy_bots), busy_lanes=['|'.join(x) for x in busy_lanes]) if remote else body
             identity = Identity('runner:' + rid, 'runner', runner_id=rid) if remote else who
-            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id']):
+            if found := self.candidate(c, identity, scope, target, job_id=queued['job_id'], failed=failed):
                 return rid, found
         return None
 
-    def idle_claim(self, c, who, body, key=None, selected=None):
+    def idle_claim(self, c, who, body, key=None, selected=None, failed=None):
         """The answer to a claim that changes nothing, from a read-only connection, or None when
         the claim has something to write or to hand out and must run in the write transaction.
 
@@ -2708,12 +2802,12 @@ class Execution:
         if not key or c.execute("SELECT 1 FROM idempotency WHERE actor=? AND operation='/api/v2/jobs/claim' AND key=?",
                                 (who.actor, key)).fetchone():
             return None
-        answer = self._idle_claim(c, who, body, selected)
+        answer = self._idle_claim(c, who, body, selected, failed)
         if answer is not None:
             self.record_contact(H.now())
         return answer
 
-    def _idle_claim(self, c, who, body, selected=None):
+    def _idle_claim(self, c, who, body, selected=None, failed=None):
         runner = self.runner(c, who)
         if not runner:
             return None
@@ -2747,11 +2841,14 @@ class Execution:
         count = sum(turns_here(c, who.runner_id).values())
         if count >= start_places.turn_limit(runner) or not self.awake(awake_since, now):
             return {"attempt": None}
-        row = self.candidate(c, who, body, runner, people_only=people_only)
+        row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed)
+        if failed:
+            return None         # a job that raised is held by the claim, under the writer lock, before any answer
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
-        if row is None and auto_tasks.missing(c, self.store.settings, runner, body):
-            return None
+        if row is None and (auto_tasks.missing(c, self.store.settings, runner, body, failed, self.check_waiting)
+                            or failed or failed is not None and self.check_recovered(c, failed.clean)):
+            return None         # a bot whose check raised, or passes again, is recorded under the writer lock
         if row is not None and selected is not None:
             selected.append(row)
         return None if row else {"attempt": None}
@@ -2786,25 +2883,34 @@ class Execution:
         self.stamp(c, who, runner, now)
 
     def maintenance_due(self, c, who):
-        """Whether `maintain` has anything to do for this claim: a start place or lease that lapsed, or a quota
-        reset hold on one of this computer's bots that is due. Read-only, so an idle poll stays off the lock."""
+        """Whether `maintain` has anything to do for this claim: a start place or lease that lapsed, a quota reset hold
+        on one of this computer's bots that is due, or a held run whose wait has ended. Read-only, so an idle poll
+        stays off the lock."""
         now = H.now()
         return bool(start_places.overdue(c) or c.execute(
             "SELECT 1 FROM jobs j JOIN assignments a ON a.bot=j.bot WHERE a.runner_id=? "
             "AND j.state='queued' AND j.held=1 AND j.wake_class='quota-reset' "
             "AND j.hold_until<=? LIMIT 1", (who.runner_id, now)).fetchone() or c.execute(
+            "SELECT 1 FROM jobs j JOIN assignments a ON a.bot=j.bot WHERE a.runner_id=? "
+            "AND j.state='queued' AND j.held=1 AND j.hold_reason=? AND j.hold_until<=? LIMIT 1",
+            (who.runner_id, claim_holds.REASON, now)).fetchone() or c.execute(
             "SELECT 1 FROM attempts WHERE state IN ('leased','running') AND lease_until<=? LIMIT 1",
             (now,)).fetchone())
 
     def maintain(self, c):
-        """What a claim cleans up before it looks for work: due quota resets released, and a bounded number of
-        lapsed leases expired, their work back in the queue."""
+        """What a claim cleans up before it looks for work: due quota resets released, held runs whose wait has ended
+        let go, and a bounded number of lapsed leases expired, their work back in the queue."""
         wake_presets.release_quota_resets(c)
+        claim_holds.release_due(c)
         self.expire(c, limit=CLAIM_MAINTENANCE)
 
-    def claim(self, c, who, body, selected=None, *, prepared=False, maintained=False):
+    def claim(self, c, who, body, selected=None, *, prepared=False, maintained=False, failed=None):
         """`maintained`: the claim route ran `maintain` in its own write before its read snapshot chose `selected`,
-        so a job that expiry requeued was there to choose, and this write rechecks only that job."""
+        so a job that expiry requeued was there to choose, and this write rechecks only that job.
+        `failed`: the read snapshot's ClaimFaults (see candidate): the jobs and bots that raised there. They are held
+        first; the claim then chooses under the lock as usual."""
+        failed = ClaimFaults() if failed is None else failed
+        self.hold_failed(c, failed)
         runner = self.runner(c, who)
         if runner:
             note_claim(runner["id"], body)
@@ -2835,6 +2941,7 @@ class Execution:
             if not prepared:
                 selected = None
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (old['id'],))
+            claim_holds.clear(c, old['id'], "Its run is no longer needed.")
             c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),old['message_id']))
             from .repositories import metadata
             if (old["attempt_id"] and metadata(c, LAST_STOP + old["bot"]).get("attempt_id") == old["attempt_id"]
@@ -2860,33 +2967,96 @@ class Execution:
         # Its work keeps its place in the queue and goes out once the machine is really up.
         if not self.awake(awake_since, now):
             return {"attempt": None}
-        if oldest := self.company_waiter(c, who, body, runner):
+        if oldest := self.company_waiter(c, who, body, runner, failed=failed):
             if oldest[0] != who.runner_id:
                 return {'attempt': None, 'waiting': org_turns.REASON}
             selected, prepared = oldest[1], True
-        # Selection scans the queue on a read connection. Recheck only that job's
-        # current eligibility under the writer lock; a changed queue waits one poll.
-        if prepared:
-            row = self.candidate(c, who, body, runner, job_id=selected["id"]) if selected is not None else None
-        else:
-            row = selected if selected is not None else self.candidate(c, who, body, runner, people_only=people_only)
+        # Selection scans the queue on a read connection. Recheck only that job's current eligibility under the writer
+        # lock. A selected job that is no longer eligible here (the obsolete-notice loop above cancelled it, or its
+        # recheck refuses it) is dropped, and the claim takes the next candidate in this same call, passing over the
+        # jobs it dropped. A claim drops at most CLAIM_PICKS, so it never loops; then it answers none, as before.
+        passed = []
+        for _ in range(CLAIM_PICKS):
+            if prepared:
+                row = (self.candidate(c, who, body, runner, job_id=selected["id"], failed=failed)
+                       if selected is not None else None)
+            else:
+                row = (selected if selected is not None else
+                       self.candidate(c, who, body, runner, people_only=people_only, failed=failed, skip=passed))
+            raised = bool(failed)
+            self.hold_failed(c, failed)
+            if row is None and raised:
+                # The job checked here was held just now: the next candidate is taken in this same claim.
+                row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed, skip=passed)
+                self.hold_failed(c, failed)
+            if row is not None and self.obsolete_notice(c, who, row["id"], now):
+                # The obsolete-notice page above cancels CLAIM_MAINTENANCE at a time, and an obsolete notice is never
+                # handed out: the claim passes over this one and takes the next.
+                passed.append(row["id"])
+                row, selected, prepared = None, None, False
+                continue
+            if row is not None or selected is None:
+                break
+            passed.append(selected["id"])
+            selected, prepared = None, False
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
-        # Backfill a free turn after queued conversations and awaited results keep their place.
-        if row is None and selected is None and (pending := auto_tasks.missing(c, self.store.settings, runner, body)):
+        # Backfill a free turn after queued conversations and awaited results keep their place. A claim that passed
+        # over a dropped pick leaves backfill to the next poll: its scan under the writer lock is not repeated in a
+        # busy moment.
+        if (row is None and selected is None and not passed
+                and (pending := auto_tasks.missing(c, self.store.settings, runner, body, failed, self.check_waiting))):
             auto_tasks.enqueue(c, pending)
-            row = self.candidate(c, who, body, runner)
+            row = self.pick(c, who, body, runner, now, failed=failed, passed=passed)
+        self.hold_failed(c, failed)
         if not row:
             return {"attempt": None}
+        # The job's preparation runs in a savepoint of its own. An error rolls back its writes: a check of one bot
+        # passes that bot over, and a job's own error holds the job. The claim takes the next candidate until
+        # CLAIM_HOLDS jobs are held. A team's check and a storage error fail the claim, as they always did.
+        while True:
+            c.execute("SAVEPOINT claim_start")
+            try:
+                answer = self.start_claimed(c, who, body, runner, row)
+            except Exception as exc:
+                scope = shared_scope(exc)
+                if not c.in_transaction or storage_error(exc) or scope == "team":
+                    raise
+                c.execute("ROLLBACK TO claim_start")
+                c.execute("RELEASE claim_start")
+                if scope:
+                    failed.bot(row["bot"], exc)
+                else:
+                    report("claim", row["id"], exc)
+                    failed.job(row["id"], type(exc).__name__)
+                self.hold_failed(c, failed)
+                if failed.full():
+                    return {"attempt": None}
+                row = self.pick(c, who, body, runner, now, people_only=people_only, failed=failed, passed=passed)
+                if not row:
+                    return {"attempt": None}
+                continue
+            c.execute("RELEASE claim_start")
+            if answer.get("attempt"):
+                # The run is handed out: a retry that starts clears its hold and its bot's Health finding.
+                claim_holds.started(c, row["id"])
+                self.check_backoff.pop(row["bot"], None)
+            return answer
+
+    def start_claimed(self, c, who, body, runner, row):
+        """The preparation of the job a claim hands out: its turn, attempt, inputs and hand-out. The claim runs it in a
+        savepoint of its own (claim), so an error here rolls back only this job's writes."""
         msg = H.message(c, row["message_id"])
         if not privacy.message_readable(c, "bot:" + row["bot"], msg):
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (row["id"],))
             H.event(c, H.KEEPER, "job.suppress", row["id"], {"reason": "unreadable"})
             return {"attempt": None}
-        if turn_budgets.enforce(c, self.store.settings, row, msg):
-            return {"attempt": None}        # the bot is over its run budget: held now, its queue kept
-        if run_backoff.probe(c, row["bot"]):
-            return {"attempt": None}        # held for failed runs and its next try is not due, or another took it
+        # The bot's budget and back-off: an error in them passes the bot over, and holds no run.
+        with shared_check():
+            if turn_budgets.enforce(c, self.store.settings, row, msg):
+                return {"attempt": None}    # the bot is over its run budget: held now, its queue kept
+            if run_backoff.probe(c, row["bot"]):
+                return {"attempt": None}    # held for failed runs and its next try is not due, or another took it
         live_ref = (msg.get("refs") or {}).get("live_meeting")
         if (isinstance(live_ref, dict) and msg.get("from_actor") == H.KEEPER
                 and msg.get("to_actor") == "bot:" + row["bot"]):
@@ -3157,6 +3327,45 @@ class Execution:
                             "session_epoch": epoch["epoch"] if epoch else 0,
                             # Moved by any clear or reset of this bot: the runner starts the bot's shared thread anew.
                             "bot_session_epoch": bot_epoch[0] if bot_epoch else 0}}
+
+    @staticmethod
+    def obsolete_notice(c, who, job_id, now):
+        """Whether a queued job is an obsolete keeper notice (obsolete_notices_sql), which a claim cancels and never
+        hands out."""
+        return c.execute("SELECT 1 FROM (SELECT j.id AS id " + obsolete_notices_sql() + ") o WHERE o.id=? LIMIT 1",
+                         (who.runner_id, H.KEEPER, now, job_id)).fetchone() is not None
+
+    def check_waiting(self, bot):
+        """Whether the bot's claim check raised and its back-off has not ended: the claim passes the bot over without
+        running the check. hold_failed sets the back-off."""
+        wait = self.check_backoff.get(bot)
+        return wait is not None and H.now() < wait[0]
+
+    def check_recovered(self, c, bots):
+        """Whether any of `bots`, whose checks just passed, still has a back-off or a Health finding to clear. The
+        finding is read, not inferred from the back-off, which a restart forgets."""
+        if bots & self.check_backoff.keys():
+            return True
+        marks = ",".join("?" * len(bots))
+        return bool(bots) and c.execute(f"SELECT 1 FROM service_health WHERE service IN ({marks}) LIMIT 1",
+                                        [claim_holds.CHECK + bot for bot in sorted(bots)]).fetchone() is not None
+
+    def hold_failed(self, c, failed):
+        """Record what the claim's ClaimFaults found, and clear it: each job it could not evaluate or start is held, and
+        each bot whose check raised is logged once, named in Health (claim_holds.check_failed) and passed over until
+        its back-off ends (check_waiting). A bot whose check passes again loses its back-off and its Health finding."""
+        for bot in failed.clean - failed.bots.keys():
+            self.check_backoff.pop(bot, None)
+            claim_holds.check_passed(c, bot)
+        failed.clean.clear()
+        while failed.jobs:
+            job_id, error = failed.jobs.pop(0)
+            claim_holds.hold(c, self.store.settings, job_id, error)
+        while failed.new_bots:
+            bot, exc = failed.new_bots.pop(0)
+            tries = self.check_backoff.get(bot, (None, 0))[1] + 1
+            self.check_backoff[bot] = (H.shift(H.now(), seconds=claim_holds.check_delay(tries)), tries)
+            claim_holds.check_failed(c, bot, exc)
 
     def attempt(self, c, who, aid, active=True, final=False, arrived=None):
         """`final` is a runner handing in the result of a turn it has finished. That result
@@ -3656,9 +3865,12 @@ class Execution:
         task_room = ((H.task(c, origin_task) or {}).get("conversation_id")
                      if origin_task and str(dict(attempt).get("lane") or "").startswith("task:") else None)
         taken = 0
-        candidates = c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
+        candidates = c.execute("SELECT m.*,j.id AS job_id FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "JOIN conversations cv ON cv.id=m.conversation_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
+                             # A run the claim holds is not taken into a running turn until its wait ends, as the
+                             # claim would not start it either.
+                             "AND (j.held=0 OR (j.hold_reason=? AND j.hold_until<=?)) "
                              # A bot limited to one task takes nothing else into a running turn either.
                              f"AND {scoped_sql()} "
                              # A redirect replaces the turn being stopped, so it starts the next one instead.
@@ -3668,7 +3880,7 @@ class Execution:
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
                              "WHERE active_attempt.id=?) OR m.conversation_id=? OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid",
-                             (attempt["bot"], aid, task_room)).fetchall()
+                             (attempt["bot"], claim_holds.REASON, H.now(), aid, task_room)).fetchall()
         read_at = c.total_changes
         for i, row in enumerate(candidates):
             # Ten at a time, counted after the filters below: older work queued for other lanes must
@@ -3737,6 +3949,7 @@ class Execution:
                       "WHERE message_id=?", (aid, aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_inputs VALUES(?,?,NULL)", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
+            claim_holds.clear(c, row["job_id"], "Its held run went into a running turn.")
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
             taken += 1
         # `attempt_id` lets the response check read these as the bot, as for the turn itself:

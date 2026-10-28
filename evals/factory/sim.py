@@ -37,6 +37,13 @@ TEAM = {  # slug: (role, family)
 ARCHITECT = {"architect": ("architect", "claude")}
 
 
+def login_ready(held, cooling, fallback):
+    """Whether a bot may start by its logins, as the server's claim decides (execution._claim_refusal): while a hold
+    keeps its own login (`held`), a free fallback takes the turn; otherwise its own cooldown decides, whatever fallback
+    is free."""
+    return fallback if held else not cooling
+
+
 class Run:
     """One scenario run: the world, the team and everything measured."""
 
@@ -247,7 +254,10 @@ class Run:
             now = H.now()
             runner = c.execute(X.RUNNER_SQL, (rid,)).fetchone()
             awake = bool(runner) and X.Execution.awake(X.Execution.waking(runner, now), now)
-            own = login_holds.holding(c, rid, login_holds.canonical(c, rid, "", PRIMARY), PRIMARY, now=now)
+            login = login_holds.canonical(c, rid, "", PRIMARY)
+            own = login_holds.holding(c, rid, login, PRIMARY, now=now)
+            probe = login_holds.get(c, rid, login, PRIMARY).get("probe_job")
+            prober = c.execute("SELECT bot FROM jobs WHERE id=?", (probe,)).fetchone() if probe else None
             fallbacks = []
             for name in w.runtime_fallbacks():
                 if name != PRIMARY and name in w.signed_in:
@@ -262,12 +272,16 @@ class Run:
                     ready.append(bot)
                 elif not awake:
                     blocked[bot] = "computer waking"
-                elif (own is None and not X.cooling_off(c, bot)) or fallbacks:
-                    ready.append(bot)
                 else:
-                    blocked[bot] = ", ".join(([f"own login {own}"] if own else [])
-                                             + (["cooling off"] if X.cooling_off(c, bot) else [])
-                                             + ["no fallback free"])
+                    # The probe's own bot is let through its login's probe (execution.login_wait).
+                    held = None if own == "probing" and prober and prober["bot"] == bot else own
+                    cooling = X.cooling_off(c, bot)
+                    if login_ready(held, cooling, bool(fallbacks)):
+                        ready.append(bot)
+                    else:
+                        blocked[bot] = ", ".join(([f"own login {held}"] if held else [])
+                                                 + (["cooling off"] if cooling else [])
+                                                 + ([] if fallbacks else ["no fallback free"]))
         return sorted(ready), blocked
 
     def reasons(self, w, bots, blocked=None):
