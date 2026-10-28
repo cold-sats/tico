@@ -1,5 +1,5 @@
 // Offline browser regression: a Settings or Tools form keeps what a person has typed while the app's
-// polls run. Types into Tools > GitHub, and into Settings > Computers (Add computer, API token), fires the
+// polls run. Types into Library › Tools › GitHub (its GitHub App card), and into Settings > Computers (Add computer, API token), fires the
 // refresh paths and asserts the values survive.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -26,7 +26,7 @@ const {unrouted} = require('./support/routes.cjs');
         return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
       if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
-      const config = {version: '0.1.0', app_name: 'Tico', local: true, compose_project: 'acme', server_network: 'acme_default'};
+      const config = {version: '0.1.0', app_name: 'Tico', local: true, compose_project: 'acme', server_network: 'acme_default', redesign: true};
       if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.com', cloud: true, registered: true, config});
       if (p === '/api/v2/config') return json(config);
       if (p === '/api/employees') return json(bots);
@@ -36,7 +36,10 @@ const {unrouted} = require('./support/routes.cjs');
       if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/v2/needs-you') return json({items: []});
-      if (p === '/api/v2/integrations') return json({integrations: []});
+      const github = {service: 'github', title: 'GitHub', kind: 'cli', summary: 'Code', access: 'gh CLI', credentials: ['GH_TOKEN'], declared_as: '',
+        writes: 'allowed', owner: 'Ana', aliases: [], status: 'not_configured', bots: [], connections: []};
+      if (p === '/api/v2/tools') return json({integrations: [github]});
+      if (p === '/api/v2/tools/github') return json({...github, queries: [], body: '', learnings: []});
       if (p === '/api/v2/github/app') return json({connected: false});
       if (p === '/api/v2/operations') return json({machines: computers, services: []});
       if (p === '/api/v2/models') return json({models: [{id: 'test-model', label: 'Test model', provider: 'openai', runtime: 'codex'}], harnesses});
@@ -53,10 +56,10 @@ const {unrouted} = require('./support/routes.cjs');
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       return json(unrouted(p));
     });
-    await page.goto('https://tico-ui.test/#/integrations');
+    await page.goto('https://tico-ui.test/#/library/tools/github');
     const org = page.locator('[data-gh-form] input[name=org]'), name = page.locator('[data-gh-form] input[name=name]');
     await org.fill('acme-inc'); await name.fill('Acme Tico'); await name.focus();
-    // The app's polls, and a redraw of the same route (the Tools page rebuilt itself and wiped the form).
+    // The app's polls, and a redraw of the same route (the old Tools page rebuilt itself and wiped the form).
     // route() decides to keep or redraw the busy page before it returns, so the values can be read at once.
     await page.evaluate(async () => { await refresh(false); await refresh(true); applyConfig(await get('/v2/config')); route(); });
     assert.equal(await org.inputValue(), 'acme-inc', 'Organization survives the refresh');
