@@ -9,8 +9,8 @@ one making the change is the owner) is never capped; no row means no cap; 0 bloc
 Who sets a cap: the owner and the bot administrators (anyone), a group lead (the teammates in the groups it leads), and a
 bot for its own sends, which is an approval a person decides (kind `task_cap`, POST /api/v2/approvals/{id}); on approve the
 hub applies it itself (CONTRACT §5). The receiver must be a manager above the sender at any level of the org chart. Every
-change is one audit row (backend/audit_log.py) with the cap before and after. With the redesign off (backend/redesign.py)
-no check runs and the routes answer 404; sends are still recorded, so a cap set later counts today's tasks.
+change is one audit row (backend/audit_log.py) with the cap before and after. Sends are recorded, so a cap set later counts
+today's tasks.
 """
 
 import json
@@ -20,7 +20,6 @@ from fastapi import Request
 from pydantic import Field
 
 from . import audit_log
-from . import redesign
 from . import models as M
 from .models import ID, Contract
 from .store import H, Problem
@@ -116,8 +115,7 @@ def above(c, who):
     kind, _, ident = who.partition(":")
     seen = {("b:" if kind == "bot" else "p:") + ident}
     out = []
-    bare = redesign.on(c)
-    nxt = P.org_parent("bot" if kind == "bot" else "person", ident, roster, configs, archived, bare)
+    nxt = P.org_parent("bot" if kind == "bot" else "person", ident, roster, configs, archived, True)
     while nxt and nxt not in seen:
         seen.add(nxt)
         head, _, rest = nxt.partition(":")
@@ -125,7 +123,7 @@ def above(c, who):
             nxt = _group_manager(roster, configs, rest)
             continue
         out.append(("human:" if head == "p" else "bot:") + rest)
-        nxt = P.org_parent("person" if head == "p" else "bot", rest, roster, configs, archived, bare)
+        nxt = P.org_parent("person" if head == "p" else "bot", rest, roster, configs, archived, True)
     return out
 
 
@@ -208,8 +206,8 @@ def _payload(c, sender, receiver, cap, today):
 
 def check(c, sender, owner):
     """Refuse the send `sender` makes `owner` when that pair's cap is used up: raises Capped (a 409) and writes nothing.
-    Own work, a pair with no cap row, and everything while the redesign is off pass."""
-    if not sender or not owner or sender == owner or not redesign.on(c):
+    Own work and a pair with no cap row pass."""
+    if not sender or not owner or sender == owner:
         return
     row = c.execute("SELECT per_day FROM task_caps WHERE sender=? AND receiver=?", (sender, owner)).fetchone()
     if not row or row["per_day"] is None:
@@ -258,8 +256,6 @@ def propose(c, who, sender, receiver, per_day):
 def apply_approved(c, actor_, aid):
     """A person approved a bot's cap change: the hub applies it, audited with the approval as `via` (backend/proposals.py
     spends the approval and tells BotOps). The receiver must still be a manager above the sender."""
-    if not redesign.on(c):
-        raise Problem("not_found", "Task caps are part of the redesign, which is off", 404)
     change = H.approval(c, aid)["payload"]
     sender, receiver = _teammate(c, change["sender"]), _teammate(c, change["receiver"])
     if receiver not in above(c, sender):
@@ -269,8 +265,8 @@ def apply_approved(c, actor_, aid):
 
 def forget(c, teammate):
     """A teammate moved to another group: the caps that name it go, and so do the cap approvals a person has yet to decide,
-    so its new pairs start uncapped (the redesign on only). Each removed cap is audited as the hub's own change."""
-    if not teammate or not redesign.on(c):
+    so its new pairs start uncapped. Each removed cap is audited as the hub's own change."""
+    if not teammate:
         return
     for row in c.execute("SELECT sender, receiver FROM task_caps WHERE sender=? OR receiver=?",
                          (teammate, teammate)).fetchall():
@@ -326,10 +322,6 @@ def _listing(c, auth, who):
 
 # ---------------------------------------------------------------------------------------------------- the routes
 def install(app, store, auth, mutate):
-    def gate(c):
-        if not redesign.on(c):
-            raise Problem("not_found", "Task caps are part of the redesign, which is off", 404)
-
     def set_cap(c, who, sender_ref, receiver_ref, per_day):
         sender, receiver = _teammate(c, sender_ref), _teammate(c, receiver_ref)
         if sender == receiver:
@@ -349,7 +341,6 @@ def install(app, store, auth, mutate):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            gate(c)
             return _listing(c, auth, who)
 
     @app.put("/api/v2/task-caps")
@@ -360,7 +351,6 @@ def install(app, store, auth, mutate):
         auth.domain(who)
 
         def work(c):
-            gate(c)
             return set_cap(c, who, body.sender, body.receiver, body.per_day)
         return mutate(request, body, work)
 
@@ -373,7 +363,6 @@ def install(app, store, auth, mutate):
         body = TaskCapPair(sender=sender, receiver=receiver)
 
         def work(c):
-            gate(c)
             return set_cap(c, who, body.sender, body.receiver, None)
         return mutate(request, body, work)
 

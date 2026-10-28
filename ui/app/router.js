@@ -14,6 +14,12 @@ function route() {
     } catch { /* A malformed external handoff never changes a bot. */ }
     SETTINGS_TAB = 'bots'; location.replace(SETTINGS); return;
   }
+  // Decide is the Needs you card now: an old link goes to Needs you, and one naming an item opens that item's card.
+  if (location.hash === DECIDE || location.hash.startsWith(DECIDE + '?')) {
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    DECIDE_WANT = q.get('item') || q.get('task') || q.get('approval') || '';
+    location.replace(NEEDS_YOU); return;
+  }
   overviewStop();
   $('#main').classList.remove('overview-layout');
   const from = LAST_ROUTE;
@@ -45,7 +51,7 @@ function route() {
   // its accumulated page, so returning re-reads the server instead of drawing a stale list.
   if (!S.route.startsWith(MAIL)) { MAIL_LOAD++; clearTimeout(MAIL_SEARCH); mailForget(); }
   if (!S.route.startsWith(MESSAGING)) { MESSAGING_LOAD++; MESSAGING_LIST = null; }
-  if (S.route !== DECIDE) decideStop();     // its waiting answer goes now
+  decideStop();     // the Needs you card closes with its page; its waiting answer goes now
   convStop(); meetStop(); onbStop(); TASKS_ST?.layoutAbort?.abort(); TASKS_ST = null; // page-local work never outlives its page
   if (S.route !== '#/usage') USE = null;
   if (!S.route.startsWith('#/replay')) replayStop();
@@ -69,7 +75,6 @@ function route() {
   else if (S.route.startsWith('#/task/')) pageTasks('', decodeURIComponent(S.route.slice(7)));
   else if (S.route.startsWith(TASKS + '/')) { location.replace('#/task/' + S.route.slice(TASKS.length + 1).split('?')[0]); return; }   // #/tasks/<id> is the same task
   else if (S.route === CHAT) { location.hash = TASKS; return; }
-  else if (S.route === DECIDE) pageDecide();
   else if (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?')) pageNotes();
   else if (S.route.startsWith('#/bot/')) { const [slug, tab] = S.route.slice(6).split('/'); pageBot(slug, tab); }
   else if (S.route === ASSISTANT) pageAssistant();

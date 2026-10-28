@@ -52,8 +52,6 @@ const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_b
 const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager' || slug === 'task-manager';
 // The Strategy Bot (backend/ceo_bot.py, slug goal-manager) is on every install, at the top of the org chart, by the name
 // the owner gave it, else "Strategy Bot": its older default names ("CEO Bot", "Goal Manager") read so too.
-// The redesign is the only design; redesignOn() stays for callers that still ask.
-const redesignOn = () => true;
 const ceoDefaultName = () => 'Strategy Bot';
 const ceoDefaultish = name => !name || name === 'Goal Manager' || name === 'CEO Bot';
 const ceoBotName = () => {

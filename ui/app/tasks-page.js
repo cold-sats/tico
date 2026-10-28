@@ -33,7 +33,7 @@ function pageTasks(forced, openId = '') {
         <span class="spacer"></span>
         <div class="tl-type-search"><div class="tl-types" id="task-type" role="group" aria-label="Task type"></div>
         <div class="tl-search">${TL_ICON.search}<input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></div></div>
-        <a class="tl-decide tl-decide-head" href="${DECIDE}" hidden></a>
+        <button type="button" class="tl-decide tl-decide-head" data-go-through hidden></button>
         <button class="primary tl-new" type="button" id="task-new" aria-label="New task" title="New task (C)">${TL_ICON.plus}<span>New task</span></button>
       </header>
       <div class="tl-bar" id="task-bar">
@@ -42,7 +42,7 @@ function pageTasks(forced, openId = '') {
           <button type="button" class="tl-addf" id="task-filter" aria-haspopup="true">${TL_ICON.filter}<span>Filter</span></button>
           <button type="button" class="linkish tl-clear" id="task-filter-clear" hidden>Clear</button></div>
         <span class="spacer"></span>
-        <a class="tl-decide tl-decide-bar" href="${DECIDE}" hidden></a>
+        <button type="button" class="tl-decide tl-decide-bar" data-go-through hidden></button>
         ${S.me?.role === 'bot' ? '' : `<button type="button" class="tl-addf tl-ic" id="task-stats" aria-label="Task stats" title="Task stats">${TL_ICON.chart}</button>`}
         <button type="button" class="tl-addf tl-ic tl-pin" id="task-pin" aria-pressed="false" aria-label="Pin to the sidebar" title="Pin to the sidebar">${TL_ICON.pin}</button>
         <button type="button" class="tl-addf tl-selmode" id="task-select-mode" aria-pressed="false" hidden>Select</button>
@@ -59,6 +59,8 @@ function pageTasks(forced, openId = '') {
     else if (ev.target.closest('#task-type-more')) taskPipelineMenu(state, $('#task-type-more'));
   };
   $('#task-pin').onclick = () => tasksPinToggle(state);
+  // Go through: the Needs you cards from the first, one at a time (decide.js).
+  for (const b of document.querySelectorAll('#tasks-pane [data-go-through]')) b.onclick = () => decideGoThrough();
   $('#task-stats')?.addEventListener('click', () => taskStatsOpen(state));
   $('#task-new').onclick = () => { const p = tasksCreatePrefill(state); openTaskCreate(p.owner, {labels: p.labels}); };
   const search = $('#task-q');
@@ -169,6 +171,9 @@ function pageTasks(forced, openId = '') {
     tasksRender(state);
     tasksDoneEnsure(state);
     await loading;
+    // An old Decide link to one item (#/decide?item=<id>): its card over Needs you.
+    const want = DECIDE_WANT; DECIDE_WANT = '';
+    if (want && TASKS_ST === state) await decideWanted(want);
   })();
 }
 function tasksSetView(state, view) {

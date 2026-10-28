@@ -105,7 +105,7 @@ async function open(browser, {team = small(), viewport = DESKTOP, viewer = 'ana'
   const person = team.people.find(p => p.id === viewer);
   const me = {id: viewer, name: person.name, email: viewer + '@acme.example', role: viewer === 'ana' ? 'owner' : 'member',
     company_role: viewer === 'ana' ? 'owner' : 'member', cloud: true};
-  const config = {company_name: 'Acme', redesign: true};
+  const config = {company_name: 'Acme'};
   const writes = [];
   const page = await browser.newPage({viewport, serviceWorkers: 'block', hasTouch: viewport === PHONE});
   const errors = [];
