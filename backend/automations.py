@@ -451,7 +451,79 @@ def may_read_inbox(c, owner, inbox, *, sender=None, settings=None):
 # on, never by POST. Each is {key, name, owner, trigger, steps}. The first is `What wakes bots`, owned by the top of the
 # org: the wake rules rules.py keeps in code, shown read-only (`readonly`: the engine never runs it, and pausing it
 # leaves those rules working). The system jobs move here with their migration; until then the old jobs run as they do.
+# With a Librarian on the team, the market's two: `Market briefing` (daily at 07:00 team time: the Librarian's turn
+# writes it and `post_update` posts it to Market and Updates) and one `Market listening` per destination the Librarian
+# receives (each match is a Librarian turn, which changes the graph through the market routes). The top of the org
+# pauses them; nobody deletes them. Each stands down while the team's own Librarian automation does the same work
+# (`_stands_down`), and the briefing starts paused while a Librarian briefing routine still runs (the converter adopts
+# that routine into it).
 BUILTINS = ()
+LIBRARIAN = "librarian"
+BRIEFING_KEY, LISTENING_KEY = "market_briefing", "market_listening_"
+BRIEFING_PROMPT = ("Write today's market briefing from the graph: what changed since yesterday, what listening heard and "
+                   "which bets it touches. Start with a one-line title; then one bullet per point.")
+LISTENING_PROMPT = ("A listening match for Market ({{listening.destination}}): {{listening.url}}\n\n{{listening.content}}"
+                    "\n\nIf it changes what we know about the market, file it as evidence and change the graph through "
+                    "the market routes, citing it. If it changes nothing, say so and stop.")
+
+
+def briefing_flow(cron="0 7 * * *", tz=None, prompt=BRIEFING_PROMPT):
+    """`Market briefing`: the Librarian's turn writes it; the run posts what it wrote to Market and Updates."""
+    from .redesign_migration import _zone
+    return {"name": "Market briefing", "owner": "bot:" + LIBRARIAN,
+            "trigger": {"type": "schedule", "cron": cron, "tz": tz or _zone()},
+            "steps": [{"id": "brief", "type": "bot_turn", "bot": "bot:" + LIBRARIAN, "prompt": prompt},
+                      {"id": "post", "type": "action", "do": "post_update", "args": {"to": ["market", "updates"]}}]}
+
+
+def is_briefing_routine(row):
+    """A Librarian routine that writes the market briefing on a schedule: the built-in does that now, so the
+    converter adopts it (backend/redesign_migration.py) and, while it is live, the built-in starts paused."""
+    words = f"{row['title'] or ''} {row['routine_key'] or ''}".lower()
+    return row["bot"] == LIBRARIAN and not row["event_name"] and "briefing" in words
+
+
+def _market_builtins(c, settings=None):
+    """The Librarian's built-ins; `settings` adds the destinations listening.yaml names to the ones saved here."""
+    found = H.bot(c, LIBRARIAN)
+    if not found or found.get("state") == "archived":
+        return []
+    live = any(is_briefing_routine(r) for r in c.execute(
+        "SELECT bot, title, routine_key, event_name FROM schedules WHERE bot=? AND deleted_at IS NULL", (LIBRARIAN,)))
+    out = [{**briefing_flow(), "key": BRIEFING_KEY, "enabled": not live}]
+    from . import listening
+    dests = listening.destinations(settings, c, check_questions=False) if settings is not None else listening.stored(c)
+    for key in sorted(k for k, cfg in dests.items() if cfg.get("receiver") == "bot:" + LIBRARIAN):
+        out.append({"key": LISTENING_KEY + key, "name": f"Market listening · {key}"[:120], "owner": "bot:" + LIBRARIAN,
+                    "trigger": {"type": "listening", "destination": key},
+                    "steps": [{"id": "update", "type": "bot_turn", "bot": "bot:" + LIBRARIAN, "prompt": LISTENING_PROMPT}]})
+    return out
+
+
+def _posts_market(steps):
+    """Whether a step (nested paths included) posts to Market."""
+    for step in steps or []:
+        to = (step.get("args") or {}).get("to") if step.get("do") == "post_update" else None
+        if to == "market" or (isinstance(to, list) and "market" in to):
+            return True
+        if any(_posts_market(p.get("steps")) for p in step.get("paths") or []) \
+                or _posts_market((step.get("otherwise") or {}).get("steps")):
+            return True
+    return False
+
+
+def _stands_down(c, aid, trigger):
+    """A market built-in does not run while the team's own Librarian automation does its work: one on the same
+    listening destination, or (the briefing) one that posts to Market. One turn per match, one briefing a day."""
+    if aid == "auto_builtin_" + BRIEFING_KEY:
+        same = lambda flow: _posts_market(flow["steps"])   # noqa: E731
+    elif aid.startswith("auto_builtin_" + LISTENING_KEY):
+        same = lambda flow: flow["trigger"].get("destination") == trigger.get("destination")   # noqa: E731
+    else:
+        return False
+    return any(same(flow_of(r)) for r in c.execute(
+        "SELECT flow_json FROM automations WHERE builtin=0 AND enabled=1 AND deleted_at IS NULL AND owner=? "
+        "AND trigger_type=?", ("bot:" + LIBRARIAN, trigger["type"])))
 
 
 def _top_person(c):
@@ -466,21 +538,22 @@ def _top_person(c):
     return person["id"] if person else H.default_human(c)
 
 
-def _catalog(c):
+def _catalog(c, settings=None):
     from .redesign_migration import WAKES_BUILTIN, wakes_builtin
     top = _top_person(c)
     wakes = [{**wakes_builtin("person:" + top), "key": WAKES_BUILTIN[len("auto_builtin_"):]}] if top else []
-    return [*wakes, *BUILTINS]
+    return [*wakes, *BUILTINS, *_market_builtins(c, settings)]
 
 
-def ensure_builtins(c, catalog=None):
+def ensure_builtins(c, catalog=None, settings=None):
     """Make each built-in that does not exist yet; one already made is left as its people changed it."""
     made = []
-    for spec in _catalog(c) if catalog is None else catalog:
+    for spec in _catalog(c, settings) if catalog is None else catalog:
         aid = "auto_builtin_" + spec["key"]
         if c.execute("SELECT 1 FROM automations WHERE id=?", (aid,)).fetchone():
             continue
-        flow = F.check({**{k: v for k, v in spec.items() if k != "key"}, "builtin": True, "enabled": True})
+        flow = F.check({**{k: v for k, v in spec.items() if k != "key"}, "builtin": True,
+                        "enabled": spec.get("enabled", True)})
         _save(c, H.KEEPER, aid, flow, None)
         made.append(aid)
     return made
@@ -607,6 +680,8 @@ def fire(c, kind, payload, ref="", match=None, access=None, only=None):
                 continue
             trigger = flow["trigger"]
             if match and not match(trigger):
+                continue
+            if row["builtin"] and _stands_down(c, row["id"], trigger):
                 continue
             if (access and not access(row)) or not F.all_hold(trigger.get("filters") or [], payload):
                 _count(c, row["id"], "dropped")
@@ -1162,7 +1237,7 @@ def tick(store, at=None):
     at = at or datetime.now(timezone.utc)
     now = at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     with store.transaction() as c:
-        ensure_builtins(c)
+        ensure_builtins(c, settings=getattr(store, "settings", None))
         from .scheduler import next_due
         for row in c.execute("SELECT * FROM automations WHERE deleted_at IS NULL AND enabled=1 "
                              "AND trigger_type='schedule'").fetchall():
