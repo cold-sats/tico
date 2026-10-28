@@ -160,6 +160,12 @@ const items = [
     assert.equal(await go.evaluate(el => el.classList.contains('tl-decide-head')), true);
     await go.click();
     await read('t-stale');
+    // Closed and opened again at once: the close's Back lands after the new card opened, and leaves it open with a
+    // Back of its own.
+    await page.evaluate(() => { decideStop(); decideOpen('task:t-stale'); });
+    await page.waitForFunction(() => history.state?.needCard);
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => !!document.querySelector('#need-card')?.open && !!DEC), true, 'the card opened again stays open');
     // A bot's face and name open the bot; the face is not a second tab stop. Tapping the name sends nothing from the
     // card. Opening a bot page saves the recently viewed list (preference org.history) after a short debounce: that
     // write is not a card action, and waiting for it gives any card action the click might have sent time to show up.

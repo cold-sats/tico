@@ -130,7 +130,8 @@ function decideDialog() {
   });
   // Esc in the note leaves the note; otherwise it closes the card.
   d.addEventListener('cancel', ev => { ev.preventDefault(); decideStop(); });
-  d.addEventListener('close', () => decideStop());
+  // The event lands a moment after closing: a card opened again since keeps its place.
+  d.addEventListener('close', () => { if (!d.open) decideStop(); });
   document.body.appendChild(d);
   return d;
 }
@@ -182,7 +183,12 @@ function decideStop() {
   to?.focus?.({preventScroll: true});
 }
 window.addEventListener('popstate', () => {
-  DEC_BACK = false;
+  // The card's own Back, from closing it, landed after a card opened again: that card gets its history entry back.
+  if (DEC_BACK) {
+    DEC_BACK = false;
+    if (DEC && !history.state?.needCard && matchMedia(PHONE).matches) history.pushState({...(history.state || {}), needCard: 1}, '');
+    return;
+  }
   if (DEC && !history.state?.needCard) decideStop();
 });
 // A row answered on a card outside the Tasks list (a bot's rail): its card, not the task. Capturing, so the row's own
