@@ -30,7 +30,8 @@ OWNER = re.compile(r"(person|bot|group):[a-z0-9][a-z0-9._-]{0,63}")
 CLOCK = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
 FIELD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}")
 MAX_PATTERN = 200       # a `matches` pattern's length
-MATCH_CHARS = 4000      # what `matches` reads of a field: a filter runs inside a trigger's write
+MATCH_CHARS = 2000      # what `matches` reads of a field: a filter runs inside a trigger's write
+MAX_UNBOUNDED = 3       # `*`, `+` and `{n,}` in one pattern: more backtrack polynomially, as a*a*a*a*b does
 
 
 class Invalid(ValueError):
@@ -76,6 +77,8 @@ def check_cond(cond, where):
             raise Invalid(f"{where}: the pattern does not read ({exc})") from None
         _need(not _nested(tree), where, "the pattern repeats a group that itself repeats or has alternatives, such as "
               "(a+)+ or (a|aa)+; write it without the nesting")
+        _need(_unbounded(tree) <= MAX_UNBOUNDED, where, f"the pattern has more than {MAX_UNBOUNDED} open-ended "
+              "repeats (*, + or {n,}); use fewer, or bound them like {0,20}")
 
 
 _REPEATS = {_sre.MAX_REPEAT, _sre.MIN_REPEAT, getattr(_sre, "POSSESSIVE_REPEAT", _sre.MAX_REPEAT)}
@@ -101,6 +104,13 @@ def _parts(op, av):
 def _varies(tree):
     """Whether a sub-pattern repeats or branches anywhere inside."""
     return any(op in _REPEATS or op is _sre.BRANCH or any(_varies(part) for part in _parts(op, av))
+               for op, av in tree)
+
+
+def _unbounded(tree):
+    """How many repeats in the pattern have no upper bound. Python's re has no time limit and neither re2 nor regex is
+    a dependency, so a pattern is kept to a few: each open-ended repeat multiplies the ways a near-match backtracks."""
+    return sum((op in _REPEATS and av[1] == _sre.MAXREPEAT) + sum(_unbounded(part) for part in _parts(op, av))
                for op, av in tree)
 
 

@@ -76,6 +76,6 @@ def test_no_conditions_hold_and_any_or_all():
 
 
 def test_matches_reads_only_the_start_of_a_long_field():
-    long = {"message": {"body": "x" * 4000 + "invoice 42"}}
+    long = {"message": {"body": "x" * 2000 + "invoice 42"}}
     assert not holds(cond("message.body", "matches", r"invoice \d+"), long)
-    assert holds(cond("message.body", "matches", r"invoice \d+"), {"message": {"body": "x" * 3980 + "invoice 42"}})
+    assert holds(cond("message.body", "matches", r"invoice \d+"), {"message": {"body": "x" * 1980 + "invoice 42"}})
