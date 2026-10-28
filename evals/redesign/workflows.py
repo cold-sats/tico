@@ -25,8 +25,8 @@ from .cases.strategy import canon
 from .fakes import MissingRecording, ReplayJudge, Receiver, attach_judge, deliver, hook, stripe_sig
 from .harness import (CLAUDE, CLAUDE_ID, CLAUDE_REF, DANA, DANA_ID, DANA_REF, GAP, LEAD_ID, LEAD_REF, OPENAI,
                       OPENAI_ID, OPENAI_REF, PRIYA_ID, RELEASE_ID, W1, W2, W3, W4, W5, W6, Check, Reply, Scenario, Unmet,
-                      body, close_task, comment, get_caps, got, inbox_read, inbox_send, publish_mail, put_budget,
-                      put_cap, rows, send, setup, task_id_of, turn_of)
+                      body, close_task, comment, get_caps, got, inbox_read, inbox_send, mail_computer, publish_mail,
+                      put_budget, put_cap, rows, send, setup, task_id_of, turn_of)
 from .record import INPUTS, load_inputs
 
 try:   # the migration fixture's org bots, for workflow 10's Scenario.bots; the fixture itself is imported in its steps
@@ -405,6 +405,16 @@ def inbox_flow():
     ]
 
 
+def slack_channels(org):
+    """Dana lists the channels her automations hear (Settings > Tools > Slack, POST /api/v2/slack/channels). A channel
+    off the list is not heard, so #random stays unlisted."""
+    for key in ("release", "platform", "general", "product"):
+        reply = org.api("post", "/api/v2/slack/channels", {"channel": "#" + key}, who=DANA, wave=W3)
+        if reply.status >= 300:
+            raise Unmet(W3, f"list #{key}: {reply.status} {reply.excerpt()}")
+    return Reply(200, {"listed": 4}, W3)
+
+
 def make_slack_autos(org):
     ids = {}
     for key, inbox in SLACK_AUTOS.items():
@@ -465,6 +475,18 @@ def drain_assistant(org, person):
     return drain(org, slug, text="Thanks for writing. Here is a short answer; more soon.")
 
 
+def mail_pass(org):
+    """The mail computer's passes over both mailboxes until nothing is queued: an archive, draft or send the Filter
+    or Decide queued is claimed and reported done (CONTRACT §1 Mail actions). Returns what it claimed."""
+    claimed = []
+    for _ in range(3):
+        this = [action for box in (DANA_MAIL, PRIYA_MAIL) for action in mail_computer(org, box)]
+        if not this:
+            break
+        claimed += this
+    return claimed
+
+
 def wf1_steps(org, f):
     found = inputs()
     judge = TimedJudge(org, {found[stem]["state"]["subject"]: triage(BUCKET[path]) for stem, path in ROUTES1.items()
@@ -474,7 +496,9 @@ def wf1_steps(org, f):
     f["mail_ids"] = {}
     do(org, f, "send_off", W3, inbox_send, org, DANA_MAIL, False)
     do(org, f, "inbox", W3, make_auto, org, "Inbox · " + DANA_MAIL, DANA_REF,
-       {"type": "message", "inbox": DANA_MAIL}, inbox_flow(), batch={"times": ["08:00", "13:00", "17:00"]})
+       {"type": "message", "inbox": DANA_MAIL}, inbox_flow(),
+       batch={"times": ["08:00", "13:00", "17:00"], "tz": "America/Los_Angeles"})
+    do(org, f, "slack_channels", W3, slack_channels, org)
     do(org, f, "slack_autos", W3, make_slack_autos, org)
     for wave, (sent, batch, stems, made) in WAVES1.items():
         at(org, la(DAY1, sent))
@@ -487,13 +511,16 @@ def wf1_steps(org, f):
                                   f"Your message to buyer{n}@acme.example could not be delivered.", org.now()))
         f["mail_ids"][wave] = [m["msg_id"] for m in mail]
         do(org, f, "mail_" + wave, W3, publish_mail, org, DANA_MAIL, mail)
+        do(org, f, "computer_" + wave, W3, mail_pass, org)
         if wave == "a":
             do(org, f, "slack", W3, feed_slack, org, slack_messages(found))
             at(org, la(DAY1, 7, 55))
             do(org, f, "runs_early", W3, runs_of, org, f, "inbox")
         at(org, la(DAY1, batch))
+        do(org, f, "batch_computer_" + wave, W3, mail_pass, org)
         do(org, f, "drafts_" + wave, W3, drain_assistant, org, DANA_ID)
     at(org, la(DAY1, 17, 30))
+    do(org, f, "batch_computer_late", W3, mail_pass, org)
     do(org, f, "drafts_late", W3, drain_assistant, org, DANA_ID)
     do(org, f, "runs", W3, runs_of, org, f, "inbox")
     do(org, f, "assistant", W3, assistant_slug, org, DANA_ID)
@@ -979,6 +1006,7 @@ def wf4_hour_three(f):
 
 
 # ================================================================================================ 5 Stripe failure
+COO = "coo"   # the Assistant bot (backend/config.py assistant_bot): every person's Assistant is this bot
 BILLING = "billing"
 STRIPE_SECRET = "whsec_acmepaymentsdesk0001"
 EVENT5 = {"id": "evt_1Pay0001", "type": "invoice.payment_failed",
@@ -1184,18 +1212,19 @@ BOTOPS, HEALTH = "botops", "health-monitor"
 
 
 def builtin_health(org):
-    reply = org.api("get", "/api/v2/automations", who=DANA, wave=W3)
+    """The Health Monitor becomes a built-in automation through the migration (CONTRACT §4, PLAN §8), so wave 5."""
+    reply = org.api("get", "/api/v2/automations", who=DANA, wave=W5)
     if reply.status != 200:
-        raise Unmet(W3, f"list: {reply.status} {reply.excerpt()}")
+        raise Unmet(W5, f"list: {reply.status} {reply.excerpt()}")
     found = [r for r in rows(reply.body) if r.get("builtin") is True and "health" in str(r.get("name")).lower()]
     if not found:
-        raise Unmet(W3, "no built-in Health automation in the list")
-    return Reply(200, found[0], W3)
+        raise Unmet(W5, "no built-in Health automation in the list")
+    return Reply(200, found[0], W5)
 
 
 def wf7_steps(org, f):
     at(org, org.now() + dt.timedelta(minutes=2))   # the automations tick makes the built-ins once the setting is on
-    do(org, f, "health", W3, builtin_health, org)
+    do(org, f, "health", W5, builtin_health, org)
     do(org, f, "failed", W3, emit, org, "bot.run_failed", f"{OPENAI_ID}:r1",
        {"bot": OPENAI_ID, "attempt": "r1", "reason": "login expired"})
     do(org, f, "held", W3, emit, org, "bot.held", f"{OPENAI_ID}:budget", {"bot": OPENAI_ID, "reason": "budget"})
@@ -1694,7 +1723,7 @@ WORKFLOWS = [
                  Check("owner-only mail is left for Dana; the rest labelled", W4, wf1_owner),
                  Check("drafts are written on Dana's Assistant", W3, wf1_assistant),
                  Check("each Slack message runs its channel's automation once; #random none", W3, wf1_slack),
-             ]),
+             ], bots={COO: ("coo", "claude")}),
     Scenario("2", "workflow-2-task-flood", "Builders flood the lead and Dana; caps refuse the excess", wf2_steps, [
         Check("22 sends: 12 accepted, 10 refused with task_cap", W2, wf2_flood),
         Check("a refused send writes no task", W2, wf2_no_row),
@@ -1736,10 +1765,10 @@ WORKFLOWS = [
         Check("v1.4.1 the next day runs both again", W3, wf6_next),
     ]),
     Scenario("7", "workflow-7-health", "Failures reach the Health built-in, a finding and one BotOps task", wf7_steps, [
-        Check("Health is a built-in automation", W3, wf7_builtin),
-        Check("Health runs once per event", W3, wf7_ran),
-        Check("the finding names builder-openai", W3, wf7_finding),
-        Check("the repeated failure makes one BotOps task", W3, wf7_botops),
+        Check("Health is a built-in automation", W5, wf7_builtin),
+        Check("Health runs once per event", W5, wf7_ran),
+        Check("the finding names builder-openai", W5, wf7_finding),
+        Check("the repeated failure makes one BotOps task", W5, wf7_botops),
     ], bots={BOTOPS: ("botops", "claude"), HEALTH: ("health", "claude")}),
     Scenario("8", "workflow-8-edit-by-chat", "Dana asks the Automations Bot for a change; it waits as a pending version",
              wf8_steps, [
