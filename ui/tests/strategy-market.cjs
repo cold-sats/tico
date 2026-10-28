@@ -9,8 +9,12 @@ const {openStrategy, PHONE, DESKTOP, sideways, shot} = require('./support/strate
 
 const texts = (page, sel) => page.locator(sel).allInnerTexts().then(a => a.map(t => t.trim()));
 
+// On a phone the Strategy tabs sit above the view switch.
+const tabsFirst = page => page.evaluate(() => document.querySelector('.strat-tabs').getBoundingClientRect().bottom <= document.querySelector('.mkt-views').getBoundingClientRect().top + 1);
+
 async function briefing(page, tag) {
   await page.locator('.rdb').waitFor();
+  assert.ok(await tabsFirst(page), tag + ': the tabs, then the views');
   assert.equal(await page.evaluate(() => location.hash), '#/strategy/market', tag + ': Market opens on the briefing');
   assert.equal(await page.locator('.mkt-views [data-market-view="briefing"][aria-current="page"]').count(), 1, tag + ': Briefing is the first view');
   assert.equal(await page.locator('.rdb-mast').innerText(), 'The Acme Briefing', tag + ': the masthead');
@@ -24,6 +28,7 @@ async function briefing(page, tag) {
 
 async function listening(page, tag) {
   await page.locator('.rdm-row').first().waitFor();
+  assert.ok(await tabsFirst(page), tag + ': the tabs, then the views');
   assert.equal(await page.locator('.mkt-views [data-market-view="listening"][aria-current="page"]').count(), 1, tag + ': a Market view');
   assert.equal(await page.locator('.rdm-bars .rdm-col').count(), 14, tag + ': two weeks of days');
   assert.deepEqual(await texts(page, '#rdm-leg > span'), ['X', 'Reddit', 'Hacker News', 'News'], tag + ': sources, biggest first');

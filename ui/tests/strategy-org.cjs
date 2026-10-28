@@ -33,6 +33,20 @@ async function chart(page, tag) {
       await chart(page, tag);
       assert.match(await page.locator('.rdo-props').innerText(), /Proposed · Reviewer: Engineering → Web/, tag + ': the proposal row');
       assert.equal(await page.locator('.rdo-card.pv' + `[data-rdo-ref="bot:reviewer"]`).count(), 1, tag + ': the teammate it moves is marked');
+      // Opens readable (names 12px or more), centred on the owner, the frame down to the tab bar, the page still.
+      const look = await page.evaluate(() => {
+        const pane = document.querySelector('#rdo-pane'), cv = document.querySelector('#rdo-cv');
+        const name = parseFloat(getComputedStyle(cv.querySelector('.rdo-card b')).fontSize) * Number(cv.style.zoom);
+        const top = document.querySelector('.rdo-card.top').getBoundingClientRect(), box = pane.getBoundingClientRect();
+        const bar = document.querySelector('#mobile-nav').getBoundingClientRect().top;
+        return {name, off: Math.abs(top.left + top.width / 2 - (box.left + box.width / 2)), gap: bar - box.bottom,
+          wider: pane.scrollWidth > pane.clientWidth, still: document.querySelector('#main').scrollHeight <= document.querySelector('#main').clientHeight + 1};
+      });
+      assert.ok(look.name >= 12, `${tag}: names read at ${look.name}px`);
+      assert.ok(look.off < 4, `${tag}: centred on the owner (${look.off}px off)`);
+      assert.ok(look.gap >= 0 && look.gap <= 24, `${tag}: the frame runs to the tab bar (${look.gap}px short)`);
+      assert.ok(look.wider, tag + ': the chart runs wider than the screen and pans');
+      assert.ok(look.still, tag + ': the page itself does not scroll');
       await shot(page, 'phone-org');
 
       // Fold Engineering: its teammates leave, the tab counts them, and it stays folded on the next visit.

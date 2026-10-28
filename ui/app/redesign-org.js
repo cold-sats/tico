@@ -124,13 +124,34 @@ function rdoDraw() {
   if (!cv || !pane) return;
   $('#rdo-props-host').innerHTML = rdoPropsHtml();
   cv.innerHTML = rdoChartHtml();
+  rdoFitHeight();
   if (RDO.zoom == null) {
-    // First look: the whole width when it fits at half size or more, else readable and panned.
+    // First look: the whole width when it fits with names still readable (12px or more), else readable, centred on
+    // the owner, and panned by dragging.
     cv.style.zoom = 1;
     const fit = (pane.clientWidth - 2) / Math.max(1, cv.scrollWidth);
-    RDO.zoom = Math.max(0.5, Math.min(1, fit));
+    const name = parseFloat(getComputedStyle(cv.querySelector('.rdo-card b') || cv).fontSize) || 13;
+    RDO.zoom = Math.max(0.85, 12 / name, Math.min(1, fit));
+    rdoZoom(RDO.zoom);
+    rdoCentre();
+    return;
   }
   rdoZoom(RDO.zoom);
+}
+// On a phone the chart's frame runs down to the tab bar, so the page itself does not scroll.
+function rdoFitHeight() {
+  const pane = $('#rdo-pane');
+  if (!pane) return;
+  if (!matchMedia('(max-width:760px)').matches) { pane.style.height = ''; return; }
+  const bar = $('#mobile-nav'), bottom = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : innerHeight;
+  pane.style.height = Math.max(240, Math.floor(bottom - pane.getBoundingClientRect().top - 12)) + 'px';
+}
+// The owner's card in the middle of the frame, across.
+function rdoCentre() {
+  const pane = $('#rdo-pane'), top = $('#rdo-cv .rdo-card.top');
+  if (!pane || !top) return;
+  const a = top.getBoundingClientRect(), b = pane.getBoundingClientRect();
+  pane.scrollLeft += (a.left + a.width / 2) - (b.left + b.width / 2);
 }
 function rdoZoom(z, at) {
   const cv = $('#rdo-cv'), pane = $('#rdo-pane');
@@ -156,6 +177,7 @@ async function pageRdOrg() {
       <div class="rdo-zoom" role="group" aria-label="Zoom"><button type="button" class="ghost" data-rdo-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" class="ghost" data-rdo-zoom="in" aria-label="Zoom in">+</button></div></div>`;
   rdoWire($('#rdo-pane'));
+  window.removeEventListener('resize', rdoFitHeight); window.addEventListener('resize', rdoFitHeight);
   rdoDraw();
   const groups = await get('/v2/groups').catch(() => null);
   if (seq !== RDO_SEQ || !$('#rdo-cv')) return;
@@ -181,6 +203,23 @@ function rdoWire(pane) {
     rdoZoom(pinch.z * dist(ev.touches) / pinch.d, mid(ev.touches, pane.getBoundingClientRect()));
   }, {passive: false});
   pane.addEventListener('touchend', ev => { if (ev.touches.length < 2) pinch = null; });
+  // A mouse drags the chart about (a finger pans natively); a drag is not a tap on the card it started on.
+  let drag = null;
+  pane.addEventListener('pointerdown', ev => {
+    if (ev.pointerType !== 'mouse' || ev.button !== 0) return;
+    drag = {x: ev.clientX, y: ev.clientY, left: pane.scrollLeft, top: pane.scrollTop, moved: false};
+  });
+  pane.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true; pane.classList.add('dragging');
+    pane.scrollLeft = drag.left - dx; pane.scrollTop = drag.top - dy;
+  });
+  const end = () => { if (drag?.moved) { pane.classList.remove('dragging'); pane.dataset.dragged = '1'; setTimeout(() => delete pane.dataset.dragged, 0); } drag = null; };
+  pane.addEventListener('pointerup', end);
+  pane.addEventListener('pointerleave', end);
+  pane.addEventListener('click', ev => { if (pane.dataset.dragged) { ev.stopPropagation(); ev.preventDefault(); } }, true);
   // A trackpad's pinch arrives as a wheel with ctrlKey.
   pane.addEventListener('wheel', ev => {
     if (!ev.ctrlKey) return;
