@@ -79,7 +79,7 @@ const groups = page => page.locator('.au-gh > span:first-child').allTextContents
 
     // A computer: the first automation opens beside the list; the header switch; ⋯ delete, refused for a built-in.
     {
-      const {page, errors, writes} = await openAutomations(browser, {viewport: DESKTOP});
+      const {page, errors, writes, hold} = await openAutomations(browser, {viewport: DESKTOP});
       await page.waitForURL(/#\/automations\/au_inbox$/);
       await page.waitForSelector('.au-card[data-open="trigger"]');
       assert.equal(await page.locator('.au-list').isVisible(), true);
@@ -96,6 +96,21 @@ const groups = page => page.locator('.au-gh > span:first-child').allTextContents
       await page.locator('.au-rr').nth(4).click();
       assert.match((await page.locator('.au-rx .au-sl').allInnerTexts()).join('\n'), /failed · model timed out/);
       await shot(page, 'desktop-runs');
+
+      // A slow answer for an automation already left (an answer or a failure) never lands on the one now open.
+      for (const fail of [false, true]) {
+        const release = hold('au_deploy', fail);
+        await page.locator('.au-row[data-row="au_deploy"] a').click();
+        await page.locator('.au-row[data-row="au_listen"] a').click();
+        await page.waitForSelector('.au-hd .au-name:text("Pricing mentions")');
+        await page.waitForSelector('.au-card[data-open="n1"]');
+        release();
+        await page.waitForTimeout(300);
+        assert.equal(await page.locator('.au-hd .au-name').innerText(), 'Pricing mentions');
+        assert.match(await page.locator('.au-trig').innerText(), /Listening match/);
+        assert.equal(await page.locator('.au-pane .err').count(), 0);
+        assert.match(page.url(), /au_listen$/);
+      }
 
       // A built-in: Delete is shown off; turning it off asks first, and a No leaves it on.
       await page.locator('.au-row[data-row="au_tasks"] a').click();

@@ -74,9 +74,12 @@ async function pageAutomations() {
     state.id = id; state.ed = null; state.runs = null; state.cur = null; state.lastRun = undefined;
     if (id) {
       auDrawHead(); auDrawPane();
-      try { state.cur = auNormal(await get(auApi(id))); }
-      catch (e) { if (AU === state) { state.cur = null; state.root.querySelector('.au-pane').innerHTML = `<p class="err">${esc(e.message)}</p>`; } return; }
+      // A slow answer for an automation left behind must not land on the one now open.
+      let cur;
+      try { cur = auNormal(await get(auApi(id))); }
+      catch (e) { if (AU === state && state.id === id) { state.cur = null; state.root.querySelector('.au-pane').innerHTML = `<p class="err">${esc(e.message)}</p>`; } return; }
       if (AU !== state || state.id !== id) return;
+      state.cur = cur;
     }
   }
   auDrawList(); auDrawHead(); auDrawPane(); auDrawSide();

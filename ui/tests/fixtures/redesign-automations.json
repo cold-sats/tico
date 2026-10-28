@@ -15,7 +15,7 @@
   ],
   "automations": [
     {"id": "au_inbox", "name": "Inbox · dana@acme.example", "owner": "person:dana", "enabled": true, "builtin": false,
-     "spend_cap": {"per_30m": 2.0}, "version": 7,
+     "spend_cap": {"per_30m": 5.0}, "version": 7,
      "trigger": {"type": "message", "inbox": "dana@acme.example", "filters": []},
      "steps": [
        {"id": "f1", "type": "filter", "enabled": true, "rules": [

@@ -42,6 +42,7 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
   const db = {
     list: fx.automations.map(a => ({...a, can_edit: owner && a.can_edit !== false})),
     versions: {}, runs: {au_inbox: inboxRuns()}, conv: null, messages: [],
+    held: {},   // id → {release, fail}: that automation's GET waits for release(), then answers (or fails)
   };
   for (const a of db.list) {
     const old = fx.versions[a.id] || [{n: a.version, actor: a.owner, at: '2026-10-27T15:00:00Z'}];
@@ -96,7 +97,11 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
       const a = find(decodeURIComponent(m[1])), rest = m[2] || '';
       if (!a) return refuse(404, 'not_found', 'No such automation');
       if (method !== 'GET' && !a.can_edit) return refuse(403, 'forbidden', 'You can’t change this automation');
-      if (!rest && method === 'GET') return json(full(a));
+      if (!rest && method === 'GET') {
+        const hold = db.held[a.id];
+        if (hold) { await hold.wait; if (hold.fail) return refuse(500, 'boom', 'The hub stalled'); }
+        return json(full(a));
+      }
       if (!rest && method === 'PATCH') {
         for (const k of ['enabled', 'spend_cap', 'name']) if (k in body) { if (body[k] === null) delete a[k]; else a[k] = body[k]; }
         if (body.steps || body.trigger) {
@@ -157,7 +162,9 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
     return json(unrouted(p));
   });
   await page.goto('http://tico-ui.test/' + hash);
-  return {page, errors, writes, db, me};
+  // Hold an automation's GET until release() (fail: then answer 500), to land a slow answer late.
+  const hold = (id, fail = false) => { let release; const wait = new Promise(r => { release = r; }); db.held[id] = {wait, fail}; return () => { delete db.held[id]; release(); }; };
+  return {page, errors, writes, db, me, hold};
 }
 
 // No sideways scroll on the page itself (a path strip scrolls inside its own box).

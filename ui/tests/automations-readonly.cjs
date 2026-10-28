@@ -11,7 +11,7 @@ async function readOnly(page, writes) {
   assert.equal(await page.locator('.au-sw').count(), 0, 'no switches');
   assert.equal(await page.locator('.au-add').count(), 0, 'no "+"');
   assert.equal(await page.locator('[data-spend]').count(), 0);
-  assert.match(await page.locator('.au-hd').innerText(), /\$2\.00 \/ 30 min/);
+  assert.match(await page.locator('.au-hd').innerText(), /\$5\.00 \/ 30 min/);
   await page.locator('.au-card[data-open="f1"]').click();
   await page.waitForSelector('.au-ed:not([hidden]) [data-b="step.rules.0.when.0.value"]');
   assert.equal(await page.locator('.au-ed [data-b]:not([disabled])').count(), 0, 'every field is off');
