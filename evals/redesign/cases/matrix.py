@@ -26,7 +26,8 @@ ACTION = {"archive": "archive", "leave-for-you": "leave_for_you", "draft-reply":
           "send-reply": "send_reply", "create-task": "create_task", "label": "label", "forward": "forward",
           "wake-bot": "wake_bot", "note": "note", "post-update": "post_update", "call-webhook": "call_webhook",
           "assign": "assign"}
-STATUSES = {"ok", "skipped", "failed", "spend_cap"}
+# CONTRACT §2 Runs: a step is ok, skipped, failed, spend_cap or waiting (a queued mail action, or a turn still held).
+STATUSES = {"ok", "skipped", "failed", "spend_cap", "waiting"}
 # The trigger field a text condition reads, per kind: the field the kind's input carries its text in. A schedule has no
 # input, so its condition is never met (see Limits).
 TEXT = {"task": "task.title", "email": "message.subject", "slack": "message.text", "webhook": "body.title",
