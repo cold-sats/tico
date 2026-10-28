@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Mail for another team forwarded to Omar",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "message",
         "inbox": "dana@acme.example"
@@ -22,25 +25,21 @@
             {
               "when": [
                 {
-                  "field": "message.unsubscribe",
-                  "op": "is",
-                  "value": true
-                },
-                {
                   "field": "d1.bucket",
                   "op": "is",
-                  "value": "archive",
-                  "min": 0.85
+                  "value": "route",
+                  "min": 0.7
                 }
               ],
               "then": [
                 {
-                  "do": "archive",
-                  "args": {}
+                  "do": "forward",
+                  "args": {
+                    "to": "omar@acme.example"
+                  }
                 }
               ],
-              "stop": true,
-              "match": "any"
+              "stop": true
             }
           ]
         }

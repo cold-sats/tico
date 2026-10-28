@@ -1229,7 +1229,6 @@ def wf7_botops(f):
 
 
 # ================================================================================================ 8 edit by chat
-HELPER = "automations-bot"
 V1 = [act("n1", "note", text="New ask for the lead.")]
 V2 = [step("route", "paths", paths=[{"name": "urgent", "match": "all",
                                      "when": [cond("task.title", "contains", "Urgent")],
@@ -1239,21 +1238,20 @@ V2 = [step("route", "paths", paths=[{"name": "urgent", "match": "all",
 
 
 def wf8_steps(org, f):
+    """Dana asks BotOps for a change. BotOps works with her rights, so its edit is the live version 2 at once."""
     do(org, f, "auto", W3, make_auto, org, "Lead intake", LEAD_REF, {"type": "task_received", "to": LEAD_REF}, V1)
-    do(org, f, "chat", W3, lambda: org.api("post", f"/api/v2/chat/{HELPER}", {
+    do(org, f, "task_1", W2, send, org, DANA, LEAD_ID, "Urgent: payments page down")
+    org.scheduler_pass()
+    do(org, f, "chat", W3, lambda: org.api("post", f"/api/v2/chat/{BOTOPS}", {
         "text": "Label urgent tasks for the lead.", "refs": {"automation": aid(f, "auto")}}, who=DANA, wave=W3))
 
-    def propose(token, attempt):
+    def edit(token, attempt):
         return org.api("patch", f"/api/v2/automations/{aid(f, 'auto')}",
                        {"steps": V2, "summary": "Label urgent tasks"}, who=token, wave=W3)
-    do(org, f, "helper", W3, drain, org, HELPER, propose, text="I proposed a version that labels urgent tasks.")
+    do(org, f, "helper", W3, drain, org, BOTOPS, edit, text="Saved v2: urgent tasks get the urgent label.")
     do(org, f, "pending", W3, lambda: org.api("get", f"/api/v2/automations/{aid(f, 'auto')}/versions?status=pending",
                                               wave=W3))
     do(org, f, "current", W3, read_auto, org, f, "auto")
-    do(org, f, "task_1", W2, send, org, DANA, LEAD_ID, "Urgent: payments page down")
-    org.scheduler_pass()
-    do(org, f, "turn_on", W3, lambda: org.api("post", f"/api/v2/automations/{aid(f, 'auto')}/versions/2/restore",
-                                              {}, wave=W3))
     do(org, f, "task_2", W2, send, org, DANA, LEAD_ID, "Urgent: login broken")
     org.scheduler_pass()
     do(org, f, "restore", W3, lambda: org.api("post", f"/api/v2/automations/{aid(f, 'auto')}/versions/1/restore",
@@ -1271,14 +1269,14 @@ def wf8_run(f, key):
 
 
 def wf8_turn(f):
-    """Dana's chat reaches the Automations Bot as a turn."""
+    """Dana's chat reaches BotOps as a turn."""
     setup(f, "auto", "chat")
     turns = got(f, "helper")
-    return len(turns) >= 1, f"{len(turns)} Automations Bot turns"
+    return len(turns) >= 1, f"{len(turns)} BotOps turns"
 
 
-def wf8_pending(f):
-    """Its edit is a pending version 2; the current flow is still version 1."""
+def wf8_applied(f):
+    """Its edit, with Dana's rights, is the live version 2 at once: nothing pending."""
     setup(f, "auto", "chat", "pending", "current")
     turns = got(f, "helper")
     edit = turns[0]["did"] if turns else None
@@ -1286,13 +1284,13 @@ def wf8_pending(f):
         raise edit
     pending = [v for v in rows(body(f, "pending")) if v.get("status") == "pending"]
     version = body(f, "current").get("version")
-    edit_pending = edit.body.get("pending") if isinstance(edit, Reply) and isinstance(edit.body, dict) else None
-    return ([v.get("n") for v in pending] == [2] and version == 1 and edit_pending == 2,
-            f"edit answer pending {edit_pending}; pending versions {[v.get('n') for v in pending]}; current {version}")
+    answered = edit.body.get("version") if isinstance(edit, Reply) and isinstance(edit.body, dict) else None
+    return (pending == [] and version == 2 and answered == 2,
+            f"edit answer version {answered}; pending versions {[v.get('n') for v in pending]}; current {version}")
 
 
 def wf8_before(f):
-    """A task before turn-on runs version 1: no label."""
+    """A task before the edit runs version 1: no label."""
     setup(f, "auto", "task_1")
     run = wf8_run(f, "task_1")
     return run.get("version") == 1 and status_of(run, "tag") is None, f"version {run.get('version')}, label " \
@@ -1300,8 +1298,8 @@ def wf8_before(f):
 
 
 def wf8_after(f):
-    """After turn-on, version 2 runs and labels the urgent task."""
-    setup(f, "auto", "turn_on", "task_2")
+    """After the edit, version 2 runs and labels the urgent task."""
+    setup(f, "auto", "helper", "task_2")
     run = wf8_run(f, "task_2")
     return run.get("version") == 2 and status_of(run, "tag") == "ok", f"version {run.get('version')}, label " \
         f"{status_of(run, 'tag')}"
@@ -1727,14 +1725,14 @@ WORKFLOWS = [
         Check("the finding names builder-openai", W3, wf7_finding),
         Check("the repeated failure makes one BotOps task", W3, wf7_botops),
     ], bots={BOTOPS: ("botops", "claude"), HEALTH: ("health", "claude")}),
-    Scenario("8", "workflow-8-edit-by-chat", "Dana asks the Automations Bot for a change; it waits as a pending version",
+    Scenario("8", "workflow-8-edit-by-chat", "Dana asks BotOps for a change; with her rights it is live at once",
              wf8_steps, [
-                 Check("the chat reaches the Automations Bot as a turn", W3, wf8_turn),
-                 Check("its edit is pending version 2; current stays 1", W3, wf8_pending),
-                 Check("a task before turn-on runs version 1", W3, wf8_before),
-                 Check("after turn-on version 2 runs and labels", W3, wf8_after),
+                 Check("the chat reaches BotOps as a turn", W3, wf8_turn),
+                 Check("its edit is the live version 2; nothing pending", W3, wf8_applied),
+                 Check("a task before the edit runs version 1", W3, wf8_before),
+                 Check("after the edit version 2 runs and labels", W3, wf8_after),
                  Check("restoring version 1 makes version 3 with the old flow", W3, wf8_restore),
-             ], bots={HELPER: ("helper", "claude")}),
+             ], bots={BOTOPS: ("botops", "claude")}),
     Scenario("9", "workflow-9-runaway", "A self-feeding automation hits its spend cap, then the run guard", wf9_steps, [
         Check("the spend cap stops Bot turn steps after the first", W3, wf9_spend_cap),
         Check("the run guard holds the bot at 6 turns", W2, wf9_held),

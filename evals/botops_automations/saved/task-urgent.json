@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Blocking tasks wake the Chief of Staff, others get a note",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "task_received",
         "to": "person:dana"

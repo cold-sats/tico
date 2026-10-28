@@ -165,7 +165,6 @@ def create_app(settings=None):
                 onboarding.ensure_librarian(c)
                 onboarding.ensure_goal_manager(c)
                 onboarding.ensure_task_manager(c)
-                onboarding.ensure_automations_bot(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
         # The Librarian gets the market posts from Listening, once (Settings > Listening).
@@ -1376,7 +1375,7 @@ def create_app(settings=None):
                 if not isinstance(values, str) or not updates.one(c, values):
                     raise Problem("reference", "Unknown update", 422)
             elif kind == "automation" and redesign.on(c):
-                # A chat about one automation (the Automations Bot's proposals): the caller must be able to see it.
+                # A chat about one automation (BotOps edits the one a person has open): the caller must be able to see it.
                 if not automations.may_reference(c, who, values):
                     raise Problem("reference", "Unknown automation", 422)
             elif kind not in ("depth", "turn_id"):

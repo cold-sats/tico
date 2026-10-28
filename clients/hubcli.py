@@ -232,6 +232,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub automation create --file F         a new one from a JSON flow ({name, owner, trigger, steps}); - reads stdin
     hub automation update <id> [--file F] [--name N] [--enable|--disable] [--summary S]
                                            new trigger/steps/batch = a new version; a bot without rights proposes one
+                                           (BotOps: the asker's rights; what it creates is off unless enabled is sent)
     hub automation delete <id>
     hub automation run <id> [--input JSON] run now with a sample trigger output; prints the run
     hub automation runs <id> [--limit N] [--before RUN]
@@ -239,6 +240,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub automation restore <id> <n>        make version n current (a pending one keeps its number)
     hub automation discard <id> <n>        drop a pending version (a proposal); the automation stays as it is
     hub automation question-sets           the question sets a Decide step may name (set: id@version)
+    hub automation guide                   how BotOps builds automations, with the flow format
     hub audit [--object O] [--limit N] [--before B]
                                            who changed caps, spend, groups, automations and inboxes; the owner sees all
     hub automation inbox <inbox> [--send on|off]
@@ -1889,6 +1891,8 @@ def parser():
     s.set_defaults(fn="automation discard")
     s = auto.add_parser("question-sets", help="the question sets a Decide step may name")
     s.set_defaults(fn="automation question-sets")
+    s = auto.add_parser("guide", help="how BotOps builds automations, with the flow format")
+    s.set_defaults(fn="automation guide")
     s = auto.add_parser("inbox", help="read or set an inbox's send switch")
     s.add_argument("inbox", help="an email address, slack:dm or slack:#<channel>")
     s.add_argument("--send", choices=["on", "off"], help="leave out to read it")

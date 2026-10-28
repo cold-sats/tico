@@ -1168,6 +1168,8 @@ def main(args, who=None):
             print(integration_text(result))
         elif args.fn == "tool query-search" and not args.json:
             print(query_text(result) if args.query_id else queries_text(result))
+        elif args.fn == "automation guide" and isinstance(result, dict) and "text" in result:
+            print(result["text"])
         elif args.fn == "bot go-live" and isinstance(result, dict) and result.get("state") == "waiting_for_repository":
             # Not an error and nothing to retry: Tico finishes it when the computer reports the repository.
             print(f"{result.get('bot')} is placed on {result.get('computer')} and waiting for it to get the repository. "

@@ -1,6 +1,6 @@
 // Journey 3 on a real hub (redesign TESTING.md §L3): build out Dana's empty "Weekly digest" by hand. Each "+" adds a
 // step in a sheet (Filter, then Decide, then an LLM prompt); each save is a version on the hub; History lists them and
-// restoring v1 brings back the empty flow as a new version. + New opens the Automations Bot (no hand-made blank or
+// restoring v1 brings back the empty flow as a new version. + New opens BotOps (no hand-made blank or
 // template yet), so the journey starts from a seeded empty automation. Phone, then desktop.
 const assert = require('node:assert/strict');
 const {run, open, ok, automationNamed, sideways, shot, t} = require('./support/redesign-e2e.cjs');

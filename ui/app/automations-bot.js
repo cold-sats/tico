@@ -1,18 +1,21 @@
-/* ui/app/automations-bot.js — The Automations Bot beside the flow (its own screen on a phone): the viewer's chat with
-   it, and its proposals as cards
+/* ui/app/automations-bot.js — BotOps beside the flow (its own screen on a phone): the viewer's chat with it, the
+   automations it makes from New, and proposals as cards
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
-   The chat is the bot's ordinary room (POST /v2/chat/automations-bot, the conversation's snapshot and live events, as
-   the CEO Bot's chat on Goals). A message names the open automation in refs.automation. A proposal is a pending
-   version (GET .../versions?status=pending); Turn on restores it (POST .../versions/{n}/restore), Discard deletes it. */
+   The chat is BotOps' ordinary room (POST /v2/chat/botops, the conversation's snapshot and live events, as the CEO
+   Bot's chat on Goals); BotOps builds with the viewer's rights. A message names the open automation in
+   refs.automation, and the edit it asks for is saved as the new version. What BotOps makes from New is saved off: its
+   card's Turn on is PATCH {enabled: true}. A bot's proposal is a pending version (GET .../versions?status=pending);
+   Turn on restores it (POST .../versions/{n}/restore), Discard deletes it. */
 'use strict';
 
 function auBotMount(host) {
   host.innerHTML = `<div class="au-bh"><a class="au-icon au-back" href="${AUTOMATIONS}" data-bot-back aria-label="Back"><span class="nav-icon" aria-hidden="true">chevron_left</span></a>
-      <span class="au-bav nav-icon" aria-hidden="true">assistant</span><h2>Automations Bot</h2></div>
-    <div class="au-bm" role="log" aria-label="Automations Bot conversation" tabindex="0"><div class="au-msgs"></div><div class="au-props"></div></div>
+      <span class="au-bav nav-icon" aria-hidden="true">smart_toy</span><h2>BotOps</h2></div>
+    <div class="au-bm" role="log" aria-label="BotOps conversation" tabindex="0"><div class="au-msgs"></div><div class="au-props"></div></div>
     <p class="err au-berr" role="alert" hidden></p><div class="au-bf"></div>`;
   const B = AU.bot = {conv: null, messages: [], execution: null, props: [], propsKey: '', sending: false, stopped: false,
-                      es: null, poll: 0, lastReply: undefined, rendered: ''};
+                      es: null, poll: 0, lastReply: undefined, rendered: '',
+                      known: null, made: []};
   const state = AU;
   const live = () => !B.stopped && AU === state && host.isConnected;
   const thread = host.querySelector('.au-bm'), msgs = host.querySelector('.au-msgs'), props = host.querySelector('.au-props');
@@ -42,9 +45,21 @@ function auBotMount(host) {
     const reply = B.messages.filter(isReply).at(-1)?.id;
     // A new reply may come with a proposal (or, from New, a new automation): read them again.
     if (B.lastReply !== undefined && reply !== B.lastReply) {
+      B.lastReply = reply ?? null;
       B.propsKey = '';
+      // BotOps saves a person's edit as the new version: show it.
+      const id = AU.cur?.id;
+      if (id) {
+        try { const fresh = auNormal(await get(auApi(id))); if (live() && AU.cur?.id === id) auAdopt(fresh); } catch { /* the next route reads it */ }
+        if (!live()) return;
+      }
       void auBotProposals();
-      if (!AU.cur) { await auLoadList(state); if (live()) auDrawList(); }
+      if (!AU.cur) {
+        await auLoadList(state);
+        if (!live()) return;
+        if (B.known) for (const a of AU.list || []) if (!B.known.has(a.id) && !B.made.includes(a.id)) B.made.push(a.id);
+        auDrawList(); auPropsDraw();
+      }
     }
     B.lastReply = reply ?? null;
   };
@@ -68,6 +83,7 @@ function auBotMount(host) {
     if (!text || B.sending) return;
     B.sending = P.sending = true; pillButtons(P); fail('');
     const scope = sessionScope(pq(P, '.p-text'));
+    B.known ||= new Set((AU.list || []).map(a => a.id));   // what exists before BotOps answers, to spot what it made
     try {
       const out = await cloudCompose('/v2/chat/' + AU_BOT, {text, refs: AU.cur ? {automation: AU.cur.id} : {}});
       pillAcknowledge(P, text, [], scope);
@@ -82,10 +98,13 @@ function auBotMount(host) {
     } catch (e) { fail(e.message); }
     finally { B.sending = P.sending = false; if (live()) pillButtons(P); }
   };
-  composer = makePill({mode: 'chat', files: false, label: 'Message to the Automations Bot', placeholder: 'Ask Automations Bot', send});
+  composer = makePill({mode: 'chat', files: false, label: 'Message to BotOps', placeholder: 'Ask BotOps', send});
   pq(composer, '.p-text').maxLength = 4000;
   host.querySelector('.au-bf').append(composer.el);
-  props.addEventListener('click', e => { const b = e.target.closest('[data-prop]'); if (b) void auPropAct(b); });
+  props.addEventListener('click', e => {
+    const b = e.target.closest('[data-prop],[data-made-on]');
+    if (b) void (b.dataset.madeOn ? auMadeOn(b) : auPropAct(b));
+  });
   void (async () => {
     try {
       const list = await get('/v2/conversations?chat_with=' + AU_BOT);
@@ -157,10 +176,33 @@ function auDiff(before, after) {
   }
   return out;
 }
+// What BotOps made from New (no automation open): saved off, with a one-tap Turn on.
+function auMadeHTML() {
+  if (AU.cur) return '';
+  return (AU.bot?.made || []).map(id => (AU.list || []).find(x => x.id === id)).filter(Boolean).map(a => {
+    const {name, src} = auRowName(a), on = a.enabled !== false;
+    return `<div class="au-prop au-made" data-made="${esc(a.id)}">
+      <div class="au-prop-t"><strong>${esc(name)}</strong>${a.pending ? '<span class="pill">Pending</span>' : `<span class="pill${on ? ' ok' : ''}">${on ? 'On' : 'Off'}</span>`}</div>
+      ${src ? `<div class="au-prop-x">${esc(src)}</div>` : ''}
+      <div class="au-prop-b">${!on && !a.pending && auMayPause(a) ? `<button class="primary" type="button" data-made-on="${esc(a.id)}">Turn on</button>` : ''}
+        <a class="linkish" href="${auHref(a.id)}">Open</a></div>
+    </div>`;
+  }).join('');
+}
+async function auMadeOn(button) {
+  const id = button.dataset.madeOn, state = AU;
+  button.disabled = true;
+  try {
+    const out = auNormal(await patch(auApi(id), {enabled: true}));
+    if (AU !== state) return;
+    auAdopt(out);
+    toast(`${out.name} is on`);
+  } catch (e) { toast(e.message, true); if (button.isConnected) button.disabled = false; }
+}
 function auPropsDraw() {
   const box = AU?.root?.querySelector('.au-props'), a = AU?.cur;
   if (!box) return;
-  box.innerHTML = (AU.bot?.props || []).map(p => {
+  box.innerHTML = auMadeHTML() + (AU.bot?.props || []).map(p => {
     const lines = a ? auDiff(a, p.flow || {}) : [];
     const summary = p.summary || lines.slice(0, 2).join(' · ') || 'No changes';
     const pill = p.state === 'on' ? '<span class="pill ok">On</span>' : p.state === 'discarded' ? '<span class="pill">Discarded</span>' : '';

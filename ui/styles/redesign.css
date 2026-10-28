@@ -50,7 +50,7 @@ html.demo .sbot{top:var(--demo-h)}
 .sbot-body .gm-chat>.rail-h{display:none}
 .sbot-body .gm-thread{flex:1;min-height:0;overflow-y:auto;max-height:none}
 /* The composer: one line, send inside on the right, one border; the shared pill without the question-card box, as
-   the Automations Bot's (ui/styles/automations.css .au-bf). */
+   the BotOps chat's on Automations (ui/styles/automations.css .au-bf). */
 .sbot-body .gm-form .ask{display:flex;flex-direction:column;gap:0;margin:0;padding:0;border:0;background:transparent;box-shadow:none}
 .sbot-body .gm-form .p-pill{flex-wrap:nowrap;align-items:flex-end;min-height:42px;padding:3px 3px 3px 14px;border-radius:21px}
 .sbot-body .gm-form .ask textarea{order:0;flex:1 1 auto;min-width:0;height:34px;max-height:120px;padding:6px 0}

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Ask the Automations Bot each request on a running Tico with a real model, and check the pending version it saves.
+"""Ask BotOps each automation request on a running Tico with a real model, and check what it saves.
 On demand only: never in CI.
 
-    python3 evals/automations_bot/run.py --url http://127.0.0.1:8765 --owner-token <owner API token> \\
-        [--only investor-drafts,priya-inbox-refuse] [--quiet 60] [--json out.json] [--record evals/automations_bot/saved]
+    python3 evals/botops_automations/run.py --url http://127.0.0.1:8765 --owner-token <owner API token> \\
+        [--only investor-drafts,priya-inbox-refuse] [--quiet 60] [--json out.json] [--record evals/botops_automations/saved]
 
-The server needs the Automations Bot running on a computer with a model (a dev install whose runner is real; the plain
-demo answers bots with one line and cannot be checked). The install needs Acme's people (Dana, who owns the requests,
-with dana@acme.example; Omar; Priya) as evals/redesign sets them up. API tokens come from Settings > Computers.
+The server needs the redesign on and BotOps running on a computer with a model (a dev install whose runner is real; the
+plain demo answers bots with one line and cannot be checked). The install needs Acme's people (Dana, who owns the
+requests, with dana@acme.example; Omar; Priya) as evals/redesign sets them up. API tokens come from Settings > Computers.
 
-Each request is asked in its own chat, about its automation: an `edit` request about its seed automation, a `new` request
-about a blank draft the owner made first (the bot proposes a version of an automation; it does not create one). Once the
-bot is quiet, the live flow and the pending versions are read back and scored by checker.py. `--record DIR` writes what
-was observed as one file per request, the saved-answer shape the offline tests replay.
+Each request is asked in its own chat with BotOps. An `edit` request names its seed automation (refs.automation); a
+`new` request names none. Once BotOps is quiet, what it saved is read back and scored by checker.py: the automations
+that appeared (new), or the live flow and any pending versions (edit). `--record DIR` writes what was observed as one
+file per request, the saved-answer shape the offline tests replay.
 
 What it prints per request: PASS or FAIL, and each failed check with what was wanted and what was saved. Exit code 0
 when every request passed.
@@ -30,7 +30,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import checker  # noqa: E402
 
-BOT = "automations-bot"
+BOT = "botops"
 BUSY = ("running", "queued", "leased")
 
 
@@ -61,7 +61,7 @@ def busy(server, token):
 
 
 def observe(server, aid, token):
-    """The live flow (the newest active version) and the pending versions, oldest first."""
+    """An edit: the live flow (the newest active version) and the pending versions, oldest first."""
     code, body = server.request("GET", f"automations/{aid}/versions", token=token)
     rows = body.get("versions", []) if code == 200 else []
     active = [row for row in rows if row.get("status") == "active"]
@@ -70,18 +70,36 @@ def observe(server, aid, token):
     return {"live": live, "pending": pending}
 
 
+def ids(server, token):
+    code, body = server.request("GET", "automations?limit=200", token=token)
+    return {row["id"] for row in body.get("automations", [])} if code == 200 else set()
+
+
+def made(server, before, token):
+    """A new request: the automations that appeared, each as GET shows it (name, owner, enabled, trigger, steps)."""
+    found = []
+    for aid in sorted(ids(server, token) - before):
+        code, row = server.request("GET", f"automations/{aid}", token=token)
+        if code == 200:
+            found.append({key: row[key] for key in ("name", "owner", "enabled", "trigger", "steps", "batch") if key in row})
+    return {"created": found}
+
+
 def run_case(server, case, owner, quiet=60, timeout=900):
-    seed = checker.before_of(case)
-    body = {key: seed[key] for key in ("name", "owner", "enabled", "trigger", "steps", "batch") if key in seed}
-    code, made = server.request("POST", "automations", body, owner)
-    if code != 200:
-        return {"id": case["id"], "passed": False, "checks": [{"name": "seeded", "held": False,
-                "why": f"could not save the automation ({code})"}]}
-    aid = made["id"]
-    code, sent = server.request("POST", f"chat/{BOT}", {"text": case["prompt"], "refs": {"automation": aid}}, owner)
+    seed, aid, refs = checker.before_of(case), None, {}
+    if seed:
+        body = {key: seed[key] for key in ("name", "owner", "enabled", "trigger", "steps", "batch") if key in seed}
+        code, saved = server.request("POST", "automations", body, owner)
+        if code != 200:
+            return {"id": case["id"], "passed": False, "checks": [{"name": "seeded", "held": False,
+                    "why": f"could not save the automation ({code})"}]}
+        aid = saved["id"]
+        refs = {"automation": aid}
+    before = ids(server, owner)
+    code, sent = server.request("POST", f"chat/{BOT}", {"text": case["prompt"], "refs": refs}, owner)
     if code != 200:
         return {"id": case["id"], "passed": False, "checks": [{"name": "asked", "held": False,
-                "why": f"could not ask the Automations Bot ({code})"}]}
+                "why": f"could not ask BotOps ({code})"}]}
     conversation, seen, replies = sent["conversation"]["id"], set(), []
     last, deadline = time.monotonic(), time.monotonic() + timeout
     while time.monotonic() < deadline and time.monotonic() - last < quiet + (60 if busy(server, owner) else 0):
@@ -94,7 +112,7 @@ def run_case(server, case, owner, quiet=60, timeout=900):
             last = time.monotonic()
             if message["from_actor"] == f"bot:{BOT}":
                 replies.append(message["body"])
-    observed = observe(server, aid, owner)
+    observed = observe(server, aid, owner) if aid else made(server, before, owner)
     return {**checker.check_case(case, observed), "replies": replies, "observed": observed}
 
 

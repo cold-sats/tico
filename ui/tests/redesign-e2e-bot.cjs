@@ -1,7 +1,7 @@
-// Journey 5 on a real hub (redesign TESTING.md §L3): the Automations Bot proposes a change to Dana's "Inbox triage"
-// (seeded as the bot writes it: a PATCH as bot:automations-bot leaves a pending version; no model runs). Dana sees the
-// proposal card in the bot's panel, opens its diff and turns it on; the hub's live flow then archives receipts first and
-// no proposal is left. On a phone the bot has its own screen. Phone, then desktop.
+// Journey 5 on a real hub (redesign TESTING.md §L3): a bot proposes a change to Dana's "Inbox triage" (seeded as BotOps
+// writes it for Builder Claude, whose rights do not reach it: the PATCH leaves a pending version; no model runs). Dana
+// sees the proposal card in the BotOps panel, opens its diff and turns it on; the hub's live flow then archives receipts
+// first and no proposal is left. On a phone BotOps has its own screen. Phone, then desktop.
 const assert = require('node:assert/strict');
 const {run, open, ok, automationNamed, sideways, shot, t} = require('./support/redesign-e2e.cjs');
 

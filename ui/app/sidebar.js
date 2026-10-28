@@ -582,9 +582,9 @@ $('#org-history').onclick = () => {
 // and a bot that reports to one hangs where it would have.
 const MESSAGE_BOTS_GROUP = '__message_bots';
 // The CEO Bot is built in but on the chart, at its top.
-// With the redesign on, the Automations Bot is a helper too (CONTRACT §2), and no helper is on the Team list at all.
+// With the redesign on, no helper is on the Team list at all.
 const isHelperBot = e => (isBuiltInBot(e.name) && e.name !== 'goal-manager') || !!e.helper
-  || (S.people || []).some(p => p.inbox_bot === e.name) || (redesignOn() && e.name === 'automations-bot');
+  || (S.people || []).some(p => p.inbox_bot === e.name);
 // The order here and on Goals: the Assistant, then the other built-ins, then message bots.
 const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'task-manager', 'inbox'];
 const helperRank = e => e.name === assistantBot() ? -1 : HELPER_ORDER.includes(e.name) ? HELPER_ORDER.indexOf(e.name) : 99;

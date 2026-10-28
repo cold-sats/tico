@@ -125,7 +125,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.deepEqual(await railKeys(page), ['side-update', 'overview', 'welcome', 'strategy', 'updates', 'tasks', 'assistant', 'automations',
         'library', 'rd-lib', 'botops', 'goals', 'nav-pins', 'side-section', 'nav-inboxes-section'], tag + ': the new order');
       assert.equal(await page.getAttribute('a[data-nav="automations"]', 'href'), '#/automations', tag + ': Automations');
-      for (const helper of ['b:automations-bot', 'b:mail-sorter', 'b:botops', 'b:librarian', 'g:__message_bots'])
+      for (const helper of ['b:mail-sorter', 'b:botops', 'b:librarian', 'g:__message_bots'])
         assert.equal(await page.locator(`#tree [data-org="${helper}"]`).count(), 0, `${tag}: ${helper} is off the Team list`);
       assert.equal(await page.locator('#tree [data-org="b:eng-lead"]').count(), 1, tag + ': the Team list keeps the chart');
       assert.equal(await page.getAttribute('a[data-nav="strategy"]', 'href'), '#/strategy/market', tag + ': Strategy opens on Market');
@@ -149,7 +149,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.deepEqual(await page.locator('.strat-tabs a').allInnerTexts(), ['Market', 'Strategy', 'Org', 'Goals', 'Budget'], tag + ': the tabs');
       const org = await page.locator('.rd-org').innerText();
       assert.ok(org.includes('Builder'), tag + ': Org lists the chart');
-      assert.ok(!org.includes('Automations Bot') && !org.includes('BotOps'), tag + ': helpers are off the Org chart');
+      assert.ok(!org.includes('BotOps'), tag + ': helpers are off the Org chart');
       assert.ok(await page.locator('#sbot-fab').isVisible(), tag + ': the Strategy Bot is a button');
       assert.equal(await page.locator('#sbot').evaluate(el => el.getBoundingClientRect().top >= innerHeight), true, tag + ': its sheet is closed');
       await page.locator('#sbot-fab').click();

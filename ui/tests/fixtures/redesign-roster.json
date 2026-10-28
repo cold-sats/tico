@@ -7,7 +7,6 @@
     {"name": "eng-lead", "display_name": "Engineering Lead", "org_parent": "p:ana", "team": "eng", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "builder", "display_name": "Builder", "org_parent": "b:eng-lead", "team": "eng", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "release", "display_name": "Release Manager", "org_parent": "p:ana", "host": "keeper", "status": "active", "can_chat": true},
-    {"name": "automations-bot", "display_name": "Automations Bot", "org_parent": "", "host": "keeper", "status": "active", "can_chat": true},
     {"name": "mail-sorter", "display_name": "Mail Sorter", "org_parent": "", "helper": true, "host": "keeper", "status": "active", "can_chat": true}
   ],
   "humans": {

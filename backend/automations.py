@@ -90,7 +90,7 @@ RUN_BYTES = 524_288
 VALUES_BYTES = 60_000    # what a judge call is shown of a run's values
 MAIL_LEASE_MINUTES = 5   # a claimed mail action not reported by then goes back to the queue
 MAIL_TRIES = 3           # claims a mail action gets before it fails
-HELPER = "bot:automations-bot"   # the Automations Bot: sees every automation, changes none, proposes versions
+BOTOPS = "bot:botops"            # builds automations for whoever asks it, with that asker's rights (backend/botops_act.py)
 VERSIONED = ("trigger", "steps", "batch")   # what the automation does; a change here is a new version
 # The automations a write in this context comes from: their own actions never start them again.
 CHAIN = contextvars.ContextVar("automation_chain", default=())
@@ -171,10 +171,10 @@ def _next_n(c, aid):
     return (row[0] or 0) + 1
 
 
-def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_version=False, via=None):
-    """Write the automation, with its audit row. A change to what it does (trigger, steps, batch) is a new version; a
-    rename, pause or cap is not. `current` makes that pending version the current one instead; `new_version` writes
-    one even when nothing it does changed (restoring an old version)."""
+def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_version=False, via=None, audit=True):
+    """Write the automation, with its audit row (`audit`: a bot's new draft has none). A change to what it does
+    (trigger, steps, batch) is a new version; a rename, pause or cap is not. `current` makes that pending version the
+    current one instead; `new_version` writes one even when nothing it does changed (restoring an old version)."""
     now, prior = H.now(), c.execute("SELECT version FROM automations WHERE id=?", (aid,)).fetchone()
     n = prior["version"] if prior else None
     if current is not None:
@@ -201,7 +201,8 @@ def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_versio
         c.execute("INSERT INTO automations(name,owner,grp,trigger_type,enabled,builtin,flow_json,version,updated,id,"
                   "created,created_by,found_since,next_due) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                   (*columns, aid, now, actor, now, due))
-    audit_log.write(c, actor, "automation:" + aid, before, flow, via)
+    if audit:
+        audit_log.write(c, actor, "automation:" + aid, before, flow, via)
     return _row(c, aid)
 
 
@@ -296,8 +297,8 @@ def may_pause(c, who, flow, can_edit=None):
 
 
 def may_see(c, who, flow):
-    """Seeing follows the change rule; the Automations Bot sees every automation so it can propose changes."""
-    return who.actor == HELPER or may_change(c, who, {**flow, "readonly": False})
+    """Seeing follows the change rule."""
+    return may_change(c, who, {**flow, "readonly": False})
 
 
 def may_reference(c, who, aid):
@@ -317,39 +318,19 @@ def _require(c, who, flow, what="change this automation"):
         raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
 
 
-def _asker(c, auth, who):
-    """The person the Automations Bot works for: whoever wrote the message its live turn answers, with that person's own
-    rights (identity_for_actor elevates nobody). None outside such a turn, or once that person is gone. The bot's own
-    identity stays the actor on every write; this only decides what the person may have."""
-    if who.role != "bot" or who.actor != HELPER or not who.attempt_id:
-        return None
-    row = c.execute("SELECT a.state, a.lease_until, v.owner_actor FROM attempts a JOIN jobs j ON j.id=a.job_id "
-                    "JOIN messages m ON m.id=j.message_id JOIN conversations v ON v.id=m.conversation_id "
-                    "WHERE a.id=? AND m.from_actor=v.owner_actor", (who.attempt_id,)).fetchone()
-    if not row or row["state"] not in ("leased", "running") or str(row["lease_until"] or "") <= H.now():
-        return None
-    try:
-        return auth.identity_for_actor(c, row["owner_actor"])
-    except Problem:
-        return None
+def _by_botops(who):
+    """Whether BotOps makes this call: for a person or a bot it acts for (the dispatcher lends their identity, via
+    botops), or with its own rights."""
+    return who.via == "botops" or who.actor == BOTOPS
 
 
-def _draft(c, auth, who, body, settings):
-    """The Automations Bot's new automation: saved for the person it is talking to, checked against their rights, off,
-    with its first version pending until they turn it on (the page's Turn on restores that version)."""
-    person = _asker(c, auth, who)
-    if person is None:
-        raise Problem("forbidden", "The Automations Bot makes an automation only in a chat with a person", 403)
-    owner = "person:" + H.actor_id(person.actor)
-    if F.owner_ref(body.owner) != owner:
-        raise Problem("forbidden", "A draft is saved for the person you are talking to, not for " + body.owner, 403)
-    flow = _checked(c, {**{k: v for k, v in body.model_dump().items() if v is not None},
-                        "owner": owner, "enabled": False, "builtin": False}, settings)
-    _require(c, person, flow, "make an automation for " + owner)
-    row = _save(c, person.actor, "auto_" + H.new_id(), flow, None, via="automations-bot")
-    c.execute("UPDATE automation_versions SET status='pending' WHERE automation_id=? AND n=?",
-              (row["id"], row["version"]))
-    return view(c, row, person, detail=True)
+def _bot_draft(c, who, flow):
+    """A new automation a bot may not make itself (its own call, or BotOps' for it): saved off, with version 1 pending,
+    for a person with the change rule to turn on. Like a bot's other proposals it writes no audit row until then."""
+    aid = "auto_" + H.new_id()
+    row = _save(c, who.actor, aid, {**flow, "enabled": False}, None, audit=False)
+    c.execute("UPDATE automation_versions SET status='pending' WHERE automation_id=? AND n=?", (aid, row["version"]))
+    return {"id": aid, "pending": row["version"], "can_edit": False}
 
 
 def _owner_known(c, owner):
@@ -1515,20 +1496,33 @@ def install(app, store, auth, mutate):
                          "questions": data["questions"]})
         return {"sets": sets}
 
+    @app.get("/api/v2/automations/guide", **dormant)
+    def automations_guide(request: Request):
+        """How BotOps builds and edits automations, with the flow format generated from the code."""
+        with store.read() as c:
+            _require_on(c)
+            auth.domain(request.state.identity)
+        return {"text": F.guide_text()}
+
     @app.post("/api/v2/automations", **dormant)
     def automations_create(request: Request, body: AutomationIn):
-        """Save a new automation as version 1. The caller must be allowed to change an automation of that owner."""
+        """Save a new automation as version 1. The caller must be allowed to change an automation of that owner; a bot
+        that may not proposes it instead (off, version 1 pending). What BotOps builds is saved off unless `enabled` is
+        sent."""
         who = request.state.identity
 
         def work(c):
             _require_on(c)
             auth.domain(who)
-            if who.actor == HELPER:
-                return _draft(c, auth, who, body, store.settings)
-            flow = _checked(c, {k: v for k, v in body.model_dump().items() if v is not None}, store.settings)
-            _require(c, who, flow, "make an automation for " + flow["owner"])
+            fields = {k: v for k, v in body.model_dump().items() if v is not None}
+            if _by_botops(who) and "enabled" not in body.model_fields_set:
+                fields["enabled"] = False   # what BotOps builds waits for a Turn on, unless the request said on
+            flow = _checked(c, fields, store.settings)
             if flow["builtin"]:
                 raise Problem("forbidden", "Built-in automations come with Tico; the hub makes them", 403)
+            if who.role == "bot" and not may_change(c, who, flow):
+                return _bot_draft(c, who, flow)
+            _require(c, who, flow, "make an automation for " + flow["owner"])
             return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)
         return mutate(request, body, work)
 
@@ -1541,8 +1535,8 @@ def install(app, store, auth, mutate):
     @app.patch("/api/v2/automations/{aid}", **dormant)
     def automations_update(request: Request, aid: str, body: AutomationPatch):
         """Change an automation. A change to its trigger, steps or batch times is a new version. A bot that may not
-        change it (and the Automations Bot always) proposes instead: a pending version a person restores. Pausing a
-        built-in one is the top of the org's alone."""
+        change it proposes instead: a pending version a person restores. BotOps acting for a person changes it as that
+        person could. Pausing a built-in one is the top of the org's alone."""
         who = request.state.identity
 
         def work(c):
@@ -1569,9 +1563,7 @@ def install(app, store, auth, mutate):
                 warning = ("This is a built-in automation: the rules it shows are Tico's own and keep working while "
                            "it is paused.") if changes.get("enabled") is False else None
                 return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
-            if who.actor == HELPER and (asker := _asker(c, auth, who)) and not may_change(c, asker, before):
-                raise Problem("forbidden", "The person you are talking to may not change this automation", 403)
-            if who.role == "bot" and (who.actor == HELPER or not may_change(c, who, before)):
+            if who.role == "bot" and not may_change(c, who, before):
                 if not changes or set(changes) - set(VERSIONED):
                     raise Problem("forbidden", "A bot may only propose a change to an automation's trigger, steps "
                                   "or batch times", 403)
@@ -1595,8 +1587,6 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            if who.actor == HELPER:
-                raise Problem("forbidden", "The Automations Bot does not delete an automation", 403)
             row = found(c, who, aid, "delete this automation", rule=_seen_if_builtin)
             if row["builtin"]:
                 raise Problem("builtin", "A built-in automation cannot be deleted; the top of the org may pause it", 409)
@@ -1626,8 +1616,6 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or RunNow()
 
         def work(c):
-            if who.actor == HELPER:
-                raise Problem("forbidden", "The Automations Bot does not run an automation", 403)
             row = found(c, who, aid, "run this automation",
                         rule=lambda c, who, flow: (may_see if flow.get("readonly") else may_change)(c, who, flow))
             flow = flow_of(row)
@@ -1690,8 +1678,6 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or Empty()
 
         def work(c):
-            if who.actor == HELPER:
-                raise Problem("forbidden", "The Automations Bot proposes a version; a person turns it on", 403)
             row = found(c, who, aid, "change this automation")
             old = c.execute("SELECT * FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
             if not old:
@@ -1715,8 +1701,6 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or Empty()
 
         def work(c):
-            if who.actor == HELPER:
-                raise Problem("forbidden", "The Automations Bot proposes; a person discards a proposal", 403)
             row = found(c, who, aid, "discard a proposal")
             old = c.execute("SELECT status FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
             if not old:

@@ -1155,7 +1155,7 @@
         ]
       },
       "post": {
-        "summary": "Save a new automation as version 1; a flow that fails its checks is refused with where and why. The Automations Bot saves a draft instead: for the person it is talking to, off, its first version pending until they turn it on",
+        "summary": "Save a new automation as version 1; a flow that fails its checks is refused with where and why. BotOps saves it off unless `enabled` is sent; a bot without rights to it saves a proposal (off, version 1 pending)",
         "operationId": "createAutomation",
         "requestBody": {
           "required": true,
@@ -1212,6 +1212,47 @@
             },
             "description": "1-200 characters. Reusing a key with the same body replays the first answer."
           }
+        ]
+      }
+    },
+    "/api/v2/automations/guide": {
+      "get": {
+        "summary": "How BotOps builds and edits automations, with the flow format generated from the hub's code",
+        "operationId": "getAutomationGuide",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationGuide"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
         ]
       }
     },
@@ -1308,7 +1349,7 @@
         ]
       },
       "patch": {
-        "summary": "Change it: a new trigger, steps or batch is a new version. A bot without edit rights (or the Automations Bot) gets `pending`, a proposal a person restores",
+        "summary": "Change it: a new trigger, steps or batch is a new version. A bot without edit rights gets `pending`, a proposal a person restores",
         "operationId": "updateAutomation",
         "parameters": [
           {
@@ -1765,7 +1806,7 @@
     },
     "/api/v2/automations/{aid}/versions/{n}": {
       "delete": {
-        "summary": "Discard a pending version (409 for any other); the Automations Bot is refused",
+        "summary": "Discard a pending version (409 for any other)",
         "operationId": "discardAutomationVersion",
         "parameters": [
           {
@@ -1852,7 +1893,7 @@
     },
     "/api/v2/automations/{aid}/versions/{n}/restore": {
       "post": {
-        "summary": "Make a version current: a pending one keeps its number, an older one is saved as a new version; a draft's first pending version turns it on. The Automations Bot is refused",
+        "summary": "Make a version current: a pending one keeps its number, an older one is saved as a new version; a draft's first pending version turns it on",
         "operationId": "restoreAutomationVersion",
         "parameters": [
           {
@@ -24929,6 +24970,18 @@
         "required": [
           "deleted",
           "id"
+        ],
+        "additionalProperties": true
+      },
+      "AutomationGuide": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
         ],
         "additionalProperties": true
       },

@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Slack support: bugs to Engineering Lead, the rest answered",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "message",
         "inbox": "slack:#support"

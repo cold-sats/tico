@@ -1,13 +1,13 @@
 /* ui/app/automations.js — Automations (redesign): routing, the page's state, the list and the header
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
    The flow and its "+" menu are automations-flow.js, the step editors automations-editors.js, the run log
-   automations-runs.js and the Automations Bot automations-bot.js. Payloads: redesign CONTRACT §2 (/api/v2/automations).
+   automations-runs.js and the BotOps chat automations-bot.js. Payloads: redesign CONTRACT §2 (/api/v2/automations).
    Dormant: with the team's `redesign` setting off, #/automations lands on Updates like any unknown address. */
 'use strict';
 
 const AUTOMATIONS = '#/automations';
 function isAutomationsRoute(r) { return r === AUTOMATIONS || r.startsWith(AUTOMATIONS + '/') || r.startsWith(AUTOMATIONS + '?'); }
-const AU_BOT = 'automations-bot';                    // the helper bot (CONTRACT §2), off the org chart like BotOps
+const AU_BOT = 'botops';                             // builds and edits automations with the viewer's rights (CONTRACT §2)
 const auPhone = () => matchMedia('(max-width:760px)').matches;
 const auClone = x => x == null ? x : JSON.parse(JSON.stringify(x));
 const auApi = id => '/v2/automations/' + encodeURIComponent(id);
@@ -177,7 +177,7 @@ function auDrawHead() {
       <div class="au-seg" role="tablist" aria-label="View">${seg}</div>
     </div>
     <button class="au-chip au-ver" type="button" data-versions aria-label="Versions, v${a.version}">v${esc(a.version)}</button>
-    <a class="au-icon au-botbtn" href="${auHref(a.id, 'bot')}" aria-label="Automations Bot"><span class="nav-icon" aria-hidden="true">assistant</span></a>
+    <a class="au-icon au-botbtn" href="${auHref(a.id, 'bot')}" aria-label="BotOps"><span class="nav-icon" aria-hidden="true">smart_toy</span></a>
     <button class="au-icon au-more" type="button" aria-label="Options" aria-haspopup="menu" data-more><span class="nav-icon" aria-hidden="true">more_horiz</span></button>` : ''}`;
 }
 
@@ -191,7 +191,7 @@ function auDrawPane() {
   if (AU.view !== 'runs') auPathsWire(pane);
 }
 
-// The right side: an open editor, else the Automations Bot. A phone shows the editor as a sheet over the flow.
+// The right side: an open editor, else BotOps. A phone shows the editor as a sheet over the flow.
 function auDrawSide() {
   const ed = AU.root.querySelector('.au-ed'), html = AU.ed ? auEdHTML() : '';
   ed.hidden = !html;

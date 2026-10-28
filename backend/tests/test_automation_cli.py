@@ -68,7 +68,7 @@ def test_a_bot_without_rights_proposes_through_the_tool(api, flow_file):
     turn_on(api)
     aid = cli(api, "ana-test", "create", "--file", str(flow_file))["id"]
     proposed = hubtools.BY_NAME["hub_automation_update"]["fn"](
-        Client(api, as_bot(api, "automations-bot")), {"id": aid, "steps": [], "summary": "Drop the wake"})
+        Client(api, as_bot(api, "finance")), {"id": aid, "steps": [], "summary": "Drop the wake"})
     assert proposed["pending"] == 2
     assert [v["n"] for v in cli(api, "ana-test", "versions", aid, "--pending")["versions"]] == [2]
     assert cli(api, "ana-test", "show", aid)["version"] == 1
@@ -99,11 +99,11 @@ def test_botops_acts_with_the_askers_rights(api, botops):
     assert err, refused
 
 
-def test_the_cli_discards_a_proposal_and_lists_the_question_sets(api, flow_file):
+def test_the_cli_discards_a_proposal_and_lists_the_question_sets_and_the_guide(api, flow_file):
     turn_on(api)
     aid = cli(api, "ana-test", "create", "--file", str(flow_file))["id"]
     hubtools.BY_NAME["hub_automation_update"]["fn"](
-        Client(api, as_bot(api, "automations-bot")), {"id": aid, "steps": [], "summary": "Drop the wake"})
+        Client(api, as_bot(api, "finance")), {"id": aid, "steps": [], "summary": "Drop the wake"})
     assert [v["n"] for v in cli(api, "ana-test", "versions", aid, "--pending")["versions"]] == [2]
     with pytest.raises(remotecli.APIError):
         cli(api, "ana-test", "discard", aid, "1")            # the current version is not a proposal
@@ -112,6 +112,8 @@ def test_the_cli_discards_a_proposal_and_lists_the_question_sets(api, flow_file)
     assert cli(api, "ana-test", "show", aid)["version"] == 1
     sets = cli(api, "ana-test", "question-sets")["sets"]
     assert sets and all("@" in s["id"] for s in sets)
+    guide = cli(api, "ana-test", "guide")["text"]
+    assert "hub automation create --file -" in guide and "`send_reply`" in guide and "{{" not in guide
 
 
 def test_botops_sets_an_email_inboxs_send_switch_for_its_owner_only(api, botops):

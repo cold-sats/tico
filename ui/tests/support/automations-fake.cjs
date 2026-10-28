@@ -1,5 +1,5 @@
 // A stand-in hub for the Automations page scripts (ui/tests/automations-*.cjs): every /api/v2/automations route in
-// redesign CONTRACT §2 over ui/tests/fixtures/redesign-automations.json (the Acme example), the Automations Bot's chat,
+// redesign CONTRACT §2 over ui/tests/fixtures/redesign-automations.json (the Acme example), the BotOps chat,
 // and the boot stubs. Writes change the copy a page reads back and are recorded in `writes`.
 // A flow save (steps or trigger) is a new version; a viewer without edit rights gets 403; a built-in's delete gets 409.
 const fs = require('node:fs');
@@ -12,12 +12,12 @@ const FIXTURE = path.join(__dirname, '../fixtures/redesign-automations.json');
 const PHONE = {width: 390, height: 844}, DESKTOP = {width: 1440, height: 900};
 const clone = x => JSON.parse(JSON.stringify(x));
 
-// The Automations Bot's draft (`draft: true` in openAutomations): off, its version 1 pending until Turn on (CONTRACT §2).
+// A bot's draft (`draft: true` in openAutomations): off, its version 1 pending until Turn on (CONTRACT §2).
 const DRAFT = {id: 'au_draft', name: 'Receipts to archive', owner: 'person:dana', enabled: false, builtin: false, version: 1,
   trigger: {type: 'message', inbox: 'dana@acme.example', filters: []},
   steps: [{id: 'f1', type: 'filter', enabled: true, rules: [
     {when: [{field: 'message.subject', op: 'contains', value: 'receipt'}], match: 'all', then: ['archive'], stop: true}]}]};
-const DRAFT_VERSIONS = [{n: 1, actor: 'bot:automations-bot', at: '2026-10-28T09:00:00Z', status: 'pending',
+const DRAFT_VERSIONS = [{n: 1, actor: 'bot:support', at: '2026-10-28T09:00:00Z', status: 'pending',
   summary: 'Archive receipts from billing'}];
 
 // 30 runs of the inbox automation, newest first: most reply, a few fail at the LLM, a few hit the spend limit.
@@ -41,8 +41,9 @@ function inboxRuns(now = Date.now()) {
 }
 
 // One page on the fake hub. viewer: the person signed in (any but the fixture's owner sees nothing editable).
-// tweak(fx) changes the fixture copy before the page reads it.
-async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana', tweak = null, draft = false} = {}) {
+// tweak(fx) changes the fixture copy before the page reads it. proposal: a bot's pending version on the inbox one.
+async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana', tweak = null, draft = false,
+                                         proposal = false} = {}) {
   const fx = clone(JSON.parse(fs.readFileSync(FIXTURE, 'utf8')));
   if (draft) { fx.automations.push(clone(DRAFT)); fx.versions = {...fx.versions, au_draft: clone(DRAFT_VERSIONS)}; }
   tweak?.(fx);
@@ -58,6 +59,12 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
   for (const a of db.list) {
     const old = fx.versions[a.id] || [{n: a.version, actor: a.owner, at: '2026-10-27T15:00:00Z'}];
     db.versions[a.id] = old.map(v => ({...v, status: v.status || 'active', flow: {trigger: clone(a.trigger), steps: clone(a.steps)}}));
+  }
+  if (proposal) {
+    const a = db.list.find(x => x.id === 'au_inbox'), steps = clone(a.steps);
+    steps.find(s => s.type === 'filter')?.rules.unshift(clone(fx.proposal.rule));
+    db.versions.au_inbox.push({n: a.version + 1, actor: 'bot:support', at: '2026-10-28T09:00:00Z', status: 'pending',
+      summary: fx.proposal.summary, flow: {trigger: clone(a.trigger), steps}});
   }
   const writes = [];
   const find = id => db.list.find(a => a.id === id);
@@ -158,22 +165,30 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
       }
     }
 
-    // The Automations Bot: a message about an automation comes back with a reply and a proposal (a pending version).
-    if (p === '/api/v2/conversations') return json({conversations: db.conv && url.searchParams.get('chat_with') === 'automations-bot' ? [db.conv] : []});
+    // BotOps, with the viewer's rights: a message about an automation saves the change as its new version; one from
+    // New makes an automation, off unless the message says to turn it on; "?" in the text gets a question back.
+    if (p === '/api/v2/conversations') return json({conversations: db.conv && url.searchParams.get('chat_with') === 'botops' ? [db.conv] : []});
     if (db.conv && p === `/api/v2/conversations/${db.conv.id}/snapshot`) return json({messages: db.messages, execution: null, has_more: false, next_before: null});
-    if (p === '/api/v2/chat/automations-bot' && method === 'POST') {
-      db.conv ||= {id: 'conv_au', kind: 'chat', title: 'Automations Bot'};
+    if (p === '/api/v2/chat/botops' && method === 'POST') {
+      db.conv ||= {id: 'conv_au', kind: 'chat', title: 'BotOps'};
       const n = db.messages.length, at = new Date().toISOString();
       const mine = {id: 'msg' + n, from_actor: 'human:' + me.id, body: body.text, refs: body.refs || {}, created: at, kind: 'say'};
       db.messages.push(mine);
       const a = find(body.refs?.automation);
+      let reply = 'Which inbox?';
       if (a) {
-        const steps = clone(a.steps), filter = steps.find(s => s.type === 'filter');
-        filter?.rules.unshift(clone(fx.proposal.rule));
-        db.versions[a.id].push({n: nextN(a.id), actor: 'bot:automations-bot', at, status: 'pending', summary: fx.proposal.summary,
-          flow: {trigger: clone(a.trigger), steps}});
+        a.steps.find(s => s.type === 'filter')?.rules.unshift(clone(fx.proposal.rule));
+        newVersion(a);
+        reply = `Saved v${a.version}: receipts are archived first.`;
+      } else if (!/\?/.test(body.text)) {
+        const on = /turn it on/i.test(body.text);
+        db.list.push({id: 'au_new', name: 'Sales leads', owner: 'person:' + me.id, enabled: on, builtin: false, version: 1, can_edit: true,
+          trigger: {type: 'message', inbox: 'sales@acme.example', filters: []},
+          steps: [{id: 'f1', type: 'filter', enabled: true, rules: [{when: [{field: 'message.subject', op: 'contains', value: 'demo'}], match: 'all', then: [{do: 'label', args: {name: 'Lead'}}], stop: false}]}]});
+        db.versions.au_new = [{n: 1, actor: 'person:' + me.id, at, status: 'active', flow: {trigger: clone(db.list.at(-1).trigger), steps: clone(db.list.at(-1).steps)}}];
+        reply = `Saved Sales leads: mail to sales@acme.example about a demo gets the Lead label. It is ${on ? 'on' : 'off'}.`;
       }
-      db.messages.push({id: 'msg' + (n + 1), from_actor: 'bot:automations-bot', body: a ? 'Here is a new version: receipts are archived first.' : 'What should it watch?', refs: {}, created: at, kind: 'say'});
+      db.messages.push({id: 'msg' + (n + 1), from_actor: 'bot:botops', body: reply, refs: {}, created: at, kind: 'say'});
       return json({conversation: db.conv, message: mine});
     }
     return json(unrouted(p));

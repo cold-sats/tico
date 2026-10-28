@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Monday check for unanswered questions in last week's mail",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "schedule",
         "cron": "0 9 * * 1"

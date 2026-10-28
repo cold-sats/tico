@@ -4,7 +4,7 @@
   "employees": [
     {"name": "support", "display_name": "Support Lead", "host": "keeper", "status": "active"},
     {"name": "eng-lead", "display_name": "Head of Engineering", "host": "keeper", "status": "active"},
-    {"name": "automations-bot", "display_name": "Automations Bot", "host": "keeper", "status": "active"}
+    {"name": "botops", "display_name": "BotOps", "host": "keeper", "status": "active"}
   ],
   "groups": [{"id": "engineering", "name": "Engineering"}],
   "question_sets": [
@@ -47,7 +47,7 @@
   "versions": {
     "au_inbox": [
       {"n": 5, "actor": "person:dana", "at": "2026-10-20T15:00:00Z"},
-      {"n": 6, "actor": "bot:automations-bot", "at": "2026-10-24T15:00:00Z"},
+      {"n": 6, "actor": "bot:support", "at": "2026-10-24T15:00:00Z"},
       {"n": 7, "actor": "person:dana", "at": "2026-10-27T15:00:00Z"}
     ]
   },

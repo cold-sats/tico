@@ -1,6 +1,9 @@
 {
-  "pending": [
+  "created": [
     {
+      "name": "Failed payment from the billing webhook becomes a task",
+      "owner": "person:dana",
+      "enabled": false,
       "trigger": {
         "type": "webhook",
         "id": "trg_billing"

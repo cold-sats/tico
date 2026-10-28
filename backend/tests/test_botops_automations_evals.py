@@ -1,6 +1,6 @@
-"""The Automations Bot eval without a model (evals/automations_bot/): every request is well formed, each saved answer
-passes its checks, and the checker refuses the answers it should. The live runner (evals/automations_bot/run.py) asks a
-real model and never runs here.
+"""BotOps' automation eval without a model (evals/botops_automations/): every request is well formed, each saved answer
+passes its checks, and the checker refuses the answers it should. The live runner (evals/botops_automations/run.py) asks
+a real model and never runs here.
 """
 import copy
 import importlib.util
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-EVALS = Path(__file__).resolve().parents[2] / "evals" / "automations_bot"
+EVALS = Path(__file__).resolve().parents[2] / "evals" / "botops_automations"
 sys.path.insert(0, str(EVALS))
 import checker  # noqa: E402
 from backend import automation_actions  # noqa: E402
@@ -55,69 +55,79 @@ def test_each_saved_answer_passes_its_checks(case_id):
 
 def test_a_wrong_inbox_fails_the_trigger():
     observed = saved("investor-drafts")
-    observed["pending"][0]["trigger"]["inbox"] = "priya@acme.example"
+    observed["created"][0]["trigger"]["inbox"] = "priya@acme.example"
     assert failed(checker.check_case(BY_ID["investor-drafts"], observed)) == {"trigger"}
 
 
 def test_the_first_matching_path_is_checked_in_order():
     """Money must come first: with the reply path first, a money mail would be drafted instead of left."""
     observed = saved("investor-drafts")
-    paths = observed["pending"][0]["steps"][1]["paths"]
+    paths = observed["created"][0]["steps"][1]["paths"]
     paths.reverse()
     assert failed(checker.check_case(BY_ID["investor-drafts"], observed)) == {"steps in order"}
 
 
 def test_a_money_threshold_below_the_expected_one_fails():
     observed = saved("investor-drafts")
-    observed["pending"][0]["steps"][1]["paths"][0]["when"][0]["min"] = 0.5
+    observed["created"][0]["steps"][1]["paths"][0]["when"][0]["min"] = 0.5
     assert failed(checker.check_case(BY_ID["investor-drafts"], observed)) == {"steps in order"}
 
 
 def test_a_disabled_step_does_not_count():
     observed = saved("legal-leave")
-    observed["pending"][0]["steps"].insert(0, {"id": "old", "type": "find", "enabled": False, "source": "mail"})
+    observed["created"][0]["steps"].insert(0, {"id": "old", "type": "find", "enabled": False, "source": "mail"})
     assert checker.check_case(BY_ID["legal-leave"], observed)["passed"]
 
 
 def test_an_either_bot_step_is_accepted():
     observed = saved("nightly-summary")
-    observed["pending"][0]["steps"][0] = {"id": "summarize", "type": "llm", "enabled": True,
+    observed["created"][0]["steps"][0] = {"id": "summarize", "type": "llm", "enabled": True,
                                           "as": "assistant:dana", "prompt": "Summarize.", "out": "summary"}
     assert checker.check_case(BY_ID["nightly-summary"], observed)["passed"]
 
 
 def test_a_schedule_at_the_wrong_hour_fails():
     observed = saved("summary-7pm")
-    observed["pending"][0]["trigger"]["cron"] = "0 18 * * 1-5"
+    observed["live"]["trigger"]["cron"] = "0 17 * * 1-5"
     assert failed(checker.check_case(BY_ID["summary-7pm"], observed)) == {"trigger"}
 
 
 def test_an_invalid_condition_fails_the_save_check():
     """The save check's own refusal is the failure: the checker names it and does not crash on it."""
     observed = saved("newsletters-archive")
-    observed["pending"][0]["steps"][1]["rules"][0]["when"][1]["op"] = "like"
+    observed["created"][0]["steps"][1]["rules"][0]["when"][1]["op"] = "like"
     verdict = checker.check_case(BY_ID["newsletters-archive"], observed)
     assert "valid flow (the save check)" in failed(verdict)
     assert "op is one of" in next(c["why"] for c in verdict["checks"] if c["name"].startswith("valid flow"))
 
 
-def test_an_edit_that_moves_the_live_flow_fails():
-    """A request saves a pending version; the flow that runs must stay as it was."""
+def test_an_edit_left_as_a_proposal_fails():
+    """A person's edit is applied: the change is the live version, not a pending one beside an unchanged flow."""
     observed = saved("receipts-label")
-    observed["live"] = {**copy.deepcopy(BY_ID["receipts-label"]["seed"]), "trigger": {"type": "message",
-                                                                                     "inbox": "omar@acme.example"}}
-    assert failed(checker.check_case(BY_ID["receipts-label"], observed)) == {"live version unchanged"}
+    observed = {"live": copy.deepcopy(BY_ID["receipts-label"]["seed"]), "pending": [observed["live"]]}
+    assert failed(checker.check_case(BY_ID["receipts-label"], observed)) == {"no proposal", "saved as the live version"}
 
 
-def test_a_proposal_that_is_missing_fails():
-    observed = saved("summary-7pm")
-    observed["pending"] = []
-    assert failed(checker.check_case(BY_ID["summary-7pm"], observed)) == {"a pending version was saved"}
+def test_a_new_request_that_saves_nothing_or_two_fails():
+    assert failed(checker.check_case(BY_ID["billing-webhook"], {"created": []})) == {"one automation saved"}
+    two = saved("billing-webhook")
+    two["created"].append(copy.deepcopy(two["created"][0]))
+    assert failed(checker.check_case(BY_ID["billing-webhook"], two)) == {"one automation saved"}
 
 
-def test_a_refusal_fails_when_a_version_names_the_forbidden_inbox():
-    observed = {"pending": [{"trigger": {"type": "message", "inbox": "priya@acme.example"}, "steps": []}]}
-    assert failed(checker.check_case(BY_ID["priya-inbox-refuse"], observed)) == {"no version saved",
+def test_a_new_automation_is_on_only_when_the_request_says_so():
+    observed = saved("investor-drafts")
+    observed["created"][0]["enabled"] = True
+    assert failed(checker.check_case(BY_ID["investor-drafts"], observed)) == {"on only when asked"}
+    observed = saved("receipts-archive-on")
+    observed["created"][0]["enabled"] = False
+    assert failed(checker.check_case(BY_ID["receipts-archive-on"], observed)) == {"on only when asked"}
+
+
+def test_a_refusal_fails_when_a_saved_flow_names_the_forbidden_inbox():
+    observed = {"created": [{"name": "Priya", "owner": "person:dana", "enabled": False,
+                             "trigger": {"type": "message", "inbox": "priya@acme.example"}, "steps": []}]}
+    assert failed(checker.check_case(BY_ID["priya-inbox-refuse"], observed)) == {"nothing saved",
                                                                                  "forbidden inbox not named"}
 
 
@@ -138,7 +148,7 @@ def _flows_in_evals():
     flows = [case["seed"] for case in CASES if case.get("seed")]
     for path in sorted((EVALS / "saved").glob("*.json")):
         doc = json.loads(path.read_text())
-        flows += doc.get("pending", []) + ([doc["live"]] if doc.get("live") else [])
+        flows += doc.get("created", []) + doc.get("pending", []) + ([doc["live"]] if doc.get("live") else [])
     return flows
 
 
@@ -168,14 +178,17 @@ def test_the_flow_shape_names_every_trigger_step_and_action():
         assert do in text and all(arg in text for arg in args), do
 
 
-def test_the_helper_instructions_carry_the_flow_shape_placeholder():
-    """onboarding.render swaps `{{flow_shape}}` for the shape at read time, so the shape cannot go stale in the file."""
-    text = (Path(__file__).resolve().parents[2] / "templates" / "catalog" / "automations-bot" / "AGENT.md").read_text()
-    assert text.count("{{flow_shape}}") == 1
+def test_the_guide_carries_the_flow_shape_from_the_code():
+    """BotOps reads `hub automation guide`: the shape is swapped in at read time, so it cannot go stale in a file."""
+    assert F.GUIDE.count("{{flow_shape}}") == 1
+    guide = F.guide_text()
+    assert F.shape_text() in guide and "{{" not in guide.replace("{{summary}}", "")
+    agent = (Path(__file__).resolve().parents[2] / "templates" / "catalog" / "botops" / "AGENT.md").read_text()
+    assert "`hub automation guide`" in agent
 
 
 def test_the_live_runner_lists_its_requests():
-    spec = importlib.util.spec_from_file_location("automations_bot_run", EVALS / "run.py")
+    spec = importlib.util.spec_from_file_location("botops_automations_run", EVALS / "run.py")
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     assert runner.main(["--url", "http://127.0.0.1:1", "--owner-token", "x", "--list"]) == 0

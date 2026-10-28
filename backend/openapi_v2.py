@@ -1342,16 +1342,18 @@ STABLE.extend([
     ("/api/v2/automations", "get", "Automations", "listAutomations",
      "The automations you may see, newest first, each with can_edit; paged by cursor", "AutomationList"),
     ("/api/v2/automations", "post", "Automations", "createAutomation",
-     "Save a new automation as version 1; a flow that fails its checks is refused with where and why. The Automations "
-     "Bot saves a draft instead: for the person it is talking to, off, its first version pending until they turn it on",
+     "Save a new automation as version 1; a flow that fails its checks is refused with where and why. BotOps saves "
+     "it off unless `enabled` is sent; a bot without rights to it saves a proposal (off, version 1 pending)",
      "Automation"),
+    ("/api/v2/automations/guide", "get", "Automations", "getAutomationGuide",
+     "How BotOps builds and edits automations, with the flow format generated from the hub's code", "AutomationGuide"),
     ("/api/v2/automations/question-sets", "get", "Automations", "listQuestionSets",
      "The saved question sets a Decide step may name (`set`), each with its questions", "QuestionSets"),
     ("/api/v2/automations/{aid}", "get", "Automations", "getAutomation",
      "One automation with set questions filled in, today's counts and, for a schedule, next_run", "Automation"),
     ("/api/v2/automations/{aid}", "patch", "Automations", "updateAutomation",
-     "Change it: a new trigger, steps or batch is a new version. A bot without edit rights (or the Automations Bot) "
-     "gets `pending`, a proposal a person restores", "Automation"),
+     "Change it: a new trigger, steps or batch is a new version. A bot without edit rights gets "
+     "`pending`, a proposal a person restores", "Automation"),
     ("/api/v2/automations/{aid}", "delete", "Automations", "deleteAutomation",
      "Delete it; its runs stay. A built-in one is refused", "AutomationDeleted"),
     ("/api/v2/automations/{aid}/delete", "post", "Automations", "deleteAutomationPost",
@@ -1365,9 +1367,9 @@ STABLE.extend([
      "Its versions, newest first; status=pending for proposals", "AutomationVersions"),
     ("/api/v2/automations/{aid}/versions/{n}/restore", "post", "Automations", "restoreAutomationVersion",
      "Make a version current: a pending one keeps its number, an older one is saved as a new version; a draft's first "
-     "pending version turns it on. The Automations Bot is refused", "Automation"),
+     "pending version turns it on", "Automation"),
     ("/api/v2/automations/{aid}/versions/{n}", "delete", "Automations", "discardAutomationVersion",
-     "Discard a pending version (409 for any other); the Automations Bot is refused", "Automation"),
+     "Discard a pending version (409 for any other)", "Automation"),
     ("/api/v2/inboxes/{inbox}", "get", "Automations", "getInboxSend",
      "An inbox's send switch (on by default): email address, slack:dm or slack:#<channel>", "InboxSwitch"),
     ("/api/v2/inboxes/{inbox}", "patch", "Automations", "setInboxSend",
@@ -1399,6 +1401,7 @@ SCHEMAS.update({
                                                       "flow": {"type": "object"}},
                                                      required=["n", "actor", "at", "status", "flow"])),
                                "next": {"type": ["integer", "null"]}}),
+    "AutomationGuide": obj({"text": "s"}),
     "QuestionSets": obj({"sets": items(obj({"id": "s", "summary": "s", "questions": {"type": "object", "description": "Keyed by question id, in judge.py's format"}}))}),
     "InboxSwitch": obj({"inbox": "s", "send": "b"}),
     "PersonAssistant": obj({"bot": {"type": ["string", "null"]}}),
