@@ -4,7 +4,7 @@
 37: the daily briefing fires at 07:00 on the fake clock and posts to Market and Updates.
 38: a reorg proposal waits for a person; on approval the hub moves the bot, BotOps gets a note, no BotOps task."""
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from ..harness import (CLAUDE_ID, DANA, LEAD, OPENAI_ID, OPENAI_REF, RELEASE_ID, W2, W3, W6, Check,
                        Scenario, Unmet, accepted, approval_id_of, audit_of, auto_id, automation, body, decide, got,
@@ -34,6 +34,16 @@ def listen(org):
                    "content": "A new dev tool for mapping markets."}]}, who=DANA, wave=W6)
 
 
+def judge_match(org, facts):
+    """The match's judgment, saved as the listening judge saves it (POST /api/v2/listening/judgments): a lead score
+    over the destination's threshold routes the item, and the routing is what starts a listening trigger."""
+    items = (body(facts, "match") or {}).get("items") or []
+    if not items:
+        raise Unmet(W6, "the listening run saved no item to judge")
+    return org.api("post", "/api/v2/listening/judgments", {"judgments": [
+        {"item_id": items[0]["id"], "question_set": "listening-item@1", "scores": {"lead": 0.9}}]}, who=DANA, wave=W6)
+
+
 def graph(org):
     return org.api("get", "/api/v2/market/graph", who=DANA, wave=W6)
 
@@ -52,7 +62,7 @@ def advance_to_next_run(org, facts):
     if not isinstance(data, dict) or not data.get("next_run"):
         raise Unmet(W3, "GET /{id} carries no next_run for a schedule")
     due = datetime.fromisoformat(data["next_run"].replace("Z", "+00:00"))
-    now = datetime.now(timezone.utc)
+    now = org.now()   # the fake clock, not the wall clock
     if due > now:
         org.pass_time(due - now)
     return due
@@ -87,6 +97,7 @@ def s36_steps(org, facts):
                "prompt": "Update the market graph from this match."}])
     org.step(facts, "graph0", graph, org)
     org.step(facts, "match", listen, org)
+    org.step(facts, "judged", judge_match, org, facts)
     org.step(facts, "graph1", graph, org)
     org.step(facts, "runs", runs_of, org, facts, "auto")
     org.step(facts, "turn", org.turn, "librarian")

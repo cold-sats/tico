@@ -2,6 +2,7 @@
 nesting and the turn budget. Every spend is a real completed attempt with its token use, so the hub meters it."""
 import datetime as dt
 
+from ..fakes import ReplayJudge, attach_judge
 from ..harness import (LEAD_ID, OPENAI_ID, OPENAI_REF, W2, W3, Check, Scenario, Unmet, automation, auto_id,
                        body, got, make_group, put_budget, put_limit, put_pool, replied, rows, run_now, setup, untestable,
                        work)
@@ -59,7 +60,12 @@ def s12_steps(org, f):
 
 
 # ---------------------------------------------------------------------------------------------- 13 per-automation cap
+RANK = {"needs_you": {"type": "noul", "noul": 0.2}, "urgency": {"type": "score", "score": 0.4}}   # task-rank@1
+
+
 def s13_steps(org, f):
+    # Each run's Decide asks the judge once: without one attached the step would be skipped (CONTRACT §2, no model).
+    org.step(f, "judge", attach_judge, org, ReplayJudge([RANK, RANK]))
     org.step(f, "auto", automation, org, "Write · builder-openai", OPENAI_REF,
              trigger={"type": "schedule", "cron": "0 9 * * *", "tz": "UTC"},
              steps=[{"id": "gate", "type": "filter", "enabled": True, "rules": []},

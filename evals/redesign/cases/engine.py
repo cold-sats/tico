@@ -461,6 +461,18 @@ def pruned_31(f):
     return bool(before.get("steps")) and not left, f"{len(left)} step row(s) left after 31 days; row stays"
 
 
+def counts_kept(f):
+    """The day's counts outlive the step detail: the runs listing's `daily` (CONTRACT §2 Runs) still has the day the
+    two messages came, with its run and its drop, after the 31-day prune."""
+    got(f, "day31")
+    _, run = hit_run_at(f, "runs31")
+    day = str(run.get("started") or "")[:10]
+    daily = (unwrap(body(f, "runs31")) or {}).get("daily") or []
+    row = next((d for d in daily if d.get("day") == day), None)
+    ok = bool(row) and row.get("runs") == 1 and row.get("dropped") == 1
+    return ok, f"daily for {day}: {row}, want runs 1 and dropped 1"
+
+
 # ---------------------------------------------------------------------------------------------- 28 versions
 def s28_steps(org, f):
     org.step(f, "auto", automation, org, "Versions · dana", DANA_REF, steps=[note("one", "one")])
@@ -760,8 +772,7 @@ SCENARIOS = [
                  Check("today's counts go up: runs +1 and dropped +1", W3, dropped_counted),
                  Check("on day 29 the run still has its step detail", W3, kept_29),
                  Check("after 31 days the step detail is pruned and the run row stays", W3, pruned_31),
-                 Check("the day's counts are kept after the prune", W3,
-                       untestable("CONTRACT reads only counts.today; no read names an earlier day's counts")),
+                 Check("the day's counts are kept after the prune", W3, counts_kept),
              ]),
     Scenario(28, "engine-versions", "Each save makes a version; restore brings back the old flow", s28_steps, [
         Check("two saves make versions 1 and 2, with actor and time", W3, versions_recorded),

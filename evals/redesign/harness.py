@@ -350,6 +350,22 @@ def publish_mail(org, mailbox, messages, deleted=()):
     return org.api("post", "/api/v2/connectors/mail/messages", payload, who=org.runner["token"], wave=W3)
 
 
+def mail_computer(org, mailbox):
+    """The mail computer's pass (CONTRACT §1 Mail actions): it claims every queued action for `mailbox` and reports
+    each done, as runner/connectors.py `mail_action_tick` does after Gmail took it. Returns the actions it claimed."""
+    claimed = org.api("post", "/api/v2/automations/mail-actions/claim", {"mailbox": mailbox},
+                      who=org.runner["token"], wave=W3)
+    actions = ((claimed.body or {}).get("actions") or []) if claimed.status == 200 else []
+    for action in actions:
+        kind = action.get("action")
+        done = {"ok": True, "detail": {"draft": "drafted", "send": "sent", "forward": "forwarded"}.get(kind, kind),
+                **({"draft": "d-" + action["id"][:8]} if kind == "draft" else {}),
+                **({"message": "s-" + action["id"][:8]} if kind in ("send", "forward") else {})}
+        org.api("post", f"/api/v2/automations/mail-actions/{action['id']}/result", done, who=org.runner["token"],
+                wave=W3)
+    return actions
+
+
 def inbox_send(org, inbox, send, who=DANA):
     """The inbox's send switch (CONTRACT §2 Send switch): true sends replies, false saves drafts."""
     return org.api("patch", f"/api/v2/inboxes/{inbox}", {"send": send}, who=who, wave=W3)

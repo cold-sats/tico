@@ -6,15 +6,14 @@ import json
 
 from ..fakes import ReplayJudge, attach_judge
 from ..harness import (DANA_ID, DANA_REF, W3, Check, Scenario, assistant_of, auto_id, automation, body, find, got,
-                       inbox_read, inbox_send, mail_message, publish_mail, rows, setup, today_counts, turn_of,
-                       untestable)
+                       inbox_read, inbox_send, mail_computer, mail_message, publish_mail, replied, rows, setup,
+                       today_counts, turn_of)
 
 INBOX = "dana@acme.example"
 TIMES = ["08:00", "13:00", "17:00"]
 DAY = 86400
 BUCKET = {"bucket": {"type": "choice", "instructions": "Reply, or archive as noise?",
                      "criteria": {"reply": "needs an answer", "archive": "noise"}}}
-REJOIN = "CONTRACT says paths never rejoin, but it names no step layout after a fork to test against"
 
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -63,6 +62,12 @@ def first_run(data):
     """The newest run in a runs listing (newest first), or None."""
     runs = rows(data)
     return runs[0] if runs else None
+
+
+def run_for(data, msg_id):
+    """The run a given mail started (its trigger_ref names the message): runs started in the same frozen second tie on
+    time, so newest-first order alone cannot tell them apart."""
+    return next((run for run in rows(data) if msg_id in str(run.get("trigger_ref") or "")), None)
 
 
 def step_row(run, sid):
@@ -120,7 +125,9 @@ def s16_steps(org, f):
                                                    "match": "all", "then": [{"do": "archive", "args": {}}],
                                                    "stop": True}])])
     org.step(f, "match", publish_mail, org, INBOX, [mail_message("m16-promo", "promo@shop.acme.example", "Sale")])
+    org.step(f, "computer1", mail_computer, org, INBOX)   # the archive is done by the mail computer
     org.step(f, "other", publish_mail, org, INBOX, [mail_message("m16-ops", "ops@acme.example", "Deploy notes")])
+    org.step(f, "computer2", mail_computer, org, INBOX)
     org.step(f, "read", read_auto, org, f)
     org.step(f, "runs", runs_of, org, f)
 
@@ -164,9 +171,11 @@ def s17_steps(org, f):
     org.step(f, "read", read_auto, org, f)
     org.step(f, "mail1", publish_mail, org, INBOX,
              [mail_message("m17-a", "client@acme.example", "Deck?", "Can you send the deck?")])
+    org.step(f, "computer1", mail_computer, org, INBOX)   # the draft is made by the mail computer
     org.step(f, "runs1", runs_of, org, f)
     org.step(f, "mail2", publish_mail, org, INBOX,
              [mail_message("m17-b", "client@acme.example", "Deck again?", "Did you get my note?")])
+    org.step(f, "computer2", mail_computer, org, INBOX)
     org.step(f, "runs2", runs_of, org, f)
 
 
@@ -185,7 +194,7 @@ def judge_at_level(f):
 
 def answer_stored(f):
     setup(f, "auto", "runs1")
-    run = first_run(body(f, "runs1"))
+    run = run_for(body(f, "runs1"), "m17-a")
     if not run:
         return False, "no run for the mail"
     hit = find(outputs_of(run, "rank"), lambda d: "bucket" in d) or {}
@@ -195,21 +204,21 @@ def answer_stored(f):
 
 def level_stored(f):
     setup(f, "auto", "runs1")
-    run = first_run(body(f, "runs1"))
+    run = run_for(body(f, "runs1"), "m17-a")
     level = (outputs_of(run, "rank") if run else {}).get("level")
     return level == "medium", f"Decide outputs level {level!r}, want 'medium'"
 
 
 def drafted_at_08(f):
     setup(f, "auto", "runs1")
-    run = first_run(body(f, "runs1"))
+    run = run_for(body(f, "runs1"), "m17-a")
     ok = bool(run) and ran_ok(run, "reply") and "draft_reply" in outcome(run, "reply")
     return ok, f"reply rule outcome {outcome(run, 'reply') if run else 'no run'}"
 
 
 def not_drafted_at_06(f):
     setup(f, "auto", "runs2")
-    run = first_run(body(f, "runs2"))
+    run = run_for(body(f, "runs2"), "m17-b")
     ok = bool(run) and ran_ok(run, "reply") and "draft_reply" not in outcome(run, "reply")
     return ok, f"reply rule outcome {outcome(run, 'reply') if run else 'no run'}"
 
@@ -232,6 +241,13 @@ def s18_steps(org, f):
             {"name": "second", "when": [cond("message.from", "contains", "client")],
              "steps": [node("f2", "action", do="note", args={"text": "second"})]}],
          otherwise={"steps": []})])
+    # Paths never rejoin: a step after a fork is refused on save (CONTRACT §2 Rules), so no run can reach one.
+    org.step(f, "rejoin", org.api, "post", "/api/v2/automations", {
+        "name": "Rejoin · dana", "owner": DANA_REF, "enabled": True, "trigger": inbox_trigger(), "steps": [
+            node("fork", "paths", paths=[{"name": "one", "when": [], "steps": [node("p1", "action", do="note",
+                                                                                        args={"text": "one"})]}],
+                 otherwise={"steps": []}),
+            node("after", "action", do="note", args={"text": "after the fork"})]}, wave=W3)
     org.step(f, "read", read_auto, org, f)
     org.step(f, "mail", publish_mail, org, INBOX,
              [mail_message("m18-a", "client@acme.example", "Which plan?", "Which plan?")])
@@ -311,11 +327,13 @@ def s20_steps(org, f):
     org.step(f, "read_on", inbox_read, org, INBOX)
     org.step(f, "mail_on", publish_mail, org, INBOX,
              [mail_message("m20-a", "client@acme.example", "Lunch?", "Friday?")])
+    org.step(f, "computer_on", mail_computer, org, INBOX)   # the send is made by the mail computer
     org.step(f, "runs_on", runs_of, org, f)
     org.step(f, "off", inbox_send, org, INBOX, False)
     org.step(f, "read_off", inbox_read, org, INBOX)
     org.step(f, "mail_off", publish_mail, org, INBOX,
              [mail_message("m20-b", "client@acme.example", "Monday?", "Monday?")])
+    org.step(f, "computer_off", mail_computer, org, INBOX)
     org.step(f, "runs_off", runs_of, org, f)
 
 
@@ -332,7 +350,7 @@ def reads_on(f):
 
 def sent_when_on(f):
     setup(f, "auto", "mail_on", "runs_on")
-    run = first_run(body(f, "runs_on"))
+    run = run_for(body(f, "runs_on"), "m20-a")
     ok = bool(run) and ran_ok(run, "send") and "send_off" not in whole(run)
     return ok, f"send step {outcome(run, 'send') if run else 'no run'}"
 
@@ -345,7 +363,7 @@ def reads_off(f):
 
 def draft_when_off(f):
     setup(f, "auto", "mail_off", "runs_off")
-    run = first_run(body(f, "runs_off"))
+    run = run_for(body(f, "runs_off"), "m20-b")
     ok = bool(run) and "send_off" in whole(run) and "draft" in whole(run)
     return ok, "send_off logged with a draft" if ok else f"run {whole(run) if run else 'none'}"
 
@@ -425,7 +443,8 @@ SCENARIOS = [
                  Check("a paths step on a Decide output is saved with two paths and otherwise", W3, paths_saved),
                  Check("the paths output reads the path taken, reply", W3, path_output),
                  Check("two paths match one mail: the first runs, the second does not", W3, first_match_only),
-                 Check("a path does not rejoin the steps after the fork", W3, untestable(REJOIN)),
+                 Check("a path does not rejoin: a step after the fork is refused on save (422)", W3,
+                       lambda f: replied(f, "rejoin", 422)),
              ]),
     Scenario(19, "inbox-assistant-turn",
              "Inbox LLM as Dana's Assistant: created on first use, the turn names that bot",
@@ -434,7 +453,7 @@ SCENARIOS = [
                  Check("no Assistant exists before the first mail", W3, none_before),
                  Check("the first mail creates Dana's Assistant, a bot", W3, assistant_created),
                  Check("the llm turn names Dana's Assistant, not another session", W3, turn_names_assistant),
-             ]),
+             ], bots={"coo": ("assistant", "claude")}),   # the team's Assistant bot (settings assistant_bot)
     Scenario(20, "inbox-send-switch", "Inbox send switch: reply sent when on; draft and send_off logged when off",
              s20_steps, [
                  Check("a send_reply step is saved", W3, send_saved),
