@@ -1,9 +1,7 @@
 """The simulation loop: every tick moves the clock, runs the real scheduler pass, lets each available bot claim and run
 its queued turns, and records what the board and the queues look like."""
 import datetime as dt
-import linecache
 import random
-import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
@@ -12,47 +10,7 @@ from .board import dev_board
 from .world import PRIMARY, Refusal, World
 
 PRICE = {"claude-opus-5-5": (4.0, 0.20, 20.0)}   # $ per million: uncached input, cached input, output
-
-CLAIM_CALLS = []    # per claim request: (step, last line the step ran, what it returned), in order
-
-
-def record_claim_steps(execution):
-    """Diagnostic only: wraps the claim's read path, its candidate selections and its write path so a trace can name
-    the line that answered each step and what each selection returned. Every answer is passed back unchanged."""
-    def last_line(original):
-        code = original.__code__
-
-        def traced(self, *args, **kw):
-            lines = []
-
-            def local(frame, event, arg):
-                if event == "line":
-                    lines.append(frame.f_lineno)
-                return local
-
-            def wanted(frame, event, arg):
-                return local if frame.f_code is code else None
-            sys.settrace(wanted)
-            try:
-                answer = original(self, *args, **kw)
-            finally:
-                sys.settrace(None)
-            CLAIM_CALLS.append((original.__name__, lines[-1] if lines else None, answer))
-            return answer
-        traced.__wrapped__ = original
-        return traced
-
-    def selection(original):
-        def traced(self, *args, **kw):
-            row = original(self, *args, **kw)
-            CLAIM_CALLS.append(("candidate " + ("job" if kw.get("job_id") else "select"), None, row))
-            return row
-        traced.__wrapped__ = original
-        return traced
-    execution.Execution._idle_claim = last_line(execution.Execution._idle_claim)
-    execution.Execution.claim = last_line(execution.Execution.claim)
-    execution.Execution.candidate = selection(execution.Execution.candidate)
-
+SHORT_ROUNDS = 40     # a run reads the reasons of at most this many short claim rounds (see Run.reasons)
 
 @dataclass
 class Team:
@@ -91,17 +49,12 @@ class Run:
         self.peak_doing = Counter()
         self.claims = Counter()    # claim replies by HTTP status: an exception the app raised counts as a 500
         self.paused = set()        # bots the scenario paused: the work they hold waits on their owner, not the board
-        self.marks = []            # per runner claim round: free slots, queued bots, held jobs and turns started
+        self.marks = []            # per runner claim round: free slots, the bots it could hand out, turns started
         self.lost_probe = None
-        self.probe_seen = set()    # probe jobs a round met on a login the server held for them (windows read at check time)
+        self.probe_seen = set()    # probe jobs a login's hold named after a round's claims, read from the hold records
         self.back_check = None     # set by the scenario when a computer comes back: its readiness is read on that tick
         self.back_lines = []       # what the server held for the returning computer's bot on its first round back
-        self.traces = []           # claim traces of short rounds: the server's candidate gates for one queued bot
-        self.trace_rounds = 0      # short rounds traced so far (the first few are read)
-        self.claim_path = ""       # where the last claim answered: the read path, or the write path's last line
-        from backend import execution
-        if not hasattr(execution.Execution.claim, "__wrapped__"):
-            record_claim_steps(execution)
+        self.short_rounds = 0      # short rounds whose reasons were read (at most SHORT_ROUNDS)
 
     def team(self, w):
         styles = self.scenario.styles
@@ -196,253 +149,177 @@ class Run:
             read_deps.sweep(c, gate=w.store.writer)
 
     def runner_round(self, w, team):
-        """One claim round as a real runner runs it: while it has a free slot it asks for work, naming the bots it is
-        already running. The work the board could hand out is counted from the queue before the claims (`queued`), not
-        from the claim's own pick, so a claim that passes over work it could take shows in `marks`. The bots the
-        scenario paused are left out of that count: their work waits on their owner."""
+        """One claim round as a real runner makes it: while it has a free slot it asks for work, naming the bots it is
+        running, and each claim's body is built fresh (runner.rs claim_next). The round is judged on the records after
+        its claims, never on a claim's answer: the bots it could hand out are the queued ones that are available, not
+        running and not paused, less the jobs the claims took off the queue and the obsolete keeper notices the server's
+        own rule names. A bot is ready when the records say a login it can run on is free (readiness). A round that
+        starts fewer turns than its free slots and ready bots is short, and its reasons are read from the server
+        (reasons)."""
         body = self.runner_body(team)
         free = w.capacity - sum(1 for b in team.all if b.running)
-        idle = {b.slug for b in team.all} - set(body["busy_bots"]) - self.paused
         if self.back_check:
             # The computer's readiness as the heartbeat before this round's claims told the server it (the sim sends
             # that heartbeat once the scenario changes who is available).
             self.back_lines.append(self.back_read(w, self.back_check["slug"]))
             self.back_check = None
-        queued, held, queued_slugs = w.queued_bots(idle)
-        before = self.refusals(w, idle) if free and queued else []
-        started, reply = 0, None
+        pool = self.pool(team, body)
+        before, held = self.queued_before(w, pool)
+        started, started_bots, started_jobs, answers, fallback = 0, [], [], [], 0
         for _ in range(max(0, free)):
-            # A runner builds its claim body before each claim, so the bots it has just started are busy for the next.
             body = self.runner_body(team)
             _, reply = self.claim_once(w, body)
+            answers.append(reply)
             attempt = reply.get("attempt") if isinstance(reply, dict) else None
             if not attempt:
                 break
-            team.bot(attempt["bot"]).start(attempt)
+            bot = team.bot(attempt["bot"])
+            bot.start(attempt)
             started += 1
-        mark = {"at": w.now(), "free": free, "queued": queued, "slugs": queued_slugs, "held": held,
-                "started": started}
-        if free and queued and started < min(free, queued):
-            # Diagnostic: the server's view of each queued bot before the claims, and the last claim's answer.
-            mark["why"] = (f"{' | '.join(before)}; the last claim answered {reply} [{self.claim_path}]; the claim body was {body} "
-                           f"to runner {w.runner['runner_id'][:8]}; capacity {w.capacity}, {w.capacity - free} running, "
-                           f"paused {sorted(self.paused)}")
-            if self.trace_rounds < 400:
-                self.trace_rounds += 1
-                self.traces.extend(self.trace(w, body, idle))
+            started_bots.append(bot.slug)
+            started_jobs.append(attempt.get("job_id"))
+            fallback += bot.runtime != PRIMARY
+        queued = self.queued_now(w, pool)
+        candidates = sorted(set(queued.values()) | set(started_bots))
+        ready, blocked = self.readiness(w, candidates, started_bots)
+        mark = {"at": w.now(), "free": free, "held": held, "started": started, "fallback": fallback,
+                "queued": len(candidates), "slugs": candidates, "ready": ready, "blocked": blocked}
+        if free and ready and started < min(free, len(ready)) and self.short_rounds < SHORT_ROUNDS:
+            self.short_rounds += 1
+            gone = [job for job in before if job not in queued and job not in started_jobs]
+            lines = self.reasons(w, [b for b in candidates if b not in started_bots], blocked)
+            lines.append(f"{len(gone)} job(s) left the queue during the claims "
+                         f"({', '.join(sorted({before[job] for job in gone})) or 'none'}); the last claim answered "
+                         f"{answers[-1] if answers else None}")
+            mark["why"] = " | ".join(lines)
         self.marks.append(mark)
+
+    def pool(self, team, body):
+        """The bots a round may hand work to: available on this computer, not running a turn (its lane is busy), not
+        named busy by the body, and not paused by their owner."""
+        return sorted(b.slug for b in team.all if b.available and not b.running and b.slug not in body["busy_bots"]
+                      and b.slug not in self.paused)
+
+    def queued_before(self, w, bots):
+        """Before a round's claims: the queued jobs of `bots` that are not held, as {job: bot}, and how many are
+        held."""
+        if not bots:
+            return {}, 0
+        marks = ",".join("?" * len(bots))
+        with w.store.read() as c:
+            rows = c.execute(f"SELECT id,bot,held FROM jobs WHERE state='queued' AND bot IN ({marks})", bots).fetchall()
+        return {r["id"]: r["bot"] for r in rows if not r["held"]}, sum(1 for r in rows if r["held"])
+
+    def queued_now(self, w, bots):
+        """After a round's claims: the queued jobs of `bots` that are not held and not an obsolete keeper notice. The
+        server's own rule (execution.obsolete_notices_sql) names those for this computer; a claim cancels only a few of
+        them per call, so one still queued is not work the round could hand out."""
+        from backend import execution as X
+        from backend.store import H
+        if not bots:
+            return {}
+        marks = ",".join("?" * len(bots))
+        with w.store.read() as c:
+            obsolete = {r[0] for r in c.execute("SELECT j.id " + X.obsolete_notices_sql(),
+                                                (w.runner["runner_id"], H.KEEPER, H.now()))}
+            rows = c.execute(f"SELECT id,bot FROM jobs WHERE state='queued' AND held=0 AND bot IN ({marks})",
+                             bots).fetchall()
+        return {r["id"]: r["bot"] for r in rows if r["id"] not in obsolete}
+
+    def readiness(self, w, bots, started):
+        """Each candidate bot's readiness now, from the records and never from a claim's answer. A bot is ready when its
+        computer is awake (execution.Execution.awake), and a login it can run on is free: its own, when no hold keeps it
+        (login_holds.holding: a hold before its end, or a probe out after it) and it is not cooling off
+        (execution.cooling_off), or a fallback login the computer reports signed in that no hold keeps. A bot that
+        started this round was ready. Returns (ready, blocked): blocked maps each other bot to what the records keep it
+        from. Each probe a login's hold names is recorded in probe_seen, read after the round's claims, so a probe the
+        round started is seen too."""
+        from backend import execution as X, login_holds
+        from backend.store import H
+        rid = w.runner["runner_id"]
+        ready, blocked = [], {}
+        with w.store.read() as c:
+            now = H.now()
+            runner = c.execute(X.RUNNER_SQL, (rid,)).fetchone()
+            awake = bool(runner) and X.Execution.awake(X.Execution.waking(runner, now), now)
+            own = login_holds.holding(c, rid, login_holds.canonical(c, rid, "", PRIMARY), PRIMARY, now=now)
+            fallbacks = []
+            for name in w.runtime_fallbacks():
+                if name != PRIMARY and name in w.signed_in:
+                    login = login_holds.canonical(c, rid, "", name)
+                    if login_holds.holding(c, rid, login, name, now=now) is None:
+                        fallbacks.append(name)
+            for hold in login_holds.on_runner(c, rid):
+                if hold.get("probe_job"):
+                    self.probe_seen.add(hold["probe_job"])
+            for bot in bots:
+                if bot in started:
+                    ready.append(bot)
+                elif not awake:
+                    blocked[bot] = "computer waking"
+                elif (own is None and not X.cooling_off(c, bot)) or fallbacks:
+                    ready.append(bot)
+                else:
+                    blocked[bot] = ", ".join(([f"own login {own}"] if own else [])
+                                             + (["cooling off"] if X.cooling_off(c, bot) else [])
+                                             + ["no fallback free"])
+        return sorted(ready), blocked
+
+    def reasons(self, w, bots, blocked=None):
+        """Diagnostic only, read on a short round after its claims: the computer's gates (turns held against its
+        capacity, places, starts waiting, overload, pause, company waits), then for each bot the round did not start the
+        server's own reason for its oldest queued job (execution.queued_reasons: the bot's refusal, then the job's, then
+        its login's wait) and the readiness the records gave it. No check judges these lines."""
+        from backend import execution as X, performance, runner_versions, start_places
+        rid = w.runner["runner_id"]
+        blocked = blocked or {}
+        lines = []
+        with w.store.read() as c:
+            try:
+                cap = c.execute("SELECT capacity FROM runners WHERE id=?", (rid,)).fetchone()
+                lines.append(f"computer: turns held {sum(X.turns_here(c, rid).values())} "
+                             f"of capacity {cap['capacity']}, "
+                             f"places held {sum(start_places.held(c, rid).values())}, starts waiting "
+                             f"{start_places.ready_waiting(c, rid)}, overloaded "
+                             f"{performance.load_status(c, rid)['overloaded']}, paused "
+                             f"{runner_versions.paused(c, rid)}, company waits "
+                             f"{c.execute('SELECT count(*) FROM org_turn_waits').fetchone()[0]}")
+            except Exception as error:      # a diagnostic never stops the run
+                lines.append(f"computer: diagnostic error {error!r}")
+            for bot in bots:
+                try:
+                    first = next(iter(X.queued_reasons(c, w.store.settings, rid, bot, oldest=True)), None)
+                    text = (f"{bot} oldest job {first[0]['id'][:6]} {first[1] or 'hands out'}" if first
+                            else f"{bot} has no queued job")
+                    lines.append(text + (f"; readiness {blocked[bot]}" if bot in blocked else ""))
+                except Exception as error:      # a diagnostic never stops the run
+                    lines.append(f"{bot}: diagnostic error {error!r}")
+        return lines
 
     def back_read(self, w, slug):
         """Diagnostic only: the readiness the server holds for one bot of this computer, as its heartbeat last reported
-        it, with the refusals its queued work gets on this round."""
+        it, with the reasons its queued work gets on this round."""
         from backend.execution import readiness_document
         with w.store.read() as c:
             row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (w.runner["runner_id"],)).fetchone()
         doc = readiness_document(row["readiness_json"]) if row else {}
         ready = ((doc.get("bots") or {}).get(slug) or {}).get("ready")
-        return {"at": w.now(), "bot": slug, "server_ready": ready, "refusals": self.refusals(w, [slug])}
-
-    def trace(self, w, body, slugs, limit=8):
-        """Diagnostic only, read before a short round's claims: for up to `limit` queued bots that Health calls handed
-        out, the server's candidate for the whole computer and for the bot's oldest job, and each gate the claim applies to
-        that job (execution.candidate), read on a read connection. No check judges these lines."""
-        from types import SimpleNamespace
-        from backend import execution as X, subscriptions, usage_limits
-        from backend.auth import Identity
-        from backend.shared_bots import follow
-        rid = w.runner["runner_id"]
-        who = Identity(actor="runner", role="runner", runner_id=rid)
-        ns = SimpleNamespace(bot=None, busy_bots=list(body["busy_bots"]), busy_lanes=list(body["busy_lanes"]),
-                             start_places=True, next_run=True)
-        ex, out = w.app.state.execution, []
-        stamp = f"{w.now():%H:%M}"
-        with w.store.read() as c:
-            try:
-                runner = ex.runner(c, who)
-                lanes = X.lanes_on(runner)
-                live = set(X.live_lanes(c))
-                held_bots = set(body["busy_bots"]) | ({b for b, _ in live} if not lanes else set())
-                busy = live | {tuple(e.split("|", 1)) for e in body["busy_lanes"] if "|" in e}
-                ready = X.readiness_document(runner["readiness_json"])
-                ctx, default, roots, live_tasks = subscriptions.context(c), usage_limits.company(c), X.roots_on(runner), X.live_tasks(c)
-                any_job = ex.candidate(c, who, ns, runner)
-                out.append(f"{stamp} candidate for the computer: {any_job['id'][:6] if any_job else None}"
-                           + (f" for bot {any_job['bot']}" if any_job else ""))
-                # The computer's gates the claim applies before any job: the waking period from its last contact,
-                # its turns held against its capacity.
-                now = X.H.now()
-                computer = c.execute("SELECT last_seen,awake_since,capacity FROM runners WHERE id=?", (rid,)).fetchone()
-                waking = ex.waking(runner, now)
-                out.append(f"{stamp} computer: last_seen {computer['last_seen']}, awake_since {computer['awake_since']}, "
-                           f"waking {waking}, awake {ex.awake(waking, now)}, turns held "
-                           f"{sum(X.turns_here(c, rid).values())} of capacity {computer['capacity']}")
-                # The candidate's bot first: it is the one the claim would start.
-                order = [any_job["bot"]] if any_job and any_job["bot"] in slugs else []
-                order += [slug for slug in sorted(slugs) if slug not in order]
-                # Keeper notices the claim's write path cancels before it chooses (its `obsolete` step): a candidate
-                # among them is suppressed under the lock, while the read path and Health still see it queued.
-                obsolete = {row[0] for row in c.execute("SELECT j.id " + X.obsolete_notices_sql() + " LIMIT 50",
-                                                         (rid, X.H.KEEPER, now)).fetchall()}
-                traced = 0
-                for slug in order:
-                    if traced >= limit:
-                        break
-                    reasons = list(X.queued_reasons(c, w.store.settings, rid, slug, oldest=True))
-                    # The candidate's own job is traced, not the bot's oldest: it is the one the claim would hand out.
-                    chosen = any_job is not None and slug == any_job["bot"]
-                    if not chosen and (not reasons or reasons[0][1] is not None):
-                        continue
-                    traced += 1
-                    job = any_job if chosen else reasons[0][0]
-                    assigned = c.execute("SELECT 1 FROM assignments a JOIN bots b ON b.slug=a.bot "
-                                         "WHERE a.runner_id=? AND a.bot=? AND b.state='active'",
-                                         (rid, slug)).fetchone() is not None
-                    sql_ok = c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id "
-                                       "JOIN conversations cv ON cv.id=m.conversation_id WHERE j.id=? AND "
-                                       f"{X.unfenced_sql()} AND {X.scoped_sql()}", (job["id"],)).fetchone() \
-                        is not None
-                    cfg = c.execute(X.CLAIM_CONFIG_SQL, (slug,)).fetchone()
-                    why, config = X.claim_refusal(c, w.store.settings, runner, slug, cfg["config_json"], cfg["draining"],
-                                                  ready, held_bots, ctx, default)
-                    gates = [f"assigned {assigned}, unfenced and scoped {sql_ok}", f"bot-level {why or 'passes'}"]
-                    if config is not None:
-                        followed = follow(c, slug, config)
-                        gates.append(f"job {X.job_refusal(c, job, followed, ready, busy, lanes, roots, live_tasks)}")
-                        gates.append(f"login with ctx {X.login_refusal(c, w.store.settings, rid, slug, followed, job['id'], ctx)}")
-                        gates.append(f"login without ctx {X.login_refusal(c, w.store.settings, rid, slug, followed, job['id'])}")
-                    gates.append(f"source continuation {bool(X.source_continuation(c, job['id']))}")
-                    gates.append(f"thread {X.continuation_thread(c, job['id']) or '-'}, continues "
-                                 f"{X.capacity_continue_on(runner)}, source_continue "
-                                 f"{X.SOURCE_CONTINUE in X._capability_set(runner['capabilities_json'])}")
-                    mine = ex.candidate(c, who, ns, runner, job_id=job["id"])
-                    gates.append(f"candidate for this job {mine['id'][:6] if mine else None}")
-                    # The write path's own checks (turn_budgets.enforce records a first hit and passes the job over; the
-                    # claim's read path sees only a hold already recorded), read here without recording anything.
-                    try:
-                        from backend import turn_budgets, run_backoff, task_privacy
-                        from backend.store import H as store_h
-                        tb = turn_budgets.get(c, slug)
-                        seen = turn_budgets.counts(c, slug, tb.get("released_at") or "", store_h.now())
-                        cap = turn_budgets.limits(c, turn_budgets._declared(cfg["config_json"] if cfg else None))
-                        over = [label for window, key, _, label in turn_budgets.WINDOWS
-                                if cap[key] and seen[window] >= cap[key]]
-                        gates.append(f"budget held {bool(tb.get('held_at'))}, over cap {over or 'no'}")
-                        rb = run_backoff.get(c, slug)
-                        gates.append(f"run backoff held {bool(rb.get('held_at'))}, probe due "
-                                     f"{run_backoff.probe_due(c, slug, rb) if rb.get('held_at') else '-'}")
-                        msg = store_h.message(c, job["message_id"])
-                        gates.append(f"message readable {task_privacy.message_readable(c, 'bot:' + slug, msg)}")
-                        gates.append(f"obsolete notice {job['id'] in obsolete}, live meeting ref "
-                                     f"{bool((msg.get('refs') or {}).get('live_meeting'))}")
-                        kind = c.execute("SELECT m.kind AS kind, m.from_actor AS src FROM jobs j JOIN messages m "
-                                         "ON m.id=j.message_id WHERE j.id=?", (job["id"],)).fetchone()
-                        gates.append(f"message {kind['kind']} from {kind['src']}")
-                    except Exception as error:      # a diagnostic never stops the run
-                        gates.append(f"budget gate error {error!r}")
-                    out.append(f"{stamp} {slug} oldest {job['id'][:6]}: " + "; ".join(gates))
-            except Exception as error:      # a diagnostic never stops the run
-                out.append(f"{stamp} trace error {error!r}")
-        return out
-
-    def refusals(self, w, slugs):
-        """Diagnostic only, read before a round's claims: for each bot among `slugs` with queued work, the claim's own
-        refusal for its oldest queued job (queued_reasons, the rule the claim applies), and each login it could run on,
-        free or held. A hold names its end, and a probe out on it names the probe's job and attempt with the attempt's
-        lease. A short round reports these in its mark; no check judges them."""
-        from backend import login_holds
-        from backend.execution import queued_reasons
-        from backend.store import H
-        rid = w.runner["runner_id"]
-        stamp = lambda value: (value or "")[5:16].replace("T", " ")
-        out = []
-        with w.store.read() as c:
-            try:
-                # The claim's own gates on this computer, read before its per-bot answers: places held against capacity,
-                # starts waiting, overload, pause, and the awake check.
-                from backend import performance, runner_versions, start_places
-                cap =c.execute("SELECT capacity,awake_since FROM runners WHERE id=?", (rid,)).fetchone()
-                waits = c.execute("SELECT count(*) FROM org_turn_waits").fetchone()[0]
-                out.append(f"computer: capacity {cap['capacity']}, places held "
-                           f"{sum(start_places.held(c, rid).values())}, starts waiting "
-                           f"{start_places.ready_waiting(c, rid)}, overloaded "
-                           f"{performance.load_status(c, rid)['overloaded']}, paused "
-                           f"{runner_versions.paused(c, rid)}, awake since {cap['awake_since']}, now {H.now()}, "
-                           f"company waits {waits}")
-            except Exception as error:      # a diagnostic never stops the run
-                out.append(f"computer: diagnostic error {error!r}")
-            for slug in sorted(slugs):
-                try:
-                    reasons = list(queued_reasons(c, w.store.settings, rid, slug, oldest=True))
-                    if not reasons:
-                        continue
-                    job, why = reasons[0]
-                    parts = [f"claim {why or 'hands out'} {job['id'][:6]}"]
-                    status = H.status(c, slug) or {}
-                    if status.get("state") == "limited" and status.get("since"):
-                        from backend.execution import limit_until
-                        parts[0] += (f" (limited since {stamp(status['since'])}, until "
-                                     f"{stamp(limit_until(c, slug, status['since']))})")
-                    for name in (PRIMARY, *w.runtime_fallbacks()):
-                        if name != PRIMARY and name not in w.signed_in:
-                            continue
-                        hold = login_holds.get(c, rid, "", name)
-                        text = f"{name} {login_holds.holding(c, rid, '', name, job['id']) or 'free'}"
-                        if hold:
-                            text += f" (hold ends {stamp(hold.get('until'))})"
-                            probe = hold.get("probe_job")
-                            if probe:
-                                self.probe_seen.add(probe)
-                            row = c.execute("SELECT j.state AS job, a.id AS aid, a.state AS attempt, a.lease_until "
-                                            "FROM jobs j LEFT JOIN attempts a ON a.job_id=j.id WHERE j.id=? "
-                                            "ORDER BY a.rowid DESC LIMIT 1", (probe,)).fetchone() if probe else None
-                            if row:
-                                # Who sent the probe attempt's renew and event posts (the sim's own calls), and the
-                                # server's lease events for it: a lease the server extends shows here with no post.
-                                posts = [(when, caller, slug, on, running) for when, path, caller, slug, on, running
-                                         in w.attempt_posts if row["aid"] and path.startswith(f"attempts/{row['aid']}/")]
-                                leases = c.execute("SELECT ts, action FROM events WHERE target=? AND "
-                                                   "action LIKE 'attempt.lease%' ORDER BY ts", (row["aid"],)).fetchall()
-                                text += (f", probe {probe[:6]} job {row['job']} attempt {row['attempt']} "
-                                         f"lease {stamp(row['lease_until'])}; {len(posts)} sim posts"
-                                         + "".join(f" [{when:%H:%M} {slug} on={on} running={running} {caller}]"
-                                                   for when, caller, slug, on, running in posts[-3:])
-                                         + "; lease events " + (", ".join(f"{stamp(e['ts'])} {e['action']}"
-                                                                         for e in leases) or "none"))
-                        parts.append(text)
-                    out.append(f"{slug}: " + "; ".join(parts))
-                except Exception as error:      # a diagnostic never stops the run
-                    out.append(f"{slug}: diagnostic error {error!r}")
-        return out
+        return {"at": w.now(), "bot": slug, "server_ready": ready, "reasons": self.reasons(w, [slug])}
 
     def runner_body(self, team):
-        """What a runner claims with: no bot named, and the bots it is running (or whose computer is off) as busy. The
-        sim advertises no lanes, so a busy bot is held on its one lane."""
-        busy = [b.slug for b in team.all if b.running or not b.available]
+        """The body runner-rs claims with (runner.rs claim_next): no bot named; `busy_bots` the bots it is still running
+        (its list on a server without lanes), and `busy_lanes` the lanes with a live worker, each running turn's bot on
+        its one lane. A computer that is off names nothing: the server holds its bots by readiness. The sim advertises
+        no lanes."""
+        busy = sorted(b.slug for b in team.all if b.running)
         return {"next_run": True, "busy_bots": busy, "busy_lanes": [f"{slug}|main" for slug in busy],
                 "start_places": True}
-
-    @staticmethod
-    def where_claim_answered():
-        """Each step the last claim ran, in order: the read path or a selection, and the write path's last line."""
-        from backend import execution
-        steps = []
-        for step, line, answer in CLAIM_CALLS:
-            if step.startswith("candidate"):
-                steps.append(f"{step} returned {answer['id'][:6] if answer is not None else None}")
-                continue
-            source = linecache.getline(execution.__file__, line).strip() if line else ""
-            outcome = answer.get("attempt") if isinstance(answer, dict) else None
-            shown = f"attempt {outcome['job_id'][:6]}" if isinstance(outcome, dict) else f"{answer}"[:120]
-            steps.append(f"{step} at execution.py line {line} ({source}) answered {shown}")
-        return "; ".join(steps) or "no step ran"
 
     def claim_once(self, w, body):
         """One claim, its status counted. A 5xx is recorded by the world (with its body, or the traceback when the app
         raised) and the claim answers nothing; any other refusal is the sim's own fault and stops the run."""
-        del CLAIM_CALLS[:]
         status, reply = w.request("post", "jobs/claim", body, token=w.runner["token"])
         self.claims[status] += 1
-        self.claim_path = self.where_claim_answered()
         if status >= 500:
             return status, None
         if status >= 400:
@@ -539,7 +416,7 @@ class Run:
 
     def diagnostics(self):
         """Diagnostic only: the lost probe's posts, the readiness read after each returning bot's heartbeat, each
-        limited bot's wait as the server holds it, the probes that held a login, and the short rounds' traces."""
+        limited bot's wait as the server holds it, and the probes that held a login."""
         out, w = [], self.w
         if self.lost_probe:
             lp = self.lost_probe
@@ -549,7 +426,7 @@ class Run:
                        f"{lp['at']:%H:%M}): {len(posts)} sim posts to it, {len(off)} sent while its bot was off")
         for b in self.back_lines:
             out.append(f"back {b['bot']} at {b['at']:%H:%M}: server_ready {b['server_ready']}; "
-                       + " | ".join(b["refusals"]))
+                       + " | ".join(b["reasons"]))
         for win in w.limit_windows:
             out.append(f"limit {win['bot']} since {win['since']} until {win['until']} ({win['source']}, "
                        f"streak {win['streak']})")
@@ -559,7 +436,6 @@ class Run:
                 out.append(f"probe {job[:6]} attempt {row['id'][:6]} {row['state']} created {row['created']} "
                            f"started {row['started']} finished {row['finished']} "
                            f"lease {row['lease_until']}")
-        out += self.traces
         return out
 
     def summary(self):
