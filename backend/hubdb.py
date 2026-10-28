@@ -121,10 +121,13 @@ ACTIVE_STATUSES = ("open", "doing", "waiting", "review", "ready")   # still on t
 # changing it needs that index under a new name and a migration, or upgraded hubs quietly scan every task again.
 BOARD_STATUSES = ACTIVE_STATUSES + ("declined",)               # visible until a person reassigns or closes it
 LIVE_STATUSES = ACTIVE_STATUSES + ("done",)                # not closed, not declined
-# No step has these statuses: a waiting task stays in the working step it is in (a Waiting tag shows it), and a declined
-# one goes to its type's closed step (`_task_state`, `retire_held_steps`). The Product roadmap keeps its public Declined.
+# A seeded type has no step of these statuses: a waiting task stays in the working step it is in (a Waiting tag shows
+# it), and a declined one goes to its type's closed step (`_task_state`, `retire_held_steps`). A team may still add a
+# waiting step of its own, a column for parked work that only a move by hand fills; a declined step it may not add.
+# The Product roadmap keeps its public Declined.
 HELD_STATUSES = ("waiting", "declined")
 STEP_STATUSES = tuple(s for s in TASK_STATUSES if s not in HELD_STATUSES)
+MADE_STEP_STATUSES = tuple(s for s in TASK_STATUSES if s != "declined")   # what a type's own step may be
 OWNER_STATUSES = ("open", "doing", "waiting", "review", "done", "declined")  # what the owner may set
 # `ready` is a fact the hub learns (the PR merged), not a claim a bot makes: movers and the
 # keeper set it, an owning bot does not.
@@ -1250,10 +1253,11 @@ def migrate(conn, adopt_legacy=False):
     migrate_roadmaps(conn)
     from .roadmap_flow import ready_step as roadmap_ready_step
     roadmap_ready_step(conn)
-    # Waiting and Won't do are no longer board steps (`_task_state`): move their tasks off, then delete them.
+    # Won't do is no longer a board step (`_task_state`): move its tasks off, then delete it.
     retire_held_steps(conn)
     task_blocked.ensure_steps(conn)
     task_blocked.backfill(conn)
+    task_blocked.forget_retired_resumes(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")
@@ -3569,10 +3573,10 @@ def _type_steps(conn, actor, type_id, steps):
         if raw.get("id") and ident not in existing:
             refuse(conn, actor, "not-found", "That step does not belong to this type")
         if status not in TASK_STATUSES:
-            refuse(conn, actor, "kind", f"A step status is {'|'.join(STEP_STATUSES)}")
-        if status in HELD_STATUSES and existing.get(ident, {}).get("status") != status:
-            refuse(conn, actor, "kind", f"A step can't be {status}: a waiting task keeps its step, and a declined one "
-                                        f"goes to the closed step. A step status is {'|'.join(STEP_STATUSES)}")
+            refuse(conn, actor, "kind", f"A step status is {'|'.join(MADE_STEP_STATUSES)}")
+        if status == "declined" and existing.get(ident, {}).get("status") != status:
+            refuse(conn, actor, "kind", "A step can't be declined: a declined task goes to the closed step. A step "
+                                        f"status is {'|'.join(MADE_STEP_STATUSES)}")
         names.add(name); ids.add(ident)
         pool, limit = check_pools.clean(conn, actor, raw, existing.get(ident)) if pools else (None, None)
         flow = step_flow.clean(conn, actor, raw, existing.get(ident)) if flows else {}
@@ -3714,8 +3718,9 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
             refuse(conn, actor, "not-found", "No such step in this task type")
         if chosen:
             effective = chosen["status"]
-    elif effective == "waiting" and typ.get("role") == "engineering" and (blocked := next(
-            (s for s in typ["steps"] if s["name"] == "Blocked" and s["status"] == "waiting"), None)):
+    elif (effective == "waiting" and typ.get("role") == "engineering"
+          and not (current and current["status"] == "waiting") and (blocked := next(
+              (s for s in typ["steps"] if s["name"] == "Blocked" and s["status"] == "waiting"), None))):
         chosen = blocked
     elif typ.get("role") == "engineering" and row.get("blocked_from_step") and status != "open" and effective in ("open", "doing") and (resume := next(
             (s for s in typ["steps"] if s["id"] == row["blocked_from_step"]), None)):
@@ -3726,7 +3731,8 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         # A person's close on a steps-only type lands on its last closed step (Closed, Done), or none.
         chosen = next((s for s in reversed(typ["steps"]) if s["status"] == "closed"), None)
     else:
-        chosen = next((s for s in typ["steps"] if s["status"] == effective), None)
+        # A team's own waiting step takes a task only when someone moves it there, never by a status change.
+        chosen = next((s for s in typ["steps"] if s["status"] == effective), None) if effective != "waiting" else None
         if effective == 'open' and row.get('status') in ('doing', 'waiting', 'review', 'done'):
             from .review_gate import engineering
             if engineering(conn, {**row, 'type_id': typ['id']}):
@@ -3743,7 +3749,9 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         if held or (step is None and effective in ('open', 'doing') and row.get('blocked_kind') == 'gate'
                     and review_gate.problem(conn, row, row['owner'])):
             effective = 'waiting'
-            chosen = next((s for s in typ['steps'] if s['name'] == 'Blocked' and s['status'] == 'waiting'), current)
+            # Still held: a ticket parked in a team's own waiting step stays there, and any other enters Blocked.
+            chosen = current if step is None and current and current['status'] == 'waiting' else next(
+                (s for s in typ['steps'] if s['name'] == 'Blocked' and s['status'] == 'waiting'), current)
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
     # On a steps-only type a task is finished or brought back only by a step move: a bare close, decline,
@@ -3770,16 +3778,20 @@ def _closes_by_hand(actor):
     return (actor or "").startswith("human:")
 
 
+# The note on a waiting task's move out of a retired waiting step: its step came from its history, not from a move
+# anyone made (task_blocked.forget_retired_resumes).
+RETIRED_WAITING = "Waiting is a tag now, not a step"
+
+
 def retire_held_steps(conn):
-    """Take the Waiting and Declined (Won't do) steps off every type but the Product roadmap, whose Declined is public.
-    A task on a waiting step goes back to the working step it last left (its step history), else its type's first
-    open or doing step, and keeps status waiting; one on a declined step goes to its type's closed step, or no step
-    when there is none, and keeps status declined. Typed waiting or declined tasks with no step are placed the same
-    way. Runs at every start; once nothing is left to move it only reads."""
+    """Take the Declined (Won't do) steps off every type but the Product roadmap, whose Declined is public. A task on
+    one goes to its type's closed step, or no step when there is none, and keeps status declined. A waiting step stays:
+    it is the team's own column for parked work. Typed waiting or declined tasks with no step are placed too: a waiting
+    one in the working step it last left (its step history), else its type's first open or doing step. Runs at every
+    start; once nothing is left to move it only reads."""
     from .roadmap_flow import PRODUCT
     held = _rows(conn.execute("SELECT s.id,s.type_id,s.status FROM task_steps s JOIN task_types ty ON ty.id=s.type_id "
-                              "WHERE s.status IN ('waiting','declined') AND coalesce(ty.role,'')<>? "
-                              "AND NOT (ty.role='engineering' AND s.name='Blocked' AND s.status='waiting')", (PRODUCT,)))
+                              "WHERE s.status='declined' AND coalesce(ty.role,'')<>?", (PRODUCT,)))
     loose = _rows(conn.execute("SELECT t.id,t.type_id,t.status FROM tasks t JOIN task_types ty ON ty.id=t.type_id "
                                "WHERE t.step_id IS NULL AND t.status IN ('waiting','declined') AND coalesce(ty.role,'')<>?",
                                (PRODUCT,)))
@@ -3791,7 +3803,7 @@ def retire_held_steps(conn):
     try:
         moving = [(t["id"], t["type_id"], t["status"]) for t in loose]
         for step in held:
-            moving += [(r[0], step["type_id"], "waiting" if step["status"] == "waiting" else "declined")
+            moving += [(r[0], step["type_id"], "declined")
                        for r in conn.execute("SELECT id FROM tasks WHERE step_id=?", (step["id"],))]
         steps = {}
         for task_id, type_id, held_as in moving:
@@ -3813,7 +3825,7 @@ def retire_held_steps(conn):
             conn.execute("UPDATE tasks SET step_id=?,step_rank=?" + (",version=version+1" if version else "") + " WHERE id=?",
                          (target, _step_end(conn, target, task_id) if target else None, task_id))
             _task_event(conn, task_id, KEEPER, "step", current, target,
-                        "Waiting is a tag now, not a step" if held_as == "waiting" else "Declined goes to Closed now, not a step")
+                        RETIRED_WAITING if held_as == "waiting" else "Declined goes to Closed now, not a step")
         for ident in gone:
             conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
     except BaseException:
@@ -3830,6 +3842,19 @@ def steps_only(conn, row):
     return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
+def declared_hold(conn, actor, row, step, step_id):
+    """A move by hand into a waiting step declares a hold, which never reopens by itself: the owner's move to the
+    Blocked step, or a person's move into a waiting step the team made, its column for parked work."""
+    if step is None:
+        return False
+    chosen = _one(conn, "SELECT name,status FROM task_steps WHERE id=?", (step_id,)) or {}
+    if step not in (step_id, chosen.get("name")):
+        return False        # a hold put it elsewhere than the step it was moved to
+    if actor == row.get("owner"):
+        return True
+    return is_human(actor) and chosen.get("status") == "waiting" and chosen.get("name") != "Blocked"
+
+
 def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *, skip_step_wake=()):
     """Every task status write keeps its type and step consistent, including old runners. A task
     that enters a step joins its end; one that lands on a numbered type without a number gets one."""
@@ -3837,7 +3862,7 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *,
     ts = now()
     from .task_blocked import transition
     transition(conn, row, effective, step_id, note, ts,
-               manual=step in (step_id, 'Blocked') and step is not None and effective == 'waiting' and actor == row.get('owner'))
+               manual=effective == 'waiting' and declared_hold(conn, actor, row, step, step_id))
     conn.execute("UPDATE tasks SET status=?,type_id=?,step_id=?,updated=? WHERE id=?",
                  (effective, type_id, step_id, ts, row["id"]))
     if row.get("type_id") != type_id:
@@ -6067,9 +6092,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                        "in a note, file the child task, blocker or approval first, name the person with --on, "
                        "or keep working")
             # A note naming what it waits on parks it, but a note wakes nobody (bots parked tasks "waiting on
-            # BotOps" that BotOps never heard of): the hint goes back with the write. The owner's own move to the
-            # Blocked step is a manual hold (the same rule as _set_status), which never reopens by itself.
-            durable = step is not None and step in (step_id, "Blocked") and actor == row["owner"]
+            # BotOps" that BotOps never heard of): the hint goes back with the write. A move by hand into a waiting
+            # step is a manual hold (declared_hold, the same rule as _set_status), which never reopens by itself.
+            durable = declared_hold(conn, actor, row, step, step_id)
             self_wait = self_wait if durable else [f"nothing this task waits on is recorded, so it goes back to open in "
                          f"{STRANDED_GRACE_HOURS} hours: file a subtask for whoever must act (hub task create "
                          f"--parent {task_id} --owner <bot or person>), relate a blocker, name the person with --on, "
