@@ -227,7 +227,7 @@ def test_a_run_that_fails_says_which_step(api):
 
 def test_lists_are_paged(api):
     turn_on(api)
-    for n in range(3):
+    for n in range(2):                                    # with What wakes bots, three
         make(api, name=f"Check {n}")
     first = get(api, "automations?limit=2")
     assert len(first["automations"]) == 2 and first["next"] == 2

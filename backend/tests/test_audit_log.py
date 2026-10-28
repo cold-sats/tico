@@ -35,7 +35,7 @@ def test_pages_by_before(api):
     first = get(api, "audit?limit=2")
     assert len(first["rows"]) == 2 and first["next"]
     rest = get(api, "audit?" + urlencode({"limit": 10, "before": first["next"]}))
-    assert len(rest["rows"]) == 3 and rest["next"] is None
+    assert len(rest["rows"]) == 4 and rest["next"] is None   # 3 groups and the hub making What wakes bots
 
 
 def test_rows_sharing_a_time_are_never_skipped(api, monkeypatch):
@@ -48,4 +48,4 @@ def test_rows_sharing_a_time_are_never_skipped(api, monkeypatch):
         seen += [r["object"] for r in page["rows"]]
         if not (cursor := page["next"]):
             break
-    assert sorted(seen) == [f"group:{i}" for i in range(5)]
+    assert sorted(seen) == ["automation:auto_builtin_wakes", *(f"group:{i}" for i in range(5))]

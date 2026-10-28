@@ -55,9 +55,9 @@ def test_the_cli_creates_runs_edits_and_restores_as_the_ui_does(api, flow_file):
     flow_file.write_text(json.dumps({"steps": []}))
     assert cli(api, "ana-test", "update", aid, "--file", str(flow_file), "--disable")["version"] == 2
     assert cli(api, "ana-test", "restore", aid, "1")["version"] == 3
-    assert [a["id"] for a in cli(api, "ana-test", "list")["automations"]] == [aid]
+    assert [a["id"] for a in cli(api, "ana-test", "list")["automations"] if not a["builtin"]] == [aid]
     cli(api, "ana-test", "delete", aid)
-    assert cli(api, "ana-test", "list")["automations"] == []
+    assert [a for a in cli(api, "ana-test", "list")["automations"] if not a["builtin"]] == []
 
 
 def test_a_bot_without_rights_proposes_through_the_tool(api, flow_file):
@@ -88,7 +88,7 @@ def test_botops_acts_with_the_askers_rights(api, botops):
     err, made = mcp(api, "hub_automation_create", flow, attempt["token"])
     assert not err and made["can_edit"], made
     err, listed = mcp(api, "hub_automation_list", {}, attempt["token"])
-    assert not err and [a["id"] for a in listed["automations"]] == [made["id"]]
+    assert not err and [a["id"] for a in listed["automations"] if not a["builtin"]] == [made["id"]]
     finish(api, botops, attempt)
     member = turn(api, botops, person="cara-test", text="Pause the ops automation")
     err, refused = mcp(api, "hub_automation_update", {"id": made["id"], "enabled": False}, member["token"])

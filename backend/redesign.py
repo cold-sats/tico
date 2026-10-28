@@ -30,6 +30,9 @@ def set_on(c, enabled, actor):
     c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
               (KEY, json.dumps({"enabled": bool(enabled), "updated": H.now(), "updated_by": actor})))
     H.event(c, actor, "redesign.on" if enabled else "redesign.off", "")
+    if enabled:   # the built-ins are there the moment it is on, not a tick later
+        from .automations import ensure_builtins
+        ensure_builtins(c)
     return {"enabled": bool(enabled)}
 
 
