@@ -311,12 +311,14 @@ ACTIONS = {"archive": _mail_or_slack("archive"), "leave_for_you": _mail_or_slack
 
 
 # ---------------------------------------------------------------------------------------------------- turns
-def start_turn(c, auto, run_id, step_id, who, prompt, assistant_bot):
+def start_turn(c, auto, run_id, step_id, who, prompt, assistant_bot, key="0"):
     """A turn for this run alone: a new task for the named bot, filed by the automation's owner the way a routine
     files its run (backend/routines.py `open_task`), so it runs in that task's own room and never in a person's chat,
     an Assistant room or another task's session. `assistant:<person>` is the person's Assistant (its room is made on
     first use) and only the person's own automation names it (checked on save). The task's wake carries the run and
-    the chain, so the turn's end resumes the run and its writes cannot start this automation again."""
+    the chain, so the turn's end resumes the run and its writes cannot start this automation again. `key` is the
+    record the turn is written to: each item of a find and each repeat of a run starts its turn from the same step, so
+    the title names the run and that record, or the duplicate check refuses every turn after the first."""
     kind, _, ident = who.partition(":")
     actor = _actor(c, auto)
     if kind == "assistant":
@@ -330,7 +332,7 @@ def start_turn(c, auto, run_id, step_id, who, prompt, assistant_bot):
         found = H.bot(c, bot)
         if not found or found["state"] not in R.BOT_STATES_OK:
             raise ValueError(f"No bot {bot}" if not found else f"{bot} is {found['state']}")
-    title = f"Automation {auto['flow'].get('name') or auto['id']}: {step_id}"[:300]
+    title = f"Automation {auto['flow'].get('name') or auto['id']}: {step_id}"[:270] + f" ({run_id}, {key})"
     task = H.task_create(c, actor, title, prompt, H.bot_actor(bot), lint=False, deduplicate=False, capped=False,
                          trigger="other", trigger_source="automation:" + auto["id"],
                          wake_refs={"automation": auto["id"], "automation_run": run_id, "automation_step": step_id,
