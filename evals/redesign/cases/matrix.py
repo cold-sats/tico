@@ -32,6 +32,8 @@ SENDER_SESSION = "redesign"   # the thread every turn in the harness starts on (
 WORKERS = ("llm", "bot_turn")
 # About one turn in ten fails, drawn per turn from the seed and the combination, so a seed replays exactly.
 TURN_FAIL_SHARE = 0.10
+CLAIM_LIMIT = 200   # claims per turn: each completes an older queued job for the bot before the turn's own
+TURN_ROUNDS = 10   # answer passes per run: a turn that starts after an answer is answered by the next
 # The usage a completed turn reports: small, so the run cost is real and the spend limits stay out of the way.
 TURN_USAGE = {"input_tokens": 2_000, "cached_tokens": 0, "output_tokens": 200, "model": "claude-opus-5-5",
               "runtime": "claude", "billing": "api"}
@@ -231,14 +233,17 @@ def label_of(n, row):
 def claim_turn(org, bot, task, outcome):
     """One runner pass for one turn, as the harness's Org.turn makes it: claim the bot's next job, start it, complete it
     with `outcome`. Jobs claimed before the turn's own are completed as they come (a claim takes the oldest), so no
-    turn is left for a later combination to answer. Returns whether the turn's own job was claimed."""
+    turn is left for a later combination to answer. Returns (whether the turn's own job was claimed, why not): the
+    reason the hub gave when it handed out nothing."""
     slug = bot.split(":")[-1]
-    for _ in range(20):
+    why = "no claim"
+    for _ in range(CLAIM_LIMIT):
         claim = org.api("post", "/api/v2/jobs/claim", {"bot": slug, "start_places": True}, who=org.runner["token"],
                         wave=W3)
-        attempt = claim.body.get("attempt") if isinstance(claim.body, dict) else None
+        body = claim.body if isinstance(claim.body, dict) else {}
+        attempt = body.get("attempt")
         if not attempt:
-            return False   # the bot is held, or no job is queued for it
+            return False, body.get("waiting") or body.get("paused") or "no job handed out"
         mine = ((attempt.get("message") or {}).get("refs") or {}).get("task") == task
         base = f"/api/v2/attempts/{attempt['id']}"
         for step, payload in (("started", {"thread_id": "redesign"}),
@@ -251,8 +256,9 @@ def claim_turn(org, bot, task, outcome):
         if mine:
             if outcome != "completed":
                 dismiss_held(org, attempt)
-            return True
-    return False
+            return True, ""
+        why = f"{CLAIM_LIMIT} claims, none of them the turn's"
+    return False, why
 
 
 def dismiss_held(org, attempt):
@@ -267,19 +273,22 @@ def dismiss_held(org, attempt):
         raise RuntimeError(f"reconcile {attempt['id']} {reply.status}: {reply.excerpt()}")
 
 
-def answer_turns(org, run, rng):
-    """Answers each turn the run started (llm and bot_turn steps that name a turn): about one in ten fails, the rest
-    complete. Returns one record per turn: the step, whether the run was waiting on it, whether it failed and whether
-    its job was claimed."""
+def answer_turns(org, run, rng, seen):
+    """Answers each turn the run started that is not answered yet (llm and bot_turn steps that name a turn): about one in
+    ten fails, the rest complete. `seen` holds the turn tasks answered so far and grows. Returns one record per turn
+    answered now: the step, whether the run was waiting on it, whether it failed, whether its job was claimed and why not."""
     answered = []
     for step in run.get("steps") or []:
         turn = (step.get("outputs") or {}).get("turn")
         if step.get("type") not in WORKERS or not turn or step.get("status") not in ("ok", "waiting"):
             continue
+        if turn["task"] in seen:
+            continue
+        seen.add(turn["task"])
         failed = rng.random() < TURN_FAIL_SHARE
-        claimed = claim_turn(org, turn["bot"], turn["task"], "failed" if failed else "completed")
+        claimed, why = claim_turn(org, turn["bot"], turn["task"], "failed" if failed else "completed")
         answered.append({"step": step.get("id"), "held": step.get("status") == "waiting", "failed": failed,
-                         "claimed": claimed})
+                         "claimed": claimed, "why": why})
     return answered
 
 
@@ -313,12 +322,18 @@ def run_combo(org, n, row, mails, seed):
     record["fired"] = fired.status
     runs = rows(org.api("get", f"/api/v2/automations/{auto.get('id')}/runs", wave=W3).body)
     if len(runs) == 1:
-        # Every turn the run started is answered the way a runner answers it, then the queued run goes on and is read
-        # again: its held steps finish, and the actions after them run.
-        record["turns"] = answer_turns(org, runs[0], random.Random(f"{seed}:{n}"))
-        if record["turns"]:
+        # Every turn the run starts is answered the way a runner answers it, then the queued run goes on and is read
+        # again: its held steps finish, the actions after them run, and a turn those start is answered in turn.
+        rng, seen = random.Random(f"{seed}:{n}"), set()
+        for _ in range(TURN_ROUNDS):
+            answered = answer_turns(org, runs[0], rng, seen)
+            if not answered:
+                break
+            record["turns"] += answered
             org.scheduler_pass()
             runs = rows(org.api("get", f"/api/v2/automations/{auto.get('id')}/runs", wave=W3).body)
+            if len(runs) != 1:
+                break
     record["run"] = runs[0] if len(runs) == 1 else None
     record["runs"] = len(runs)
     try:
@@ -402,8 +417,8 @@ def turns_answered(r):
     """Every turn the run started was claimed and answered, so the run was not left waiting on one."""
     if r["run"] is None:
         return no_run(r)
-    unclaimed = [t["step"] for t in r["turns"] if not t["claimed"]]
-    return f"turns never claimed: {unclaimed}" if unclaimed else ""
+    unclaimed = [(t["step"], t["why"]) for t in r["turns"] if not t["claimed"]]
+    return f"turns never claimed (step, why): {unclaimed}" if unclaimed else ""
 
 
 def action_once(r):
