@@ -1,6 +1,7 @@
 // The Strategy Bot on every install (backend/ceo_bot.py): a built-in bot, like BotOps and the Librarian, so it is not a row
-// on the Team chart. The Heads, their departments and the bots with no manager that the server hangs under it show under
-// the owner instead, on the sidebar and on Goals. Strategy's rail calls it by its name, the Strategy Bot unless the owner
+// on the Team chart. The Heads, their departments and the bots with no manager that the server hangs under it report to
+// the owner instead: on the sidebar they sit at the top beside the owner's row (the top of the chart is not one more
+// level), on Goals under the owner. Strategy's rail calls it by its name, the Strategy Bot unless the owner
 // renamed it; a bot still named "CEO Bot" or "Goal Manager" shows as the Strategy Bot and the old names are never shown.
 // There is no Hide from my chart any more: a person who once chose it sees the same chart. Fixtures only, no network.
 const {chromium} = require('playwright');
@@ -68,15 +69,20 @@ const above = (page, key) => page.locator(`#tree [data-org="${key}"]`).first().e
       || li.querySelector(':scope > .noderow')?.dataset.org || '');
   return out;
 });
+// The rows at the top level of the Team tree, in order.
+const topRows = page => page.locator('#tree > li > .noderow').evaluateAll(rows => rows.map(row =>
+  (row.querySelector('[data-org]') || row).dataset.org));
 
 async function check(page, name = 'Strategy Bot') {
   // Off the Team chart, as the other built-ins are; the Head's department, the Head, its report and the bot with no
-  // manager the server hung under it sit under the owner.
+  // manager the server hung under it report to the owner, who is the top of the chart: they sit beside the owner's row,
+  // the department first.
   assert.equal(await page.locator('#tree [data-org="b:goal-manager"]').count(), 0, 'the Strategy Bot is not on the Team tree');
-  assert.deepEqual(await above(page, 'g:marketing'), ['p:ana'], 'the group the server hangs under it shows under the owner');
-  assert.deepEqual(await above(page, 'b:cmo'), ['g:marketing', 'p:ana']);
-  assert.deepEqual(await above(page, 'b:seo'), ['b:cmo', 'g:marketing', 'p:ana']);
-  assert.deepEqual(await above(page, 'b:scribe'), ['p:ana']);
+  assert.deepEqual(await above(page, 'g:marketing'), [], 'the group the server hangs under it shows at the top, beside the owner');
+  assert.deepEqual(await above(page, 'b:cmo'), ['g:marketing']);
+  assert.deepEqual(await above(page, 'b:seo'), ['b:cmo', 'g:marketing']);
+  assert.deepEqual(await above(page, 'b:scribe'), []);
+  assert.deepEqual(await topRows(page), ['p:ana', 'g:marketing', 'b:scribe']);
   assert.equal(await page.locator('#tree a.node[data-org="b:coo"]').count(), 0, 'the Assistant stays off the chart');
   // The Goals tab's tree nests them the same way, and Strategy's rail and its labels use its name.
   assert.deepEqual(await goalLines(page), ['bot:scribe@1', 'group:Marketing@1', 'bot:cmo@2', 'bot:seo@3']);
@@ -117,7 +123,8 @@ async function check(page, name = 'Strategy Bot') {
       const {page, errors} = await open(browser, server);
       await page.locator('#tree [data-org="b:cmo"]').waitFor();
       assert.equal(await page.locator('#tree [data-org="b:goal-manager"]').count(), 0);
-      assert.deepEqual(await above(page, 'b:analyst'), ['p:ana'], 'a bot reporting to it hangs from the next row up');
+      assert.deepEqual(await above(page, 'b:analyst'), [], 'a bot reporting to it hangs from the next row up, the owner at the top');
+      assert.deepEqual(await topRows(page), ['p:ana', 'g:marketing', 'b:analyst', 'b:scribe']);
       assert.deepEqual(await above(page, 'b:cmo'), ['g:marketing']);
       assert.deepEqual(await above(page, 'b:scribe'), []);
       assert.equal(await page.locator('#sbot h2').textContent(), 'Atlas', 'Strategy still has it');

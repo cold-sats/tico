@@ -597,6 +597,12 @@ function orgSorted(parent, kids) {
     return chartFallback(a, b);                          // then the chart's own order, as on the server
   });
 }
+// The person at the top of the team chart: the one human at its top that nobody is above, usually the owner. None when
+// there are several (or the top one sits in a group), so the chart never picks one of two.
+function orgTopPerson(byParent) {
+  const tops = (byParent[''] || []).filter(n => n.kind === 'person' && !orgBossKey(n));
+  return tops.length === 1 ? tops[0] : null;
+}
 // Whether one of my personal tokens has reached Tico (GET /v2/me/tokens): undefined before asking, null when I may not
 // hold tokens (no button), else true or false. Without one, my row offers Connect (ui/connect-agent.js).
 let MY_AGENT, MY_AGENT_AT = 0;
@@ -631,8 +637,8 @@ function renderTree() {
   const sources = {};
   for (const r of inboxNavRows()) (sources[r.bot] ||= []).push(r);
   INBOX_PLACED = new Set();
-  const rec = (parent, depth) => {
-    const sorted = orgSorted(parent, byParent[parent]);
+  const rec = (parent, depth) => rows(parent, orgSorted(parent, byParent[parent]), depth);
+  const rows = (parent, sorted, depth) => {
     // The reports here that the viewer may put in order, per manager: a manager's own rows, or in a group the members
     // that share one. Each gets a place to drop before or after, and Move up and Move down.
     const lists = {};
@@ -644,6 +650,18 @@ function renderTree() {
     }
     const at = n => { const manager = orgReportsTo(n), list = lists[manager] || []; return {parent: manager, order: list.length > 1 ? list : []}; };
     return sorted.map(node => row(node, depth, false, at(node))).join('');
+  };
+  // The top of the chart is not drawn as one more level: the one person nobody is above is a plain row, and the groups,
+  // then the humans and bots, that report to them follow at the same level, then the rest of the top. Their reports
+  // keep their order and Move menu, and a drop on the top row still reports there. With several such people (or the
+  // top person in a group) the chart nests as before.
+  const top = orgTopPerson(byParent), topKey = top ? 'p:' + top.id : '';
+  const recTop = () => {
+    if (!top) return rec('', 0);
+    const isGroup = n => n.kind === 'group', under = orgSorted(topKey, byParent[topKey]);
+    const rest = orgSorted('', byParent[''].filter(n => n !== top));
+    return rows('', [top], 0) + rows(topKey, under.filter(isGroup), 1) + rows('', rest.filter(isGroup), 1)
+      + rows(topKey, under.filter(n => !isGroup(n)), 1) + rows('', rest.filter(n => !isGroup(n)), 1);
   };
   // A report's place among its manager's reports: its drop zones and its Move menu.
   const placeAttrs = (key, at) => at.order.includes(key) ? ` data-org-in="${esc(at.parent)}" data-org-place` : '';
@@ -683,8 +701,9 @@ function renderTree() {
         ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
     if (node.kind === 'person') {
-      const p = node.person, key = 'p:' + p.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
-      return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
+      const p = node.person, key = 'p:' + p.id, isTop = !flat && key === topKey;
+      const kids = !flat && !isTop && byParent[key], isCol = kids && collapsed.has(key);
+      return `<li class="${kids ? 'dept' : isTop ? 'org-top' : ''}"><div class="noderow">
         ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(p.name || p.id)}">›</button>` : ''}
         <a class="node person ${curPerson === p.id ? 'cur' : ''}" href="#/person/${encodeURIComponent(p.id)}" title="${esc(personTitle(p))}"${curPerson === p.id ? ' aria-current="page"' : ''} data-org="p:${esc(p.id)}"${placeAttrs(key, at)}${!flat && (orgMayDrag(key) || at.order.includes(key)) ? ' draggable="true"' : ''}>
           ${personAvatar(p, depth ? 16 : 20)}<span class="nm">${esc(firstName(p.name) || p.id)}</span>
@@ -725,7 +744,7 @@ function renderTree() {
   teamAddRefresh();
   // Bot status events redraw the tree several times a minute: only the rows that changed are replaced (patchHTML).
   patchHTML($('#tree'), historyOn ? history()
-    : (manage && ORG_EDIT?.add === '' ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : '') + rec('', 0)
+    : (manage && ORG_EDIT?.add === '' ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : '') + recTop()
       + (manage ? '<li class="org-no-group" data-org="g:">No group</li>' : ''));
   renderInboxNav();                                   // after the tree, which places what it can
   orgDragWire($('#tree'));
