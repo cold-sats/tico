@@ -2,7 +2,7 @@
 The count is the sender's tasks for the receiver today, minus the ones it closed before the receiver acted."""
 import datetime as dt
 
-from ..harness import (CHRIS, CHRIS_ID, CHRIS_REF, CLAUDE, CLAUDE_ID, CLAUDE_REF, LEAD, LEAD_ID, LEAD_REF, OPENAI,
+from ..harness import (DANA, DANA_ID, DANA_REF, CLAUDE, CLAUDE_ID, CLAUDE_REF, LEAD, LEAD_ID, LEAD_REF, OPENAI,
                        OPENAI_ID, OPENAI_REF, RELEASE_ID, RELEASE_REF, W2, W3, Check, Scenario, accepted, automation,
                        auto_id, body, close_task, comment, got, make_group, put_cap, replied, rows, run_now, send, setup,
                        untestable)
@@ -72,9 +72,9 @@ def s1_steps(org, f):
 
 # ---------------------------------------------------------------------------------------------- 2 at the cap
 def s2_steps(org, f):
-    org.step(f, "cap", put_cap, org, LEAD_REF, CHRIS_REF, 10)
+    org.step(f, "cap", put_cap, org, LEAD_REF, DANA_REF, 10)
     for n in range(1, 12):
-        org.step(f, f"task{n}", send, org, LEAD, CHRIS_ID, f"Lead task {n}")
+        org.step(f, f"task{n}", send, org, LEAD, DANA_ID, f"Lead task {n}")
     org.step(f, "queued", lambda: org.sql("SELECT count(*) n FROM tasks WHERE title=?",
                                           ("Lead task 11",))[0]["n"])
 
@@ -87,10 +87,10 @@ def nothing_queued(f):
 
 # ---------------------------------------------------------------------------------------------- 3 skip-level
 def s3_steps(org, f):
-    org.step(f, "cap", put_cap, org, CLAUDE_REF, CHRIS_REF, 0)
-    org.step(f, "skip", send, org, CLAUDE, CHRIS_ID, "Skip level")
+    org.step(f, "cap", put_cap, org, CLAUDE_REF, DANA_REF, 0)
+    org.step(f, "skip", send, org, CLAUDE, DANA_ID, "Skip level")
     org.step(f, "via_lead", send, org, CLAUDE, LEAD_ID, "Through the lead")
-    org.step(f, "lead_on", send, org, LEAD, CHRIS_ID, "Lead passes it on")
+    org.step(f, "lead_on", send, org, LEAD, DANA_ID, "Lead passes it on")
     org.step(f, "not_manager", put_cap, org, CLAUDE_REF, RELEASE_REF, 5)
 
 
@@ -111,20 +111,20 @@ def s5_steps(org, f):
 
 # ---------------------------------------------------------------------------------------------- 6 close before act
 def s6_steps(org, f):
-    org.step(f, "cap", put_cap, org, LEAD_REF, CHRIS_REF, 1)
-    org.step(f, "closed_task", send, org, LEAD, CHRIS_ID, "Closed before Chris acts")
+    org.step(f, "cap", put_cap, org, LEAD_REF, DANA_REF, 1)
+    org.step(f, "closed_task", send, org, LEAD, DANA_ID, "Closed before Dana acts")
     org.step(f, "closed", close_task, org, f, "closed_task", LEAD)
-    org.step(f, "after", send, org, LEAD, CHRIS_ID, "After the close")
-    org.step(f, "over", send, org, LEAD, CHRIS_ID, "Still over?")
+    org.step(f, "after", send, org, LEAD, DANA_ID, "After the close")
+    org.step(f, "over", send, org, LEAD, DANA_ID, "Still over?")
 
 
 # ---------------------------------------------------------------------------------------------- 7 close after act
 def s7_steps(org, f):
-    org.step(f, "cap", put_cap, org, LEAD_REF, CHRIS_REF, 1)
-    org.step(f, "acted", send, org, LEAD, CHRIS_ID, "Chris acts on this")
-    org.step(f, "comment", comment, org, f, "acted", CHRIS, "Looking into it")
+    org.step(f, "cap", put_cap, org, LEAD_REF, DANA_REF, 1)
+    org.step(f, "acted", send, org, LEAD, DANA_ID, "Dana acts on this")
+    org.step(f, "comment", comment, org, f, "acted", DANA, "Looking into it")
     org.step(f, "closed", close_task, org, f, "acted", LEAD)
-    org.step(f, "over", send, org, LEAD, CHRIS_ID, "Still counts")
+    org.step(f, "over", send, org, LEAD, DANA_ID, "Still counts")
 
 
 # ---------------------------------------------------------------------------------------------- 8 own work
@@ -177,10 +177,10 @@ SCENARIOS = [
         Check("accepted under the cap", W2, lambda f: replied(f, "sent", 201, 200, needs=("cap",))),
         Check("Decide ranks it into Needs you", W3, decided),
     ]),
-    Scenario(2, "caps-lead-at-cap", "Lead at 10/10 sends an 11th to Chris: refused in the same call, nothing queued", s2_steps, [
+    Scenario(2, "caps-lead-at-cap", "Lead at 10/10 sends an 11th to Dana: refused in the same call, nothing queued", s2_steps, [
         Check("11th refused in the same call (409)", W2, lambda f: replied(f, "task11", 409, needs=("cap",))),
-        Check("payload: task_cap, cap 10, count 10, receiver person:chris", W2,
-              lambda f: payload_has(f, "task11", error="task_cap", cap=10, count=10, receiver=CHRIS_REF)),
+        Check("payload: task_cap, cap 10, count 10, receiver person:dana", W2,
+              lambda f: payload_has(f, "task11", error="task_cap", cap=10, count=10, receiver=DANA_REF)),
         Check("payload lists today's ten tasks and a message", W2, lambda f: today_list(f, "task11", 10)),
         Check("nothing queued for the 11th", W2, nothing_queued),
     ]),
@@ -200,7 +200,7 @@ SCENARIOS = [
         Check("resubmitted the next day accepted", W2,
               lambda f: replied(f, "resubmit", 201, 200, needs=("cap", "first"))),
     ]),
-    Scenario(6, "caps-close-frees-slot", "Sender closes a task before Chris acts: slot freed, out of its count", s6_steps, [
+    Scenario(6, "caps-close-frees-slot", "Sender closes a task before Dana acts: slot freed, out of its count", s6_steps, [
         Check("closing it as the sender succeeds", W2, lambda f: replied(f, "closed", 200, needs=("closed_task",))),
         Check("a new task is accepted once the closed one leaves the count", W2,
               lambda f: replied(f, "after", 201, 200, needs=("cap", "closed"))),
@@ -209,8 +209,8 @@ SCENARIOS = [
         Check("closed task leaves Needs you and shows as closed in history", W2,
               untestable("CONTRACT names no Needs you or task-history read route")),
     ]),
-    Scenario(7, "caps-close-after-acted", "Closing after Chris acted still counts", s7_steps, [
-        Check("closing after Chris's comment still counts: next refused, count 1", W2,
+    Scenario(7, "caps-close-after-acted", "Closing after Dana acted still counts", s7_steps, [
+        Check("closing after Dana's comment still counts: next refused, count 1", W2,
               lambda f: refused_count(f, "over", 1, needs=("cap", "acted", "comment", "closed"))),
     ]),
     Scenario(8, "caps-own-work", "Own work (self-assigned, or an owner's automation) is never capped", s8_steps, [
