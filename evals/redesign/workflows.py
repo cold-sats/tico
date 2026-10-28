@@ -1466,12 +1466,19 @@ ALLOWED = {
     "inbox handler": "Inbox Managers retire (PLAN §8) and the person's Assistant handles the mail: both count as "
                      "the inbox handler for that person",
     "mail path": "before, mail reached the Inbox Manager's watcher outside the hub; after, a hub automation run: "
-                 "mail is compared as messages handled per mailbox, not by how",
+                 "mail is compared as messages handled per mailbox, not by how, so the inbox handler's wakes are left "
+                 "out of the wake check",
     "health monitor": "the Health Monitor becomes a built-in automation off the chart (PLAN §8): its tasks, wakes "
                       "and webhook events (health.*, or naming the bot) are left out of both days",
     "strategy bot": "the CEO Bot is renamed Strategy Bot on the same row (PLAN §8): both count as the strategy bot",
     "automation events": "outgoing event types the redesign adds (automation.*) are left out; every type day one "
                          "sent must still be sent as often",
+    "first morning": "the install never asked for the day before day one, so day one's Updates job asks for it (`Time "
+                     "for your daily update (<day before>)`), and day two's yesterday was asked on day one: that one "
+                     "reminder is left out of day one's wakes",
+    "turn title": "a converted routine's task is its automation's turn, titled `Automation <name>: <step> (<run>)` "
+                  "(CONTRACT section 2); a legacy release task is headed `<name>: <tag>`. Both compare by the routine's "
+                  "name (masked)",
 }
 
 
@@ -1493,7 +1500,11 @@ def handler(org, f, actor):
 
 
 def masked(title):
-    title = re.sub(r"v1\.5\.\d+", "v1.5.N", title or "")
+    """A task title as the two days compare it (ALLOWED, 'turn title'): dates and the release tag masked, and a converted
+    routine's automation turn (`Automation <name>: <step> (<run>)`, CONTRACT section 2) compared by its routine's name."""
+    title = re.sub(r"^Automation (.+): [\w ]+ \(run_[0-9a-f-]+\)$", r"\1", title or "")
+    title = re.sub(r": v1\.5\.\d+$", "", title)     # a legacy release task's heading ends with its tag
+    title = re.sub(r"v1\.5\.\d+", "v1.5.N", title)
     return re.sub(r"\d{4}-\d{2}-\d{2}", "<date>", title)
 
 
@@ -1515,6 +1526,15 @@ def drain_all(org, f, errors):
             drain(org, slug, limit=6, text="Done for today.")
         except Exception as exc:  # noqa: BLE001 (kept with the day: a claim the product refuses is a difference)
             errors.append(f"{slug}: {type(exc).__name__}: {getattr(exc, 'what', exc)}"[:160])
+
+
+def publish_release(org, tag):
+    """A release reaches the product the way GitHub's release notice does (backend/release_flow.py `published`): the
+    legacy routines hear it through routines.emit and the automations through the hub's event hook. `emit` alone is
+    the legacy half, so a converted routine would never hear a release from it."""
+    from backend import release_flow
+    with org.store.transaction() as c:
+        return release_flow.published(c, f"acme/tico@{tag}", f"https://github.com/acme/tico/releases/tag/{tag}")
 
 
 def fake_day(org, f, phase, receiver):
@@ -1555,7 +1575,7 @@ def fake_day(org, f, phase, receiver):
     for minutes in range(390, 16 * 60 + 1, 30):
         safe(f"{minutes // 60:02d}:{minutes % 60:02d}", at, org, utc(day, minutes // 60, minutes % 60))
         if minutes == 600:
-            safe("release", emit, org, "release.published", f"v1.5.{phase}", {"tag": f"v1.5.{phase}"})
+            safe("release", publish_release, org, f"v1.5.{phase}")
         if minutes == 660:
             hook_ = fx.get("hook") or {}
             if hook_.get("id") and hook_.get("secret"):
@@ -1582,9 +1602,14 @@ def measure(org, f, phase, start, end, ids, receiver, errors):
         if who and inside(row):
             tasks[f"{who} | {masked(row['title'])}"] += 1
     woken = Counter()
-    for row in sql(org, "SELECT bot,created FROM jobs"):
+    asked_first = f"Time for your daily update ({(dt.date(*DAY10[1]) - dt.timedelta(days=1)).isoformat()})"
+    for row in sql(org, "SELECT j.bot, j.created, m.body FROM jobs j JOIN messages m ON m.id=j.message_id"):
         who = handler(org, f, row["bot"])
-        if who and inside(row):
+        # ALLOWED 'first morning': the install never asked for the day before day one, so only day one's Updates
+        # job asks for it; day two's yesterday was asked on day one already. ALLOWED 'mail path': the inbox handler's
+        # wakes are how mail was handled, and the mail check (messages handled per mailbox) covers that instead.
+        if (who and not who.startswith("inbox handler") and inside(row)
+                and not (phase == 1 and str(row["body"] or "").startswith(asked_first))):
             woken[who] += 1
     hooks = Counter()
     for request in receiver.seen:
@@ -1639,6 +1664,7 @@ def wf10_steps(org, f):
     attach_judge(org, SteadyJudge(org))
     do(org, f, "endpoint", W5, endpoint, org, "Ops feed", "https://hooks.acme.example/ops", ["*"])
     install_fixture(org, f)
+    close_open(org)   # both days start from the same empty board: the install's open tasks (a PR sweep run) close first
     receiver_1 = Receiver()
     do(org, f, "day1", W5, fake_day, org, f, 1, receiver_1)
     f["left_open"] = close_open(org)
