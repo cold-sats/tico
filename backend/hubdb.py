@@ -5157,11 +5157,17 @@ def comment_wakes(conn, actor, row, text, *, mover=False):
     task (they are directing its work), or when no bot is on the task at all. On a task a bot
     requested, which a person owns, the owner's comment wakes it (the bot asked them, so they are
     answering it). Anyone else's wakes the bot only when it names the bot with an @ or the task waits
-    on that person; otherwise it is saved for the bot's next turn on the task."""
+    on that person; otherwise it is saved for the bot's next turn on the task. On an engineering ticket a
+    person's comment wakes a bot only when it names that bot with an @, whoever filed, owns or is on the
+    ticket: a ticket's comments are a conversation among the people on it, and a bot that answers every
+    one talks over them."""
     if is_bot(actor):
         return not TS.snoozed(row)
     if not (mover or task_participant(conn, actor, row)):
         return False
+    from .review_gate import engineering
+    if engineering(conn, row):
+        return names_a_bot_on(conn, text, row)
     if not any(is_bot(a) for a in (row["owner"], row["requester"], task_origin(conn, row))):
         return True
     if is_bot(row["owner"]):
@@ -5179,10 +5185,17 @@ def names_a_filer(conn, text, row):
     return any(_mentions_bot(conn, text, a) for a in filers)
 
 
-def filer_handles(conn, row):
-    """The @names that reach the bots that filed the task (names_a_filer): each one's slug and name."""
+def names_a_bot_on(conn, text, row):
+    """`text` @mentions a bot on the task: its owner, requester or origin."""
+    return any(_mentions_bot(conn, text, a) for a in dict.fromkeys([row["owner"], row["requester"], task_origin(conn, row)])
+               if is_bot(a))
+
+
+def filer_handles(conn, row, *, also=()):
+    """The @names that reach the bots that filed the task (names_a_filer), and any bot in `also`: each one's slug
+    and name."""
     handles = []
-    for a in dict.fromkeys([row["requester"], task_origin(conn, row)]):
+    for a in dict.fromkeys([*also, row["requester"], task_origin(conn, row)]):
         if is_bot(a):
             name = (bot(conn, actor_id(a)) or {}).get("name")
             handles += [actor_id(a)] + ([name] if name else [])

@@ -8,6 +8,11 @@ below word for word as its notes.
 
 ## [Unreleased]
 
+### Changed
+- Tickets: a person's comment on an engineering ticket wakes a bot only when it @mentions that bot. Who filed the
+  ticket, who owns it and who holds a role on it no longer matter; an unaddressed comment reaches the bot on its
+  next turn. Comments on other tasks are unchanged.
+
 ## [0.4.15] - 2026-10-27
 
 ### Fixed

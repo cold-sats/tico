@@ -226,6 +226,24 @@ def test_a_comment_on_a_task_a_bot_filed_wakes_it_from_its_owner_or_when_address
     assert jobs_for(api, "ops") == queued + 1, "an edit or delete wakes nobody"
 
 
+def test_a_comment_on_a_ticket_wakes_a_bot_only_when_it_names_the_bot(api):
+    with api.app.state.store.transaction() as c:
+        typ = H.type_create(c, H.KEEPER, "Dev tickets", [
+            {"name": "In Progress", "status": "doing"}, {"name": "Done", "status": "done"}])
+    token = bot_token(api, "ops")
+    filed = post(api, "tasks", {"owner": "ben", "title": "Fix the sign-in check", "body": "x", "type": typ["id"],
+                                "step": "In Progress"}, token=token)
+    built = post(api, "tasks", {"owner": "bot:ops", "title": "Fix the sign-out check", "body": "x",
+                                "type": typ["id"], "step": "In Progress"})
+    for task, who in ((filed, "ben-test"), (filed, "ana-test"), (built, "ana-test")):   # its owner, a mover, its requester
+        queued = jobs_for(api, "ops")
+        said = post(api, f"tasks/{task['id']}/comments", {"text": "Testing it on staging for a day."}, token=who)
+        assert said["woke"] is False and jobs_for(api, "ops") == queued, "a ticket comment wakes no bot unaddressed"
+    assert post(api, f"tasks/{filed['id']}/comments", {"text": "@ops which app is still open?"},
+                token="ben-test")["woke"] is True
+    assert post(api, f"tasks/{built['id']}/comments", {"text": "@ops is it ready?"})["woke"] is True
+
+
 def test_a_person_mentioned_in_a_comment_gets_it_as_a_question_in_needs_you(api):
     token = bot_token(api, "ops")
     task = post(api, "tasks", {"owner": "ana", "title": "Fix the sign-in check", "body": "x"}, token=token)

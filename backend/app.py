@@ -3412,7 +3412,7 @@ def create_app(settings=None):
             return {"bot": None, "wakes": False, "mention": []}
         moves = mover(c, who)
         wakes = H.comment_wakes(c, who.actor, row, "", mover=moves)
-        mention = [] if wakes else [n for n in H.filer_handles(c, row)
+        mention = [] if wakes else [n for n in H.filer_handles(c, row, also=[target])
                                     if H.comment_wakes(c, who.actor, row, "@" + n, mover=moves)]
         return {"bot": H.actor_id(target), "wakes": wakes, "mention": mention}
 
