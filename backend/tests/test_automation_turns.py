@@ -3,7 +3,7 @@ sender's; an llm step waits for the real turn and goes on with its text; the tur
 so the spend cap counts it; `assistant:<person>` makes the person's Assistant room on first use."""
 import json
 
-from backend.tests.test_api import api, assign, claim, get, post, ready, runner  # noqa: F401
+from backend.tests.test_api import api, assign, claim, get, post, put, ready, runner  # noqa: F401
 from backend.tests.test_automation_api import turn_on
 
 USAGE = {"input_tokens": 400_000, "cached_tokens": 0, "output_tokens": 10_000, "model": "claude-opus-5-5",
@@ -75,3 +75,38 @@ def test_an_assistant_step_makes_the_persons_assistant_room_on_first_use(api):
     bot = get(api, "people/ben/assistant")["bot"]
     assert bot and run["steps"][0]["outputs"]["turn"]["bot"] == bot
     get(api, "people/nobody/assistant", expected=404)
+
+
+def test_a_market_change_made_in_an_automations_turn_names_the_turn_and_the_match(api):
+    """A listening match reaches the graph only through the Librarian's turn: what the turn files through the market
+    routes is shown on the graph with the turn, the run and the match it came from."""
+    from backend.tests.test_market import _librarian
+    _librarian(api)
+    turn_on(api)
+    r = runner(api)
+    assign(api, r, "librarian")
+    ready(api, r, ["librarian"])
+    flow = {"name": "Market · tools", "owner": "bot:librarian", "trigger": {"type": "listening", "destination": "tools"},
+            "steps": [{"id": "update", "type": "bot_turn", "bot": "librarian", "prompt": "Update the graph."}]}
+    aid = post(api, "automations", flow)["id"]
+    heard = {"id": "li_1", "destination": "tools", "url": "https://news.acme.example/mapper", "source": "news",
+             "author": "Acme News", "content": "Acme Mapper launched."}
+    run = post(api, f"automations/{aid}/run", {"input": {"listening": heard}})["run"]
+    before = get(api, "market/graph")
+    attempt = claim(api, r)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, token=r["token"])
+    seen = post(api, "market/evidence", {"source_url": heard["url"], "source_kind": "news", "quote": "Launched."},
+                token=attempt["token"])["evidence"]["id"]
+    post(api, "market/entities", {"type": "product", "name": "Acme Mapper", "evidence_ids": [seen]},
+         token=attempt["token"])
+    graph = get(api, "market/graph")
+    assert before["entities"] == [] and [e["name"] for e in graph["entities"]] == ["Acme Mapper"]
+    assert graph["entities"][0]["source"] == {
+        "automation": aid, "run": run["id"], "turn": {"attempt": attempt["id"], "bot": "librarian",
+                                                      "task": run["steps"][0]["outputs"]["turn"]["task"]},
+        "match": {"id": "li_1", "destination": "tools", "url": heard["url"], "source": "news"}}
+    # A change by hand names no turn; with the redesign off the graph is as it was.
+    post(api, "market/entities", {"type": "product", "name": "Acme Atlas", "evidence_ids": [seen]})
+    assert [("source" in e) for e in get(api, "market/graph")["entities"]] == [False, True]
+    put(api, "settings/redesign", {"enabled": False})
+    assert all("source" not in e for e in get(api, "market/graph")["entities"])

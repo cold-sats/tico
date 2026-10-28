@@ -16,6 +16,7 @@ CREATE INDEX IF NOT EXISTS audit_log_object ON audit_log(object, at);
 CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log(at);
 """
 LIMIT = 50
+LIST_BYTES = 262_144                     # as the automations list: a page stays under 256 KB
 
 
 def write(c, actor, obj, before, after, via=None):
@@ -34,7 +35,8 @@ def _row(r):
 
 
 def rows(c, obj=None, actor=None, limit=LIMIT, before=None):
-    """Newest first, paged by `before`: the last row's `<at>|<id>`, so rows sharing a time are never skipped."""
+    """Newest first, paged by `before`: the last row's `<at>|<id>`, so rows sharing a time are never skipped. A page
+    stops at LIST_BYTES too (a row carries whole objects), and the next page starts at the first row it left out."""
     sql, args = "SELECT * FROM audit_log WHERE 1=1", []
     for column, value in (("object", obj), ("actor", actor)):
         if value:
@@ -46,17 +48,24 @@ def rows(c, obj=None, actor=None, limit=LIMIT, before=None):
         args += [at, at, row_id]
     limit = max(1, min(int(limit or LIMIT), 200))
     found = [_row(r) for r in c.execute(sql + " ORDER BY at DESC, id DESC LIMIT ?", (*args, limit + 1))]
-    last = found[limit - 1] if len(found) > limit else None
-    return {"rows": found[:limit], "next": last and last["at"] + "|" + last["id"]}
+    shown, used = [], 256
+    for row in found[:limit]:
+        size = len(json.dumps(row, default=str).encode()) + 1
+        if shown and used + size > LIST_BYTES:
+            break                                    # the first row of a page always fits
+        used += size
+        shown.append(row)
+    last = shown[-1] if len(shown) < len(found) else None
+    return {"rows": shown, "next": last and last["at"] + "|" + last["id"]}
 
 
 def install(app, store, auth):
     from fastapi import Request
+    from . import redesign
 
-    @app.get("/api/v2/audit")
+    @app.get("/api/v2/audit", **redesign.dormant())
     def audit_view(request: Request, object: str | None = None, limit: int = LIMIT, before: str | None = None):
         """Who changed what. The owner reads every row; anyone else reads only their own changes."""
-        from . import redesign
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:

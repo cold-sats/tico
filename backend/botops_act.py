@@ -219,8 +219,9 @@ DO = _routes(
     ("PATCH", r"release-schedule"), ("POST", r"release/now"),
     ("POST", r"settings/turn-budgets"),
     ("PUT", rf"system-routines/{_S}"), ("POST", rf"system-routines/{_S}/run"), ("POST", r"task-manager/turn-(on|off)"),
-    # The redesign switch (backend/redesign.py): the owner's; the route refuses anyone else.
-    ("PUT", r"settings/redesign"),
+    # The redesign switch (backend/redesign.py): the owner's; the route refuses anyone else. The migration's dry run
+    # and its yes/no flags write nothing that converts; convert and restore are CONFIRM below.
+    ("PUT", r"settings/redesign"), ("POST", r"redesign/migration/(dry-run|resolve)"),
 )
 
 # Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is
@@ -244,6 +245,8 @@ CONFIRM = _routes(
     ("POST", r"slack/disconnect"), ("POST", r"github/app/disconnect"),
     # Picking a seat's candidate makes a bot (recruiting._may_hire: only on the person's own confirmation).
     ("POST", rf"seats/{_S}/hire"),
+    # The redesign's migration converts or restores the whole install: the owner's own tap (OWNER_ONLY).
+    ("POST", r"redesign/migration/(convert|restore)"),
 )
 
 # The messages route is a card unless it names a bot (`classify`).
@@ -261,7 +264,7 @@ ADMIN_ONLY = _routes(
 # Tico, and a computer's one-time code (shown on the card once they tap, never in BotOps' answer).
 ALWAYS = _routes(("POST", r"access/owner"), ("POST", r"system/update"), ("POST", r"enrollments"))
 # Owner-only: a member or an admin is told so at once, not handed a card that fails (the Gateway connection included).
-OWNER_ONLY = _routes(("POST", r"access/owner")) + GATEWAY
+OWNER_ONLY = _routes(("POST", r"access/owner"), ("POST", r"redesign/migration/(convert|restore)")) + GATEWAY
 # Team rules that set BotOps' own powers: a change to one of them is always the person's own tap.
 OWN_POWER_RULES = ("botops_direct", "botops_manages_bots")
 RULES = re.compile(API + r"access/rules")

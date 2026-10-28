@@ -23,7 +23,8 @@ function listeningStats(now = new Date()) {
     })};
 }
 
-// One page on the fake hub. viewer: who is signed in (ana owns Acme; ben leads Sales; cara is in Engineering).
+// One page on the fake hub. viewer: who is signed in (ana owns Acme; ben leads Sales and so Outbound below it; cara
+// is in Engineering).
 // briefing: false answers {briefing: null}. listening: 403 answers the stats with that status.
 async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org', redesign = true, viewer = 'ana', briefing = true, listening = 200} = {}) {
   const fx = fixture('redesign-org.json');
@@ -63,13 +64,18 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
     if (p === '/api/v2/status') return json({bots: []});
     if (p === '/api/v2/needs-you') return json({items: db.needs, version: 'v' + writes.length, count: db.needs.length, next: null});
 
-    // Groups (CONTRACT §3): a bare list; the owner and a lead over both groups change them, anyone else gets 403.
+    // Groups (CONTRACT §3): a bare list. The owner changes any group; a lead only adds a teammate whose group and the
+    // target are both ones it leads or below them (backend/groups.py _lead_move); anyone else gets 403.
     if (p === '/api/v2/groups') return json(db.groups);
     let m = p.match(/^\/api\/v2\/groups\/([^/]+)$/);
     if (m && method === 'PATCH') {
       const g = db.groups.find(x => x.id === decodeURIComponent(m[1]));
       if (!g) return refuse(404, 'not_found', 'No such group');
-      if (me.role !== 'owner' && g.lead !== 'person:' + me.id) return refuse(403, 'forbidden', 'Only the owner or its lead');
+      const led = gid => { for (let x = db.groups.find(y => y.id === gid); x; x = db.groups.find(y => y.id === x.parent)) if (x.lead === 'person:' + me.id) return true; return false; };
+      const homeOf = (kind, id) => (kind === 'people' ? db.people.find(q => q.id === id) : db.emps.find(e => e.name === id))?.team || '';
+      const addsOnly = Object.keys(body).every(k => k === 'add') && body.add;
+      const leadMove = addsOnly && led(g.id) && ['people', 'bots'].every(kind => (body.add[kind] || []).every(id => led(homeOf(kind, id))));
+      if (me.role !== 'owner' && !leadMove) return refuse(403, 'forbidden', 'Only the owner, or a lead inside its own groups');
       for (const kind of ['people', 'bots']) {
         for (const id of body.add?.[kind] || []) move(kind, id, g.id);
         for (const id of body.remove?.[kind] || []) move(kind, id, '');
@@ -80,7 +86,7 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
     if (p === '/api/v2/approvals' && method === 'POST') {
       const id = 'ap_' + (db.approvals.length + 2);
       db.approvals.push({id, ...body});
-      return json({id, kind: body.kind, payload: body.payload, decision: null});
+      return json({id, kind: body.kind, payload: body.payload, decision: null, approval: id, status: 'pending'});
     }
     m = p.match(/^\/api\/v2\/approvals\/([^/]+)$/);
     if (m && method === 'POST') {

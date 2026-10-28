@@ -1,6 +1,7 @@
 """`hub automation ...` and the hub_automation_* tools against the real API (clients/remotecli.py, clients/hubtools.py):
 the CLI and MCP run the same tool, so the same rights and the same payloads as the UI."""
 import json
+from urllib.parse import urlencode
 
 import pytest
 
@@ -22,9 +23,12 @@ class Client:
             raise remotecli.APIError(str(r.status_code), r.text, r.status_code)
         return r.json()
 
+    def call(self, method, path, body=None, key=None, query=None):
+        query = urlencode({k: v for k, v in (query or {}).items() if v is not None})
+        return self._call(method, path + ("?" + query if query else ""), body)
+
     def get(self, path, **params):
-        query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
-        return self._call("GET", path + ("?" + query if query else ""))
+        return self.call("GET", path, query=params)
 
     def post(self, path, body, key=None):
         return self._call("POST", path, body)
@@ -93,3 +97,32 @@ def test_botops_acts_with_the_askers_rights(api, botops):
     member = turn(api, botops, person="cara-test", text="Pause the ops automation")
     err, refused = mcp(api, "hub_automation_update", {"id": made["id"], "enabled": False}, member["token"])
     assert err, refused
+
+
+def test_the_cli_discards_a_proposal_and_lists_the_question_sets(api, flow_file):
+    turn_on(api)
+    aid = cli(api, "ana-test", "create", "--file", str(flow_file))["id"]
+    hubtools.BY_NAME["hub_automation_update"]["fn"](
+        Client(api, as_bot(api, "automations-bot")), {"id": aid, "steps": [], "summary": "Drop the wake"})
+    assert [v["n"] for v in cli(api, "ana-test", "versions", aid, "--pending")["versions"]] == [2]
+    with pytest.raises(remotecli.APIError):
+        cli(api, "ana-test", "discard", aid, "1")            # the current version is not a proposal
+    cli(api, "ana-test", "discard", aid, "2")
+    assert cli(api, "ana-test", "versions", aid, "--pending")["versions"] == []
+    assert cli(api, "ana-test", "show", aid)["version"] == 1
+    sets = cli(api, "ana-test", "question-sets")["sets"]
+    assert sets and all("@" in s["id"] for s in sets)
+
+
+def test_botops_sets_an_email_inboxs_send_switch_for_its_owner_only(api, botops):
+    from backend.tests.test_mcp import call as mcp
+
+    turn_on(api)
+    ana = turn(api, botops, person="ana-test", text="Turn off replies from my inbox")
+    err, out = mcp(api, "hub_inbox_send", {"inbox": "ana@acme.example", "send": False}, ana["token"])
+    assert not err and out["send"] is False, out
+    finish(api, botops, ana)
+    cara = turn(api, botops, person="cara-test", text="Turn on Ana's replies")
+    err, refused = mcp(api, "hub_inbox_send", {"inbox": "ana@acme.example", "send": True}, cara["token"])
+    assert err, refused
+    finish(api, botops, cara)

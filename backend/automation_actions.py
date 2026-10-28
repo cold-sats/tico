@@ -20,6 +20,7 @@ Tico's, as a rule's is. What it writes carries its chain (`auto["chain"]`, the a
 turn on it cannot start them again.
 """
 import json
+import re
 
 from . import rules as R
 from .store import H, Problem
@@ -281,16 +282,78 @@ def _wake_bot(c, auto, run_id, args, values):
     return {"ok": ok, "detail": detail}
 
 
+POST_TO = ("updates", "market")
+BRIEFING_LINK = "#/strategy/market/briefing"
+POINTER_WORDS = 14     # the Updates line for a briefing: its title cut to fit a daily bullet
+
+
+def _turn_output(values):
+    """The newest turn answer in the run's values (a `bot_turn` or `llm` step that waited): {ref, turn, text}."""
+    found = [v for v in values.values() if isinstance(v, dict) and "ref" in v and isinstance(v.get("text"), str)]
+    return found[-1] if found else {}
+
+
+def _briefing(text, title):
+    """A turn's briefing as Market keeps it: the title given, else its first line without markdown marks; the body
+    without that line when it was a heading and more follows."""
+    lines = [line for line in text.strip().splitlines()]
+    first = re.sub(r"^\s*(?:#+|[-*•])\s*", "", lines[0] if lines else "").strip()
+    rest = "\n".join(lines[1:]).strip()
+    body = rest if not title and lines and lines[0].lstrip().startswith("#") and rest else text.strip()
+    return (str(title or first or "Market briefing").strip()[:200]), body
+
+
+def _may_write_market(c, author):
+    """Market's writers (backend/market.py): the Librarian, and the top of the org."""
+    from . import market as MK
+    from .automations import top_person
+    return author in MK.WRITERS or author == "human:" + str(top_person(c) or "")
+
+
 def _post_update(c, auto, run_id, args, values):
-    text = _text(args, "text", "body")
-    if not text:
+    """Post the text (else what the turn before wrote) as the owner. `to` is where: `updates` (the default), and
+    `market`, the week's briefing on Market. With both, Updates gets one line pointing at the briefing, added to the
+    owner's daily update. Each post carries `source: {automation, run, task}`."""
+    to = args.get("to", ["updates"])
+    to = [to] if isinstance(to, str) else to
+    if not isinstance(to, list) or not to or any(t not in POST_TO for t in to):
+        return _fail("to lists where to post: updates, market")
+    said = _turn_output(values)
+    text = _text(args, "text", "body") or str(said.get("text") or "")[:MAX_TEXT]
+    if not text.strip():
         return _fail("post_update needs text")
-    from . import updates
     author = actor_of(auto["flow"]["owner"])
     if not author:
         return _fail("a group's automation has no one to post an update as")
-    posted = updates.post(c, H.actor_id(author) if author.startswith("bot:") else author, text)
-    return {"ok": True, "detail": "posted", "update": (posted or {}).get("id")}
+    from . import updates
+    source = {"automation": auto["id"], "run": run_id, **({"task": said["turn"].get("task")}
+                                                          if isinstance(said.get("turn"), dict) else {})}
+    out = {"ok": True, "detail": "posted"}
+    poster = H.actor_id(author) if author.startswith("bot:") else author
+    if "market" in to:
+        if not _may_write_market(c, author):
+            return _fail("only the Librarian and the top of the org post to Market")
+        from types import SimpleNamespace
+        from . import market_briefing as MB
+        title, body = _briefing(text, args.get("title"))
+        out["briefing"] = MB.post(c, SimpleNamespace(actor=author), MB.this_week(), title, body, [], source=source)["week"]
+        text = _pointer(c, poster, title)
+    if "updates" in to:
+        posted = updates.post(c, poster, text, kind="daily" if "market" in to else None, source=source)
+        out["update"] = (posted or {}).get("id")
+    return out
+
+
+def _pointer(c, poster, title):
+    """The owner's daily update with one more line for the briefing (the same line is not added twice)."""
+    from . import updates
+    words = str(title).split()
+    line = f"- Market briefing: {' '.join(words[:POINTER_WORDS])}{'…' if len(words) > POINTER_WORDS else ''} " \
+           f"([read]({BRIEFING_LINK}))"
+    row = c.execute("SELECT body FROM updates WHERE bot=? AND kind='daily' AND day=?",
+                    (poster, updates.today())).fetchone()
+    kept = [x for x in str(row["body"] if row else "").splitlines() if x.strip() and not x.startswith("- Market briefing:")]
+    return "\n".join(kept[-(updates.BULLETS_MAX - 1):] + [line])
 
 
 def _webhook(c, auto, kind, hook, data):

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from ..harness import (CLAUDE_ID, DANA, LEAD, OPENAI_ID, OPENAI_REF, RELEASE_ID, W2, W3, W6, Check,
                        Scenario, Unmet, accepted, approval_id_of, audit_of, auto_id, automation, body, decide, got,
-                       make_group, rows, setup)
+                       hub_notices, make_group, rows, setup)
 
 
 def canon(value):
@@ -73,14 +73,14 @@ def propose_move(org, facts):
     that uses the existing approvals, CONTRACT §5)."""
     return org.api("post", "/api/v2/approvals", {
         "kind": "org", "payload": {"bot": OPENAI_REF, "from": got(facts, "builders"), "to": got(facts, "release")}},
-        who=LEAD, wave=W6)
+        who=LEAD, wave=W2)
 
 
 def decide_proposal(org, facts):
     reply = got(facts, "proposal")
     approval = approval_id_of(reply)
     if not approval:
-        raise Unmet(W6, f"the proposal filed no approval: {reply.excerpt()}")
+        raise Unmet(W2, f"the proposal filed no approval: {reply.excerpt()}")
     return decide(org, approval, "approved")
 
 
@@ -100,8 +100,22 @@ def s36_steps(org, facts):
     org.step(facts, "judged", judge_match, org, facts)
     org.step(facts, "graph1", graph, org)
     org.step(facts, "runs", runs_of, org, facts, "auto")
-    org.step(facts, "turn", org.turn, "librarian")
+    org.step(facts, "turn", org.turn, "librarian", act=lambda token, attempt: curate(org, token))
     org.step(facts, "graph2", graph, org)
+
+
+def curate(org, token):
+    """The Librarian's turn on the match, through the market routes as the Librarian: the post as evidence, then the
+    product it names, citing it. The url stays on the evidence; the graph names the match only if the hub says so."""
+    seen = org.api("post", "/api/v2/market/evidence", {
+        "source_url": "https://news.acme.example/dev-tools", "source_kind": "news",
+        "quote": "A new dev tool for mapping markets."}, who=token, wave=W6)
+    evidence = ((seen.body or {}).get("evidence") or {}).get("id") if isinstance(seen.body, dict) else None
+    if not evidence:
+        raise Unmet(W6, f"the Librarian could not file the evidence: {seen.status} {seen.excerpt()}")
+    return org.api("post", "/api/v2/market/entities", {
+        "type": "product", "name": "Acme Mapper", "summary": "A dev tool for mapping markets.",
+        "evidence_ids": [evidence]}, who=token, wave=W6)
 
 
 def match_started_run(facts):
@@ -146,6 +160,9 @@ def graph_names_turn(facts):
 
 
 # ---------------------------------------------------------------------------------------------- 37
+BRIEFING = "# Acme market, Tuesday\n\n- Acme Mapper launched a dev tool for mapping markets.\n- No bet is touched."
+
+
 def s37_steps(org, facts):
     org.step(facts, "auto", automation, org, "Daily briefing", "bot:librarian",
              {"type": "schedule", "cron": "0 7 * * *", "tz": "UTC"},
@@ -155,7 +172,7 @@ def s37_steps(org, facts):
                "args": {"to": ["market", "updates"]}}])
     org.step(facts, "read", read_auto, org, facts, "auto")
     org.step(facts, "fired", advance_to_next_run, org, facts)
-    org.step(facts, "brief", org.turn, "librarian")
+    org.step(facts, "brief", org.turn, "librarian", text=BRIEFING)
     org.step(facts, "runs", runs_of, org, facts, "auto")
     org.step(facts, "market", org.api, "get", "/api/v2/market/briefings/latest", who=DANA, wave=W6)
     org.step(facts, "updates", org.api, "get", "/api/v2/updates", who=DANA, wave=W6)
@@ -196,7 +213,7 @@ def s38_steps(org, facts):
     org.step(facts, "proposal", propose_move, org, facts)
     org.step(facts, "decided", decide_proposal, org, facts)
     org.step(facts, "groups", org.api, "get", "/api/v2/groups", who=DANA, wave=W2)
-    org.step(facts, "notices", org.api, "get", "/api/v2/notices", who=DANA, wave=W6)
+    org.step(facts, "notices", hub_notices, org, "botops")
     org.step(facts, "tasks", org.api, "get", "/api/v2/tasks", who=DANA, wave=W2)
     org.step(facts, "audit", audit_group, org, facts)
 
@@ -220,10 +237,11 @@ def moved_on_approval(facts):
 
 
 def botops_noted(facts):
-    setup(facts, "notices", "decided")
+    """One hub notice to BotOps naming the approval (CONTRACT §5: from keeper, kind notice, refs.approval)."""
+    setup(facts, "decided")
     approval = approval_id_of(facts["proposal"])
-    notes = [n for n in rows(body(facts, "notices")) if "botops" in canon(n).lower()]
-    return bool(notes) and approval in canon(notes), "BotOps got no note about the approved move"
+    notes = [n for n in got(facts, "notices") if (n.get("refs") or {}).get("approval") == approval]
+    return len(notes) == 1, f"{len(notes)} notice(s) to BotOps naming the approved move"
 
 
 def no_botops_task(facts):
@@ -261,11 +279,11 @@ SCENARIOS = [
              ], bots={"librarian": ("librarian", "claude")}),
     Scenario(38, "strategy-reorg-proposal",
              "A reorg proposal waits for a person; on approval the hub moves the bot and BotOps gets a note", s38_steps, [
-                 Check("the org move is filed as a pending proposal", W6, proposal_pending),
-                 Check("Dana's approval is accepted", W6, lambda facts: accepted(facts, "decided", needs=())),
+                 Check("the org move is filed as a pending proposal", W2, proposal_pending),
+                 Check("Dana's approval is accepted", W2, lambda facts: accepted(facts, "decided", needs=())),
                  Check("the bot is in Release after approval", W2, moved_on_approval),
-                 Check("BotOps gets a note about the approved move", W6, botops_noted),
+                 Check("BotOps gets a note about the approved move", W2, botops_noted),
                  Check("no BotOps task is made for a move the hub applies", W2, no_botops_task),
                  Check("the group change is audited via approval:<id>", W2, audited_via_approval),
-             ]),
+             ], bots={"botops": ("botops", "claude")}),
 ]

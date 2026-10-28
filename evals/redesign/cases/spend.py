@@ -4,8 +4,8 @@ import datetime as dt
 
 from ..fakes import ReplayJudge, attach_judge
 from ..harness import (LEAD_ID, OPENAI_ID, OPENAI_REF, W2, W3, Check, Scenario, Unmet, automation, auto_id,
-                       body, got, make_group, put_budget, put_limit, put_pool, replied, rows, run_now, setup, untestable,
-                       work)
+                       body, got, hub_notices, make_group, put_budget, put_limit, put_pool, replied, rows, run_now,
+                       setup, work)
 
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -115,6 +115,19 @@ def s15_steps(org, f):
     org.step(f, "later", work, org, OPENAI_ID, "An hour later")
     org.step(f, "release", org.api, "post", f"/api/v2/bots/{OPENAI_ID}/release", {}, wave=W2)
     org.step(f, "resumed", work, org, OPENAI_ID, "After the release")
+    for slug in GUARD_HEARS:
+        org.step(f, "notices:" + slug, hub_notices, org, slug)
+
+
+GUARD_HEARS = {"botops": ("botops", "claude"), "health-monitor": ("health", "claude")}
+
+
+def guard_noticed(f):
+    """One hub notice each to BotOps and Health naming the held bot (CONTRACT §1 run guard: refs.held)."""
+    setup(f, "budget")
+    counts = {slug: sum(1 for m in got(f, "notices:" + slug) if (m.get("refs") or {}).get("held") == OPENAI_ID)
+              for slug in GUARD_HEARS}
+    return all(n == 1 for n in counts.values()), f"notices {counts}"
 
 
 def pool_refused(f):
@@ -154,7 +167,6 @@ SCENARIOS = [
         Check("the sixth turn is held: no job claimed", W2, lambda f: held(f, "t6", needs=("budget",))),
         Check("still held an hour later with no person acting", W2, lambda f: held(f, "later", needs=("budget",))),
         Check("a person's release starts the bot again", W2, lambda f: ran(f, "resumed", needs=("release",))),
-        Check("one notice each to BotOps and Health", W2,
-              untestable("CONTRACT names no read route for run-guard notices (BotOps, Health)")),
-    ]),
+        Check("one notice each to BotOps and Health", W2, guard_noticed),
+    ], bots=GUARD_HEARS),
 ]

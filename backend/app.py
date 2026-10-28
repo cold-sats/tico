@@ -31,7 +31,7 @@ from . import outcome_stats
 from . import ask_ingest, ceo_bot, invites, owner_link
 from . import login_holds
 from . import step_age
-from . import bot_stops, turn_budgets
+from . import bot_stops, turn_budgets, proposals, redesign, task_caps
 from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
@@ -165,6 +165,7 @@ def create_app(settings=None):
                 onboarding.ensure_librarian(c)
                 onboarding.ensure_goal_manager(c)
                 onboarding.ensure_task_manager(c)
+                onboarding.ensure_automations_bot(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
         # The Librarian gets the market posts from Listening, once (Settings > Listening).
@@ -416,6 +417,9 @@ def create_app(settings=None):
 
     @app.exception_handler(Problem)
     async def problem_handler(request, exc):
+        if getattr(exc, "payload", None) is not None:
+            # A refusal whose body is its own flat payload (task_caps.Capped: CONTRACT §1), not the usual error envelope.
+            return JSONResponse(exc.payload, status_code=exc.status)
         if exc.status >= 500:
             telemetry.capture("request", exc, exc.status, route=error_route(request))
             request.state.telemetry_captured = True
@@ -1498,7 +1502,8 @@ def create_app(settings=None):
         """Everything a client needs to name this environment and reach its runner."""
         from .onboarding import config_view
         with store.read_transaction() as c:
-            return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True}}
+            return {**config_view(c, settings, request.state.identity), "features": {"task_files_multipart": True},
+                    "redesign": redesign.on(c)}
 
     def updater_only(who, what):
         """The owner, or an `update` service key (backend/service_keys.py) held by a release bot on another install."""
@@ -3558,6 +3563,7 @@ def create_app(settings=None):
         from .shared_bots import route
         original = auth.target(c, who, body.owner, need="write")
         owner = auth.target(c, who, route(c, who.actor, original), need="write")
+        task_caps.check(c, who.actor, owner)      # the first hub check on a send (CONTRACT §1): nothing is written
         # The same checks the dry-run makes (task_privacy.require_create); a subtask for a person under a private
         # task with no person on it, filed by the bot that owns it, makes them its one guest.
         guest = privacy.require_create(c, source, body.private, owner, H.task(c, parent_id) if parent_id else None,
@@ -3663,6 +3669,7 @@ def create_app(settings=None):
                             qa_not_checkable_live=body.qa_not_checkable_live,
                             quiet_notice=bool(joins) or bool(gate and gate["acts"]), from_private=bool(kept))
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
+        task_caps.record(c, row["id"], who.actor, owner)     # a send, counted against the sender's cap for this owner
         if gate:
             ask_ingest.record(c, ingest, gate, row["id"])
         for source_row in kept:
@@ -3773,9 +3780,19 @@ def create_app(settings=None):
             prs = review_gate.links(c, row)
         return review_gate.snapshot(app.state.github_app, prs) if prs else {}
 
+    def cap_before_preflight(who, owner_ref):
+        """The task cap (CONTRACT §1) before any LLM preflight: a refused send spends no judgment and writes nothing."""
+        if not owner_ref:
+            return
+        from .shared_bots import route
+        with store.read() as c:
+            original = auth.target(c, who, owner_ref, need="write")
+            task_caps.check(c, who.actor, auth.target(c, who, route(c, who.actor, original), need="write"))
+
     @app.post("/api/v2/tasks")
     def create_task(request: Request, body: M.TaskCreate):
         parents = [r.task for r in body.relations if r.kind == "parent"]
+        cap_before_preflight(request.state.identity, body.owner)
         snapshots = review_preflight(request.state.identity, parents[0], child_title=body.title.strip()) if parents else None
         ingest = ask_ingest.preflight(store, app.state.judge, request.state.identity, body.owner, body.title, body.body)
         return mutate(request, body, lambda c: task_create(c, request.state.identity, body, review_prs=snapshots,
@@ -3855,8 +3872,14 @@ def create_app(settings=None):
                 gates.append(gate)
             if "size" in body.model_fields_set and body.size is None:
                 fields["clear_size"] = True
+            if fields.get("owner") and body.owner:
+                new_owner = auth.target(c, who, body.owner, need="write")
+                if new_owner != row["owner"]:
+                    task_caps.check(c, who.actor, new_owner)
             after = H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None, review_prs=snapshots,
                                   receipt_owner=Access.load_owner(c, settings)["email"])
+            if fields.get("owner") and body.owner and new_owner != row["owner"]:
+                task_caps.record(c, task_id, who.actor, new_owner)
             warnings = after.get("warnings")
             for verdict, gate in waits:
                 # A wait on a person asks in a card of its own (hubdb._ask_in_subtask): that card is what reaches
@@ -3871,6 +3894,14 @@ def create_app(settings=None):
     @app.post("/api/v2/tasks/{tid}")
     def update_task(request: Request, tid: str, body: M.TaskUpdate):
         caller = request.state.identity
+        if body.owner:
+            with store.read() as c:
+                try:
+                    current = auth.task(c, caller, auth.resolve_task(c, caller, tid))
+                except Problem:
+                    current = None
+                if current and auth.target(c, caller, body.owner, need="write") != current["owner"]:
+                    task_caps.check(c, caller.actor, auth.target(c, caller, body.owner, need="write"))
         snapshots = review_preflight(caller, tid, step=body.step, status=body.status, task_type=body.type)
         ingest = []
         if (body.owner or body.waiting_on) and ask_ingest.gated(caller, settings.assistant_bot):
@@ -4543,8 +4574,14 @@ def create_app(settings=None):
             lifecycle.refuse_send(c, who, None, what="anything")
             if body.task_id:
                 auth.task(c, who, body.task_id)
-            return H.approval_request(c, who.actor, body.kind, body.payload, body.task_id,
-                                      supersedes=body.supersedes_approval)
+            to = None
+            if body.kind in proposals.KINDS:     # a redesign proposal: checked now, decided by the top of the org
+                proposals.check(c, body.kind, body.payload)
+                to = proposals.decider(c)
+            row = H.approval_request(c, who.actor, body.kind, body.payload, body.task_id,
+                                     supersedes=body.supersedes_approval, to=to)
+            # A proposal answers as a bot's cap PUT does too: the approval's id and that it waits on a person.
+            return {**row, "approval": row["id"], "status": "pending"} if body.kind in proposals.KINDS else row
         return mutate(request, body, work)
 
     @app.get("/api/v2/approvals/{aid}")
@@ -4573,7 +4610,10 @@ def create_app(settings=None):
                 from .support import require_person
                 require_person(who)
             privacy.require_payload(c, who, row)
-            return H.approval_decide(c, who.actor, aid, body.decision, body.note)
+            decided = H.approval_decide(c, who.actor, aid, body.decision, body.note)
+            if row["kind"] in proposals.KINDS and body.decision == "approved":
+                proposals.apply(c, auth, settings, who, row)     # the hub applies it itself (CONTRACT §5)
+            return decided
         return mutate(request, body, work)
 
     @app.post("/api/v2/approvals/{aid}/undo")
@@ -6866,6 +6906,7 @@ def create_app(settings=None):
     redesign_migration.install(app, store, auth, mutate)
     from . import audit_log
     audit_log.install(app, store, auth)
+    task_caps.install(app, store, auth, mutate)
     profiles.install(app, store, auth, mutate, settings_admin)
     from . import release_flow
     release_flow.install(app, store, auth, mutate)

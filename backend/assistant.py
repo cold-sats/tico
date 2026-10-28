@@ -449,10 +449,12 @@ _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
     ("POST", r"/api/v2/(slack|github/app)/disconnect"),
     ("POST", r"/api/v2/access/owner"), ("POST", r"/api/v2/enrollments"), ("POST", r"/api/v2/seats/[^/]+/hire"),
+    ("POST", r"/api/v2/redesign/migration/(convert|restore)"),
     # A webhook moved to another destination while it holds secret headers (app.py `destination_card`).
     ("POST", r"/api/v2/webhooks/[^/]+/update"),
 )]
-_SHAPE = re.compile(r"/api/v2/[A-Za-z0-9_.:\-/]+")
+# An inbox is an email address in its path (`inboxes/ana@acme.example`): the one `@` a route may carry.
+_SHAPE = re.compile(r"/api/v2/(?:inboxes/[A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+|[A-Za-z0-9_.:\-/]+)")
 
 
 def normalize_path(path):

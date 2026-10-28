@@ -26,6 +26,18 @@ def on(c):
     return isinstance(value, dict) and value.get("enabled") is True
 
 
+def dormant():
+    """Decorator options for a redesign route: a dependency that answers 404 while the switch is off. FastAPI checks a
+    body or query before the handler runs, so without it a malformed request would get a 422 that shows the route."""
+    from fastapi import Depends, Request
+
+    def switch_off_is_404(request: Request):
+        with request.app.state.store.read() as c:
+            if not on(c):
+                raise Problem("not_found", "Not found", 404)
+    return {"dependencies": [Depends(switch_off_is_404)]}
+
+
 def set_on(c, enabled, actor):
     c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
               (KEY, json.dumps({"enabled": bool(enabled), "updated": H.now(), "updated_by": actor})))
@@ -59,4 +71,9 @@ def install(app, store, auth, mutate):
                 # Off, the automations the convert made would stop and the rows they replaced are gone.
                 raise Problem("conflict", "The install was converted to the redesign; restore the migration "
                                           "before turning it off", 409)
-        return mutate(request, body, lambda c: set_on(c, body.enabled, request.state.identity.actor), check=permitted)
+        def change(c):
+            out = set_on(c, body.enabled, request.state.identity.actor)
+            if body.enabled:   # the Automations Bot is made the moment the redesign is on, like the other built-ins
+                app.state.onboarding.ensure_automations_bot(c)
+            return out
+        return mutate(request, body, change, check=permitted)

@@ -127,7 +127,7 @@ function auFlowLines(flow) {
   for (const c of t.filters || []) out.push('  filter ' + auCondText(c));
   const walk = (steps, pad) => (steps || []).forEach(s => {
     const off = s.enabled === false ? ' (off)' : '';
-    if (s.type === 'filter') (s.rules || []).forEach(r => out.push(`${pad}filter ${auCondsText(r.when, r.match)} → ${(r.then || []).map(x => AU_ACTIONS[x] || x).join(', ')}${off}`));
+    if (s.type === 'filter') (s.rules || []).forEach(r => out.push(`${pad}filter ${auCondsText(r.when, r.match)} → ${auThenWords(r.then).join(', ')}${off}`));
     else if (s.type === 'decide') {
       out.push(`${pad}decide ${s.set ? auSetWords(s.set) : 'custom'} · ${s.level || 'medium'}${off}`);
       if (!s.set) Object.entries(s.questions || {}).forEach(([q, d]) => out.push(`${pad}  question ${q} · ${(AU_QTYPES.find(([k]) => k === d.type) || [, d.type])[1]}`));
@@ -173,6 +173,12 @@ function auPropsDraw() {
     </div>`;
   }).join('');
 }
+// A proposal settled (On or Discarded): the list row stops counting it as pending.
+function auPendingDone(id) {
+  const row = (AU.list || []).find(x => x.id === id);
+  if (row?.pending) row.pending -= 1;
+}
+
 async function auPropAct(button) {
   const n = +button.closest('[data-n]').dataset.n, act = button.dataset.prop, a = AU.cur, state = AU;
   const p = AU.bot.props.find(x => x.n === n);
@@ -185,12 +191,14 @@ async function auPropAct(button) {
       if (AU !== state) return;
       p.state = 'on'; p.diff = false;
       AU.bot.propsKey = out.id + '@' + out.version;   // the new current version: no need to read the proposals again
+      auPendingDone(a.id);
       auAdopt(out);
       toast(`${out.name} v${out.version} is on`);
     } else if (act === 'discard') {
       await writeRequest('DELETE', `${auApi(a.id)}/versions/${n}`);
       if (AU !== state) return;
       p.state = 'discarded'; p.diff = false;
+      auPendingDone(a.id); auDrawList();
     }
     auPropsDraw();
   } catch (e) { toast(e.message, true); if (button.isConnected) button.disabled = false; }

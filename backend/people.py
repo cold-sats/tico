@@ -143,6 +143,8 @@ def load(doc, owner=None):
             groups[gid]["order"] = body["order"]
         if isinstance(body.get("bet_id"), str) and body["bet_id"].strip():
             groups[gid]["bet_id"] = body["bet_id"].strip()       # the strategy bet it serves (backend/strategy.py)
+        if _clean(body.get("lead")):
+            groups[gid]["lead"] = _clean(body["lead"])            # bot:<slug> or person:<id> (CONTRACT §3, backend/groups.py)
     for gid, root in roots.items():             # a roster written before groups: each team is a group
         group = groups.setdefault(gid, {"id": gid, "name": gid.replace("-", " ").title(), "reports_to": "",
                                         "parent": "", "root": ""})
@@ -382,6 +384,8 @@ def org_parent(kind, ident, roster, employees, archived=()):
             return ""
         skipped.add(reports)
         reports = _clean(((employees or {}).get(reports) or {}).get("reports_to"))
+    if reports and not reports.startswith("human:") and reports not in (employees or {}) and person(reports, roster):
+        reports = "human:" + reports      # a bare person id, the form some writers store, is that person
     if reports and not reports.startswith("human:") and reports not in archived and reports not in (employees or {}):
         # A boss that is not a bot here at all (an assistant the company chose not to have):
         # the bot hangs under the owner instead of vanishing from the chart.
