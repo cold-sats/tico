@@ -100,8 +100,6 @@ def test_a_market_change_made_in_an_automations_turn_names_the_turn_and_the_matc
         "automation": aid, "run": run["id"], "turn": {"attempt": attempt["id"], "bot": "librarian",
                                                       "task": run["steps"][0]["outputs"]["turn"]["task"]},
         "match": {"id": "li_1", "destination": "tools", "url": heard["url"], "source": "news"}}
-    # A change by hand names no turn; with the redesign off the graph is as it was.
+    # A change by hand names no turn.
     post(api, "market/entities", {"type": "product", "name": "Acme Atlas", "evidence_ids": [seen]})
     assert [("source" in e) for e in get(api, "market/graph")["entities"]] == [False, True]
-    put(api, "settings/redesign", {"enabled": False})
-    assert all("source" not in e for e in get(api, "market/graph")["entities"])

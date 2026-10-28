@@ -263,8 +263,6 @@ def test_stats_carry_a_daily_chart_and_the_callers_recent_posts(api):
     post(api, "listening/runs", {"source": "reddit", "query": "q", "status": "ok", "items": [
         _post("3", "A team lead asks for a hosted plan [lead]", author="@lead")]}, token=listening)
     post(api, "listening/judge", {}, token=listening)
-    assert "daily" not in get(api, "listening/stats") and "recent" not in get(api, "listening/stats")
-    put(api, "settings/redesign", {"enabled": True})
     stats = get(api, "listening/stats")
     assert [d["sources"] for d in stats["daily"]] == [{"x": 2, "reddit": 1}]
     assert sorted(tuple(r["destinations"]) for r in stats["recent"]) == [("content", "creators"), ("leads",)]

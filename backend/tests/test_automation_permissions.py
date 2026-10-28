@@ -90,11 +90,9 @@ def test_automations_follow_their_owner_into_a_new_group(api):
 
 
 def test_a_chat_may_name_only_an_automation_its_writer_can_see(api):
-    """A chat's refs.automation (BotOps edits the open one): an unsupported kind while the redesign is off; on, the
-    automation must exist and the writer must be able to see it, the rule GET /api/v2/automations/{aid} applies."""
+    """A chat's refs.automation (BotOps edits the open one): the automation must exist and the writer must be able to
+    see it, the rule GET /api/v2/automations/{aid} applies."""
     chat = {"text": "Change this one", "refs": {"automation": "auto_missing"}}
-    refused = api.post("/api/v2/chat/ops", json=chat, headers=headers())
-    assert refused.status_code == 422 and "Unsupported reference kind: automation" in refused.text, refused.text
     aid = post(api, "automations", {"name": "Ops", "owner": "bot:ops", "trigger": {"type": "event", "name": "x.y"},
                                     "steps": []})["id"]
     named = {"text": "Change this one", "refs": {"automation": aid}}

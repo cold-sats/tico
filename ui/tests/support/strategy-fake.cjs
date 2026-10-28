@@ -38,7 +38,7 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
       kpis: [{id: 'k-cust', name: 'Paying customers', status: 'green', link: {kind: 'improve', baseline: 20, baseline_at: '2026-09-01', target: 100, deadline: '2026-12-31'}}]},
     {id: 'g-sales', title: 'Book 40 demos a month', owner: 'bot:sales-lead', parent_id: 'g-co', status: 'yellow', status_source: 'auto', rank: 1, kpis: []},
   ];
-  const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: fx.needs[viewer] || [], approvals: [], goals};
+  const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: [], goals};
   const writes = [];
   // A teammate joins a group and leaves the one it was in (backend/groups.py); `remove` leaves it in no group.
   const move = (kind, id, to) => {

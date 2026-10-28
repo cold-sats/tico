@@ -35,9 +35,9 @@ def review_routine(api):
 
 
 def review_enabled(api):
+    """Whether the Monday note is on: it moved to an automation, so its automation's on/off (routines.row)."""
     with api.app.state.store.read() as c:
-        return bool(c.execute("SELECT coalesce(enabled,1) FROM schedule_config WHERE schedule_id=?",
-                              (REVIEW,)).fetchone()[0])
+        return bool(routines.row(c, REVIEW)["enabled"])
 
 
 def test_every_install_starts_at_passive_and_says_what_each_level_does(api):
@@ -265,29 +265,36 @@ def test_lowering_to_passive_keeps_the_vision_and_why_asks_until_they_are_resolv
         assert [H.task(c, t)["status"] for t in filed.values()] == ["closed", "closed"]
 
 
-def test_with_regular_checks_off_a_due_kpi_pass_neither_opens_nor_continues_a_run(api):
-    """Off, the next KPI pass occurrence is skipped even while an earlier run is still unfinished: no new task and no
-    notice to continue the old one."""
+def test_with_regular_checks_off_a_due_kpi_pass_is_skipped(api):
+    """The KPI pass moved to an automation. Off, its due run is skipped: no run, no task, no message; on, it runs."""
     from datetime import datetime, timezone
-    from backend.scheduler import Scheduler
+    from backend import automations
     goal_manager(api)
     store = api.app.state.store
     with store.transaction() as c:
         routines.create(c, H.KEEPER, "goal-manager", {"title": "KPI pass", "cron": "0 7 * * *", "timezone": "UTC"},
                         key="kpi-pass")
-        c.execute("UPDATE schedules SET next_due=NULL, last_fired='2026-09-14T00:00:00.000000Z' WHERE id=?",
-                  (ceo_bot.PASS,))
-    [first] = Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 14, 8, tzinfo=timezone.utc))["fired"]
+        aid = routines.row(c, ceo_bot.PASS)["automation"]
+    assert aid
     post(api, "ceo-bot/checks", {"on": False})
+
+    def due_at(day):
+        with store.transaction() as c:
+            c.execute("UPDATE automations SET next_due=? WHERE id=?", (f"2026-09-{day}T07:00:00.000000Z", aid))
+        automations.tick(store, datetime(2026, 9, day, 8, tzinfo=timezone.utc))
+        with store.read() as c:
+            return (c.execute("SELECT count(*) FROM automation_runs WHERE automation_id=?", (aid,)).fetchone()[0],
+                    c.execute("SELECT count(*) FROM events WHERE action='automation.skipped' AND target=?",
+                              (aid,)).fetchone()[0])
+
+    automations.tick(store, datetime(2026, 9, 13, 8, tzinfo=timezone.utc))        # the first tick: the owner's built-ins
     with store.read() as c:
         said = c.execute("SELECT count(*) FROM messages").fetchone()[0]
-    Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 15, 8, tzinfo=timezone.utc))
+    assert due_at(14) == (0, 1)
     with store.read() as c:
-        assert [tuple(r) for r in c.execute("SELECT task_id, outcome FROM schedule_occurrences WHERE schedule_id=? "
-                                            "ORDER BY occurrence", (ceo_bot.PASS,))] == \
-            [(first, "created"), (None, "skipped")]
         assert c.execute("SELECT count(*) FROM messages").fetchone()[0] == said
-
+    post(api, "ceo-bot/checks", {"on": True})
+    assert due_at(15) == (1, 1)
 
 def test_at_upgrade_a_due_monday_note_the_old_level_1_started_never_fires(api):
     """An install from before v3 at level 1 with its Monday note started and overdue: the startup migration pauses

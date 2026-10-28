@@ -279,12 +279,6 @@ def test_a_claim_stops_inside_the_byte_budget_and_the_rest_wait_for_the_next(api
     assert sorted(rest) == [f"act{i}" for i in range(5)]
 
 
-def test_the_routes_are_404_while_the_redesign_is_off(api, computer):
-    api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers())
-    claim(api, computer.token, expected=404)
-    assert computer.worker.mail_action_tick() == 0           # the worker carries on quietly
-
-
 # ---------------------------------------------------------------------------------------------- the send switch
 def test_a_send_claimed_after_the_switch_went_off_is_a_draft(api, computer):
     aid = automate(api, SEND)

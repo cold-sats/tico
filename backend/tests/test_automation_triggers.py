@@ -1,5 +1,5 @@
 """What starts an automation (backend/automations.py): a task received, a catalog event, mail, Slack, an incoming
-webhook, listening and a schedule (DST-safe), with trigger filters, batch times, the chain guard and the redesign off."""
+webhook, listening and a schedule (DST-safe), with trigger filters, batch times, and the chain guard."""
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -63,14 +63,10 @@ def test_an_event_trigger_and_the_chain_guard(api):
         assert c.execute("SELECT count(*) FROM tasks WHERE title='Follow up'").fetchone()[0] == 1
 
 
-def test_a_paused_automation_and_the_redesign_off_start_nothing(api):
+def test_a_paused_automation_starts_nothing(api):
     aid = make(api, {"type": "task_received", "to": "bot:ops"}, enabled=False)
     post(api, "tasks", {"owner": "ops", "title": "Paused", "body": "Please."})
     assert runs(api, aid)["runs"] == []
-    on = make(api, {"type": "message", "inbox": "ana@acme.example"})
-    api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers())
-    assert fire(api, automations.on_mail, "ana@acme.example", mail()) == []
-    assert runs(api, on)["runs"] == []
 
 
 # ---------------------------------------------------------------------------------------------- mail and the send switch

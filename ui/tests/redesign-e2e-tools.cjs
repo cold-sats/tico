@@ -5,7 +5,7 @@
 const assert = require('node:assert/strict');
 const {run, open, ok, sideways, shot, t} = require('./support/redesign-e2e.cjs');
 
-run('redesign-e2e-tools', ['org', 'toured', 'redesign_on', 'connection'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-tools', ['org', 'toured', 'connection'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/library/connections'});
   await page.waitForFunction(() => location.hash.startsWith('#/library/tools'), null, {timeout: t(5000)});
   const tools = await ok(page, 'GET', 'tools');

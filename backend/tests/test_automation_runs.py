@@ -1,6 +1,6 @@
 """How a run lives in the hub (backend/automations.py): saved after each step that did something and resumed from
 there, each effect done once; a turn that ends before its run is saved still answers it; the chain carried through a
-bot's turn; the run guard; the redesign off; the spend cap holding turns not priced yet; schedules; the find
+bot's turn; the run guard; the spend cap holding turns not priced yet; schedules; the find
 watermark."""
 import json
 from datetime import datetime, timedelta, timezone
@@ -44,11 +44,6 @@ def sql(api, query, args=()):
 
 def hub(api):
     return api.app.state.store.automations
-
-
-def turn_off(api):
-    r = api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers("ana-test"))
-    assert r.status_code == 200, r.text
 
 
 # ---------------------------------------------------------------------------------------------- saved and resumed
@@ -134,24 +129,6 @@ def test_a_webhook_loop_is_paused_by_the_run_guard(api):
     needs = sql(api, "SELECT owner FROM tasks WHERE title LIKE 'Automation Test paused%'")
     assert needs == [{"owner": "human:ana"}]
     assert len(sql(api, "SELECT id FROM events WHERE action='automation.run_guard' AND target=?", (aid,))) == 1
-
-
-# ---------------------------------------------------------------------------------------------- the redesign off
-def test_with_the_redesign_off_queued_runs_wait_and_turns_still_answer(api):
-    r = runner(api)
-    assign(api, r, "ops")
-    ready(api, r, ["ops"])
-    aid = post(api, "automations", draft_then_tell())["id"]
-    waiting = post(api, f"automations/{aid}/run", {})["run"]["id"]
-    later = queued(api, aid)
-    turn_off(api)
-    assert hub(api).drain() == 0 and hub(api).claim() is None
-    finish(api, r, "Drafted while off")
-    assert run_row(api, later)["status"] == "queued" and run_row(api, later)["state"]["steps"] == []
-    answered = run_row(api, waiting)
-    assert answered["status"] == "queued" and answered["state"]["steps"][0]["outputs"]["text"] == "Drafted while off"
-    automations.tick(api.app.state.store)
-    assert run_row(api, waiting)["status"] == "ok"
 
 
 # ---------------------------------------------------------------------------------------------- the spend cap

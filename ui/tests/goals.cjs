@@ -112,15 +112,16 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
 
     await page.goto('http://tico-ui.test/#/goals');
     await page.locator('#goal-tree .gt-row').first().waitFor();
-    // Nothing to add from the page itself: adding lives in each owner's panel.
+    // The tree adds nothing itself: "+ Goal" heads the Strategy tab, and the rest lives in each owner's panel.
     assert.equal(await page.locator('#goal-body button').filter({hasText: /Goal|KPI/}).count(), 0, 'no + Goal, + Company goal or + KPI');
-    assert.doesNotMatch(await page.locator('#main').innerText(), /\+ ?(Goal|Company goal|KPI)/);
+    assert.doesNotMatch(await page.locator('#goal-body').innerText(), /\+ ?(Goal|Company goal|KPI)/);
+    assert.equal(await page.locator('#strat-actions #goal-new').innerText(), '+ Goal');
     // Two requests draw the page: the tree and Needs you.
     assert.deepEqual(requests.filter(r => /goals|kpis/.test(r)).sort(), ['GET /api/v2/goals/needs-you', 'GET /api/v2/goals/tree']);
 
     // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; helper bots off it.
     const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
-    assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:goal-manager@1', 'bot:sales@1', 'bot:support@1']);
+    assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:sales@1', 'bot:goal-manager@1', 'bot:support@1'], JSON.stringify(lines));   // by name: Strategy Bot after Sales
     // The sidebar leaves the same helper bots off.
     assert.equal(await page.locator('#tree [data-org="b:inbox"], #tree [data-org="b:channel"]').count(), 0);
     const row = owner => page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont)`);

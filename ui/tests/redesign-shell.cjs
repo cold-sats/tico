@@ -99,8 +99,8 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.equal(await page.locator('#tree [data-org="b:eng-lead"]').count(), 1, tag + ': the Team list keeps the chart');
       assert.equal(await page.getAttribute('a[data-nav="strategy"]', 'href'), '#/strategy/market', tag + ': Strategy opens on Market');
       assert.deepEqual(await page.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), PHONE_BAR, tag + ': the phone bar is the mock\'s');
-      for (const [from, to] of [['#/goals', '#/strategy/goals'], ['#/goals/g-1', '#/strategy/goals/g-1'], ['#/settings/listening', '#/strategy/market/listening'],
-        ['#/tasks/routines', '#/automations'], ['#/recurring', '#/automations']]) {
+      for (const [from, to] of [['#/tasks/routines', '#/automations'], ['#/recurring', '#/automations'], ['#/goals', '#/strategy/goals'],
+        ['#/goals/g-1', '#/strategy/goals/g-1'], ['#/settings/listening', '#/strategy/market/listening']]) {
         await page.evaluate(h => { location.hash = h; }, from);
         assert.ok(await hashSoon(page, to), `${tag}: ${from} lands on ${to}`);
       }
