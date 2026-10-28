@@ -269,13 +269,20 @@ def no_run(r):
     return f"{r['runs']} run(s) logged for one input, want 1 (run answered {r.get('fired')})"
 
 
+def items_of(run):
+    """The items a run's steps ran for: a `find` gives each item its own steps (CONTRACT §2 find); otherwise just None."""
+    return {s.get("item") for s in run.get("steps") or []}
+
+
 def one_path(r):
     if r["run"] is None:
         return no_run(r)
     for group in r["groups"]:
-        won = [sid for sid in group if any(s.get("status") == "ok" for s in row_of(r["run"], sid))]
-        if len(won) > 1:
-            return f"{won} all ran in one fork"
+        for item in items_of(r["run"]):
+            won = [sid for sid in group
+                   if any(s.get("status") == "ok" and s.get("item") == item for s in row_of(r["run"], sid))]
+            if len(won) > 1:
+                return f"{won} all ran in one fork" + (f" for item {item}" if item is not None else "")
     return ""
 
 
@@ -318,9 +325,10 @@ def failure_ends_run(r):
 def action_once(r):
     if r["run"] is None:
         return no_run(r)
-    ran = [s.get("id") for s in r["run"].get("steps") or []
+    ran = [(s.get("id"), s.get("item")) for s in r["run"].get("steps") or []
            if str(s.get("id", "")).startswith("act") and s.get("status") == "ok"]
-    return f"action ran {len(ran)} times: {ran}" if len(ran) > 1 else ""
+    twice = sorted({key for key in ran if ran.count(key) > 1}, key=str)   # (step id, item): once per item
+    return f"action ran more than once (step, item): {twice}" if twice else ""
 
 
 def costs_add(r):
@@ -455,7 +463,7 @@ def matrix_scenario(seed):
         Check("exactly one path runs per fork", W3, across(one_path)),
         Check("every top-level step is logged with a status", W3, across(top_logged)),
         Check("a step that fails ends the run as failed", W3, across(failure_ends_run)),
-        Check("each action runs at most once", W3, across(action_once)),
+        Check("each action runs at most once per item", W3, across(action_once)),
         Check("costs add up: the run's cost is the sum of its steps", W3, across(costs_add)),
         Check("a disabled step never runs", W3, across(disabled_silent)),
         Check("every LLM or Bot turn step names its turn, never in the sender's session", W3, across(turn_origin)),
