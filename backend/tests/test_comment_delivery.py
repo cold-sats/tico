@@ -1,0 +1,119 @@
+"""A task comment's delivery (docs/tasks.md, Conversation): steer reaches the bot now, queue waits for its next turn
+on the task, goal sets the task session's goal. The API, the hub CLI and the MCP tool share one rule, tested here."""
+
+import pytest
+
+from backend.tests.test_api import api, assign, claim, get, headers, post, runner  # noqa: F401
+from backend.tests.test_mcp import call
+from clients import hubcli
+
+
+def world(api, goals=True):
+    """A runner with bot `ops` on a task it owns; the bot's harness reports goals or not."""
+    machine = runner(api)
+    assign(api, machine, "ops")
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test",
+         "capabilities": ["task_lanes_v2", "session_roots_v1", "task_goals_v1"], "readiness": {
+         "schema_version": 1, "bots": {"ops": {"ready": True, "runtime": "codex", "goals": goals}}}}, machine["token"])
+    task = post(api, "tasks", {"owner": "ops", "title": "Plan the launch", "body": "For the team."})
+    return machine, task["id"]
+
+
+def job_state(api, message_id):
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT state FROM jobs WHERE message_id=?", (message_id,)).fetchone()
+    return row[0] if row else None
+
+
+def test_queue_waits_for_the_next_turn_steer_joins_the_running_one_and_no_choice_is_as_before(api):
+    machine, tid = world(api)
+    attempt = claim(api, machine)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "plan"}, machine["token"])
+
+    # Queue is saved on the task without waking the bot, so it does not join the running turn either.
+    queued = post(api, f"tasks/{tid}/comments", {"text": "Billing first, then the docs.", "delivery": "queue"})
+    assert queued["woke"] is False and job_state(api, queued["comment"]["id"]) is None
+    running = [m["id"] for m in post(api, f"attempts/{attempt['id']}/inputs", {}, machine["token"])["messages"]]
+    assert queued["comment"]["id"] not in running
+
+    # Steer wakes the bot now: its job is queued in the task's room, and the running turn takes it in.
+    steered = post(api, f"tasks/{tid}/comments", {"text": "Use the August numbers.", "delivery": "steer"})
+    assert steered["woke"] is True and job_state(api, steered["comment"]["id"]) == "queued"
+    running = [m["id"] for m in post(api, f"attempts/{attempt['id']}/inputs", {}, machine["token"])["messages"]]
+    assert steered["comment"]["id"] in running
+
+    # Omitted, the wake rule decides as it always has: a person's comment on a task its bot owns wakes the bot.
+    plain = post(api, f"tasks/{tid}/comments", {"text": "Also the API page."})
+    assert plain["woke"] is True and job_state(api, plain["comment"]["id"]) == "queued"
+
+
+def test_the_send_says_which_ways_a_reader_may_deliver(api):
+    machine, tid = world(api)
+    cd = get(api, f"tasks/{tid}")["comment_delivery"]
+    assert cd["default"] == "steer" and isinstance(cd["steers"], bool) and cd["goal"] is True
+
+    # A person's task with no bot on it: nothing to deliver to.
+    person = post(api, "tasks", {"owner": "human:ana", "title": "Call the venue", "body": "Ask about Friday."})
+    assert get(api, f"tasks/{person['id']}")["comment_delivery"] == {
+        "default": None, "steer": False, "steers": False, "goal": False}
+
+
+def test_only_someone_on_the_task_may_steer_its_bot(api):
+    machine, tid = world(api)
+    # Ben is not on Ana's task: his comment waits for the bot's next turn, so the send offers no steer.
+    cd = get(api, f"tasks/{tid}", "ben-test")["comment_delivery"]
+    assert cd["default"] == "queue" and cd["steer"] is False
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "Do mine first.", "delivery": "steer"},
+                 headers=headers("ben-test"))
+    assert r.status_code == 403 and "delivery" in r.text, r.text
+    assert all(c["body"] != "Do mine first." for c in get(api, f"tasks/{tid}")["comments"])
+    queued = post(api, f"tasks/{tid}/comments", {"text": "When you can.", "delivery": "queue"}, token="ben-test")
+    assert queued["woke"] is False
+
+
+def test_a_bot_whose_harness_cannot_take_goals_offers_no_goal(api):
+    machine, tid = world(api, goals=False)
+    cd = get(api, f"tasks/{tid}")["comment_delivery"]
+    assert cd["default"] == "steer" and cd["goal"] is False
+
+
+def test_goal_sets_the_task_sessions_goal_as_a_chat_goal_does(api):
+    machine, tid = world(api)
+    cid = get(api, f"tasks/{tid}")["task"]["conversation_id"]
+    text = "Finish the billing migration before anything else."
+    done = post(api, f"tasks/{tid}/comments", {"text": text, "delivery": "goal"})
+    assert done["comment"]["body"] == text
+    assert done["goal"]["objective"] == text and done["goal"]["status"] == "active"
+    assert get(api, f"conversations/{cid}/goal")["goal"]["objective"] == text
+
+
+def test_a_goal_the_harness_cannot_take_saves_no_comment(api):
+    machine, tid = world(api, goals=False)
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "Ship it.", "delivery": "goal"},
+                 headers=headers("ana-test"))
+    assert r.status_code == 409 and "goal_unsupported" in r.text, r.text
+    assert all(m["body"] != "Ship it." for m in get(api, f"tasks/{tid}")["comments"])
+
+
+@pytest.mark.parametrize("body", [
+    {"text": "Pick the venue.", "delivery": "later"},                           # not a way
+    {"text": "Pick the venue.", "delivery": "goal", "public": True},            # a goal is not public
+    {"text": "Pick the venue.", "needs_action": True, "delivery": "queue"},     # needs_action is steer
+])
+def test_a_delivery_that_cannot_apply_is_refused_and_nothing_is_saved(api, body):
+    machine, tid = world(api)
+    before = len(get(api, f"tasks/{tid}")["comments"])
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json=body, headers=headers("ana-test"))
+    assert r.status_code == 422, r.text
+    assert len(get(api, f"tasks/{tid}")["comments"]) == before
+
+
+def test_mcp_and_the_hub_cli_send_the_same_delivery(api):
+    machine, tid = world(api)
+    is_error, payload = call(api, "hub_task_comment", {"id": tid, "text": "Pick the venue.", "delivery": "queue"})
+    assert is_error is False and payload["woke"] is False
+    # One of the three ways at most, on the command line too.
+    assert hubcli.parser().parse_args(["task", "comment", tid, "Pick the venue.", "--goal"]).delivery == "goal"
+    assert hubcli.parser().parse_args(["task", "comment", tid, "Pick the venue."]).delivery is None
+    with pytest.raises(SystemExit):
+        hubcli.parser().parse_args(["task", "comment", tid, "Pick the venue.", "--steer", "--queue"])

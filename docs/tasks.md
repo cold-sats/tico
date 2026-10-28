@@ -1071,18 +1071,30 @@ comments. The bot's updates and replies are messages, and each reply opens to th
 people say shows on the right under their names, as in a bot's chat with several people; your own line has no name.
 Changes to status, type, owner and the like are one-line markers between the messages. Under a message you send, the
 line from the bot's chat shows what happens to it: **Sent**, **Queued** (and why, when the bot is busy or at a limit),
-**Starting**, then **<Bot> is working…** with its newest step, opening to the steps so far, until the reply, or
-**Reply failed** when the turn errors. It follows the bot your message went to, which on a task you own that a bot
-asked is that bot, and the owner's own runs as before; a bot's message to another bot does not take it. Whoever
-manages the bot gets **Stop** beside it, the same stop as in the bot's chat (`POST /v2/bots/{slug}/stop`). The box at
-the foot is the chat's composer, and what you type there is a comment: it wakes the bot as before. Before you send,
-the box says when no bot will get the message (everyone on the task is a person), or when it waits for the bot's next
-run on the task; an @mention of the bot that asked wakes it, and the note goes. `GET /v2/tasks/{id}` carries this
-view: each bot reply in `comments` has its `run`; `execution` is the owning bot's newest run in the task's own room,
-or a newer one for a person's message there, shaped as in a conversation snapshot with `from_person`; and
-`comment_to` (`bot`, `wakes`, `mention`) is who your next comment reaches. A task still in a chat room (one filed into
-a chat before task rooms) has no `execution`: that room's runs belong to the chat.
-`hub task comment`, `hub_task_comment` and `POST /v2/tasks/{id}/comments` are unchanged.
+**Starting**, then **<Bot> is working…** with its newest step, opening to the steps so far, until the reply, or **Reply
+failed** when the turn errors. It follows the bot your message went to, which on a task you own that a bot asked is that
+bot, and the owner's own runs as before; a bot's message to another bot does not take it. Whoever manages the bot gets
+**Stop** beside it, the same stop as in the bot's chat (`POST /v2/bots/{slug}/stop`). The box at the foot is the chat's
+composer, and what you type there is a comment. Where a bot gets it, the send says how it arrives: **Steer** (the
+default when your comment would wake the bot, Queue when not) reaches the bot now, and joins a turn already running if
+the bot's harness can steer (otherwise the bot takes it after that turn); **Queue** waits for the bot's next turn on
+this task without waking it now; **Set as goal** makes the text the goal of the bot's session for this task, as `/goal`
+does in a chat (no files, not public; [chat goals](chat-goals.md)). Only someone on the task (its owner, requester or a
+mover) may steer; anyone else's comment is queued, as it always was. The caret opens the other two, and the choice is
+kept per task in this browser. Before you send, the box says what the chosen way does. With no bot on the task (everyone
+on it is a person) the send is a plain arrow, and the box says no bot gets the message. `GET /v2/tasks/{id}` carries
+this view: each bot reply in `comments` has its `run`; `execution` is the owning bot's newest run in the task's own
+room, or a newer one for a person's message there, shaped as in a conversation snapshot with `from_person`; `comment_to`
+(`bot`, `wakes`, `mention`) is who your next comment reaches; and `comment_delivery` (`default`, `steer`, `steers`,
+`goal`) is how it can reach them: `default` is what a comment without a delivery does (`steer` when it wakes the bot,
+else `queue`), `steer` says you may steer, `steers` says the bot's harness can take a message into a running turn, and
+`goal` says a goal can be set (both null without a bot). A task still in a chat room (one filed into a chat before task
+rooms) has no `execution`: that room's runs belong to the chat.
+`hub task comment <id> "<text>" --steer|--queue|--goal` (one of the three), `hub_task_comment` with `delivery`, and
+`POST /v2/tasks/{id}/comments` with `delivery` choose the same ways. Without one a comment wakes the bot as it always
+has. A question (`ask`) always wakes the one it is for, so it takes no delivery; `needs_action` takes none or `steer`;
+a `goal` takes no files and cannot be public. A refused combination is a 422, a steer by someone not on the task a
+403, and nothing is saved.
 
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
 that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished
@@ -1254,7 +1266,8 @@ The version's metadata points to its ask message. These routes use the usual Ide
   `file` and `link` fields.
 - `GET /api/v2/tasks/{id}/files` returns files, including archived files, with versions newest first.
 - `PATCH /api/v2/files/{id}/versions/{n}` accepts `note` and `ask`, by the version's uploader.
-- `POST /api/v2/tasks/{id}/comments` accepts `text`, `ask`, and version references in `attachments`.
+- `POST /api/v2/tasks/{id}/comments` accepts `text`, `ask`, version references in `attachments`, and `delivery`
+  (`steer`, `queue` or `goal`, see Conversation above).
   `GET` lists the comments, including `ask` and `answers` on questions, and `answer` on responses.
 - `POST /api/v2/tasks/{id}/answers` accepts `target: {comment: id}` or
   `target: {file: id, version: n}`, `answers: {question_id: [label, ...]}`, optional `other`,
