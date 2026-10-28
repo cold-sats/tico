@@ -669,7 +669,11 @@ def wf1_slack(f):
         want = {k: (1 if k == key else 0) for k in per}
         if counts != want:
             wrong[m["ts"]] = counts
-    return not wrong, f"runs per automation off for {len(wrong)}: {dict(list(wrong.items())[:3])}"
+    if not wrong:
+        return True, "each Slack message ran its channel's automation once"
+    states = {e.get("event_id"): e.get("state") for e in (got(f, "slack").body.get("events") or [])}
+    gave = {ts: states.get("Ev-" + ts) for ts in wrong}
+    return False, f"runs per automation off for {len(wrong)}: {wrong}; gateway outcome {gave}"
 
 
 # ================================================================================================ 2 task flood
@@ -964,6 +968,7 @@ def wf4_tasks(org):
 
 def wf4_steps(org, f):
     do(org, f, "prs", W3, wf4_open, org, f)
+    do(org, f, "links", W3, sql, org, "SELECT number, kind, state, activity_at, created FROM task_links ORDER BY number")
     at(org, utc(DAY4, 9, 30))
     do(org, f, "auto", W3, make_auto, org, "Stale PR nudge", LEAD_REF, {"type": "schedule", "cron": "0 * * * *", "tz": "UTC"},
        [step("stale", "find", source="prs", query="", idle_hours=24, since="last_run", limit=20),
@@ -991,11 +996,19 @@ def wf4_hourly(f):
     return hours == [10, 11, 12], f"run hours {hours}"
 
 
+def find_diag(f):
+    """Each run's find step as the run recorded it, and the PR rows the find reads (for a failure's reason)."""
+    out = [json.dumps(step_row(r, "stale"), default=str)[:240] for r in runs(f, "runs")]
+    links = f.get("links")
+    return f"find steps {out}; PR rows {links[:6] if isinstance(links, list) else links}"
+
+
 def wf4_one_each(f):
     """Each stale PR (100, 101, 102, 104) gets exactly one nudge over the three runs; the push to 102 adds none."""
     setup(f, "prs", "auto")
     counts = {n: len(nudges(f["tasks_12"], n)) for n in STALE4}
-    return all(v == 1 for v in counts.values()), f"nudges per PR {counts}"
+    ok = all(v == 1 for v in counts.values())
+    return ok, f"nudges per PR {counts}" + ("" if ok else f"; {find_diag(f)}")
 
 
 def wf4_merged(f):
@@ -1203,7 +1216,9 @@ def wf6_told(f):
     setup(f, "notify", "updates")
     posted = "v1.4.0" in canon(body(f, "updates"))
     hits = [t for t in f["seen_1"] if "v1.4.0" in t]
-    return posted and len(hits) == 1, f"Updates names it: {posted}; feed requests naming it: {len(hits)}"
+    ok = posted and len(hits) == 1
+    tell = [json.dumps(step_row(r, "tell"), default=str)[:300] for r in runs(f, "notify_runs_1")]
+    return ok, f"Updates names it: {posted}; feed requests naming it: {len(hits)}" + ("" if ok else f"; tell step {tell}")
 
 
 def wf6_next(f):
@@ -1386,7 +1401,10 @@ def hand_self(org):
     """The bot hands itself the next task during its turn, as the Self follow-up's prompt says. The bot makes it, not
     the automation, so the automation chain (MAX_CHAIN) does not stop it: this is the runaway the turn budget counts."""
     def act(token, attempt):
-        made = org.api("post", "/api/v2/tasks", {"title": "Next step", "body": "Scenario task.", "owner": OPENAI_REF},
+        # A new title each turn: the product refuses a second open task with the same owner and text (422 duplicate),
+        # which would end the loop by itself instead of by the turn budget.
+        title = f"Next step {attempt.get('id', '')}"
+        made = org.api("post", "/api/v2/tasks", {"title": title, "body": "Scenario task.", "owner": OPENAI_REF},
                        who=token, wave=W2)
         if made.status >= 300:
             raise Unmet(W2, f"hand itself the next task: {made.status} {made.excerpt()}")
@@ -1584,12 +1602,14 @@ def drain_all(org, f, errors):
 
 
 def publish_release(org, tag):
-    """A release reaches the product the way GitHub's release notice does (backend/release_flow.py `published`): the
-    legacy routines hear it through routines.emit and the automations through the hub's event hook. `emit` alone is
-    the legacy half, so a converted routine would never hear a release from it."""
-    from backend import release_flow
+    """A release arrives as GitHub's release webhook delivers it (backend/github.py `release`): the milestone is recorded
+    once (a repeat delivery is ignored there) and the first recording runs release_flow.published, which tells the
+    routines and the automations. Calling `published` directly would skip that dedupe."""
+    from backend import github
+    payload = {"action": "published", "repository": {"full_name": "acme/tico"},
+               "release": {"tag_name": tag, "draft": False, "html_url": f"https://github.com/acme/tico/releases/tag/{tag}"}}
     with org.store.transaction() as c:
-        return release_flow.published(c, f"acme/tico@{tag}", f"https://github.com/acme/tico/releases/tag/{tag}")
+        return github.release(c, payload, release_repo=org.store.settings.release_repo)
 
 
 def fake_day(org, f, phase, receiver):
