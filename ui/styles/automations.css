@@ -153,7 +153,11 @@ button.au-chip:hover{background:var(--surface2)}
 .au-bm{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:12px}
 .au-msgs{margin-top:auto}
 .au-berr{margin:0 12px}
-.au-bf{padding:6px 12px 12px}
+.au-bf{display:flex;align-items:center;gap:12px;padding:6px 12px 12px}
+.au-bf>.ask{flex:1 1 auto;min-width:0}
+.au-bf .au-blank{flex:none;color:var(--muted);text-decoration:none;font-size:var(--t-sm)}
+.au-bf .au-blank:hover{color:var(--ink)}
+.au-bf .au-blank[hidden]{display:none}
 /* the composer: one line, send inside it on the right (the shared pill without the question-card box) */
 .au-bf .ask{display:flex;flex-direction:column;gap:0;margin:0;padding:0;border:0;background:transparent}
 .au-bf .p-pill{flex-wrap:nowrap;align-items:flex-end;min-height:42px;padding:3px 3px 3px 14px;border-radius:21px}

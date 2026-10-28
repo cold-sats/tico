@@ -1,7 +1,7 @@
-// Journey 3 on a real hub (redesign TESTING.md §L3): build out Dana's empty "Weekly digest" by hand. Each "+" adds a
-// step in a sheet (Filter, then Decide, then an LLM prompt); each save is a version on the hub; History lists them and
-// restoring v1 brings back the empty flow as a new version. + New opens the Automations Bot (no hand-made blank or
-// template yet), so the journey starts from a seeded empty automation. Phone, then desktop.
+// Journey 3 on a real hub (redesign TESTING.md §L3): + New, then Blank (New without waiting on the Automations Bot):
+// the hub has an off "New automation" of Dana's, weekdays at 9, no steps, open in the editor. Each "+" adds a step in a
+// sheet (Filter, then Decide, then an LLM prompt); each save is a version on the hub; History lists them and restoring
+// v1 brings back the empty flow as a new version. Phone, then desktop.
 const assert = require('node:assert/strict');
 const {run, open, ok, automationNamed, sideways, shot, t} = require('./support/redesign-e2e.cjs');
 
@@ -19,12 +19,27 @@ async function save(page, version) {
 
 run('redesign-e2e-build', ['org', 'toured', 'redesign_on', 'automations'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/automations'});
-  const digest = await automationNamed(page, 'Weekly digest');
-  assert.equal(digest.version, 1);
-  await page.locator(`.au-row[data-row="${digest.id}"] a`).click();
-  await page.locator('.au-hd .au-name:text("Weekly digest")').waitFor();
+  await page.locator('.au-new').click();
+  const blank = page.locator('.au-botp .au-blank');
+  await blank.waitFor();
+  assert.equal(await blank.innerText(), 'Blank');
+  assert.equal(await sideways(page), false);
+  await shot(page, `${tag}-00-new`);
+  await blank.click();
+  await page.locator('.au-hd .au-name:text("New automation")').waitFor({timeout: t(10000)});
   await page.locator('.au-card[data-open="trigger"]').waitFor();
   assert.equal(await page.locator('.au-pane .au-card[data-open]:not([data-open="trigger"])').count(), 0, 'no steps yet');
+  assert.equal(await page.locator('.au-hd .au-sw').isChecked(), false, `${tag}: Blank starts off`);
+  assert.equal(await page.locator('.au-botp .au-blank').isVisible(), false, `${tag}: Blank is only on New`);
+  const made = await automationNamed(page, 'New automation');
+  assert.ok(made, `${tag}: the hub has it`);
+  assert.equal(made.version, 1);
+  assert.equal(made.enabled, false);
+  assert.equal(made.owner, 'person:dana');
+  assert.equal(made.trigger.type, 'schedule');
+  assert.equal(made.trigger.cron, '0 9 * * 1-5');
+  assert.deepEqual(made.steps, []);
+  await shot(page, `${tag}-00-blank`);
 
   // Filter: a rule on the subject, archive.
   await add(page, 'filter');
@@ -51,7 +66,7 @@ run('redesign-e2e-build', ['org', 'toured', 'redesign_on', 'automations'], async
   assert.equal(await sideways(page), false);
   await shot(page, `${tag}-04-flow`);
 
-  const built = (await ok(page, 'GET', `automations/${digest.id}`));
+  const built = (await ok(page, 'GET', `automations/${made.id}`));
   const flow = built.automation || built;
   assert.deepEqual(flow.steps.map(s => s.type), ['filter', 'decide', 'llm'], `${tag}: the hub has the three steps`);
   assert.deepEqual(flow.steps[0].rules[0].when, [{field: 'item.title', op: 'contains', value: 'draft'}]);
@@ -73,7 +88,7 @@ run('redesign-e2e-build', ['org', 'toured', 'redesign_on', 'automations'], async
   await page.waitForFunction(() => document.querySelector('.au-ver')?.textContent === 'v5', null, {timeout: t(10000)});
   await page.locator('.au-vr strong:text-is("v5")').waitFor();
   await shot(page, `${tag}-06-restored`);
-  const after = await automationNamed(page, 'Weekly digest');
+  const after = await automationNamed(page, 'New automation');
   assert.equal(after.version, 5);
   assert.deepEqual(after.steps, [], `${tag}: v1's empty flow is back`);
   await page.locator('.au-ed [data-op="close"]').click();
