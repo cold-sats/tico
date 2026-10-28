@@ -48,7 +48,8 @@ ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 # Bots cannot set ready; a task is closed through its separate requester action.
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status not in ("ready", "closed"))
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
+# task_cap, spend_limit, group and org: the redesign's proposals (backend/proposals.py), refused while it is off.
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
 PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
@@ -3842,6 +3843,24 @@ def team_budget(api, args):
     return _as_person(api).post("settings/turn-budgets", body, key=_key(args)) if body else _as_person(api).get("settings/turn-budgets")
 
 
+@tool("hub_task_caps", "Read the task caps (redesign on): how many tasks each teammate may create for another per day, with "
+      "today's count, the tasks closed before the receiver acted, and the refused creates. Also the changes bots asked "
+      "for, which a person approves or declines as approvals. A cap is off until someone sets one.", {})
+def task_caps_read(api, args):
+    return _as_person(api).get("task-caps")
+
+
+@tool("hub_task_cap_set", "Set how many tasks `sender` may create for `receiver` each day (teammate refs: bot:<slug> or "
+      "person:<id>). The receiver must be a manager above the sender at any level. per_day 0 blocks it; null removes the cap. "
+      "A bot's own change waits as an approval a person decides.",
+      {"sender": _s("bot:<slug> or person:<id>"), "receiver": _s("bot:<slug> or person:<id>, a manager above the sender"),
+       "per_day": {"type": ["integer", "null"], "minimum": 0, "description": "Tasks a day; null removes the cap"}},
+      ("sender", "receiver", "per_day"), writes=True)
+def task_cap_set(api, args):
+    body = {"sender": args["sender"], "receiver": args["receiver"], "per_day": args["per_day"]}
+    return _as_person(api).call("PUT", "task-caps", body, key=_key(args))
+
+
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
@@ -4430,7 +4449,10 @@ def redesign_migrate(api, args):
       {"kind": {"type": "string", "enum": list(APPROVAL_KINDS)},
        "payload": {"type": "object", "description": "The exact action, as the approvals policy describes. "
                    "kind=send is to/cc/subject/body_sha256/mailbox. Skip this tool when the owner "
-                   "already said send; use mail send --approve <their-message-id>."},
+                   "already said send; use mail send --approve <their-message-id>. With the redesign on, a "
+                   "proposal the hub applies on approval: task_cap {sender, receiver, per_day}, spend_limit "
+                   "{bot | pool: company|group:<id>, per_30m_usd, daily_usd, weekly_usd, monthly_usd}, group "
+                   "{id?, name?, parent?, lead?, add?, remove?}, org {bot, from, to}."},
        "task_id": _s("The task this action belongs to"),
        "supersedes_approval": _s("Your older undecided approval this replaces (a re-cut, a redraft); it is withdrawn. "
                                  "One on the same task for the same url, recipient and subject, PR or spend is replaced anyway")},
@@ -5504,6 +5526,8 @@ ASSISTANT_WRITES = {"hub_inbound_create_email", "hub_task_child_create", "hub_ta
                     "hub_update_mark_read", "hub_changelog_mark_read", "hub_assistant_propose", "hub_assistant_learn",
                     "hub_settings_set"}
 AUDIENCE = {
+    # Task caps (CONTRACT §1): people read and set them; a bot's own change is a proposal a person decides.
+    "hub_task_caps": REQUESTER_READ, "hub_task_cap_set": PEOPLE + BOTS,
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,

@@ -529,7 +529,7 @@ def _stands_down(c, aid, trigger):
         "AND trigger_type=?", ("bot:" + LIBRARIAN, trigger["type"])))
 
 
-def _top_person(c):
+def top_person(c):
     """The top of the org: the stored owner's person, else the roster's default person."""
     from .access import OWNER
     row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (OWNER,)).fetchone()
@@ -543,7 +543,7 @@ def _top_person(c):
 
 def _catalog(c, settings=None):
     from .redesign_migration import WAKES_BUILTIN, wakes_builtin
-    top = _top_person(c)
+    top = top_person(c)
     wakes = [{**wakes_builtin("person:" + top), "key": WAKES_BUILTIN[len("auto_builtin_"):]}] if top else []
     return [*wakes, *BUILTINS, *_market_builtins(c, settings)]
 

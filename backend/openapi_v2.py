@@ -539,20 +539,23 @@ STABLE = [
      "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
     ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
      "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots "
-     "the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits", "UsageLimits"),
+     "the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (with "
+     "the redesign on, a lead who is not an administrator gets the groups it leads and those below)", "UsageLimits"),
     ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
      "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
      "count toward every limit (owner and bot administrators)", "UsageDefaultView"),
     ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
-     "A bot's own hourly, daily, weekly and monthly limit in estimated USD; empty follows the team default. Owner and "
-     "administrators, or the person who runs the bot within the team default. A bot over a limit takes no new job until "
-     "the period turns over or the limit is raised", "BotUsageLimit"),
+     "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD (the hourly one with the redesign off); empty "
+     "follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group "
+     "lead for the bots in the group and those below (redesign on). A bot over a limit takes no new job until the period turns over or the "
+     "limit is raised", "BotUsageLimit"),
     ("/api/v2/usage/pools/company", "put", "Usage", "setTeamUsageLimit",
      "A limit on every bot's estimated spend together, per hour, day, week and month; empty removes it. Over it, no bot "
      "takes a new job (owner and bot administrators)", "UsagePoolLimit"),
     ("/api/v2/usage/pools/groups/{group}", "put", "Usage", "setGroupUsageLimit",
      "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none "
-     "of them takes a new job (owner and bot administrators)", "UsagePoolLimit"),
+     "of them takes a new job (owner and bot administrators; with the redesign on, also the lead of the group or one above "
+     "it, within the parent group's limit)", "UsagePoolLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (bots see counts, computers and failed runs)", "Health"),
     ("/api/v2/health-monitor", "get", "Health", "getHealthMonitor",
@@ -596,7 +599,7 @@ def obj(fields, required=None, **arrays):
 
 
 NUM_N = {"type": ["number", "null"]}
-PERIODS = ("hourly", "daily", "weekly", "monthly")   # the spend limit periods (backend/usage_limits.py)
+PERIODS = ("per_30m", "hourly", "daily", "weekly", "monthly")   # the spend limit periods (backend/usage_limits.py); the 30-minute one with the redesign on
 GRANOLA_SKIP_REASONS = {"type": "object", "additionalProperties": {"type": "integer"},
                         "description": "Skipped items in the last attempt, by fixed code and step"}
 GRANOLA_ERROR_DETAIL = {"type": ["object", "null"], "additionalProperties": False,
@@ -1208,13 +1211,15 @@ SCHEMAS = {
                                       "administrators only)", "additionalProperties": True},
                        **{"own_" + p + "_usd": NUM_N for p in PERIODS}, "may_edit": "b"}),
     "UsageDefaultView": obj({"default": obj({**{p + "_usd": NUM_N for p in PERIODS}, "count_subscription": "b"})}),
-    "UsagePoolView": obj({**{p + "_usd": NUM_N for p in PERIODS}, **{p + "_spent": NUM_N for p in ("hour", "day", "week", "month")},
+    "UsagePoolView": obj({**{p + "_usd": NUM_N for p in PERIODS}, **{p + "_spent": NUM_N for p in ("30m", "hour", "day", "week", "month")},
                           "percent": "i", "blocked": {"enum": [*PERIODS, None]}}),
     "UsagePoolLimit": obj({"scope": {"type": "string", "description": "company or group:<id>"}, "limit": ref("UsagePoolView")}),
     "UsageLimits": obj({"default": obj({**{p + "_usd": NUM_N for p in PERIODS}, "count_subscription": "b"}),
                         "may_edit_default": "b",
                         "pools": {"type": ["object", "null"], "description": "Owner and administrators: company (UsagePoolView) and "
-                                  "groups, {id: UsagePoolView with name and parent}", "additionalProperties": True},
+                                  "groups, {id: UsagePoolView with name and parent}. With the redesign on, a lead who is "
+                                  "not an administrator: company null and only the groups it leads and those below, each "
+                                  "with may_edit true", "additionalProperties": True},
                         "bots": {"type": "object", "additionalProperties": ref("UsageLimitView")}}),
     "BotUsageLimit": obj({"bot": "s", "limit": ref("UsageLimitView")}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
@@ -1288,7 +1293,21 @@ SCHEMAS.update({
                       "revision": "i", "released": "b"}),
     "BotReleased": obj({"bot": "s", "released": {"type": "object"}}),
     "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
+    "TaskCapRow": obj({"sender": "s", "receiver": "s", "per_day": "i", "count": "i", "closed": "i", "updated": "s", "updated_by": "s"}),
+    "TaskCapProposal": obj({"id": "s", "sender": "s", "receiver": "s", "per_day": "i", "status": "s", "proposed_by": "s", "created": "s"}),
+    "TaskCaps": obj({"caps": items(ref("TaskCapRow")), "proposals": items(ref("TaskCapProposal"))}),
+    "TaskCapWrite": obj({"cap": {"type": "object"}, "approval": "s", "status": "s"}),
 })
+STABLE.extend([
+    ("/api/v2/task-caps", "get", "Tasks", "getTaskCaps",
+     "Task caps with today's count and the tasks closed before the receiver acted, per pair; for the owner and admins, the "
+     "changes bots asked for, waiting as approvals", "TaskCaps"),
+    ("/api/v2/task-caps", "put", "Tasks", "setTaskCap",
+     "Cap the tasks one teammate sends another a day (0 blocks, null removes). The receiver must be a manager above the "
+     "sender. A bot's own change comes back as a pending approval a person decides", "TaskCapWrite"),
+    ("/api/v2/task-caps", "delete", "Tasks", "removeTaskCap",
+     "Remove the cap between two teammates (?sender=&receiver=); a bot's removal is an approval too", "TaskCapWrite"),
+])
 
 # The redesign's audit trail (backend/audit_log.py).
 STABLE.extend([
@@ -1298,6 +1317,15 @@ STABLE.extend([
 SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "properties": {
     "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     "next": {"type": ["string", "null"]}}}})
+
+# The redesign's proposals (backend/proposals.py): a change a person decides, applied by the hub on approve.
+STABLE.extend([
+    ("/api/v2/approvals", "post", "Needs you", "requestApproval",
+     "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals "
+     "the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
+     "ApprovalRequested"),
+])
+SCHEMAS.update({"ApprovalRequested": obj({"id": "s", "kind": "s", "approval": "s", "status": "s"}, required=["id", "kind"])})
 # The redesign setting (backend/redesign.py).
 STABLE.extend([
     ("/api/v2/settings/redesign", "get", "Team", "getRedesign", "Whether the team turned the redesign on (also `redesign` in config)",

@@ -23,12 +23,14 @@
   "org_groups": [
     {"id": "eng", "name": "Engineering", "parent": "", "org_parent": "", "order": 0},
     {"id": "web", "name": "Web", "parent": "eng", "org_parent": "", "order": 0},
-    {"id": "sales", "name": "Sales", "parent": "", "org_parent": "", "order": 1}
+    {"id": "sales", "name": "Sales", "parent": "", "org_parent": "", "order": 1},
+    {"id": "outbound", "name": "Outbound", "parent": "sales", "org_parent": "", "order": 0}
   ],
   "groups": [
     {"id": "eng", "name": "Engineering", "parent": "", "lead": "bot:eng-lead", "people": ["cara"], "bots": ["eng-lead", "builder", "reviewer"], "order": 0, "bet_id": null},
     {"id": "web", "name": "Web", "parent": "eng", "lead": "bot:web-dev", "people": [], "bots": ["web-dev"], "order": 0, "bet_id": null},
-    {"id": "sales", "name": "Sales", "parent": "", "lead": "person:ben", "people": ["ben"], "bots": ["sales-lead", "sdr"], "order": 1, "bet_id": null}
+    {"id": "sales", "name": "Sales", "parent": "", "lead": "person:ben", "people": ["ben"], "bots": ["sales-lead", "sdr"], "order": 1, "bet_id": null},
+    {"id": "outbound", "name": "Outbound", "parent": "sales", "lead": "", "people": [], "bots": [], "order": 0, "bet_id": null}
   ],
   "needs": {
     "ana": [

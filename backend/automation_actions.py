@@ -306,8 +306,8 @@ def _briefing(text, title):
 def _may_write_market(c, author):
     """Market's writers (backend/market.py): the Librarian, and the top of the org."""
     from . import market as MK
-    from .automations import _top_person
-    return author in MK.WRITERS or author == "human:" + str(_top_person(c) or "")
+    from .automations import top_person
+    return author in MK.WRITERS or author == "human:" + str(top_person(c) or "")
 
 
 def _post_update(c, auto, run_id, args, values):
