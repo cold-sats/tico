@@ -14257,6 +14257,96 @@
         ]
       }
     },
+    "/api/v2/settings/redesign": {
+      "get": {
+        "summary": "Whether the team turned the redesign on (also `redesign` in config)",
+        "operationId": "getRedesign",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedesignState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team"
+        ]
+      },
+      "put": {
+        "summary": "Turn the redesign on or off for the whole team (owner only)",
+        "operationId": "setRedesign",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedesignSetting"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedesignState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Team"
+        ]
+      }
+    },
     "/api/v2/settings/turn-budgets": {
       "get": {
         "summary": "The team default runs per hour and per day for bots with no budget of their own (owner and admins)",
@@ -25141,6 +25231,10 @@
           "version": {
             "type": "string"
           },
+          "redesign": {
+            "type": "boolean",
+            "description": "The team turned the redesign on (backend/redesign.py)"
+          },
           "visual_origin": {
             "type": "string",
             "description": "Configured non-secret visual origin, or empty when absent or invalid; grants no native IPC permission."
@@ -32142,6 +32236,32 @@
           "actor",
           "bots",
           "since"
+        ],
+        "additionalProperties": true
+      },
+      "RedesignSetting": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "RedesignSetting"
+      },
+      "RedesignState": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
         ],
         "additionalProperties": true
       },

@@ -769,6 +769,7 @@ SCHEMAS = {
     "Me": obj({"actor": "s", "role": "s", "email": "s"}),
     "Config": obj({"company_name": "s", "app_name": "s", "assistant_name": "s", "assistant_bot": "s",
                    "public_url": "s", "owner_email": "s", "version": "s",
+                   "redesign": {"type": "boolean", "description": "The team turned the redesign on (backend/redesign.py)"},
                    "visual_origin": {"type": "string", "description": "Configured non-secret visual origin, or empty "
                                      "when absent or invalid; grants no native IPC permission."},
                    "visuals": {"type": "string", "enum": ["full", "media"],
@@ -1288,6 +1289,15 @@ SCHEMAS.update({
     "BotReleased": obj({"bot": "s", "released": {"type": "object"}}),
     "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
 })
+
+# The redesign setting (backend/redesign.py).
+STABLE.extend([
+    ("/api/v2/settings/redesign", "get", "Team", "getRedesign", "Whether the team turned the redesign on (also `redesign` in config)",
+     "RedesignState"),
+    ("/api/v2/settings/redesign", "put", "Team", "setRedesign", "Turn the redesign on or off for the whole team (owner only)",
+     "RedesignState"),
+])
+SCHEMAS.update({"RedesignState": obj({"enabled": "b"}, required=["enabled"])})
 
 # Bot profiles (backend/profiles.py).
 STABLE.extend([
