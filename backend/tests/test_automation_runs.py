@@ -331,7 +331,7 @@ def test_two_runs_of_one_automation_each_get_their_own_turn(api):
     runs = [queued(api, aid), queued(api, aid)]
     hub(api).drain()
     assert [run_row(api, rid)["state"]["steps"][0]["status"] for rid in runs] == ["ok", "ok"]
-    assert len(sql(api, "SELECT id FROM tasks WHERE title LIKE 'Automation Test: look%'")) == 2
+    assert len(sql(api, "SELECT id FROM tasks WHERE title='Test'")) == 2   # a turn's title is its automation's name
 
 
 def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_day(api):
@@ -388,7 +388,7 @@ def test_a_converted_cron_routine_absorbs_an_occurrence_while_its_last_task_is_o
     assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
     told = sql(api, "SELECT body FROM messages WHERE to_actor='bot:ops' AND kind='notice' AND body LIKE 'Scheduled occurrence%'")
     assert len(told) == 1 and "absorbed into this open task" in told[0]["body"]
-    turn_tasks = sql(api, "SELECT id FROM tasks WHERE owner='bot:ops' AND title LIKE 'Automation Test: turn (%'")
+    turn_tasks = sql(api, "SELECT id FROM tasks WHERE owner='bot:ops' AND title='Test'")
     assert len(turn_tasks) == 1
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET status='closed' WHERE id=?", (turn_tasks[0]["id"],))
