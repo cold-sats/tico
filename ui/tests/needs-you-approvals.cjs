@@ -151,6 +151,33 @@ async function phoneSupport(browser) {
   assert.deepEqual(errors, []);
   await page.close();
 }
+// The redesign's approvals (CONTRACT §5: org, task_cap, spend_limit, group) read as facts with names, the exact payload
+// folded, and fit a 390px phone; none falls back to the bare JSON.
+async function phoneRedesignKinds(browser) {
+  const {page, errors} = await open(browser, {viewport: {width: 390, height: 844}, hash: '#/tasks'});
+  const at = new Date().toISOString(), ap = (id, what, payload) => ({id, kind: 'approval', what, title: 'Approve this ' + what,
+    requester: 'bot:analyst', requested_by: 'bot:analyst', created: at, payload});
+  const items = [ap('ap-org', 'org', {bot: 'bot:writer', from: 'marketing', to: 'support'}),
+    ap('ap-cap', 'task_cap', {sender: 'bot:engineer', receiver: 'bot:support', per_day: 40}),
+    ap('ap-lim', 'spend_limit', {bot: 'bot:engineer', daily_usd: 25, monthly_usd: 400}),
+    ap('ap-grp', 'group', {name: 'Web', parent: 'engineering', lead: 'bot:engineer', add: {bots: ['writer']}})];
+  await page.route('**/api/v2/needs-you*', route => route.fulfill({contentType: 'application/json', body: JSON.stringify({items})}));
+  await page.evaluate(async () => { await v2Refresh(); tasksRender(TASKS_ST); });
+  await page.locator('#task-view [data-view="foryou"]').click();
+  const want = {'ap-org': ['Who', 'From', 'To'], 'ap-cap': ['From', 'To', 'Per day'], 'ap-lim': ['For', 'Day', 'Month'], 'ap-grp': ['Group', 'Inside', 'Lead', 'Add']};
+  for (const [id, labels] of Object.entries(want)) {
+    const card = page.locator(`details.req[data-v2-id="${id}"]`);
+    assert.doesNotMatch(await card.locator('> summary .req-text').textContent(), /Approve this/, id + ': a title that names it');
+    await card.locator('> summary').click();
+    assert.deepEqual(await card.locator('.approval-facts dt').allTextContents(), labels, id + ': its facts');
+    assert.match(await card.locator('.approval-facts').textContent(), /Writer|Engineer/, id + ': names, not ids');
+    assert.equal(await card.locator('details.approval-raw').evaluate(d => d.open), false, id + ': the payload folded');
+    assert.equal(await card.evaluate(el => el.getBoundingClientRect().right <= innerWidth && el.scrollWidth <= el.clientWidth + 1), true, id + ': fits');
+    await card.locator('> summary').click();
+  }
+  assert.deepEqual(errors, []);
+  await page.close();
+}
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
@@ -200,6 +227,7 @@ async function phoneSupport(browser) {
     await page.close();
     await phonePublish(browser);
     await phoneSupport(browser);
+    await phoneRedesignKinds(browser);
     console.log('Needs you approvals: send payload readable, files open, HTML stays text, Approve posts; publish and support readable at 390px');
   } finally { await browser.close(); }
 })().catch(e => {console.error(e); process.exit(1);});

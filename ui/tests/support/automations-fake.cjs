@@ -110,6 +110,13 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
     if (method !== 'GET') writes.push({method, path: p, body});
 
     if (p === '/api/v2/automations/question-sets') return json({sets: fx.question_sets});
+    if (p === '/api/v2/automations' && method === 'POST') {
+      // A new one (Blank): the viewer's own, version 1.
+      const a = {...clone(body), id: 'au_' + (db.list.length + 1), version: 1, can_edit: true};
+      db.list.push(a);
+      db.versions[a.id] = [{n: 1, actor: 'person:' + me.id, at: new Date().toISOString(), status: 'active', flow: {trigger: clone(a.trigger), steps: clone(a.steps)}}];
+      return json(full(a));
+    }
     if (p === '/api/v2/automations') return json({automations: db.list.map(row), next: null});
     let m = p.match(/^\/api\/v2\/automations\/([^/]+)(?:\/(.*))?$/);
     if (m) {

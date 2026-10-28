@@ -76,7 +76,7 @@ function needsV2Item(it, folded, showName = true) {
   const from = taskRequester(it) || it.requested_by || '';
   const slug = actorSlug(from);
   const line = it.first_line || v2Firstline(it.body);
-  const title = it.title || line || V2_KIND[kind] || 'Item';
+  const title = approvalTitle(it) || it.title || line || V2_KIND[kind] || 'Item';
   const acts = [];
   const rec = kind === 'approval' ? null : it.recommend;
   if (rec) acts.push(recommendButton(rec, 'primary', it.version));
@@ -201,6 +201,26 @@ function approvalWhere(url) {
 // else as its JSON. A row is [label, value, class, keep]; a named row with no value is left out, a `keep` row never is.
 // A support report (a bot's Tico bug report) shows where it goes (the host the server names in `it.support.to`), what
 // goes with it, and its whole message. Null for any other kind.
+// The redesign's approvals (CONTRACT §5) name teammates and groups by id; a card names them as people read them.
+const approvalWho = ref => {
+  const r = String(ref || '');
+  return r.startsWith('person:') ? personDisplay(r.slice(7)) : r.includes(':') ? actorLabel(r) : r ? botDisplayName(r) : '';
+};
+const approvalGroup = id => id ? (S.orgGroups || []).find(g => g.id === id)?.name || String(id) : 'No group';
+const approvalUsd = v => v == null || v === '' ? '' : '$' + Number(v).toFixed(2).replace(/\.00$/, '');
+function approvalTitle(it) {
+  const p = it?.payload && typeof it.payload === 'object' ? it.payload : {};
+  if (it?.kind !== 'approval') return it?.title || '';
+  if (it.what === 'org' && p.bot) return `Move ${approvalWho(p.bot)} to ${approvalGroup(p.to)}`;
+  if (it.what === 'task_cap' && p.sender) return `Task cap: ${approvalWho(p.sender)} → ${approvalWho(p.receiver)}`;
+  if (it.what === 'spend_limit') return `Spend limit: ${p.pool ? String(p.pool) : approvalWho(p.bot)}`;
+  if (it.what === 'group') return p.id ? `Change ${approvalGroup(p.id)}` : `New group: ${p.name || ''}`.trim();
+  return it.title || '';
+}
+const approvalNames = v => {
+  if (!v || typeof v !== 'object') return '';
+  return [...(v.people || []).map(id => personDisplay(id)), ...(v.bots || []).map(id => botDisplayName(id))].join(', ');
+};
 function approvalFacts(what, p, it = {}) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const shown = v => v == null ? '' : typeof v === 'string' || typeof v === 'number' ? String(v) : JSON.stringify(v);
@@ -221,6 +241,21 @@ function approvalFacts(what, p, it = {}) {
       ['With it', p.include_ids === false ? 'Nothing else: only the message' : "The Tico version and this install's ID"],
       ['Message', shown(p.message), 'approval-text', true]];
     named = ['message', 'include_ids'];
+  } else if (what === 'org') {
+    rows = [['Who', approvalWho(p.bot)], ['From', approvalGroup(p.from)], ['To', approvalGroup(p.to)]];
+    named = ['bot', 'from', 'to'];
+  } else if (what === 'task_cap') {
+    rows = [['From', approvalWho(p.sender)], ['To', approvalWho(p.receiver)], ['Per day', p.per_day == null ? 'No cap' : shown(p.per_day)]];
+    named = ['sender', 'receiver', 'per_day'];
+  } else if (what === 'spend_limit') {
+    rows = [['For', p.pool ? shown(p.pool) : approvalWho(p.bot)], ['30 min', approvalUsd(p.per_30m_usd)], ['Day', approvalUsd(p.daily_usd)],
+      ['Week', approvalUsd(p.weekly_usd)], ['Month', approvalUsd(p.monthly_usd)]];
+    named = ['bot', 'pool', 'per_30m_usd', 'daily_usd', 'weekly_usd', 'monthly_usd'];
+  } else if (what === 'group') {
+    rows = [['Group', p.id ? approvalGroup(p.id) : shown(p.name)], ...(p.id && p.name ? [['Name', shown(p.name)]] : []),
+      ['Inside', 'parent' in p ? approvalGroup(p.parent) : ''], ['Lead', approvalWho(p.lead)],
+      ['Add', approvalNames(p.add)], ['Remove', approvalNames(p.remove)]];
+    named = ['id', 'name', 'parent', 'lead', 'add', 'remove'];
   } else if (what === 'merge') {
     rows = [['Repository', shown(p.repo)], ['Pull request', plain(p.pr) && p.pr !== '' ? '#' + String(p.pr).replace(/^#/, '') : shown(p.pr)]];
     named = ['repo', 'pr'];

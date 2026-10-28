@@ -26,7 +26,9 @@ html.redesign #side a[data-nav="goals"],html.redesign #nav-inboxes-section,html.
 .rd-strat-head .strat-tabs a{white-space:nowrap}
 .strat-sub{font-size:var(--t-sm);color:var(--muted)}
 .strat-sub:hover{color:var(--ink)}
-@media (max-width:760px){.rd-strat-head h1{flex-basis:100%}.rd-strat-head .strat-tabs{order:2;flex-basis:100%}}
+@media (max-width:760px){.rd-strat-head h1{flex-basis:100%}.rd-strat-head .strat-tabs{order:2;flex-basis:100%}
+  .rd-strat-head>.spacer{display:none}.rd-strat-head .strat-sub,.rd-strat-head .strat-actions{order:3}
+  .rd-strat-head .strat-sub+.strat-actions{flex:1 1 0;min-width:0}}
 
 /* The Market's Ask the Librarian button: the Strategy Bot answers on these tabs. */
 html.redesign #main.sbot-open [data-librarian-open]{display:none}

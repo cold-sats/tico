@@ -18,9 +18,16 @@ function rdbDeck(body) {
   const plain = para.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`]+/g, '').replace(/\s+/g, ' ').trim();
   return plain.length > 180 ? plain.slice(0, 179).replace(/\s+\S*$/, '') + '…' : plain;
 }
+// What the briefing is: a daily one is Today or its date; a weekly one is the week it covers (its ISO week's Monday).
+const rdbDay = at => at.toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(at.getFullYear() !== new Date().getFullYear() ? {year: 'numeric'} : {})});
 const rdbDate = b => {
   const at = new Date(b.updated || b.created || Date.now());
-  return isNaN(at) ? '' : at.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+  if (isNaN(at)) return '';
+  if (b.cadence === 'daily') return at.toDateString() === new Date().toDateString() ? 'Today' : rdbDay(at);
+  const [, y, w] = String(b.week || '').match(/^(\d{4})-W(\d{1,2})$/) || [];
+  let monday = new Date(at.getFullYear(), at.getMonth(), at.getDate() - (at.getDay() + 6) % 7);
+  if (y) { const jan4 = new Date(Number(y), 0, 4); monday = new Date(Number(y), 0, 4 - (jan4.getDay() + 6) % 7 + (Number(w) - 1) * 7); }
+  return 'Week of ' + rdbDay(monday);
 };
 function rdbHtml(b) {
   const deck = rdbDeck(b.body);
@@ -30,7 +37,7 @@ function rdbHtml(b) {
   const bets = (b.touched || []).map(t => `<a href="#/strategy" title="${esc(t.statement)}">Bet ${esc(t.n)}</a>`).join(' · ');
   return `<article class="rdb" aria-label="Briefing">
     <div class="rdb-mast">The ${esc(companyName())} Briefing</div>
-    <div class="rdb-date"><span>${esc(rdbDate(b))}</span><span>Weekly · ${esc(String(b.week || '').replace(/^\d{4}-W/, 'Week '))}</span></div>
+    <div class="rdb-date"><span>${esc(rdbDate(b))}</span></div>
     <h2 class="rdb-hl">${esc(b.title)}</h2>
     ${deck ? `<p class="rdb-deck">${esc(deck)}</p>` : ''}
     ${cols ? `<div class="rdb-cols">${cols}</div>` : ''}

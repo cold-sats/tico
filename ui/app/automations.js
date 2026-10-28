@@ -42,11 +42,20 @@ const AU_TRIGGER_ICONS = {message: 'mail', task_received: 'task_alt', schedule: 
 const AU_TRIGGER_WORDS = {message: 'Message received', task_received: 'Task received', schedule: 'Schedule', webhook: 'Webhook',
   listening: 'Listening match', event: 'Event'};
 const auCap = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
+// A schedule in words; every hour (or few) on some weekdays reads "every hour, weekdays", not its cron.
+function auCronWords(cron) {
+  const f = String(cron || '').trim().split(/\s+/), [mi, hr, dom, mon, dow] = f;
+  if (f.length === 5 && dom === '*' && mon === '*' && /^[\d,-]+$/.test(dow) && /^(\*|\*\/\d+)$/.test(hr) && /^(\d+|\*\/\d+)$/.test(mi)) {
+    const each = cronWords(`${mi} ${hr} * * *`), days = cronWords(`0 0 * * ${dow}`).replace(/ at 00:00$/, '');
+    if (each !== `${mi} ${hr} * * *` && !days.includes('*')) return `${each}, ${days}`;
+  }
+  return cronWords(cron || '');
+}
 // Where an automation's work comes from, in a few words: the list's "· source" and the trigger card's chip.
 function auSource(t = {}) {
   if (t.type === 'message') return t.inbox || '';
   if (t.type === 'task_received') return t.to ? 'Tasks to ' + auActorName(t.to) : 'Tasks';
-  if (t.type === 'schedule') return auCap(cronWords(t.cron || ''));
+  if (t.type === 'schedule') return auCap(auCronWords(t.cron));
   if (t.type === 'webhook') return t.name || t.id || '';
   if (t.type === 'listening') return t.destination ? 'Listening · ' + t.destination : 'Listening';
   if (t.type === 'event') return t.name || '';
@@ -167,9 +176,9 @@ function auDrawHead() {
   hd.innerHTML = `<a class="au-icon au-back" href="${AUTOMATIONS}" aria-label="Back"><span class="nav-icon" aria-hidden="true">chevron_left</span></a>
     <h2 class="au-name">${esc(name)}</h2>
     ${a ? `<span class="au-own" title="${esc(auActorName(a.owner))}">${personCircle(auActorName(a.owner), 18)}<span class="au-own-n">${esc(auActorName(a.owner))}</span></span>
-    ${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', 'data-on-cur') : a.enabled === false ? '<span class="pill">Off</span>' : ''}
     <span class="au-sp"></span>
     <div class="au-hd2">
+      ${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', 'data-on-cur') : a.enabled === false ? '<span class="pill">Off</span>' : ''}
       ${a.can_edit ? `<button class="au-chip" type="button" data-spend><span class="nav-icon" aria-hidden="true">payments</span>${esc(auSpendWords(a))}</button>`
         : `<span class="au-chip"><span class="nav-icon" aria-hidden="true">payments</span>${esc(auSpendWords(a))}</span>`}
       <button class="au-help" type="button" aria-label="Spend limit help" data-help="Spend limit per 30 minutes. It resumes on its own.">?</button>
