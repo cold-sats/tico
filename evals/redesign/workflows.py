@@ -971,7 +971,7 @@ def wf4_steps(org, f):
     do(org, f, "prs", W3, wf4_open, org, f)
     at(org, utc(DAY4, 9, 30))
     do(org, f, "auto", W3, make_auto, org, "Stale PR nudge", LEAD_REF, {"type": "schedule", "cron": "0 * * * *", "tz": "UTC"},
-       [step("stale", "find", source="prs", query="open, no activity for 24 hours", since="last_run", limit=20),
+       [step("stale", "find", source="prs", query="", idle_hours=24, since="last_run", limit=20),
         act("nudge", "create_task", owner=LEAD_REF, title="Nudge stale PR {{item.url}}",
             body="This pull request has had no activity for a day: {{item.url}}")])
     for hour in (10, 11, 12):
@@ -1381,7 +1381,10 @@ def wf9_budget(org):
     now = org.api("get", f"/api/v2/bots/{OPENAI_ID}/budget", wave=W2)
     if now.status != 200:
         raise Unmet(W2, f"budget read: {now.status} {now.excerpt()}")
-    return put_budget(org, OPENAI_ID, {"turns_per_hour": GUARD9, "expected_revision": now.body.get("revision")})
+    put = put_budget(org, OPENAI_ID, {"turns_per_hour": GUARD9, "expected_revision": now.body.get("revision")})
+    if put.status >= 300:
+        raise Unmet(W2, f"budget set: {put.status} {put.excerpt()}")
+    return put
 
 
 def hand_self(org):
@@ -1424,8 +1427,7 @@ def wf9_steps(org, f):
     at(org, org.now() + dt.timedelta(hours=1))
     do(org, f, "later", W2, turn, org, OPENAI_ID, wave=W2)
     do(org, f, "held_later", W2, org.api, "get", f"/api/v2/bots/{OPENAI_ID}/budget", wave=W2)
-    do(org, f, "notices", W2, sql, org, "SELECT to_actor, refs_json FROM messages WHERE kind='notice' AND "
-                                        "refs_json LIKE ?", ("%held%",))
+    do(org, f, "notices", W2, hub_holds, org)
     do(org, f, "pause", W3, lambda: org.api("patch", f"/api/v2/automations/{aid(f, 'auto')}", {"enabled": False},
                                             wave=W3))
     do(org, f, "runs_paused", W3, runs_of, org, f, "auto")
@@ -1451,7 +1453,9 @@ def wf9_held(f):
     loop = got(f, "loop")
     ran = [t for t in loop if t]
     held = body(f, "held_now").get("held")
-    return len(ran) == GUARD9 and loop[-1] is None and bool(held), f"{len(ran)} turns ran; held {held}"
+    last = ran[-1].get("did") if ran else None
+    return len(ran) == GUARD9 and loop[-1] is None and bool(held), \
+        f"{len(ran)} turns ran; last hand-off {last}; held {held}"
 
 
 def wf9_still(f):
@@ -1462,11 +1466,17 @@ def wf9_still(f):
     return later is None and bool(held), f"turn an hour later {'none' if later is None else 'ran'}; held {held}"
 
 
+def hub_holds(org):
+    """The hub's held notices (kind notice, refs.held), as a reply."""
+    return Reply(200, sql(org, "SELECT to_actor, refs_json FROM messages WHERE kind='notice' AND refs_json LIKE ?",
+                          ("%held%",)), W2)
+
+
 def wf9_notices(f):
     """One held notice each to BotOps and to the Health monitor: hub notices from the keeper, kind notice, refs.held
     naming the bot (CONTRACT section 1). They are hub messages, not Tico Team notices, so they are read from the hub."""
     setup(f, "budget", "auto", "notices")
-    held = [r for r in got(f, "notices") if OPENAI_ID in str(r["refs_json"])]
+    held = [r for r in body(f, "notices") if OPENAI_ID in str(r["refs_json"])]
     to_botops = [r for r in held if "botops" in str(r["to_actor"])]
     to_health = [r for r in held if "health-monitor" in str(r["to_actor"])]
     return len(to_botops) == 1 and len(to_health) == 1 and len(held) == 2, \
