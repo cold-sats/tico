@@ -29,6 +29,7 @@ import contextlib
 import contextvars
 import json
 import threading
+import weakref
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -1117,8 +1118,14 @@ class Hub:
     """What draining needs: the store, the settings and the app's judge."""
 
     def __init__(self, app, store):
-        self.app, self.store, self.settings = app, store, store.settings
+        # The app weakly: the store outlives its app in places (tico_storage keeps each live store), and a strong
+        # link here would keep every app and its thread pools alive with it.
+        self._app, self.store, self.settings = weakref.ref(app), store, store.settings
         self.lock = threading.Lock()
+
+    @property
+    def app(self):
+        return self._app()
 
     def claim(self):
         with self.store.transaction() as c:
