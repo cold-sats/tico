@@ -343,7 +343,7 @@ function lensResultHtml(run, result, owner) {
     return `<li class="lens-change" data-lens-sharpen-row="${i}"><span class="lens-ctext">${esc(text)}</span>${
       task ? `<span class="lens-done muted">Asked · <a href="#/task/${encodeURIComponent(task)}">task</a></span>` : owner ? `<button class="ghost strat-mini" type="button" data-lens-sharpen="${i}">Ask the Librarian</button>` : ''}</li>`;
   }).join('');
-  const proposal = run.proposal_id ? `<p class="lens-proposal muted" data-lens-proposal>${owner ? `Sent to you as a <a href="${DECIDE}">proposal</a>` : 'Sent to the owner as a proposal'}</p>` : '';
+  const proposal = run.proposal_id ? `<p class="lens-proposal muted" data-lens-proposal>${owner ? `Sent to you as a <a href="${NEEDS_YOU}">proposal</a>` : 'Sent to the owner as a proposal'}</p>` : '';
   return `${stratText(result.summary) ? `<p class="lens-summary">${esc(result.summary)}</p>` : ''}
     ${lensChartHtml(result.chart, LENS.bets, LENS.label)}${sections}
     ${sec('findings', 'Findings', findings ? `<ul class="lens-items">${findings}</ul>` : '')}
