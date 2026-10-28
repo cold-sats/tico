@@ -166,7 +166,7 @@ def _hold(c, settings, bot, window, runs, budget, now):
                  "until a person releases it.")
         for slug in ("botops", "health-monitor"):
             if H.bot(c, slug):
-                H.say(c, H.KEEPER, H.bot_actor(slug), words, kind="notice")
+                H.say(c, H.KEEPER, H.bot_actor(slug), words, kind="notice", refs={"held": bot})
 
 
 def _sentence(name, runs, window):

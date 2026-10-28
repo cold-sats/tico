@@ -243,7 +243,9 @@ def install(app, store, auth, mutate, settings):
         if found["blocked_by"] and found["blocked_by"]["scope"] != "bot" and not auth.bot_admin(who):
             found["blocked_by"] = {k: v for k, v in found["blocked_by"].items() if k not in ("spent", "limit")}
         mine = usage_limits.own(c, bot)
-        return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed}
+        # With the redesign on, the capped pools it counts against, nearest group first: they follow its home group.
+        pools = {"pools": usage_limits.scopes_of(c, bot, default)} if redesign.on(c) else {}
+        return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed, **pools}
 
     def pool_views(c, default):
         """Every group with what it and the whole team are capped at and have spent (the owner and administrators)."""
