@@ -389,7 +389,7 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       await card.waitFor();
       const flat = t => t.replace(/\s+/g, ' ').trim();
       assert.equal(flat(await card.locator('.kpi-prop-head').innerText()),
-        'CEO Bot suggests a change to your strategy because Bet 1 may be wrong: Margin per job fell to 22% for two months. Open Strategy');
+        'Strategy Bot suggests a change to your strategy because Bet 1 may be wrong: Margin per job fell to 22% for two months. Open Strategy');
       assert.equal(await card.locator('.strat-prop-open').getAttribute('href'), '#/strategy');
       // The vision it proposes is the draft's already: no row for it.
       assert.deepEqual(await card.locator('.strat-prop-list > li').allInnerTexts().then(rows => rows.map(flat)), [
@@ -429,7 +429,7 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       assert.equal((await rename.locator('.strat-prop-list').innerText()).replace(/\s+/g, ' ').trim(), 'Positioning · Title Now Brand Proposed Positioning');
       assert.deepEqual(await rename.locator('.kpi-prop-do button').allInnerTexts(), ['Add to draft', 'No, leave it']);
       await lens.waitFor();
-      assert.match(await lens.locator('.kpi-prop-head').innerText(), /^CEO Bot suggests a change to your strategy from the Blue Ocean lens/);
+      assert.match(await lens.locator('.kpi-prop-head').innerText(), /^Strategy Bot suggests a change to your strategy from the Blue Ocean lens/);
       const values = lens.locator('.prop-np-v');
       const tall = () => values.evaluateAll(els => els.map(el => el.scrollHeight > el.clientHeight + 1));
       // The draft's own text is short, so only Proposed is cut; both are clamped to four lines until Show all.

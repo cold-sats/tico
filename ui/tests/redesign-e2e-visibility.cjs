@@ -6,7 +6,7 @@ const {run, open, go, api, ok, automationNamed, sideways, shot, t} = require('./
 
 const listed = page => page.locator('.au-row').allInnerTexts();
 
-run('redesign-e2e-visibility', ['org', 'toured', 'redesign_on', 'automations'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-visibility', ['org', 'toured', 'automations'], async ({hub, browser, phone, tag}) => {
   const dana = await open(browser, hub, 'dana', {phone, hash: '#/automations'});
   await dana.locator('.au-row').first().waitFor({timeout: t(15000)});
   const triage = await automationNamed(dana, 'Inbox triage');

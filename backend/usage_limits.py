@@ -12,8 +12,8 @@ on a ChatGPT or Claude sign-in are flat cost, so their API-equivalent counts onl
   100%  the bot takes no new job until the period turns over or the limit is raised: the job stays queued and the bot
         reads "Paused: over its hourly limit". A run already going finishes.
 
-The window is the UTC half hour (`per_30m`) while the redesign is on: it replaces the hour for every new limit, and an
-hour limit set before stays in force. With the redesign off the hour is the window. The day is the UTC day, the week starts
+The window is the UTC half hour (`per_30m`): it replaces the hour for every new limit, and an hour limit set before
+stays in force. The day is the UTC day, the week starts
 Monday 00:00 UTC and the month is the UTC calendar month. Over a window the bot takes no new turn and resumes when the
 window ends.
 """
@@ -56,15 +56,12 @@ def half(value):
 
 
 def periods(c):
-    """The windows that apply: with the redesign on, the 30-minute one and the hour (kept for limits set before it);
-    off, every window but the 30-minute one."""
-    from . import redesign
-    return PERIODS if redesign.on(c) else tuple(p for p in PERIODS if p[0] != "per_30m")
+    """The windows that apply: every one, the 30-minute one and the hour (kept for limits set before it) included."""
+    return PERIODS
 
 
 def shown(c, caps):
-    """A caps dict with the windows out of force shown as None. Their stored amounts stay, so the redesign's switch
-    back on finds them again; a response carries every key either way."""
+    """A caps dict with every window's key; one out of force would show as None."""
     live = {name + "_usd" for name, _ in periods(c)}
     return {key: (caps[key] if key in live else None) for key in KEYS}
 

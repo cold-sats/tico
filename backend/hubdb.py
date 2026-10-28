@@ -848,6 +848,10 @@ TASK_LINK_ACTIVITY_SCHEMA = """
 ALTER TABLE task_links ADD COLUMN activity_at TEXT;
 """
 
+# Task trigger tables (rule_task_runs, rule_task_state) were added to RULE_EVENTS_SCHEMA after it shipped, so an
+# install that ran it earlier never got them and every task trigger failed quietly. Every statement is IF NOT EXISTS.
+RULE_TASK_TABLES_SCHEMA = "-- rule_task_runs, rule_task_state for installs that ran RULE_EVENTS_SCHEMA first\n" + RULE_EVENTS_SCHEMA
+
 
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
@@ -866,7 +870,8 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               WEBHOOKS_SCHEMA, SLEEP_IDLE_SCHEMA,
               TICO_NOTICES_SCHEMA, WEBHOOKS_V2_SCHEMA, WEBHOOKS_V3_SCHEMA,
               WEBHOOKS_V4_SCHEMA, WEBHOOKS_V5_SCHEMA, WEBHOOKS_V6_SCHEMA, RUN_SESSION_SCHEMA,
-              TASK_CAPS_SCHEMA, TASK_CAP_LOG_SCHEMA, TASK_LINK_ACTIVITY_SCHEMA]
+              TASK_CAPS_SCHEMA, TASK_CAP_LOG_SCHEMA, TASK_LINK_ACTIVITY_SCHEMA,
+              RULE_TASK_TABLES_SCHEMA]
 
 
 class Refused(Exception):
@@ -1443,7 +1448,7 @@ def hook(conn, type, subject, data, actor, revision=None):
         logging.getLogger(__name__).warning("webhook event %s was not queued", type, exc_info=True)
     try:
         from . import automations
-        automations.on_event(conn, type, subject, data, actor)    # dormant unless the redesign is on
+        automations.on_event(conn, type, subject, data, actor)
     except Exception:
         logging.getLogger(__name__).warning("automations did not hear %s", type, exc_info=True)
 
@@ -5557,7 +5562,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                 goal_id=None, next_run=False, type=None, step=None, number=None, mover=None, private=None,
                 requester_actor=None, own_room=True, visibility=None, public_title=None, public_summary=None,
                 wake_refs=None, trigger="status_or_relation", trigger_source=None, review_prs=None,
-                change_paths=None, qa=None, qa_not_checkable_live=False, capped=True, receipt_owner=None,
+                change_paths=None, qa=None, qa_not_checkable_live=False, receipt_owner=None,
                 quiet_notice=False, from_private=False):
     """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
     linted (rule 7).
@@ -5572,7 +5577,6 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     `lane` picks the pipeline (company or product; default by the owner's team); the task
     joins the bottom of the owner's queue and of its step unless `top`.
     `number` keeps an imported task's number: a mover's (`mover`, as in `task_update`), and free.
-    `capped=False` files an urgent CEO Bot ask past its daily cap (goal_asks.urgent).
     `quiet_notice` writes the owner's notice without waking it: a task joined to an open ask about the same blocker
     (backend/blocker_asks.py) wakes when that ask is done.
     """
@@ -5588,9 +5592,6 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     _takes_tasks(conn, actor, target, title, parent_id)
     _learning(conn, actor, target)
-    from . import ceo_bot
-    if capped:
-        ceo_bot.check_cap(conn, actor, target)      # at most 5 a day in one person's Needs you (backend/ceo_bot.py)
     parent = _task_parent(conn, actor, None, parent_id) if parent_id else None
     from . import review_gate
     if parent and review_gate.is_review(conn, parent, title):
@@ -8316,10 +8317,6 @@ def status_set(conn, actor, bot_slug, state=None, focus=None, task_id=None, reas
         live = "idle"
     elif state in ("paused", "quarantined"):
         conn.execute("UPDATE bots SET state=? WHERE slug=?", (state, slug))
-        if state == "paused":
-            # Queued routine runs would only pile up while paused; a person's direct work stays.
-            from . import routines
-            routines.hold_for_paused_bot(conn, slug)
     row = {"bot": slug,
            "state": live if live is not None else (old or {}).get("state") or "idle",
            "focus": focus if focus is not None else (old or {}).get("focus") or "",

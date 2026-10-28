@@ -347,8 +347,6 @@ def config_view(c, settings, who=None):
     value["backup"] = replication.status()
     value["runner_compat"] = runner_versions.desired()
     value["beta"] = beta.listing()      # the Beta pill and Help's Beta list (ui/app/state.js betaPill)
-    from . import redesign
-    value["redesign"] = redesign.on(c)      # the redesign's navigation and pages (ui/app/redesign.js)
     from . import update_feeds
     value["update_feeds"] = update_feeds.status()   # what Subscribe to updates can send (settings-bot-editor.js)
     return value
@@ -1023,16 +1021,17 @@ class Onboarding:
         if declared.get("routine_armed") or not declared.get("template"):
             return None
         first = next(iter(self._template_routines(c, declared["template"])), None)
-        found = first and c.execute("SELECT s.id,coalesce(sc.enabled,1) AS enabled FROM schedules s "
-                                    "LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
-                                    "WHERE s.bot=? AND s.routine_key=? AND s.deleted_at IS NULL",
-                                    (slug, first["id"])).fetchone()
-        if not found:
+        sid = first and c.execute("SELECT id FROM schedules WHERE bot=? AND routine_key=?",
+                                  (slug, first["id"])).fetchone()
+        # The routine as it is now: its automation once it moved (backend/routines.py `row`).
+        found = sid and routines.row(c, sid["id"])
+        if not found or found["deleted_at"]:
             return None
         declared["routine_armed"] = first["id"]
         self._write_config(c, slug, declared)
         explicitly_disabled = c.execute("SELECT 1 FROM events WHERE action='routine.updated' AND target=? "
                                         "AND json_extract(detail_json,'$.enabled')=0 LIMIT 1", (found["id"],)).fetchone()
+
         if not found["enabled"] and not explicitly_disabled:
             routines.update(c, who.actor, found["id"], {"enabled": True})
             H.event(c, who.actor, "bot.routine_armed", slug, {"routine": first["id"]})

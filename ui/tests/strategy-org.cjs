@@ -1,8 +1,8 @@
-// Strategy › Org with the redesign on (ui/app/redesign-org.js) against the fake hub in support/strategy-fake.cjs (the
+// Strategy › Org (ui/app/redesign-org.js) against the fake hub in support/strategy-fake.cjs (the
 // Acme example): the chart top down with the owner on top, groups as outlines that fold (and stay folded), helpers off
 // it, pinch and the zoom buttons; a teammate's sheet with its group and Move to…; the owner, and a lead inside the
 // groups it leads, move at once (PATCH /api/v2/groups), anyone else sees the group and no Move to…; no proposals and no
-// approvals; the Strategy Bot's starters ask for org changes. With the setting off, #/strategy/org draws none of it. A phone first, then a computer.
+// approvals; the Strategy Bot's starters ask for org changes. A phone first, then a computer.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openStrategy, PHONE, DESKTOP, sideways, shot} = require('./support/strategy-fake.cjs');
@@ -163,16 +163,6 @@ async function chart(page, tag) {
       await page.close();
     }
 
-    // Dormant: with the setting off, none of the chart is drawn.
-    for (const viewport of [PHONE, DESKTOP]) {
-      const {page, errors} = await openStrategy(browser, {viewport, redesign: false});
-      await page.locator('#tree li').first().waitFor();
-      await page.waitForTimeout(200);
-      assert.equal(await page.locator('#rdo-cv').count(), 0, viewport.width + ' off: no chart');
-      assert.equal(await page.evaluate(() => document.querySelector('#main').classList.contains('rd-org-layout')), false);
-      assert.deepEqual(errors, [], viewport.width + ' off: no page errors');
-      await page.close();
-    }
     console.log('strategy org ok');
   } finally {
     await browser.close();

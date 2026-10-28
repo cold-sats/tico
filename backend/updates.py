@@ -148,18 +148,16 @@ def direct_reports(c, author, chart=None):
     `_chart(c)` when the caller already read it (the queue reads it once a step, not once a report)."""
     from . import goals as G
     roster, entries, archived = chart or _chart(c)
-    from . import redesign
     return [a if H.actor_kind(a) == "human" else H.actor_id(a)
-            for a in G.reports_of(author_actor(author), roster, entries, archived, redesign.on(c))]
+            for a in G.reports_of(author_actor(author), roster, entries, archived, True)]
 
 
 def depths(c, slugs):
     """Each bot's depth on the org chart, counting the bots above it (the people above do not
     post through the queue), so the deepest are asked first."""
     from . import people as P
-    from . import redesign
     roster, entries, archived = _chart(c)
-    out, bare = {}, redesign.on(c)
+    out, bare = {}, True
     for slug in slugs:
         n, parent, seen = 0, P.org_parent("bot", slug, roster, entries, archived, bare), set()
         while parent.startswith("b:") and parent not in seen:
@@ -191,8 +189,7 @@ def visible_authors(c, auth, who, mine=False, scope=None):
                     or (not is_person(slug) and not operators.get(slug) and who.role == "owner")}
     if scope == "direct":
         archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-        from . import redesign
-        reports = G.reports_of(who.actor, views.roster(c), views.entries(c), archived, redesign.on(c))
+        reports = G.reports_of(who.actor, views.roster(c), views.entries(c), archived, True)
         readable &= {a if H.actor_kind(a) == "human" else H.actor_id(a) for a in reports}
     return readable
 
@@ -807,8 +804,7 @@ def redo(c, kind, day, bots=None, managers=False):
     if bots and managers:
         from . import goals as G
         roster, entries, archived = _chart(c)
-        from . import redesign
-        bare = redesign.on(c)
+        bare = True
         above = {H.actor_id(a) for slug in chosen for a in G.above(H.bot_actor(slug), roster, entries, archived, bare)
                  if H.actor_kind(a) == "bot"}
         chosen += [r["slug"] for r in rows if r["slug"] in above and r["slug"] not in chosen]
@@ -1244,9 +1240,8 @@ def tree(c, actor, readable, kind, day=None, scope=None, meetings=False):
     Without `meetings` (`meeting_reader`), an update flagged `meetings` is left off its node, as in the feed."""
     from . import people as P
     from . import report_order
-    from . import redesign
     roster, entries, archived = _chart(c)
-    view = P.org_view(roster, entries, archived, bare_people=redesign.on(c))
+    view = P.org_view(roster, entries, archived, bare_people=True)
     me = ("p:" if H.actor_kind(actor) == "human" else "b:") + H.actor_id(actor)
     parent_of, nodes = {}, {}
     names = {r["slug"]: r["display_name"] or r["slug"] for r in c.execute("SELECT slug, display_name FROM bots")}

@@ -157,8 +157,7 @@ def for_actor(conn, actor, roster=None, entries=None, archived=()):
                 seen.add(parent["id"])
                 above.append(parent)
     below = []
-    from . import redesign
-    for report in reports_of(actor, roster, entries, archived, redesign.on(conn)):
+    for report in reports_of(actor, roster, entries, archived, True):
         below.extend(goals(conn, owner=report, live_only=True))
     company = goals(conn, owner=COMPANY, live_only=True) if not mine and not above else []
     return {"owner": actor, "goals": mine, "chain": above, "reports": below, "company": company}

@@ -20,7 +20,6 @@ const ASSISTANT = '#/assistant';      // your private chat with the assistant (u
 const LEARNED = '#/assistant/learned';   // what your chat bot has learned (ui/app/learned.js)
 const BOARD = '#/board';              // the old links still work, each opening its view
 const ISSUES = '#/issues';
-const RECURRING = '#/recurring';      // the Tasks page, opened on the Routines view
 const SETTINGS = '#/settings';
 const HELP = '#/help';                // old Help links: Overview with the Support pop-up open (ui/support.js)
 const CREDENTIALS = '#/credentials';   // the owner's connections: what is connected and whether it works

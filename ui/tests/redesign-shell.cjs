@@ -1,6 +1,6 @@
 // The redesign's shell (ui/app/redesign.js, ui/app/strategy-budget.js) against fixtures shaped per the redesign CONTRACT
-// (fixtures/redesign-*.json, the Acme example). Off: the sidebar, the phone bar and the old addresses are exactly today's.
-// On: the new sidebar order, Goals and Message bots gone from it, old addresses redirected, the Strategy tabs with the
+// (fixtures/redesign-*.json, the Acme example): the sidebar's order, helpers off the Team list, old addresses
+// redirected, Settings with its System tab and no design switch, the Strategy tabs with the
 // Strategy Bot beside them (a rail on a desktop, a sheet on a phone), the Budget tab drawing (its tree and edits are
 // strategy-budget.cjs), a task cap's 409 read as its message, and no "CEO Bot" anywhere. Phone first (390×844), then desktop.
 // TICO_SCREENSHOT_DIR=<dir> saves review screenshots.
@@ -19,10 +19,7 @@ const shots = process.env.TICO_SCREENSHOT_DIR;
 const shot = async (page, name) => { if (shots) await page.screenshot({animations: 'disabled', path: path.join(shots, `redesign-${name}.png`)}); };
 const PHONE = {width: 390, height: 844}, DESKTOP = {width: 1440, height: 900};
 
-// Today's rail, in order (ui/index.html before the redesign): the redesign off must leave every one where it is.
-const OFF_RAIL = ['side-update', 'overview', 'welcome', 'updates', 'tasks', 'assistant', 'botops', 'goals', 'docs', 'strategy',
-  'meetings', 'nav-pins', 'side-section', 'nav-inboxes-section'];
-const OFF_PHONE_BAR = ['Team', 'Search', 'Tasks', 'Updates', 'Support', 'More'];
+const PHONE_BAR = ['Team', 'Search', 'Tasks', 'Updates', 'Support', 'More'];
 const railKeys = page => page.$$eval('#side .side-scroll > *', els => els.map(el =>
   el.dataset.nav || (el.classList.contains('nav-row') && el.querySelector(':scope > [data-nav]')?.dataset.nav) || el.id || el.className.split(' ')[0]));
 const shownRail = page => page.$$eval('#side .side-scroll a.nav-link, #side .side-scroll .rd-lib a.nav-link', els =>
@@ -31,7 +28,7 @@ const shownRail = page => page.$$eval('#side .side-scroll a.nav-link, #side .sid
     return c.textContent.replace(/\s+/g, ' ').trim();
   }));
 
-async function open(browser, {redesign = false, route = '#/updates', viewport = PHONE, goalsDelay = 0} = {}) {
+async function open(browser, {route = '#/updates', viewport = PHONE, goalsDelay = 0} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [], sent = [], goals = {asked: 0};
   page.on('pageerror', e => errors.push(e.message));
@@ -46,7 +43,7 @@ async function open(browser, {redesign = false, route = '#/updates', viewport = 
       return r;
     });
   });
-  const config = {redesign};
+  const config = {};
   await page.route('**/*', async r => {
     const req = r.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
     const json = (body, status = 200) => r.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -67,13 +64,11 @@ async function open(browser, {redesign = false, route = '#/updates', viewport = 
     if (p === '/api/v2/goals/needs-you') return json({items: []});
     if (p === '/api/v2/strategy') return json({current: null, bets: [], may_edit: true});
     if (p === '/api/v2/conversations') return json({conversations: []});
-    if (p === '/api/v2/bots/goal-manager/routines') return json({routines: []});
     if (p === '/api/v2/listening/destinations') return json({destinations: [{key: 'leads', category: 'leads', threshold: 0.75, receiver: 'bot:release', source: 'settings'}],
       categories: [{id: 'leads', label: 'Leads'}], receivers: [{actor: 'bot:release', name: 'Release Manager'}]});
     if (p === '/api/v2/usage/limits') return json(fixture('redesign-usage-limits.json'));
     if (p === '/api/v2/task-caps') return method === 'GET' ? json(fixture('redesign-task-caps.json')) : json({ok: true});
     if (p.startsWith('/api/v2/usage/')) return json({ok: true});
-    if (p === '/api/v2/settings/redesign') return json({enabled: !!req.postDataJSON()?.enabled});
     if (p === '/api/v2/tasks' && method === 'POST') return json(CAP_409, 409);
     if (p === '/api/v2/market/graph') return json({entities: [], edges: []});
     if (p === '/api/v2/market/entities') return json({entities: [], total: 0});
@@ -90,47 +85,22 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
 (async () => {
   const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
   try {
-    // Off, on a phone and a desktop: the rail, the phone bar and the old addresses are today's, and nothing new shows.
-    for (const viewport of [PHONE, DESKTOP]) {
-      const tag = 'off ' + viewport.width;
-      const {page, errors} = await open(browser, {viewport});
-      await page.locator('#tree li').first().waitFor();
-      assert.deepEqual(await railKeys(page), OFF_RAIL, tag + ': the rail keeps its order');
-      assert.equal(await page.getAttribute('a[data-nav="strategy"]', 'href'), '#/strategy', tag + ': Strategy goes where it went');
-      assert.deepEqual(await page.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), OFF_PHONE_BAR, tag + ': the phone bar');
-      assert.equal(await page.locator('[data-nav="automations"], [data-nav="library"], .rd-lib, #sbot, #sbot-fab').count(), 0, tag + ': nothing new');
-      assert.equal(await page.locator('#tree [data-org="b:mail-sorter"]').count(), 1, tag + ': message bots keep their group');
-      if (viewport === DESKTOP) {
-        assert.deepEqual(await shownRail(page), ['Overview', 'Updates', 'Tasks', 'CEO Bot', 'BotOps', 'Goals', 'Docs', 'Strategy', 'Meetings'], tag + ': the rail reads as today');
-        await page.evaluate(() => { location.hash = '#/goals'; });
-        await page.locator('#goal-manager-panel').waitFor();
-        assert.equal(await page.evaluate(() => location.hash), '#/goals', tag + ': Goals stays its own page, with its CEO Bot rail');
-        await page.evaluate(() => { location.hash = '#/automations'; });
-        assert.ok(await hashSoon(page, '#/updates'), tag + ': #/automations is unknown, so Updates');
-        await page.evaluate(() => { location.hash = '#/settings'; });
-        await page.locator('#settings-redesign').waitFor();
-        assert.equal(await page.locator('[data-settings-tab="listening"]').count(), 1, tag + ': Settings keeps Listening');
-        assert.equal(await page.locator('#redesign-switch').isChecked(), false, tag + ': the owner\'s switch reads off');
-      }
-      assert.deepEqual(errors, [], tag + ': no page errors');
-      await page.close();
-    }
-
-    // On, phone first: the new rail, old addresses redirected, the Strategy tabs and the Strategy Bot as a sheet.
+    // Phone first: the rail, old addresses redirected, the Strategy tabs and the Strategy Bot as a sheet.
     {
-      const tag = 'on phone';
+      const tag = 'phone';
       // The goals tree answers slowly: #/goals/g-1 is left before it arrives, as a person tapping on would.
-      const {page, errors, goals} = await open(browser, {redesign: true, goalsDelay: 400});
+      const {page, errors, goals} = await open(browser, {goalsDelay: 400});
       await page.locator('#tree li').first().waitFor();
       assert.deepEqual(await railKeys(page), ['side-update', 'overview', 'welcome', 'strategy', 'updates', 'tasks', 'assistant', 'automations',
-        'library', 'rd-lib', 'botops', 'goals', 'nav-pins', 'side-section', 'nav-inboxes-section'], tag + ': the new order');
+        'library', 'rd-lib', 'botops', 'nav-pins', 'side-section', 'nav-inboxes-section'], tag + ': the order');
       assert.equal(await page.getAttribute('a[data-nav="automations"]', 'href'), '#/automations', tag + ': Automations');
-      for (const helper of ['b:mail-sorter', 'b:botops', 'b:librarian', 'g:__message_bots'])
+      for (const helper of ['b:mail-sorter', 'b:botops', 'b:librarian'])
         assert.equal(await page.locator(`#tree [data-org="${helper}"]`).count(), 0, `${tag}: ${helper} is off the Team list`);
       assert.equal(await page.locator('#tree [data-org="b:eng-lead"]').count(), 1, tag + ': the Team list keeps the chart');
       assert.equal(await page.getAttribute('a[data-nav="strategy"]', 'href'), '#/strategy/market', tag + ': Strategy opens on Market');
-      assert.deepEqual(await page.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), OFF_PHONE_BAR, tag + ': the phone bar is the mock\'s');
-      for (const [from, to] of [['#/goals', '#/strategy/goals'], ['#/goals/g-1', '#/strategy/goals/g-1'], ['#/settings/listening', '#/strategy/market/listening']]) {
+      assert.deepEqual(await page.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), PHONE_BAR, tag + ': the phone bar is the mock\'s');
+      for (const [from, to] of [['#/tasks/routines', '#/automations'], ['#/recurring', '#/automations'], ['#/goals', '#/strategy/goals'],
+        ['#/goals/g-1', '#/strategy/goals/g-1'], ['#/settings/listening', '#/strategy/market/listening']]) {
         await page.evaluate(h => { location.hash = h; }, from);
         assert.ok(await hashSoon(page, to), `${tag}: ${from} lands on ${to}`);
       }
@@ -178,11 +148,11 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.close();
     }
 
-    // On, desktop: the rail reads as the mock, the Strategy Bot sits beside every tab, and a task cap's 409 reads as its
+    // Desktop: the rail reads as the mock, the Strategy Bot sits beside every tab, and a task cap's 409 reads as its
     // message.
     {
-      const tag = 'on desktop';
-      const {page, errors} = await open(browser, {redesign: true, viewport: DESKTOP, route: '#/strategy/budget'});
+      const tag = 'desktop';
+      const {page, errors} = await open(browser, {viewport: DESKTOP, route: '#/strategy/budget'});
       await page.locator('[data-bt-open="bot:builder"]').waitFor();
       const shown = await shownRail(page);
       assert.deepEqual(shown, ['Overview', 'Strategy', 'Updates', 'Tasks', 'Automations', 'Library', 'Docs', 'Meetings', 'Tools', 'BotOps'], tag + ': the rail, with no Strategy Bot entry');
@@ -220,20 +190,18 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.locator('#sbot').waitFor({state: 'detached'});
       assert.ok(!(await page.locator('body').innerText()).includes('CEO Bot'), tag + ': no "CEO Bot" anywhere');
       await page.evaluate(() => { location.hash = '#/settings'; });
-      await page.locator('#redesign-switch').waitFor();
-      assert.equal(await page.locator('[data-settings-tab="listening"]').count(), 0, tag + ': Listening left Settings');
+      await page.locator('#settings-tabs').waitFor();
+      assert.equal(await page.locator('#settings-redesign, #redesign-switch').count(), 0, tag + ': no design switch');
+      assert.equal(await page.locator('[data-settings-tab="listening"], [data-settings-tab="rules"], [data-settings-tab="recurring"]').count(), 0, tag + ': Listening and Rules left Settings');
       await shot(page, 'desktop-settings');
+      for (const old of ['#/settings/rules', '#/settings/routines', '#/settings/recurring']) {
+        await page.evaluate(h => { location.hash = h; }, old);
+        assert.ok(await hashSoon(page, '#/settings/system'), `${tag}: ${old} lands on System`);
+      }
+      assert.equal(await page.locator('[data-settings-tab="system"][aria-selected="true"], [data-settings-tab="system"].cur, [data-settings-tab="system"][aria-current]').count(), 1, tag + ': System is the tab shown');
+      assert.equal(await page.locator('#settings-system #set-rules-card, #settings-system [data-bot-routines]').count(), 0, tag + ': no wake rules or bot routines');
+      await shot(page, 'desktop-settings-system');
       assert.deepEqual(errors, [], tag + ': no page errors');
-      await page.close();
-    }
-
-    // The owner's switch sends the setting and reloads into the chosen design.
-    {
-      const {page, sent} = await open(browser, {viewport: DESKTOP, route: '#/settings'});
-      await page.locator('#redesign-switch').waitFor();
-      // click, not check: check reads the switch again after clicking and, finding the reloaded page's, clicks again.
-      await Promise.all([page.waitForEvent('load'), page.locator('#redesign-switch').click()]);
-      assert.deepEqual(sent.filter(([, p]) => p === '/api/v2/settings/redesign'), [['PUT', '/api/v2/settings/redesign', {enabled: true}]], 'switch: PUT');
       await page.close();
     }
 

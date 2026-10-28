@@ -27,7 +27,7 @@ async function open(browser, {viewport = PHONE, hash = LIST, me = OWNER, tools =
   const page = await browser.newPage({viewport, serviceWorkers: 'block', hasTouch: viewport === PHONE});
   const seen = {errors: [], writes: [], vaultReads: 0, vault: JSON.parse(JSON.stringify(FX.vault))};
   page.on('pageerror', e => seen.errors.push(e.message));
-  const config = {company_name: 'Acme', redesign: true};
+  const config = {company_name: 'Acme'};
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
     const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});

@@ -26,12 +26,12 @@ function listeningStats(now = new Date()) {
 // One page on the fake hub. viewer: who is signed in (ana owns Acme; ben leads Sales and so Outbound below it; cara
 // is in Engineering).
 // briefing: false answers {briefing: null}. listening: 403 answers the stats with that status.
-async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org', redesign = true, viewer = 'ana', briefing = true, listening = 200} = {}) {
+async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org', viewer = 'ana', briefing = true, listening = 200} = {}) {
   const fx = fixture('redesign-org.json');
   const person = fx.people.find(p => p.id === viewer);
   const me = viewer === fx.me.id ? fx.me : {id: viewer, name: person?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};
-  const config = {company_name: 'Acme', ...(redesign ? {redesign: true} : {})};
+  const config = {company_name: 'Acme'};
   // Goals: the company's, one with a measure that has a target, and Sales Lead's (goal_routes.py shapes, no rights).
   const goals = [
     {id: 'g-co', title: 'Reach 100 paying customers', owner: 'company', parent_id: null, status: 'green', status_source: 'auto', rank: 1,

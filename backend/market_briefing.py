@@ -137,7 +137,6 @@ def bets_touched(c, items):
 def post(c, who, week, title, body, items, source=None):
     """Write (or replace) the week's briefing, its market page, and emit `market.briefing`. The caller has checked the
     writer. `source` is the automation run that posted it, if one did. Returns the briefing."""
-    from . import routines
     if not WEEK.match(week):
         raise Problem("validation", "week is an ISO week like 2026-W44", 422)
     items = [{"text": " ".join(i.text.split()), "kind": i.kind, "entity_ids": list(dict.fromkeys(i.entity_ids))}
@@ -161,7 +160,6 @@ def post(c, who, week, title, body, items, source=None):
     again = MK.loads(before["bets"], []) if before else []
     if not before or (bets and set(bets) != set(again)):
         subject = week if not before else week + "." + hashlib.sha256(",".join(sorted(bets)).encode()).hexdigest()[:6]
-        routines.emit(c, EVENT, subject, {"week": week, "bets": ", ".join(bets)}, title=title)
         H.hook(c, "market.briefing", subject, lambda: {"week": week, "bets": list(bets)}, who.actor, revision=0)
     return get(c, week)
 

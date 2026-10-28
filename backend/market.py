@@ -157,9 +157,7 @@ def ensure_turn_sources(c):
 
 def _from_turn(conn, eid, kind, subject):
     """A change made in an automation's bot turn names the turn and what started it (backend/automations.py)."""
-    from . import automations, redesign
-    if not redesign.on(conn):
-        return
+    from . import automations
     source = automations.turn_source(conn)
     if source:
         conn.execute("INSERT OR IGNORE INTO market_turn_sources (event_id, subject_kind, subject_id, source, at) "
@@ -858,10 +856,6 @@ def report(conn, actor, *, kind, about, claim, source_url="", quote="", confiden
                  "(:id,:reported_by,:reported_at,:kind,:about,:claim,:source_url,:quote,:confidence,:urgent,"
                  ":status,:resolution,:applied_events,:resolved_at,:resolved_by,:source_ref)", row)
     if urgent:
-        from . import routines
-        routines.emit(conn, "market.insight.urgent", row["id"],
-                      {"about": row["about"], "claim": row["claim"], "reported_by": actor},
-                      title=row["about"] or row["claim"][:80])
         H.hook(conn, "market.insight.urgent", row["id"], lambda: {"id": row["id"], "about": row["about"],
                                                                   "reported_by": actor}, actor, revision=0)
     return insight(conn, row["id"])
@@ -1719,8 +1713,7 @@ def install(app, store, auth, mutate):
         auth.domain(request.state.identity)
         with store.read() as c:
             view = graph(c, focus, limit, as_of, focus == OWN_COMPANY_ID if fill is None else fill, include)
-            from . import redesign
-            return with_turn_sources(c, view) if redesign.on(c) else view
+            return with_turn_sources(c, view)
 
     @app.get("/api/v2/market/entities/{rest:path}")
     def entity_show(rest: str, request: Request, names: bool = False):

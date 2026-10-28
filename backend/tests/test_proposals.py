@@ -4,16 +4,15 @@ sends BotOps one notice. An org change is no proposal (test_org_by_request.py)."
 from backend.store import H
 from backend.tests.test_api import api, get, headers, post  # noqa: F401  (the api fixture)
 from backend.tests.test_groups import add_bots, send
-from backend.tests.test_groups_leads import as_bot, redesign_on
+from backend.tests.test_groups_leads import as_bot
 
 
 def setup_org(api):
-    """Engineering (ops) and Release (shipper), BotOps on hand, the redesign on, ops signing in as itself."""
+    """Engineering (ops) and Release (shipper), BotOps on hand, ops signing in as itself."""
     with api.app.state.store.transaction() as c:
         add_bots(c, botops=({}, "ana"), shipper=({}, "ana"))
     eng = send(api, "POST", "groups", {"name": "Engineering", "add": {"bots": ["ops"]}})["id"]
     release = send(api, "POST", "groups", {"name": "Release", "add": {"bots": ["shipper"]}})["id"]
-    redesign_on(api)
     as_bot(api, "ops", "ops-test")
     return eng, release
 
@@ -32,14 +31,6 @@ def botops_notices(api):
     with api.app.state.store.read() as c:
         return [dict(r) for r in c.execute("SELECT body, refs_json FROM messages WHERE from_actor=? AND to_actor=? "
                                            "AND kind='notice'", (H.KEEPER, "bot:botops"))]
-
-
-def test_the_new_kinds_are_refused_while_the_redesign_is_off(api):
-    as_bot(api, "ops", "ops-test")
-    for kind, payload in (("spend_limit", {"bot": "ops"}), ("task_cap", {"sender": "bot:ops", "receiver": "person:ana"})):
-        propose(api, kind, payload, expected=422)
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM approvals").fetchone()[0] == 0
 
 
 def test_a_payload_the_hub_could_not_apply_is_refused_when_filed(api):
@@ -79,17 +70,12 @@ def test_a_declined_proposal_changes_nothing_and_tells_nobody(api):
     assert get(api, "usage/limits")["bots"]["ops"]["daily_usd"] is None and botops_notices(api) == []
 
 
-def test_spend_and_group_changes_by_hand_are_audited_only_while_the_redesign_is_on(api):
+def test_spend_and_group_changes_by_hand_are_audited(api):
     send(api, "PUT", "usage/limits/ops", {"daily_usd": 3})
-    send(api, "POST", "groups", {"name": "Quiet"})
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM audit_log WHERE object LIKE 'spend:%' OR object LIKE 'group:%'"
-                         ).fetchone()[0] == 0
-    redesign_on(api)
     send(api, "PUT", "usage/limits/ops", {"daily_usd": 4})
     send(api, "PUT", "usage/limits/ops", {"daily_usd": 4})                              # no change, no row
-    [row] = audit(api, "spend:ops")
-    assert row["before"]["daily_usd"] == 3 and row["after"]["daily_usd"] == 4 and row["via"] is None
+    row, first = audit(api, "spend:ops")
+    assert first["after"]["daily_usd"] == 3 and row["before"]["daily_usd"] == 3 and row["after"]["daily_usd"] == 4 and row["via"] is None
     gid = send(api, "POST", "groups", {"name": "Loud"})["id"]
     send(api, "DELETE", f"groups/{gid}")
     created, deleted = reversed(audit(api, f"group:{gid}"))

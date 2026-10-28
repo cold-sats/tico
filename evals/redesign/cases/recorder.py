@@ -222,5 +222,5 @@ SCENARIOS = [
                        replay_missing_names_command),
                  Check("replay: a passed script answers first, then the recording, then MissingRecording", WAVE,
                        replay_order),
-             ], setting=False),
+             ]),
 ]

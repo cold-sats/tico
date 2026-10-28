@@ -114,8 +114,7 @@ def _manager_actor(c, slug):
 def _person_above(c, pid, slug):
     from . import people as P, views
     archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-    from . import redesign
-    return P.manages(pid, "bot", slug, views.roster(c), views.entries(c), archived, redesign.on(c))
+    return P.manages(pid, "bot", slug, views.roster(c), views.entries(c), archived, True)
 
 
 def may_complete(auth, c, who, slug):
@@ -356,8 +355,7 @@ def chart_seats(c, roster, employees, archived=(), may_see=lambda slug: True):
     where it hangs. One under a bot the caller may not see hangs from the nearest thing above that bot they may, as
     that bot's own reports do on the chart."""
     from . import people as P
-    from . import redesign
-    every, out, bare = all_seats(c), [], redesign.on(c)
+    every, out, bare = all_seats(c), [], True
     for row in every.values():
         if row["closed_at"]:
             continue

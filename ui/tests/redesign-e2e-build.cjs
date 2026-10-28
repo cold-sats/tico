@@ -17,7 +17,7 @@ async function save(page, version) {
     && document.querySelector('.au-ed').hidden, 'v' + version, {timeout: t(10000)});
 }
 
-run('redesign-e2e-build', ['org', 'toured', 'redesign_on', 'automations'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-build', ['org', 'toured', 'automations'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/automations'});
   await page.locator('.au-new').click();
   const blank = page.locator('.au-botp .au-blank');

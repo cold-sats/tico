@@ -553,11 +553,9 @@ def install_connectors(app, store, execution, mutate):
                               + store.settings.app_name + " roster", 404)
             now = H.now()
             from . import automations
-            from . import redesign
-            listening = redesign.on(c)
             for message in body.messages:
                 # A message seen for the first time is what a mail automation hears (backend/automations.py).
-                fresh = listening and not c.execute("SELECT 1 FROM mail_messages WHERE mailbox=? AND msg_id=?",
+                fresh = not c.execute("SELECT 1 FROM mail_messages WHERE mailbox=? AND msg_id=?",
                                                     (body.mailbox, message.msg_id)).fetchone()
                 c.execute(
                     "INSERT INTO mail_messages(mailbox,msg_id,thread_id,epoch,date,from_addr,from_header,"

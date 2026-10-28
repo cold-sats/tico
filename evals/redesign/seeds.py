@@ -2,8 +2,6 @@
 server runs (harness.Org) and makes one piece of state a browser test starts from, through the API a teammate calls.
 Seeds run in the order given. A seed returns False when it skipped itself because the route it needs is not built yet;
 otherwise it returns None."""
-from .harness import Unmet
-
 SEEDS = {}
 
 
@@ -19,20 +17,9 @@ def org(world):
     """The scenario org: its people, bots and reports_to are built when the world starts, so nothing is added here."""
 
 
-@seed("redesign_on")
-def redesign_on(world):
-    """The redesign setting on, through PUT /api/v2/settings/redesign as Chris. Skipped until the route exists."""
-    try:
-        reply = world.redesign_on()
-    except Unmet:
-        return False
-    if not 200 <= reply.status < 300:
-        raise RuntimeError(f"redesign setting: {reply.status} {reply.excerpt()}")
-
-
 # ---------------------------------------------------------------------------------------------- the e2e journeys' world
 # The seeds below build what the redesign's browser journeys (ui/tests/redesign-e2e-*.cjs) start from, through the
-# routes a teammate calls, in the scenario harness's helpers. Each needs `redesign_on` before it.
+# routes a teammate calls, in the scenario harness's helpers.
 def _ok(reply, what):
     if not 200 <= reply.status < 300:
         raise RuntimeError(f"{what}: {reply.status} {reply.excerpt()}")

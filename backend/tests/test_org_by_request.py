@@ -4,7 +4,7 @@ from backend.tests.test_api import api, get, headers  # noqa: F401  (the api fix
 from backend.tests.test_assistant import assistant_turn
 from backend.tests.test_ceo_bot_chat import ceo, turn
 from backend.tests.test_groups import group
-from backend.tests.test_groups_leads import as_bot, redesign_on
+from backend.tests.test_groups_leads import as_bot
 
 
 def cited(api, method, path, body, token, ref="turn", expected=200):
@@ -17,7 +17,6 @@ def cited(api, method, path, body, token, ref="turn", expected=200):
 
 def test_the_strategy_bot_makes_the_org_change_the_owner_asked_for(api):
     ceo(api)
-    redesign_on(api)
     _, attempt = turn(api, "goal-manager", "ana-test", "Make a Research group with ops leading it, and Ben reports to me")
     token = attempt["token"]
     # Without citing what they said it changes nothing.
@@ -41,7 +40,6 @@ def test_the_strategy_bot_makes_the_org_change_the_owner_asked_for(api):
 
 def test_on_its_own_the_strategy_bot_changes_no_group(api):
     ceo(api)
-    redesign_on(api)
     as_bot(api, "goal-manager", "gm-test")
     cited(api, "POST", "groups", {"name": "Research"}, "gm-test", ref=None, expected=403)
     assert "Research" not in {row["name"] for row in get(api, "groups")}

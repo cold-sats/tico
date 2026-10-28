@@ -15,7 +15,7 @@ opens nothing. Beside the copy go a `server.env` with TICO_REHEARSAL=1 (nothing 
 server, and runners are refused), a fresh local sign-in token, and empty registry and attachment folders.
 
 `--keep-automations` keeps what the team set up to run (AUTOMATIONS: routines, task rules, incoming triggers,
-outgoing webhooks and automations; wake rules are always kept) so the redesign's converter can be rehearsed on it.
+outgoing webhooks and automations; wake rules are always kept) so the one-time move to automations can be rehearsed on it.
 Their queues, deliveries and runs are still emptied, and their secrets replaced: no trigger URL, webhook signature or
 header of the live install works on the copy. Rehearsal mode still holds every timer.
 """

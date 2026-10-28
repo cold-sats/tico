@@ -153,8 +153,6 @@ STABLE = [
     ("/api/v2/bots/{bot}", "get", "Bots", "getBot",
      "One bot: its profile for anyone who can see it; status, computer, queue and goals too for anyone who can read it",
      "BotDetail"),
-    ("/api/v2/bots/{bot}/routines", "get", "Bots", "listBotRoutines",
-     "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)", "RoutineList"),
     ("/api/v2/bots/{bot}/access", "get", "Bots", "getBotAccess",
      "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccessView"),
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
@@ -165,7 +163,7 @@ STABLE = [
     ("/api/v2/bots/{bot}/onboarded", "post", "Bots", "markBotOnboarded",
      "Mark onboarding complete, by a person above the bot on the org chart (its manager, their managers or the owner; "
      "403 for anyone else): its `stage` goes from onboarding to active (`onboarding_state` `needs_setup` to "
-     "`onboarded`) and its routines start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it "
+     "`onboarded`) and its automations start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it "
      "onboarding. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
      "BotOnboarded"),
     ("/api/v2/bots/{bot}/tools", "get", "Bots", "listBotTools",
@@ -539,22 +537,22 @@ STABLE = [
      "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
     ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
      "The team default limit and each bot's hourly, daily, weekly and monthly limits with this period's spend, for the bots "
-     "the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (with "
-     "the redesign on, a lead who is not an administrator gets the groups it leads and those below)", "UsageLimits"),
+     "the caller may see usage for; for the owner and bot administrators also the team's and each group's combined limits (a "
+     "lead who is not an administrator gets the groups it leads and those below)", "UsageLimits"),
     ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
      "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
      "count toward every limit (owner and bot administrators)", "UsageDefaultView"),
     ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
-     "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD (the hourly one with the redesign off); empty "
+     "A bot's own 30-minute, daily, weekly and monthly limit in estimated USD; empty "
      "follows the team default. Owner and administrators, the person who runs the bot within the team default, and a group "
-     "lead for the bots in the group and those below (redesign on). A bot over a limit takes no new job until the period turns over or the "
+     "lead for the bots in the group and those below. A bot over a limit takes no new job until the period turns over or the "
      "limit is raised", "BotUsageLimit"),
     ("/api/v2/usage/pools/company", "put", "Usage", "setTeamUsageLimit",
-     "A limit on every bot's estimated spend together, per hour, day, week and month; empty removes it. Over it, no bot "
+     "A limit on every bot's estimated spend together, per hour, day, week and month; null removes a field, one left out stays. Over it, no bot "
      "takes a new job (owner and bot administrators)", "UsagePoolLimit"),
     ("/api/v2/usage/pools/groups/{group}", "put", "Usage", "setGroupUsageLimit",
-     "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none "
-     "of them takes a new job (owner and bot administrators; with the redesign on, also the lead of the group or one above "
+     "A limit on the estimated spend of a group's bots together, nested groups included; null removes a field, one left out stays. Over it, none "
+     "of them takes a new job (owner and bot administrators; also the lead of the group or one above "
      "it, within the parent group's limit)", "UsagePoolLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (bots see counts, computers and failed runs)", "Health"),
@@ -599,7 +597,7 @@ def obj(fields, required=None, **arrays):
 
 
 NUM_N = {"type": ["number", "null"]}
-PERIODS = ("per_30m", "hourly", "daily", "weekly", "monthly")   # the spend limit periods (backend/usage_limits.py); the 30-minute one with the redesign on
+PERIODS = ("per_30m", "hourly", "daily", "weekly", "monthly")   # the spend limit periods (backend/usage_limits.py); the 30-minute one
 GRANOLA_SKIP_REASONS = {"type": "object", "additionalProperties": {"type": "integer"},
                         "description": "Skipped items in the last attempt, by fixed code and step"}
 GRANOLA_ERROR_DETAIL = {"type": ["object", "null"], "additionalProperties": False,
@@ -755,15 +753,6 @@ SCHEMAS = {
                       "access": ref("Access"), "onboarding_state": "s", "template": "s", "template_version": "s",
                       "stage": {"enum": ["onboarding", "active"], "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"}, "can_complete_onboarding": {"type": "boolean", "description": "While onboarding: whether the caller may mark its onboarding complete"}, "onboarding_ready": {"type": ["object", "null"], "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"}},
                      required=["slug", "display_name", "state", "owners", "access"]),
-    "Routine": obj({"id": "s", "bot": "s", "key": "n", "title": "s", "cron": "s", "on": "s", "kind": "s",
-                    "timezone": "s", "enabled": "b", "text": "s", "last_fired": "n", "next_due": "n",
-                    "deleted_at": "n", "updated_at": "n", "active": "b",
-                    "held_by_bot": {"type": ["string", "null"], "description":
-                                    "Set while an enabled routine waits on its bot rather than its own switch: the "
-                                    "bot's state (paused, planned, quarantined, archived) or needs_setup. The routine "
-                                    "stays enabled and fires again once the bot is active and set up."}},
-                   required=["id", "bot", "title", "cron", "on", "kind", "timezone", "enabled", "active"]),
-    "RoutineList": obj({"routines": items(ref("Routine"))}, required=["routines"]),
     "Audience": obj({"everyone": "b", "people": items({"type": "string"}), "teams": items({"type": "string"}),
                      "bots": items({"type": "string"})}, required=["everyone", "people", "teams", "bots"]),
     "BotAccessView": obj({"bot": "s", "see": ref("Audience"), "read": ref("Audience"), "write": ref("Audience"),
@@ -772,7 +761,6 @@ SCHEMAS = {
     "Me": obj({"actor": "s", "role": "s", "email": "s"}),
     "Config": obj({"company_name": "s", "app_name": "s", "assistant_name": "s", "assistant_bot": "s",
                    "public_url": "s", "owner_email": "s", "version": "s",
-                   "redesign": {"type": "boolean", "description": "The team turned the redesign on (backend/redesign.py)"},
                    "visual_origin": {"type": "string", "description": "Configured non-secret visual origin, or empty "
                                      "when absent or invalid; grants no native IPC permission."},
                    "visuals": {"type": "string", "enum": ["full", "media"],
@@ -1129,10 +1117,10 @@ SCHEMAS = {
                        "level_changed_by": "s", "level_changed_by_name": "s", "level_changed_at": "s",
                        "level_history": items(obj({"level": "i", "was": "i", "by": "s", "by_name": "s", "at": "s"},
                                                   required=["level", "was", "by", "at"])),
-                       "daily_cap": "i", "asked_today": {"type": "object", "additionalProperties": {"type": "integer"},
+                       "asked_today": {"type": "object", "additionalProperties": {"type": "integer"},
                                                          "description": "{person actor: items the CEO Bot put in their Needs you today (UTC)}"},
                        "level3_offer": ref("CeoBotLevel3Offer")},
-                      required=["name", "regular_checks", "level", "levels", "daily_cap"]),
+                      required=["name", "regular_checks", "level", "levels"]),
     "CeoBotLogEntry": obj({"id": "s", "created": "s", "kind": {"type": "string", "enum": [
                                "decision", "cost", "publish", "send", "bots", "target", "vision", "instructions",
                                "person_task"]},
@@ -1217,7 +1205,7 @@ SCHEMAS = {
     "UsageLimits": obj({"default": obj({**{p + "_usd": NUM_N for p in PERIODS}, "count_subscription": "b"}),
                         "may_edit_default": "b",
                         "pools": {"type": ["object", "null"], "description": "Owner and administrators: company (UsagePoolView) and "
-                                  "groups, {id: UsagePoolView with name and parent}. With the redesign on, a lead who is "
+                                  "groups, {id: UsagePoolView with name and parent}. A lead who is "
                                   "not an administrator: company null and only the groups it leads and those below, each "
                                   "with may_edit true", "additionalProperties": True},
                         "bots": {"type": "object", "additionalProperties": ref("UsageLimitView")}}),
@@ -1262,7 +1250,7 @@ SCHEMAS.update({
 })
 SCHEMAS["Task"]["properties"]["tags"] = items(ref("Tag"))
 
-# The named events routines, rules and outgoing webhooks listen for (backend/event_catalog.py).
+# The named events automations and outgoing webhooks listen for (backend/event_catalog.py).
 TAGS["Events"] = "The catalog of named events (docs/routines.md)."
 STABLE.append(("/api/v2/event-types", "get", "Events", "listEventTypes",
                "Every named event with its description, version and an example payload (`group` narrows it)", "EventTypeList"))
@@ -1309,7 +1297,7 @@ STABLE.extend([
      "Remove the cap between two teammates (?sender=&receiver=); a bot's removal is an approval too", "TaskCapWrite"),
 ])
 
-# The redesign's audit trail (backend/audit_log.py).
+# The audit trail (backend/audit_log.py).
 STABLE.extend([
     ("/api/v2/audit", "get", "Team", "listAudit",
      "Who changed caps, spend, groups and automations, newest first (owner: all; others: their own)", "AuditPage"),
@@ -1318,24 +1306,15 @@ SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "p
     "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     "next": {"type": ["string", "null"]}}}})
 
-# The redesign's proposals (backend/proposals.py): a change a person decides, applied by the hub on approve.
+# Proposals (backend/proposals.py): a change a person decides, applied by the hub on approve.
 STABLE.extend([
     ("/api/v2/approvals", "post", "Needs you", "requestApproval",
-     "Ask a person to approve an action. With the redesign on, kinds task_cap and spend_limit are proposals "
+     "Ask a person to approve an action. Kinds task_cap and spend_limit are proposals "
      "the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
      "ApprovalRequested"),
 ])
 SCHEMAS.update({"ApprovalRequested": obj({"id": "s", "kind": "s", "approval": "s", "status": "s"}, required=["id", "kind"])})
-# The redesign setting (backend/redesign.py).
-STABLE.extend([
-    ("/api/v2/settings/redesign", "get", "Team", "getRedesign", "Whether the team turned the redesign on (also `redesign` in config)",
-     "RedesignState"),
-    ("/api/v2/settings/redesign", "put", "Team", "setRedesign", "Turn the redesign on or off for the whole team (owner only)",
-     "RedesignState"),
-])
-SCHEMAS.update({"RedesignState": obj({"enabled": "b"}, required=["enabled"])})
-
-# Automations (backend/automations.py): 404 until the team turns the redesign on.
+# Automations (backend/automations.py).
 TAGS["Automations"] = ("A trigger and a tree of steps (filter, decide, llm, find, bot_turn, paths, action), saved as versions; "
                        "one permission rule for UI, CLI and MCP.")
 STABLE.extend([
@@ -1405,41 +1384,6 @@ SCHEMAS.update({
     "QuestionSets": obj({"sets": items(obj({"id": "s", "summary": "s", "questions": {"type": "object", "description": "Keyed by question id, in judge.py's format"}}))}),
     "InboxSwitch": obj({"inbox": "s", "send": "b"}),
     "PersonAssistant": obj({"bot": {"type": ["string", "null"]}}),
-})
-
-# The redesign's migration (backend/redesign_migration.py): 404 until the team turns the redesign on; the owner only.
-STABLE.extend([
-    ("/api/v2/redesign/migration/dry-run", "post", "Automations", "migrationDryRun",
-     "Every routine, wake rule, job, inbox, limit and budget, what it becomes and its flags. Writes nothing",
-     "MigrationReport"),
-    ("/api/v2/redesign/migration/resolve", "post", "Automations", "migrationResolve",
-     "Say yes to flags (`accept`: flag ids, or object ids for every flag on one); answers the dry run again",
-     "MigrationReport"),
-    ("/api/v2/redesign/migration/convert", "post", "Automations", "migrationConvert",
-     "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag "
-     "has no yes, unless `accept` names it; 409 while another convert runs or can still be restored", "MigrationConverted"),
-    ("/api/v2/redesign/migration/restore", "post", "Automations", "migrationRestore",
-     "Within a day of converting (or after a restart cut it off): what it changed back, its automations deleted; a "
-     "field changed since is left and listed in `skipped`. 410 once the day is over",
-     "MigrationRestored"),
-])
-SCHEMAS.update({
-    "MigrationObject": obj({"kind": "s", "id": "s", "title": "s",
-                            "becomes": {"description": "The automation flow it becomes, the new values, or \"unchanged\""},
-                            "flags": items(obj({"id": "s", "kind": "s", "text": "s", "keeps": "b", "accepted": "b"},
-                                               required=["id", "kind", "text", "accepted"]))},
-                           required=["kind", "id", "becomes", "flags"]),
-    "MigrationReport": obj({"objects": items(ref("MigrationObject")), "counts": {"type": "object"},
-                            "flags": obj({"total": "i", "open": "i"}), "ready": "b",
-                            "migration": {"type": ["object", "null"], "description": "The latest convert: id, state "
-                                          "(converting, interrupted, converted, restored, expired), created, expires, restorable"}},
-                           required=["objects", "counts", "flags", "ready"]),
-    "MigrationConverted": obj({"migration": "s", "snapshot": obj({"id": "s", "expires": "s"}), "expires": "s",
-                               "converted": items({"type": "object"}), "failed": items({"type": "object"}),
-                               "kept": items({"type": "object"}), "counts": {"type": "object"}},
-                              required=["migration", "converted", "failed"]),
-    "MigrationRestored": obj({"migration": "s", "restored": "b", "automations_removed": "i", "routines": "i", "rules": "i",
-                              "skipped": items(obj({"id": "s", "why": "s"}))}),
 })
 
 # Bot profiles (backend/profiles.py).

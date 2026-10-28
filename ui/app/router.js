@@ -21,7 +21,6 @@ function route() {
     location.replace(NEEDS_YOU); return;
   }
   overviewStop();
-  GOAL_MANAGER_STOP?.();
   $('#main').classList.remove('overview-layout');
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;
@@ -61,7 +60,7 @@ function route() {
   if (!(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { if (UPD) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; } updcStop(); }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
-  if (redesignOn() && redesignRoute(S.route)) { /* the redesign's pages, moves and redirects (ui/app/redesign.js) */ }
+  if (redesignRoute(S.route)) { /* Strategy's tabs, Automations, Connections and the old addresses that moved (ui/app/redesign.js) */ }
   else if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
     // Old links land on Meetings, keeping a deep link to one meeting.
     const id = new URLSearchParams(S.route.split('?')[1] || '').get('recording');
@@ -87,15 +86,13 @@ function route() {
   else if (isTasksRoute(S.route)) {
     // #/tasks?owner=bot:eng&tag=bug: the filters ride in the query (ui/app/task-list.js)
     const base = S.route.split('?')[0];
-    pageTasks(base === BOARD ? 'board' : base === ISSUES ? 'list' : base === RECURRING ? 'recurring' : '');
+    pageTasks(base === BOARD ? 'board' : base === ISSUES ? 'list' : '');
   }
   else if (S.route === UPDATES || S.route.startsWith(UPDATES + '?')) pageUpdates();
-  else if (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?')) pageGoals();
   else if (S.route === SETTINGS) pageSettings();
   else if (S.route === HELP) { location.replace(OVERVIEW); window.supportOpen?.(); return; }   // Help is the Support pop-up, over Overview
   else if (S.route === '#/getting-started') { location.replace(TASKS); return; }   // the checklist is gone
   else if (S.route === '#/repositories') { SETTINGS_TAB = 'repos'; location.replace(SETTINGS); return; }   // Settings > Repositories
-  else if (S.route === '#/settings/listening') { SETTINGS_TAB = 'listening'; location.replace(SETTINGS); return; }   // Settings > Listening
   // Settings > Webhooks (it was Triggers); #/settings/webhooks/outgoing and /gateway open that tab.
   else if (['#/triggers', '#/webhooks', '#/settings/triggers', '#/settings/webhooks'].includes(S.route) || S.route.startsWith('#/settings/webhooks/')) {
     const tab = S.route.split('/')[3];
@@ -107,16 +104,8 @@ function route() {
   else if (S.route === '#/settings/inbox') { SETTINGS_TAB = 'inbox'; location.replace(SETTINGS); return; }   // Google's sign-in returns here
   else if (S.route === '#/settings/roadmap') { SETTINGS_TAB = 'tasks'; ROADMAP_SETTINGS_REVEAL = true; location.replace(SETTINGS); return; }   // Health's roadmap suggestions fix
   else if (S.route === '#/settings/storage') { SETTINGS_TAB = 'storage'; location.replace(SETTINGS); return; }   // Health's Set up S3
-  // Settings > Rules; `?task=` narrows the wake rules to one task's (the task modal's Wake rules link).
-  else if (S.route === '#/settings/rules' || S.route.startsWith('#/settings/rules?')) {
-    // ?task=<id>, ?bot=<slug>, or the API's own scope_kind=task|bot&scope_id=<id>.
-    const q = new URLSearchParams(S.route.split('?')[1] || ''), kind = q.get('task') ? 'task' : q.get('bot') ? 'bot' : q.get('scope_kind');
-    const id = q.get('task') || q.get('bot') || q.get('scope_id') || '';
-    RULES_OPEN = Object.fromEntries(q);
-    RULES_FOR = ['task', 'bot'].includes(kind) && id ? `${kind}:${id}` : ''; RULES_FOR_TITLE = '';
-    SETTINGS_TAB = 'recurring'; SETTINGS_REVEAL = RULES_FOR ? '#set-rules-card' : ''; location.replace(SETTINGS); return;
-  }
-  else if (S.route === '#/settings/routines') { SETTINGS_TAB = 'recurring'; location.replace(SETTINGS); return; }   // General > Team's moved switches
+  // Settings > System (it was Rules, before that Routines): Tico's own jobs. Wake rules and routines are Automations now.
+  else if (['#/settings/rules', '#/settings/routines'].includes(S.route.split('?')[0])) { SETTINGS_TAB = 'system'; location.replace(SETTINGS); return; }
   else if (S.route === '#/settings/people') { SETTINGS_TAB = 'people'; location.replace(SETTINGS); return; }   // setup's people to invite
   else if (['#/settings/subscriptions', '#/subscriptions', '#/settings/computers'].includes(S.route)) { SETTINGS_TAB = 'devices'; location.replace(SETTINGS); return; }   // Subscriptions moved to Computers
   // Every other #/settings/<tab>[/<card>] opens that tab, and the card when named (the settings catalogue's links,

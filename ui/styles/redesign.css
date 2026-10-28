@@ -1,8 +1,8 @@
-/* The redesign's shell (ui/app/redesign.js, ui/app/strategy-budget.js). Everything here keys off html.redesign or a
-   class only the redesign's code adds, so with the setting off none of it applies. */
+/* The app's shell (ui/app/redesign.js, ui/app/strategy-budget.js): what keys off html.redesign (set at boot) or a class
+   only that code adds. */
 
 /* Sidebar: what moved out of the rail. Library's pages sit under it. */
-html.redesign #side a[data-nav="goals"],html.redesign #nav-inboxes-section,html.redesign #nav-strategy-librarian{display:none!important}
+html.redesign #nav-inboxes-section,html.redesign #nav-strategy-librarian{display:none!important}
 .rd-lib{display:flex;flex-direction:column}
 .rd-lib .nav-link{padding-left:40px;color:var(--muted)}
 .rd-lib .nav-link .nav-icon{display:none}
@@ -15,11 +15,6 @@ html.redesign #side a[data-nav="goals"],html.redesign #nav-inboxes-section,html.
 .rd-help-pop{display:none;position:absolute;z-index:30;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);width:max-content;max-width:min(260px,70vw);padding:6px 9px;border-radius:7px;background:var(--raised,var(--surface2));border:1px solid var(--line);color:var(--ink);font-size:var(--t-sm);font-weight:400;line-height:1.35;text-align:left;white-space:normal;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .rd-help:hover .rd-help-pop,.rd-help:focus .rd-help-pop{display:block}
 
-/* Settings > General: the owner's switch, one row. */
-.rd-setting-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.rd-switch{display:inline-flex;align-items:center;gap:8px;font-weight:600}
-.rd-setting-row .err{flex-basis:100%;margin:0}
-
 /* Strategy tabs: one row, scrolling sideways inside itself on a phone, never the page. */
 .rd-strat-head .strat-tabs{overflow-x:auto;scrollbar-width:none;max-width:100%}
 .rd-strat-head .strat-tabs::-webkit-scrollbar{display:none}
@@ -31,7 +26,6 @@ html.redesign #side a[data-nav="goals"],html.redesign #nav-inboxes-section,html.
   .rd-strat-head .strat-sub+.strat-actions{flex:1 1 0;min-width:0}}
 
 /* The Market's Ask the Librarian button: the Strategy Bot answers on these tabs. */
-html.redesign #main.sbot-open [data-librarian-open]{display:none}
 
 /* Goals as a tab: the tree takes the width the CEO Bot's rail had. */
 #main.rd-goals{display:block}

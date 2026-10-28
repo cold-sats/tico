@@ -396,8 +396,8 @@ function botTasksRender(slug, owned) {
   // Fallback while filters load (and for non-Keeper bots); saved filters are painted from server results below.
   const active = mine.filter(t => ['open', 'doing'].includes(String(t.status))).sort(newest);
   const blocked = mine.filter(t => t.status === 'waiting' && t.waiting_on !== 'human:' + S.me?.id).sort(newest);
-  // Done Recently: the bot's own work finished in the last two weeks, most recently done first. A routine's runs (a
-  // sweep every 30 minutes) are not work a person asked for; they live under Recurring.
+  // Done Recently: the bot's own work finished in the last two weeks, most recently done first. A schedule's runs (a
+  // sweep every 30 minutes) are not work a person asked for; they live under Automations › Runs.
   const doneAt = t => String(t.done_at || t.closed_at || t.updated || '');
   const since = new Date(Date.now() - BOT_DONE_RECENT_DAYS * 86400000).toISOString();
   const finished = mine.filter(t => !V2_ACTIVE.includes(String(t.status)) && !isRecurringTask(t) && doneAt(t) >= since)

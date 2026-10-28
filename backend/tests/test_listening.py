@@ -252,7 +252,7 @@ def test_hub_sql_shows_saved_destinations_to_the_owner_and_admins_only(api):
     assert post(api, "sql", {"sql": "SELECT count(*) FROM listening_destinations"}, token=_token(api, "finance"))["rows"][0][0] == 0
 
 
-def test_with_the_redesign_on_stats_carry_a_daily_chart_and_the_callers_recent_posts(api):
+def test_stats_carry_a_daily_chart_and_the_callers_recent_posts(api):
     """Market › Listening reads posts per day by source and the newest routed posts; a receiver sees only its own."""
     _bots(api)
     listening = _token(api, "listening")
@@ -263,8 +263,6 @@ def test_with_the_redesign_on_stats_carry_a_daily_chart_and_the_callers_recent_p
     post(api, "listening/runs", {"source": "reddit", "query": "q", "status": "ok", "items": [
         _post("3", "A team lead asks for a hosted plan [lead]", author="@lead")]}, token=listening)
     post(api, "listening/judge", {}, token=listening)
-    assert "daily" not in get(api, "listening/stats") and "recent" not in get(api, "listening/stats")
-    put(api, "settings/redesign", {"enabled": True})
     stats = get(api, "listening/stats")
     assert [d["sources"] for d in stats["daily"]] == [{"x": 2, "reddit": 1}]
     assert sorted(tuple(r["destinations"]) for r in stats["recent"]) == [("content", "creators"), ("leads",)]

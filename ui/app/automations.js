@@ -2,7 +2,7 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
    The flow and its "+" menu are automations-flow.js, the step editors automations-editors.js, the run log
    automations-runs.js and the BotOps chat automations-bot.js. Payloads: redesign CONTRACT §2 (/api/v2/automations).
-   Dormant: with the team's `redesign` setting off, #/automations lands on Updates like any unknown address. */
+   #/automations?q=<words> opens the list searched (a bot's or a webhook's automations, linked from their pages). */
 'use strict';
 
 const AUTOMATIONS = '#/automations';
@@ -64,13 +64,14 @@ function auSource(t = {}) {
 const auSpendWords = a => a.spend_cap?.per_30m != null ? `$${Number(a.spend_cap.per_30m).toFixed(2)} / 30 min` : 'Bot’s limit';
 
 async function pageAutomations() {
-  if (!S.config?.redesign) { location.replace(UPDATES); return; }
   const {id, view} = auRouteParts(S.route);
   $('#main').classList.add('au-layout');
   if (!AU || !document.body.contains(AU.root)) {
     automationsStop();
     AU = {list: null, groups: [], sets: null, cur: null, id: '', view: 'flow', q: '', ed: null, runs: null, menu: null, root: null, bot: null};
     auShell();
+    const q = new URLSearchParams(S.route.split('?')[1] || '').get('q');
+    if (q) { AU.q = q.trim().toLowerCase(); AU.root.querySelector('.au-q').value = q; }
   }
   const state = AU;
   state.view = view;
@@ -78,7 +79,8 @@ async function pageAutomations() {
   if (state.list === null) await auLoadList(state);
   if (AU !== state) return;
   // A computer opens on the first automation; a phone opens on the list.
-  if (!id && view !== 'bot' && !auPhone() && state.list?.length) { location.replace(auHref(state.list[0].id)); return; }
+  const first = auShown()[0];
+  if (!id && view !== 'bot' && !auPhone() && first) { location.replace(auHref(first.id)); return; }
   if (id !== state.id) {
     state.id = id; state.ed = null; state.runs = null; state.cur = null; state.lastRun = undefined;
     if (id) {
@@ -153,11 +155,13 @@ const auMayPause = a => a.can_pause ?? !!a.can_edit;
 function auSwitch(on, label, attrs = '') {
   return `<input type="checkbox" role="switch" class="people-switch au-sw" aria-label="${esc(label)}"${on ? ' checked' : ''} ${attrs}>`;
 }
+// The list as the search box narrows it: name, source, owner and trigger words.
+const auShown = () => (AU.list || []).filter(a => !AU.q || [a.name, auSource(a.trigger), auActorName(a.owner), AU_TRIGGER_WORDS[a.trigger?.type]]
+  .join(' ').toLowerCase().includes(AU.q));
 function auDrawList() {
   const box = AU.root.querySelector('.au-scroll');
   if (AU.listError) { box.innerHTML = `<p class="err au-pad">${esc(AU.listError)}</p>`; return; }
-  const q = AU.q, rows = (AU.list || []).filter(a => !q || [a.name, auSource(a.trigger), auActorName(a.owner), AU_TRIGGER_WORDS[a.trigger?.type]]
-    .join(' ').toLowerCase().includes(q));
+  const q = AU.q, rows = auShown();
   box.innerHTML = auGrouped(rows).map(([label, xs]) => `<div class="au-gh"><span>${esc(label)}</span><span>${xs.length}</span></div>` + xs.map(a => {
     const {name, src} = auRowName(a);
     return `<div class="au-row${a.id === AU.id ? ' sel' : ''}${a.enabled === false ? ' off' : ''}" data-row="${esc(a.id)}">

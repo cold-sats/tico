@@ -1948,8 +1948,7 @@ def install_views(app, store, auth, mutate, task_view):
         from . import ceo_bot
         hide_ceo = ceo_bot.hidden_for(c, who)
         chart = ceo_bot.chart_entries(c, store.settings, people, configs, archived, hidden=hide_ceo)
-        from . import redesign
-        bare = redesign.on(c)              # a bot's bare person id in reports_to is that person (backend/people.py)
+        bare = True                        # a bot's bare person id in reports_to is that person (backend/people.py)
 
         def icon_of(config):
             return str(config.get("icon") or "") or icons.get(str(config.get("template") or ""), "")
@@ -1999,8 +1998,6 @@ def install_views(app, store, auth, mutate, task_view):
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
             config = {k: v for k, v in config.items() if k not in ("cwd", "env", "token", "secrets")}
-            from .routines import listing
-            config['schedules'] = listing(c, slug, summary=True)
             location = machine(c, slug)
             # Read-only, for the quiet runtime label beside a bot's name; empty when nothing resolves.
             try:
@@ -2109,8 +2106,7 @@ def install_views(app, store, auth, mutate, task_view):
             r, configs = roster(c), entries(c)
             from . import people_photos
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            from . import redesign
-            bare = redesign.on(c)          # a bot's bare person id in reports_to is that person (backend/people.py)
+            bare = True                    # a bot's bare person id in reports_to is that person (backend/people.py)
             view = P.org_view(r, configs, archived, bare_people=bare)
             # The CEO Bot switch hangs the Heads' groups under it on the chart (backend/ceo_bot.py).
             from . import ceo_bot
@@ -2317,7 +2313,7 @@ def install_views(app, store, auth, mutate, task_view):
             health = c.execute("SELECT * FROM service_health WHERE service='scheduler'").fetchone()
             tick = health["last_success"] if health else None
             age = max(0, (H.parse_ts(H.now()) - H.parse_ts(tick)).total_seconds()) if tick else None
-            active, queued, schedules = [], [], []
+            active, queued = [], []
             # Cancelled and uncertain jobs are not "up next": uncertain work already
             # surfaces as a health issue, cancelled work is history.
             readable = auth.bot_accesses(c, who)
@@ -2343,11 +2339,9 @@ def install_views(app, store, auth, mutate, task_view):
                         "state": row["state"], "created": row["created"],
                         "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
                 (queued if row["state"] == "queued" else active).append(item)
-            from .routines import listing
-            schedules = [{**row, 'last_checked': tick} for row in listing(c, summary=True) if readable.get(row['bot'], auth.FULL)['read']]
             return {"cloud": True, "last_tick": tick, "active": active, "queued": queued,
                     "recent_runs": [], "keeper_alive": age is not None and age < 60,
-                    "dispatcher_alive": False, "tick_age_s": age, "server_time": H.now(), "schedules": schedules,
+                    "dispatcher_alive": False, "tick_age_s": age, "server_time": H.now(),
                     "health_issues": operation_issues(c, who, auth)}
 
     @app.get("/api/runs")

@@ -20,7 +20,6 @@ from pydantic import ValidationError
 
 from . import hubdb as H
 from . import models as M
-from . import redesign
 from .store import Problem
 
 KINDS = ("task_cap", "spend_limit")
@@ -49,9 +48,6 @@ def _parse(kind, payload):
 
 
 def check(c, kind, payload):
-    if not redesign.on(c):
-        # Off, the approval model takes the kinds it always took (CONTRACT §0).
-        raise Problem("validation", f"body.kind: an approval of kind {kind} needs the redesign on", 422)
     _parse(kind, payload)
 
 
@@ -104,8 +100,6 @@ APPLY = {"task_cap": _apply_cap, "spend_limit": _apply_spend}
 def apply(c, auth, settings, who, row):
     """`who` approved `row`: the change is applied as that person (their rights checked as if they made it), the approval
     is spent, and BotOps hears once."""
-    if not redesign.on(c):
-        raise Problem("not_found", "Proposals are part of the redesign, which is off", 404)
     aid = row["id"]
     words = APPLY[row["kind"]](c, auth, settings, who, aid, _parse(row["kind"], row["payload"]))
     H.approval_consume(c, who.actor, aid)

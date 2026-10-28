@@ -10,7 +10,7 @@ const groupsOf = async page => { const g = await ok(page, 'GET', 'groups'); retu
 const groupNamed = (groups, name) => groups.find(g => g.name === name);
 const holds = (group, slug) => JSON.stringify(group).includes(`"${slug}"`) || JSON.stringify(group).includes(`bot:${slug}"`);
 
-run('redesign-e2e-org', ['org', 'toured', 'redesign_on', 'groups'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-org', ['org', 'toured', 'groups'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/strategy/org'});
   await page.locator(card('bot:builder-claude')).waitFor({timeout: t(15000)});
   let groups = await groupsOf(page);

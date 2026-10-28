@@ -6,7 +6,7 @@ const {run, open, go, ok, automationNamed, sideways, shot, t} = require('./suppo
 
 const enabled = async page => (await automationNamed(page, 'Inbox triage')).enabled;
 
-run('redesign-e2e-automations', ['org', 'toured', 'redesign_on', 'automations'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-automations', ['org', 'toured', 'automations'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/automations'});
   await page.locator('.au-row').first().waitFor({timeout: t(15000)});
   const names = await page.locator('.au-row').allInnerTexts();

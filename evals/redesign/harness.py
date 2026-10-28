@@ -70,8 +70,8 @@ class Scenario:
     about: str
     steps: Callable
     checks: list = field(default_factory=list)
-    setting: bool = True   # runs with the redesign setting on; the runner turns it on before the steps
     bots: dict = field(default_factory=dict)   # extra org bots ({slug: (role, harness)}), e.g. the migration fixture's
+    first_tick: bool = True   # the owner's built-ins made on the first automations tick; False when the scenario cuts over
 
 
 @dataclass
@@ -149,14 +149,16 @@ class Org(World):
     Omar and Priya, people, under her; Engineering Lead under her too (so Omar is a peer of the lead); two builders
     under the lead; and the Release Manager under Dana. Emails are @acme.example."""
 
-    def __init__(self, extra_bots=None):
+    def __init__(self, extra_bots=None, first_tick=True):
         """`extra_bots` adds bots to the org (the migration fixture's Inbox Manager, Health Monitor, Librarian...), as
-        {slug: (role, harness)} in the World's format."""
+        {slug: (role, harness)} in the World's format. `first_tick` runs what a live server's first automations tick
+        does once Dana owns the install (redesign_migration.catch_up: her built-ins)."""
         bots = {LEAD_ID: ("lead", "claude"), OPENAI_ID: ("builder", "gpt"), CLAUDE_ID: ("builder", "claude"),
                 RELEASE_ID: ("release", "claude"), **(extra_bots or {})}
         board = SimpleNamespace(name="Redesign scenarios", steps=[SimpleNamespace(name="Work", status="open")])
         super().__init__(board, bots)
         self.log = []
+        self.first_tick = first_tick
 
     def __enter__(self):
         super().__enter__()
@@ -199,6 +201,9 @@ class Org(World):
                                                           | {"omar@acme.example", "priya@acme.example"})})
             c.execute("UPDATE bot_config SET operator=? WHERE operator<>?", (DANA_ID, DANA_ID))
             c.execute("UPDATE runners SET operator=? WHERE operator<>?", (DANA_ID, DANA_ID))   # the runner the mail publish checks
+        if self.first_tick:   # startup's cutover ran before Dana was the owner: the first tick makes her built-ins
+            from backend import redesign_migration
+            redesign_migration.catch_up(self.store)
         return self
 
     def configure(self):
@@ -236,10 +241,6 @@ class Org(World):
             facts[key] = fn(*args, **kwargs)
         except Unmet as unmet:
             facts[key] = unmet
-
-    def redesign_on(self):
-        """Turn the redesign setting on. CONTRACT §0 names the setting but no route: this path is a placeholder."""
-        return self.api("put", "/api/v2/settings/redesign", {"enabled": True}, wave=W1)
 
     def pass_time(self, delta):
         self.advance(delta)
@@ -468,14 +469,6 @@ def untestable(what):
 
 
 # ---------------------------------------------------------------------------------------------- running
-def _setting_on(facts):
-    setup(facts, "setting")
-    return True, "on"
-
-
-SETTING_CHECK = Check("redesign setting turned on", W1, _setting_on)
-
-
 def evaluate(check, facts):
     try:
         ok, text = check.fn(facts)
@@ -490,16 +483,13 @@ def run_scenario(scenario):
     """Run one scenario on a fresh org: its results, the API calls it made, and the seconds it took."""
     started = time.perf_counter()
     results, error = [], None
-    with Org(extra_bots=scenario.bots) as org:
+    with Org(extra_bots=scenario.bots, first_tick=scenario.first_tick) as org:
         facts = {}
         try:
-            if scenario.setting:
-                org.step(facts, "setting", org.redesign_on)
             scenario.steps(org, facts)
         except Exception as exc:  # a bug in a step: every check reports it
             error = exc
-        checks = ([SETTING_CHECK] if scenario.setting else []) + scenario.checks
-        for check in checks:
+        for check in scenario.checks:
             if error:
                 ok, text, wave = False, f"scenario error {type(error).__name__}: {error}", check.wave
             else:

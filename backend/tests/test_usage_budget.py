@@ -4,22 +4,15 @@ lists that group's bots, may edit them, and gets `leads`; and the read stays a h
 import contextlib
 import json
 
-from backend import redesign
 from backend.store import H, encode
 from backend.tests.test_api import api, get, headers  # noqa: F401  (the api fixture)
 from backend.tests.test_groups import send
 from backend.tests.test_usage_limits import finish, fleet, groups, put, start
 
 
-def redesign_on(api):
-    with api.app.state.store.transaction() as c:
-        redesign.set_on(c, True, "human:ana")
-
-
 def test_every_bot_and_pool_row_says_what_it_spent_in_each_window_capped_or_not(api):
     r = fleet(api)
     groups(api, "product")                                                  # ops in Product, under Engineering
-    redesign_on(api)
     finish(api, r, start(api, r), 500_000)                                  # $5, and no limit anywhere
     put(api, "usage/pools/groups/eng", {"daily_usd": 50})
     limits = get(api, "usage/limits")
@@ -37,7 +30,6 @@ def test_a_person_who_leads_lists_and_may_edit_the_bots_of_what_it_leads(api):
     from backend.tests.test_groups import add_bots
     with api.app.state.store.transaction() as c:
         add_bots(c, **{"sales-lead": ({}, "ana"), "sdr": ({}, "sales-lead"), "outside": ({}, "ana")})
-    redesign_on(api)
     sales = send(api, "POST", "groups", {"name": "Sales", "add": {"people": ["cara"], "bots": ["sales-lead"]},
                                          "lead": "person:cara"})["id"]
     outbound = send(api, "POST", "groups", {"name": "Outbound", "parent": sales, "add": {"bots": ["sdr"]}})["id"]
@@ -99,7 +91,6 @@ def statements(api, monkeypatch):
 
 
 def test_the_read_for_200_bots_in_nested_pooled_groups_is_a_few_statements_a_bot(api, monkeypatch):
-    redesign_on(api)
     big_org(api, 0, 20)
     _, small = statements(api, monkeypatch)
     big_org(api, 20, 200)

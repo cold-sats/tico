@@ -14,7 +14,6 @@ import pytest
 import time_machine
 
 from backend.tests.test_api import api, get, headers, post, runner  # noqa: F401
-from backend.tests.test_automation_api import turn_on
 from clients.tico import APIError
 from connectors.mail import access, audit as audit_log, db, gmail as gm
 from connectors.mail import __main__ as cli
@@ -87,7 +86,6 @@ class Computer:
 
 @pytest.fixture
 def computer(api, tmp_path, monkeypatch):
-    turn_on(api)
     machine = runner(api)
     box = Computer(api, tmp_path, machine["token"])
     monkeypatch.setattr(cli, "open_gmail", lambda mailbox: gm.Gmail(box.gmail, mailbox, sleep=lambda s: None))
@@ -281,12 +279,6 @@ def test_a_claim_stops_inside_the_byte_budget_and_the_rest_wait_for_the_next(api
     assert sorted(rest) == [f"act{i}" for i in range(5)]
 
 
-def test_the_routes_are_404_while_the_redesign_is_off(api, computer):
-    api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers())
-    claim(api, computer.token, expected=404)
-    assert computer.worker.mail_action_tick() == 0           # the worker carries on quietly
-
-
 # ---------------------------------------------------------------------------------------------- the send switch
 def test_a_send_claimed_after_the_switch_went_off_is_a_draft(api, computer):
     aid = automate(api, SEND)
@@ -330,7 +322,6 @@ def test_a_slack_reply_delivered_after_the_switch_went_off_is_held_as_a_draft_ta
     from backend import automation_actions as A
     from backend import slack_gateway as G
     from backend.tests.test_slack_gateway import FakeSlack
-    turn_on(api)
     store = api.app.state.store
     slack_msg = {"message": {"source": "slack", "inbox": "slack:#general", "channel": "C1", "ts": "1.1", "text": "Help?"}}
     auto = {"id": automate(api, NOTE), "flow": {"owner": "person:ana"}, "assistant_bot": "coo"}

@@ -1,6 +1,6 @@
 """How a run lives in the hub (backend/automations.py): saved after each step that did something and resumed from
 there, each effect done once; a turn that ends before its run is saved still answers it; the chain carried through a
-bot's turn; the run guard; the redesign off; the spend cap holding turns not priced yet; schedules; the find
+bot's turn; the run guard; the spend cap holding turns not priced yet; schedules; the find
 watermark."""
 import json
 from datetime import datetime, timedelta, timezone
@@ -11,7 +11,7 @@ import time_machine
 from backend import automations
 from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, headers, post, ready, runner  # noqa: F401
-from backend.tests.test_automation_api import patch, turn_on
+from backend.tests.test_automation_api import patch
 from backend.tests.test_automation_turns import draft_then_tell, finish
 
 EVENT = {"type": "event", "name": "x.y"}
@@ -46,14 +46,8 @@ def hub(api):
     return api.app.state.store.automations
 
 
-def turn_off(api):
-    r = api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers("ana-test"))
-    assert r.status_code == 200, r.text
-
-
 # ---------------------------------------------------------------------------------------------- saved and resumed
 def test_a_run_cut_off_after_an_effect_goes_on_from_its_save_and_does_not_do_it_twice(api, monkeypatch):
-    turn_on(api)
     aid = make(api, [{"id": "spawn", "type": "action", "do": "create_task", "args": {"title": "Acme follow up",
                                                                                      "owner": "coo"}},
                      {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "coo", "text": "Done"}}])
@@ -75,7 +69,6 @@ def test_a_run_cut_off_after_an_effect_goes_on_from_its_save_and_does_not_do_it_
 
 
 def test_a_run_saves_after_each_step_with_an_effect(api, monkeypatch):
-    turn_on(api)
     aid = make(api, [{"id": "spawn", "type": "action", "do": "create_task", "args": {"title": "Acme check"}},
                      {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "coo", "text": "Done"}}])
     rid = queued(api, aid)
@@ -91,7 +84,6 @@ def test_a_run_saves_after_each_step_with_an_effect(api, monkeypatch):
 
 
 def test_a_turn_that_ends_before_its_run_is_saved_still_answers_it(api, monkeypatch):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -113,7 +105,6 @@ def test_a_turn_that_ends_before_its_run_is_saved_still_answers_it(api, monkeypa
 
 # ---------------------------------------------------------------------------------------------- loops
 def test_a_bots_turn_started_by_an_automation_cannot_start_it_again(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -128,7 +119,6 @@ def test_a_bots_turn_started_by_an_automation_cannot_start_it_again(api):
 
 
 def test_a_webhook_loop_is_paused_by_the_run_guard(api):
-    turn_on(api)
     aid = make(api, [{"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "ops", "text": "Hook"}}],
                trigger={"type": "webhook", "id": "trg_1"})
     with api.app.state.store.transaction() as c:
@@ -141,29 +131,8 @@ def test_a_webhook_loop_is_paused_by_the_run_guard(api):
     assert len(sql(api, "SELECT id FROM events WHERE action='automation.run_guard' AND target=?", (aid,))) == 1
 
 
-# ---------------------------------------------------------------------------------------------- the redesign off
-def test_with_the_redesign_off_queued_runs_wait_and_turns_still_answer(api):
-    turn_on(api)
-    r = runner(api)
-    assign(api, r, "ops")
-    ready(api, r, ["ops"])
-    aid = post(api, "automations", draft_then_tell())["id"]
-    waiting = post(api, f"automations/{aid}/run", {})["run"]["id"]
-    later = queued(api, aid)
-    turn_off(api)
-    assert hub(api).drain() == 0 and hub(api).claim() is None
-    finish(api, r, "Drafted while off")
-    assert run_row(api, later)["status"] == "queued" and run_row(api, later)["state"]["steps"] == []
-    answered = run_row(api, waiting)
-    assert answered["status"] == "queued" and answered["state"]["steps"][0]["outputs"]["text"] == "Drafted while off"
-    turn_on(api)
-    automations.tick(api.app.state.store)
-    assert run_row(api, waiting)["status"] == "ok"
-
-
 # ---------------------------------------------------------------------------------------------- the spend cap
 def test_a_turn_not_priced_yet_holds_its_usual_cost_against_the_cap(api):
-    turn_on(api)
     turn = {"type": "bot_turn", "bot": "ops", "prompt": "Look"}
     aid = make(api, [{"id": "one", **turn}, {"id": "two", **turn}], spend_cap={"per_30m": 0.2})
     run = post(api, f"automations/{aid}/run", {})["run"]
@@ -173,7 +142,6 @@ def test_a_turn_not_priced_yet_holds_its_usual_cost_against_the_cap(api):
 
 # ---------------------------------------------------------------------------------------------- schedules
 def test_a_rename_keeps_the_schedules_due_time(api):
-    turn_on(api)
     aid = make(api, [{"id": "n", "type": "action", "do": "wake_bot", "args": {"bot": "ops"}}],
                trigger={"type": "schedule", "cron": "0 9 * * *", "tz": "UTC"})
     automations.tick(api.app.state.store, datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc))
@@ -183,7 +151,6 @@ def test_a_rename_keeps_the_schedules_due_time(api):
 
 
 def test_a_schedules_filters_hold_its_run(api):
-    turn_on(api)
     with time_machine.travel(datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc), tick=False):
         aid = make(api, [{"id": "n", "type": "action", "do": "wake_bot", "args": {"bot": "ops"}}],
                    trigger={"type": "schedule", "cron": "0 9 * * *", "tz": "UTC",
@@ -196,7 +163,6 @@ def test_a_schedules_filters_hold_its_run(api):
 
 
 def test_a_sample_the_filters_drop_is_dropped_not_run(api):
-    turn_on(api)
     aid = make(api, [{"id": "n", "type": "action", "do": "wake_bot", "args": {"bot": "ops"}}],
                trigger={**EVENT, "filters": [{"field": "mail.from", "op": "contains", "value": "acme.example"}]})
     assert post(api, f"automations/{aid}/run", {"input": {"mail": {"from": "x@other.example"}}}) == {
@@ -211,7 +177,6 @@ FIND = {"id": "look", "type": "find", "source": "tasks", "query": "Acme batch", 
 
 
 def test_items_with_the_same_time_are_all_found_one_page_at_a_time(api):
-    turn_on(api)
     aid = make(api, [FIND])
     ids = [post(api, "tasks", {"owner": "ops", "title": f"Acme batch {n}", "body": "x"})["id"] for n in range(3)]
     with api.app.state.store.transaction() as c:
@@ -222,7 +187,6 @@ def test_items_with_the_same_time_are_all_found_one_page_at_a_time(api):
 
 def test_a_stale_pr_find_starts_before_its_creation_and_other_finds_do_not(api):
     """A find starts at its automation's creation, except a stale-PR find, whose PRs were idle before it was made."""
-    turn_on(api)
     stale = make(api, [{"id": "stale", "type": "find", "source": "prs", "query": "", "idle_hours": 24, "limit": 20}])
     plain = make(api, [FIND])
     marks = {r["id"]: r["found_since"] for r in sql(api, "SELECT id, found_since FROM automations WHERE id IN (?,?)",
@@ -231,7 +195,6 @@ def test_a_stale_pr_find_starts_before_its_creation_and_other_finds_do_not(api):
 
 
 def test_the_watermark_moves_only_once_an_item_is_finished(api, monkeypatch):
-    turn_on(api)
     aid = make(api, [FIND, {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "ops", "text": "x"}}])
     post(api, "tasks", {"owner": "ops", "title": "Acme batch one", "body": "x"})
     before = sql(api, "SELECT found_since FROM automations WHERE id=?", (aid,))[0]["found_since"]
@@ -247,7 +210,6 @@ def test_the_watermark_moves_only_once_an_item_is_finished(api, monkeypatch):
 
 # ---------------------------------------------------------------------------------------------- review 2
 def test_a_resumed_run_gets_back_the_turn_it_started_and_its_own_hold_never_caps_it(api, monkeypatch):
-    turn_on(api)
     aid = make(api, [{"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"},
                      {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "coo", "text": "Done"}}],
                spend_cap={"per_30m": 0.2})
@@ -267,7 +229,6 @@ def test_a_resumed_run_gets_back_the_turn_it_started_and_its_own_hold_never_caps
 
 
 def test_a_turn_is_titled_with_exactly_its_automations_name(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -278,7 +239,6 @@ def test_a_turn_is_titled_with_exactly_its_automations_name(api):
 
 
 def test_each_item_of_a_find_starts_its_own_turn(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -295,7 +255,6 @@ def test_each_item_of_a_find_starts_its_own_turn(api):
 
 
 def test_items_that_share_a_title_each_start_their_own_turn(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -312,7 +271,6 @@ def test_items_that_share_a_title_each_start_their_own_turn(api):
 
 
 def test_a_turn_moving_its_own_task_does_not_start_its_automation_again(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -326,7 +284,6 @@ def test_a_turn_moving_its_own_task_does_not_start_its_automation_again(api):
 
 def test_two_runs_of_one_automation_each_get_their_own_turn(api):
     """A second run's turn is not refused as a duplicate of the first while the first is open."""
-    turn_on(api)
     aid = make(api, [{"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}])
     runs = [queued(api, aid), queued(api, aid)]
     hub(api).drain()
@@ -335,7 +292,6 @@ def test_two_runs_of_one_automation_each_get_their_own_turn(api):
 
 
 def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_day(api):
-    turn_on(api)
     turn = {"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}
     aid = make(api, [turn], spend_cap={"per_30m": 0.2})
     with api.app.state.store.transaction() as c:   # a turn started two hours ago and still going
@@ -349,7 +305,6 @@ def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_
 
 
 def test_a_failed_item_is_tried_again_once_then_passed_over_and_counted(api):
-    turn_on(api)
     bad = {"id": "gate", "type": "filter", "rules": [
         {"when": [{"field": "item.title", "op": "contains", "value": "bad"}], "then": [{"do": "post_update"}]}]}
     aid = make(api, [{**FIND, "limit": 10}, bad])
@@ -363,7 +318,6 @@ def test_a_failed_item_is_tried_again_once_then_passed_over_and_counted(api):
 
 
 def test_an_automation_that_finds_runs_one_at_a_time(api):
-    turn_on(api)
     aid = make(api, [FIND])
     first = queued(api, aid)
     assert first and queued(api, aid) is None   # the next occurrence while the first is unfinished
@@ -375,7 +329,6 @@ def test_an_automation_that_finds_runs_one_at_a_time(api):
 def test_a_converted_cron_routine_absorbs_an_occurrence_while_its_last_task_is_open(api):
     """CONTRACT section 4 (Overlap): the routine's rule carries over. An occurrence while the task its last run opened is
     unfinished starts no run; it counts as dropped and the owner bot is told. Once that task is closed, the next runs."""
-    turn_on(api)
     aid = make(api, [{"id": "turn", "type": "bot_turn", "bot": "ops", "prompt": "Sweep"}],
                trigger={"type": "schedule", "cron": "30 * * * *", "tz": "UTC"}, owner="bot:ops")
     with api.app.state.store.transaction() as c:
@@ -397,7 +350,6 @@ def test_a_converted_cron_routine_absorbs_an_occurrence_while_its_last_task_is_o
 
 def test_one_slack_message_starts_one_run_of_an_automation(api):
     """A channel message offered once may come back as an `@Tico` event: the second offer starts nothing."""
-    turn_on(api)
     aid = make(api, [{"id": "note", "type": "action", "do": "note", "args": {"text": "Seen"}}])
     with api.app.state.store.transaction() as c:
         row = dict(c.execute("SELECT * FROM automations WHERE id=?", (aid,)).fetchone())
@@ -407,7 +359,6 @@ def test_one_slack_message_starts_one_run_of_an_automation(api):
 
 
 def test_a_turn_has_a_day_to_answer_from_when_its_run_began_waiting(api):
-    turn_on(api)
     rid = queued(api, make(api, []))
     old, recent = H.shift(H.now(), days=-3), H.shift(H.now(), hours=-1)
     with api.app.state.store.transaction() as c:

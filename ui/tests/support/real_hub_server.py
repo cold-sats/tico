@@ -2,7 +2,7 @@
 started from the scenario harness's world (evals/redesign/harness.py Org) and seeded by the named seeds
 (evals/redesign/seeds.py).
 
-    python3 ui/tests/support/real_hub_server.py [--seed org,redesign_on]
+    python3 ui/tests/support/real_hub_server.py [--seed org,toured]
 
 The world is the scenario's: its people, bots and reports_to, the fake clock frozen at the scenario's start (so a runner
 heartbeat seeded during setup does not age out during a test), and the fakes it sets up for external services. The app serves ui/ itself, as in

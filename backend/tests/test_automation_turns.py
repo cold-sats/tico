@@ -4,7 +4,6 @@ so the spend cap counts it; `assistant:<person>` makes the person's Assistant ro
 import json
 
 from backend.tests.test_api import api, assign, claim, get, post, put, ready, runner  # noqa: F401
-from backend.tests.test_automation_api import turn_on
 
 USAGE = {"input_tokens": 400_000, "cached_tokens": 0, "output_tokens": 10_000, "model": "claude-opus-5-5",
          "runtime": "claude", "billing": "api"}
@@ -25,7 +24,6 @@ def draft_then_tell(**extra):
 
 
 def test_an_llm_step_waits_for_the_bots_turn_in_its_own_room_and_goes_on(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -52,7 +50,6 @@ def test_an_llm_step_waits_for_the_bots_turn_in_its_own_room_and_goes_on(api):
 
 
 def test_a_turns_cost_counts_toward_the_spend_cap(api):
-    turn_on(api)
     r = runner(api)
     assign(api, r, "ops")
     ready(api, r, ["ops"])
@@ -66,7 +63,6 @@ def test_a_turns_cost_counts_toward_the_spend_cap(api):
 
 
 def test_an_assistant_step_makes_the_persons_assistant_room_on_first_use(api):
-    turn_on(api)
     assert get(api, "people/ben/assistant") == {"bot": None}
     flow = {"name": "Brief", "owner": "person:ben", "trigger": {"type": "event", "name": "x.y"},
             "steps": [{"id": "brief", "type": "llm", "as": "assistant:ben", "prompt": "Brief me", "out": "b"}]}
@@ -82,7 +78,6 @@ def test_a_market_change_made_in_an_automations_turn_names_the_turn_and_the_matc
     routes is shown on the graph with the turn, the run and the match it came from."""
     from backend.tests.test_market import _librarian
     _librarian(api)
-    turn_on(api)
     r = runner(api)
     assign(api, r, "librarian")
     ready(api, r, ["librarian"])
@@ -105,8 +100,6 @@ def test_a_market_change_made_in_an_automations_turn_names_the_turn_and_the_matc
         "automation": aid, "run": run["id"], "turn": {"attempt": attempt["id"], "bot": "librarian",
                                                       "task": run["steps"][0]["outputs"]["turn"]["task"]},
         "match": {"id": "li_1", "destination": "tools", "url": heard["url"], "source": "news"}}
-    # A change by hand names no turn; with the redesign off the graph is as it was.
+    # A change by hand names no turn.
     post(api, "market/entities", {"type": "product", "name": "Acme Atlas", "evidence_ids": [seen]})
     assert [("source" in e) for e in get(api, "market/graph")["entities"]] == [False, True]
-    put(api, "settings/redesign", {"enabled": False})
-    assert all("source" not in e for e in get(api, "market/graph")["entities"])

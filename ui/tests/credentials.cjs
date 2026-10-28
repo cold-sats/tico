@@ -23,8 +23,8 @@ async function open(browser, me, vault) {
     if (/\/marked\.min\.js$/.test(p)) return route.fulfill({contentType: 'application/javascript', body: 'window.marked={parse:s=>String(s)}'});
     if (url.origin !== 'https://tico-ui.test') return route.abort();
     if (req.method() !== 'GET') seen.posts.push({path: p, body: req.postData() || ''});
-    if (p === '/api/me') return json({...me, config: {redesign: true}});
-    if (p === '/api/v2/config') return json({redesign: true});
+    if (p === '/api/me') return json({...me, config: {}});
+    if (p === '/api/v2/config') return json({});
     if (p === '/api/employees') return json([{name: 'jira-manager', display_name: 'Jira Manager', status: 'active'}]);
     if (p === '/api/issues') return json([]);
     const jira = {service: 'jira', title: 'Jira', kind: 'api', summary: 'Tickets', access: 'read', credentials: ['JIRA_BASIC_AUTH'], writes: 'never',

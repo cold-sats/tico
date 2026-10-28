@@ -1,6 +1,6 @@
 """Automations (CONTRACT §2): saved flows, their versions and runs, who may change them, and how a trigger runs one.
 
-Dormant unless the team turned the redesign on (backend/redesign.py): the routes answer 404 and every hook returns.
+Routines and wake rules moved here once, at startup (backend/redesign_migration.py `cutover`).
 
 A trigger never runs a flow inside its own write. `fire` checks the trigger's filters there (a run they drop only
 counts toward the day, `automation_daily`) and queues a run; a doorbell after the commit has the request that caused
@@ -28,6 +28,7 @@ import asyncio
 import contextlib
 import contextvars
 import json
+import logging
 import threading
 import weakref
 from datetime import datetime, timedelta, timezone
@@ -40,8 +41,10 @@ from . import automation_engine as E
 from . import automation_flow as F
 from . import people as P
 from .models import Contract
-from . import audit_log, redesign
+from . import audit_log
 from .store import H, Problem
+
+log = logging.getLogger(__name__)
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS automations(id TEXT PRIMARY KEY, name TEXT NOT NULL, owner TEXT NOT NULL, "
@@ -102,11 +105,6 @@ _BELL = threading.Event()
 def ensure(c):
     for statement in SCHEMA:
         c.execute(statement)
-
-
-def _require_on(c):
-    if not redesign.on(c):
-        raise Problem("not_found", "Not found", 404)
 
 
 def _via(who):
@@ -208,12 +206,17 @@ def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_versio
                   (*columns, aid, now, actor, "" if idle else now, due))
     if audit:
         audit_log.write(c, actor, "automation:" + aid, before, flow, via)
+    source = flow.get("source")
+    if before and bool(before.get("enabled")) != bool(flow["enabled"]) and isinstance(source, dict) \
+            and source.get("kind") == "routine" and source.get("id"):
+        # A converted routine turned on or off, by whoever: what read the routine's own switch still sees it.
+        H.event(c, actor, "routine.updated", source["id"], {"enabled": bool(flow["enabled"]), "automation": aid})
     return _row(c, aid)
 
 
 def follow(c, owner, old, new):
     """A teammate moved group: its automations in the old group go with it (backend/groups.py calls this)."""
-    if old == new or not old or not redesign.on(c):
+    if old == new or not old:
         return
     for row in c.execute("SELECT * FROM automations WHERE owner=? AND grp=? AND deleted_at IS NULL",
                          (owner, "group:" + old)).fetchall():
@@ -246,8 +249,7 @@ class Chart:
         self.roster, self.employees = views.roster(c), views.entries(c)
         self.archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
         self.groups = self.roster.get("org_groups") or {}
-        from . import redesign
-        self.bare = redesign.on(c)                 # a bare person id in reports_to (backend/people.py org_parent)
+        self.bare = True                           # a bare person id in reports_to (backend/people.py org_parent)
 
     def up(self, key):
         head, _, rest = key.partition(":")
@@ -312,14 +314,7 @@ def may_see(c, who, flow):
 
 def may_reference(c, who, aid):
     """A chat message may name automation `aid` (refs.automation) when it exists and `who` may see it: the same rule as
-    GET /api/v2/automations/{aid}. Callers check the redesign switch first."""
-    row = _row(c, aid) if isinstance(aid, str) else None
-    return bool(row) and may_see(c, who, flow_of(row))
-
-
-def may_reference(c, who, aid):
-    """A chat message may name automation `aid` (refs.automation) when it exists and `who` may see it: the same rule as
-    GET /api/v2/automations/{aid}. Callers check the redesign switch first."""
+    GET /api/v2/automations/{aid}."""
     row = _row(c, aid) if isinstance(aid, str) else None
     return bool(row) and may_see(c, who, flow_of(row))
 
@@ -332,7 +327,6 @@ def _seen_if_builtin(c, who, flow):
 def deletable(c, who, aid):
     """The row `who` may delete, else the refusal the delete route answers (404, 403, a built-in 409). BotOps checks
     it before it hands a person a Confirm card for a delete, so no card fails on the tap."""
-    _require_on(c)
     row = _row(c, aid)
     if not row:
         raise Problem("not_found", "No such automation", 404)
@@ -656,7 +650,7 @@ def _guard(c, row):
     person = owner_person(c, before["owner"]) or (lead[6:] if lead.startswith("human:") else "")
     if person:
         H.task_create(c, H.KEEPER, f"Automation {before['name']} paused: too many runs"[:300], words,
-                      "human:" + person, lint=False, deduplicate=False, capped=False)
+                      "human:" + person, lint=False, deduplicate=False)
     from . import health_monitor
     if health_monitor.active(c):   # the optional Health Monitor, when it is on
         H.notice(c, H.KEEPER, "bot:" + health_monitor.SLUG, words, refs=refs)
@@ -686,6 +680,27 @@ def _absorbed(c, row):
                                      "absorbed into this open task; continue it or mark it done.",
                  refs={"task": open_task["id"], "wake": "occurrence"})
     return True
+
+
+def _no_input(c, row, settings, at, zone):
+    """Why a converted routine's scheduled run would have nothing to work on (backend/routines.py `no_input`: the CEO
+    Bot's KPI pass with the regular checks off, the Librarian's curate run with nothing new), or None."""
+    flow = flow_of(row)
+    source = flow.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "routine" or settings is None:
+        return None
+    schedule = c.execute("SELECT * FROM schedules WHERE id=?", (source.get("id"),)).fetchone()
+    if not schedule:
+        return None
+    # Its words are the automation's now: a team that rewrote them (or added steps) gave it other work.
+    steps = flow.get("steps") or []
+    words = steps[0].get("prompt") if len(steps) == 1 and steps[0].get("type") == "bot_turn" else None
+    from . import routines
+    try:
+        return routines.no_input(c, settings, {**dict(schedule), "playbook": words}, at.astimezone(ZoneInfo(zone)))
+    except Exception:  # noqa: BLE001 - a check that fails lets the run go ahead
+        log.exception("no_input check failed for %s", row["id"])
+        return None
 
 
 def queue(c, row, payload, ref="", *, manual=False, chain=()):
@@ -783,8 +798,6 @@ def fire(c, kind, payload, ref="", match=None, access=None, only=None):
     counts toward its day. Returns the queued run ids. Never raises: an automation problem must not undo the write
     that triggered it."""
     try:
-        if not redesign.on(c):
-            return []
         chain = CHAIN.get() or _turn_chain(c)
         if len(chain) >= MAX_CHAIN:
             return []
@@ -825,8 +838,6 @@ def hub_checks(c, task):
 def on_event(c, type_, subject, data, actor):
     """A catalog event (backend/event_catalog.py): `event` automations on it, and `task_received` on a task that now
     has an owner."""
-    if not redesign.on(c):
-        return
     from . import event_catalog as CAT
     name = CAT.canonical(type_) or type_
     facts = data() if callable(data) else (data or {})
@@ -897,8 +908,7 @@ def on_listening(c, intake, post):
 def turn_done(c, attempt, outcome, text):
     """A bot's turn ended (after `H.turn_finish` priced it). The run that started it (its notice carries
     `automation_run`) is charged its cost, which counts toward the spend cap, and a run waiting on it takes its answer
-    and is queued. Recorded with the redesign off too, so the run goes on when it is back on. A run being worked now
-    finds the answer when it is saved."""
+    and is queued. A run being worked now finds the answer when it is saved."""
     job = c.execute("SELECT message_id FROM jobs WHERE id=?", (attempt["job_id"],)).fetchone() if attempt["job_id"] else None
     msg = H.message(c, job["message_id"]) if job and job["message_id"] else None
     refs = (msg or {}).get("refs") or {}
@@ -1188,8 +1198,6 @@ class Hub:
 
     def claim(self):
         with self.store.transaction() as c:
-            if not redesign.on(c):
-                return None
             row = c.execute("SELECT id FROM automation_runs WHERE status='queued' ORDER BY started LIMIT 1").fetchone()
             if not row:
                 return None
@@ -1198,11 +1206,7 @@ class Hub:
             return row["id"]
 
     def drain(self, limit=200):
-        """Run queued runs until none is left (or `limit`, so one request never drains forever). With the redesign
-        off nothing runs and the queue stays as it is."""
-        with self.store.read() as c:
-            if not redesign.on(c):
-                return 0
+        """Run queued runs until none is left (or `limit`, so one request never drains forever)."""
         done = 0
         while done < limit:
             rid = self.claim()
@@ -1214,19 +1218,10 @@ class Hub:
 
     def go(self, rid):
         with self.store.read() as c:
-            if not redesign.on(c):
-                off = True
-            else:
-                off = False
-                run = dict(c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone())
-                row = c.execute("SELECT * FROM automations WHERE id=?", (run["automation_id"],)).fetchone()
-                version = c.execute("SELECT flow_json FROM automation_versions WHERE automation_id=? AND n=?",
-                                    (run["automation_id"], run["version"])).fetchone()
-        if off:   # turned off since the claim: back in the queue, untouched
-            with self.store.transaction() as c:
-                c.execute("UPDATE automation_runs SET status='queued',claimed_at=NULL WHERE id=? AND status='running'",
-                          (rid,))
-            return
+            run = dict(c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone())
+            row = c.execute("SELECT * FROM automations WHERE id=?", (run["automation_id"],)).fetchone()
+            version = c.execute("SELECT flow_json FROM automation_versions WHERE automation_id=? AND n=?",
+                                (run["automation_id"], run["version"])).fetchone()
         state = json.loads(run["state_json"] or "{}")
         try:
             # What it does comes from the run's version; its owner, cap and the rest are as they are now.
@@ -1361,9 +1356,11 @@ def tick(store, at=None):
     """The scheduler's pass: due schedules fire, batch waits whose time came and answered turns go back in the
     queue, runs cut off go back in it to go on from their last save, and the queue is drained."""
     hub = getattr(store, "automations", None)
-    with store.read() as c:
-        if not redesign.on(c):
-            return 0
+    from . import redesign_migration
+    try:
+        redesign_migration.catch_up(store)      # a new install's first person: the built-ins they own
+    except Exception:  # noqa: BLE001 - the cutover's catch-up must not stop the automations
+        log.exception("redesign catch-up failed")
     at = at or datetime.now(timezone.utc)
     now = at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     with store.transaction() as c:
@@ -1379,9 +1376,14 @@ def tick(store, at=None):
                 continue
             if row["next_due"] > now:
                 continue
-            # Through `fire`, so the trigger's filters hold the schedule's run as they hold any other.
-            fire(c, "schedule", {"schedule": {"at": row["next_due"], "cron": trigger["cron"], "tz": zone}},
-                 f"schedule:{row['next_due']}", only=row["id"])
+            if why := _no_input(c, row, getattr(store, "settings", None), at, zone):
+                # A converted built-in routine with nothing to work on is passed over, as the routine was.
+                _count(c, row["id"], "dropped")
+                H.event(c, H.KEEPER, "automation.skipped", row["id"], {"at": row["next_due"], "reason": why})
+            else:
+                # Through `fire`, so the trigger's filters hold the schedule's run as they hold any other.
+                fire(c, "schedule", {"schedule": {"at": row["next_due"], "cron": trigger["cron"], "tz": zone}},
+                     f"schedule:{row['next_due']}", only=row["id"])
             c.execute("UPDATE automations SET next_due=? WHERE id=?", (_iso(next_due(trigger["cron"], at, zone)), row["id"]))
         c.execute("UPDATE automation_runs SET status='queued',wake_at=NULL WHERE status='waiting' AND wake_at<=?", (now,))
         # A run cut off (the server stopped mid-run) goes on from its last save; its effects are not done twice.
@@ -1541,7 +1543,6 @@ def install(app, store, auth, mutate):
 
     hub = Hub(app, store)
     store.automations = hub
-    dormant = redesign.dormant()
 
     @app.middleware("http")
     async def automation_doorbell(request, call_next):
@@ -1552,7 +1553,6 @@ def install(app, store, auth, mutate):
         return response
 
     def found(c, who, aid, what="see this automation", rule=None):
-        _require_on(c)
         auth.domain(who)
         row = _row(c, aid)
         if not row:
@@ -1561,12 +1561,11 @@ def install(app, store, auth, mutate):
             raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
         return row
 
-    @app.get("/api/v2/automations", **dormant)
+    @app.get("/api/v2/automations")
     def automations_list(request: Request, owner: str = "", limit: int = 50, cursor: int = 0):
         """The automations the caller may change (the same rule decides what they see), newest first."""
         who = request.state.identity
         with store.read() as c:
-            _require_on(c)
             auth.domain(who)
             rows = c.execute("SELECT * FROM automations WHERE deleted_at IS NULL"
                              + (" AND owner=?" if owner else "") + " ORDER BY created DESC",
@@ -1578,13 +1577,11 @@ def install(app, store, auth, mutate):
         shown, more = page(visible[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"automations": shown, "next": more}
 
-    @app.get("/api/v2/automations/question-sets", **dormant)
+    @app.get("/api/v2/automations/question-sets")
     def automations_question_sets(request: Request):
         """The saved question sets a Decide step may name, each with its questions."""
         from clients import judge as J
-        with store.read() as c:
-            _require_on(c)
-            auth.domain(request.state.identity)
+        auth.domain(request.state.identity)
         sets = []
         for listed in J.list_sets():
             if listed.get("error"):
@@ -1594,15 +1591,13 @@ def install(app, store, auth, mutate):
                          "questions": data["questions"]})
         return {"sets": sets}
 
-    @app.get("/api/v2/automations/guide", **dormant)
+    @app.get("/api/v2/automations/guide")
     def automations_guide(request: Request):
         """How BotOps builds and edits automations, with the flow format generated from the code."""
-        with store.read() as c:
-            _require_on(c)
-            auth.domain(request.state.identity)
+        auth.domain(request.state.identity)
         return {"text": F.guide_text()}
 
-    @app.post("/api/v2/automations", **dormant)
+    @app.post("/api/v2/automations")
     def automations_create(request: Request, body: AutomationIn):
         """Save a new automation as version 1. The caller must be allowed to change an automation of that owner; a bot
         that may not proposes it instead (off, version 1 pending). What BotOps builds is saved off unless `enabled` is
@@ -1610,7 +1605,6 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            _require_on(c)
             auth.domain(who)
             fields = {k: v for k, v in body.model_dump().items() if v is not None}
             if _by_botops(who) and "enabled" not in body.model_fields_set:
@@ -1624,13 +1618,24 @@ def install(app, store, auth, mutate):
             return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)
         return mutate(request, body, work)
 
-    @app.get("/api/v2/automations/{aid}", **dormant)
+    @app.get("/api/v2/automations/{aid}")
     def automations_get(request: Request, aid: str):
         who = request.state.identity
         with store.read() as c:
             return view(c, found(c, who, aid, rule=may_see), who, detail=True)
 
-    @app.patch("/api/v2/automations/{aid}", **dormant)
+    def _resume_task_triggers(c, aid, flow):
+        """Turning a "What wakes" automation on resumes its task triggers that ran too often (50 an hour)."""
+        from . import redesign_migration
+        try:
+            ids = [r["id"] for r in redesign_migration.wake_rules_of(aid, flow)]
+        except ValueError:
+            return
+        if ids and H._has_table(c, "rule_task_state"):
+            c.execute(f"UPDATE rule_task_state SET paused_at=NULL, pause_reason=NULL WHERE rule_id IN "
+                      f"({','.join('?' * len(ids))})", ids)
+
+    @app.patch("/api/v2/automations/{aid}")
     def automations_update(request: Request, aid: str, body: AutomationPatch):
         """Change an automation. A change to its trigger, steps or batch times is a new version. A bot that may not
         change it proposes instead: a pending version a person restores. BotOps acting for a person changes it as that
@@ -1678,6 +1683,8 @@ def install(app, store, auth, mutate):
                 warning = "This is a built-in automation: the work it does stops until it is turned back on."
             if flow != before:
                 row = _save(c, who.actor, aid, flow, before, summary=summary, via=_via(who))
+            if changes.get("enabled") is True and flow.get("wakes"):
+                _resume_task_triggers(c, aid, flow)
             return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
         return mutate(request, body, work)
 
@@ -1685,7 +1692,6 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            _require_on(c)
             auth.domain(who)
             row = deletable(c, who, aid)
             c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (H.now(), aid))
@@ -1698,16 +1704,16 @@ def install(app, store, auth, mutate):
             return {"id": aid, "deleted": True}
         return mutate(request, body, work)
 
-    @app.delete("/api/v2/automations/{aid}", **dormant)
+    @app.delete("/api/v2/automations/{aid}")
     def automations_delete(request: Request, aid: str, body: Empty | None = None):
         return delete(request, aid, body or Empty())
 
-    @app.post("/api/v2/automations/{aid}/delete", **dormant)
+    @app.post("/api/v2/automations/{aid}/delete")
     def automations_delete_post(request: Request, aid: str, body: Empty | None = None):
         """The same delete for clients that only POST (the hub CLI and MCP)."""
         return delete(request, aid, body or Empty())
 
-    @app.post("/api/v2/automations/{aid}/run", **dormant)
+    @app.post("/api/v2/automations/{aid}/run")
     def automations_run(request: Request, aid: str, body: RunNow | None = None):
         """Run it now, whatever its trigger and batch times say; `input` stands in for the trigger's output (the page's
         "Test with sample"). Answers with the run once it has gone as far as it can now."""
@@ -1736,7 +1742,7 @@ def install(app, store, auth, mutate):
         with store.read() as c:
             return {"run": run_view(c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone())}
 
-    @app.get("/api/v2/automations/{aid}/runs", **dormant)
+    @app.get("/api/v2/automations/{aid}/runs")
     def automations_runs(request: Request, aid: str, limit: int = 25, before: str = ""):
         """Its runs, newest first, each with its steps' status, outputs and cost (kept 30 days); `next` is the `before`
         for the page after. `daily` holds the counts, which include what the trigger's filters dropped."""
@@ -1756,7 +1762,7 @@ def install(app, store, auth, mutate):
         runs, cut = page([run_view(r) for r in rows], limit, 0, RUN_BYTES)
         return {"runs": runs, "next": runs[-1]["id"] if cut is not None and runs else None, "daily": days}
 
-    @app.get("/api/v2/automations/{aid}/versions", **dormant)
+    @app.get("/api/v2/automations/{aid}/versions")
     def automations_versions(request: Request, aid: str, status: str = "", limit: int = 50, cursor: int = 0):
         """Its versions, newest first; `status=pending` for the proposals waiting on a person."""
         with store.read() as c:
@@ -1769,7 +1775,7 @@ def install(app, store, auth, mutate):
         shown, more = page(rows[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"versions": shown, "next": more}
 
-    @app.post("/api/v2/automations/{aid}/versions/{n}/restore", **dormant)
+    @app.post("/api/v2/automations/{aid}/versions/{n}/restore")
     def automations_restore(request: Request, aid: str, n: int, body: Empty | None = None):
         """A pending version becomes the current one and keeps its number; an older one is saved as a new version.
         Either way its trigger, steps and batch times replace the current ones."""
@@ -1793,7 +1799,7 @@ def install(app, store, auth, mutate):
             return view(c, saved, who, detail=True)
         return mutate(request, body, work)
 
-    @app.delete("/api/v2/automations/{aid}/versions/{n}", **dormant)
+    @app.delete("/api/v2/automations/{aid}/versions/{n}")
     def automations_discard(request: Request, aid: str, n: int, body: Empty | None = None):
         """Discard a pending version (a proposal); any other version stays (409)."""
         who, body = request.state.identity, body or Empty()
@@ -1811,7 +1817,6 @@ def install(app, store, auth, mutate):
 
     # An inbox's send switch: on by default; off, send_reply saves a draft and logs send_off.
     def inbox_rights(c, who, inbox):
-        _require_on(c)
         auth.domain(who)
         if who.role == "owner":
             return
@@ -1819,14 +1824,14 @@ def install(app, store, auth, mutate):
         if not (person and "@" in inbox and str(person.get("email") or "").lower() == inbox):
             raise Problem("forbidden", "Only the inbox's person or the top of the org sets its send switch", 403)
 
-    @app.get("/api/v2/inboxes/{inbox}", **dormant)
+    @app.get("/api/v2/inboxes/{inbox}")
     def inbox_view(request: Request, inbox: str):
         inbox = inbox.strip().lower()
         with store.read() as c:
             inbox_rights(c, request.state.identity, inbox)
             return {"inbox": inbox, "send": A.send_on(c, inbox)}
 
-    @app.patch("/api/v2/inboxes/{inbox}", **dormant)
+    @app.patch("/api/v2/inboxes/{inbox}")
     def inbox_update(request: Request, inbox: str, body: InboxSend):
         who, inbox = request.state.identity, inbox.strip().lower()
 
@@ -1842,12 +1847,11 @@ def install(app, store, auth, mutate):
             return after
         return mutate(request, body, work)
 
-    @app.get("/api/v2/people/{person}/assistant", **dormant)
+    @app.get("/api/v2/people/{person}/assistant")
     def person_assistant(request: Request, person: str):
         """The bot an `assistant:<person>` step runs on, once one has run (null before)."""
         from . import assistant
         with store.read() as c:
-            _require_on(c)
             auth.domain(request.state.identity)
             if not H.human(c, person):
                 raise Problem("not_found", "No such person", 404)
@@ -1868,7 +1872,7 @@ def install(app, store, auth, mutate):
             raise Problem("forbidden", "Another computer reads this mailbox", 403)
         return runner
 
-    @app.post("/api/v2/automations/mail-actions/claim", **dormant)
+    @app.post("/api/v2/automations/mail-actions/claim")
     def automation_mail_claim(request: Request, body: MailClaim):
         """A lease of up to 20 of the mailbox's queued actions for MAIL_LEASE_MINUTES. A send is read against the
         inbox's send switch now, not when it was queued: off, a send or forward is claimed as a draft and its step
@@ -1876,7 +1880,6 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            _require_on(c)
             mailbox = body.mailbox.strip().lower()
             runner = mail_computer(c, who, mailbox)
             now = H.now()
@@ -1914,7 +1917,7 @@ def install(app, store, auth, mutate):
             return {"actions": out, "lease_seconds": MAIL_LEASE_MINUTES * 60}
         return mutate(request, body, work)
 
-    @app.post("/api/v2/automations/mail-actions/{mid}/result", **dormant)
+    @app.post("/api/v2/automations/mail-actions/{mid}/result")
     def automation_mail_result(request: Request, mid: str, body: MailResult):
         """What the computer did. Idempotent by action id: once done or failed, a repeat (a lost answer, a late
         report after the lease ran out) changes nothing. A failure it may retry goes back to the queue until
@@ -1922,7 +1925,6 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            _require_on(c)
             row = c.execute("SELECT * FROM automation_mail_actions WHERE id=?", (mid,)).fetchone()
             if not row:
                 raise Problem("not_found", "No such mail action", 404)

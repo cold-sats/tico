@@ -779,6 +779,10 @@ class Store:
         return c
 
     def initialize(self, *, seed_market=True, adopt_legacy=False):
+        # Before anything opens the database for writing: one that still holds routines and rules starts only once the
+        # install opts in to moving them (backend/redesign_migration.py `guard`).
+        from . import redesign_migration
+        redesign_migration.guard(self.settings.db_path, getattr(self.settings, "migrate_to_automations", False))
         self.settings.db_path.parent.mkdir(parents=True, exist_ok=True)
         with H.connect(self.settings.db_path, adopt_legacy=adopt_legacy) as c:
             c.executescript(SCHEMA)
@@ -1404,8 +1408,7 @@ class Store:
                 from . import automations as _automations
                 _automations.ensure(c)
                 from . import redesign_migration as _migration
-                _migration.ensure(c)                    # the converter's snapshots and the 30-minute limit columns
-                _migration.interrupted(c)               # a convert this restart cut off: restorable
+                _migration.ensure(c)                    # the cutover's record and the 30-minute limit columns
                 # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
                 from .lifecycle import ensure as ensure_seats
                 ensure_seats(c)
@@ -1628,6 +1631,9 @@ class Store:
             # older server wrote after a rollback, get their task links (backend/message_links.py).
             message_links.backfill(c)
         c.close()
+        # Once per install: routines and wake rules become automations (backend/redesign_migration.py). Each object
+        # in its own write, so a restart part way goes on where it stopped.
+        redesign_migration.cutover(self)
 
     @contextmanager
     def read(self):

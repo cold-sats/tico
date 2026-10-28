@@ -6,7 +6,7 @@ the change, so a change without its row cannot exist. Rows are never edited or p
 """
 import json
 
-from .store import H, Problem, encode
+from .store import H, encode
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_log(
@@ -61,15 +61,12 @@ def rows(c, obj=None, actor=None, limit=LIMIT, before=None):
 
 def install(app, store, auth):
     from fastapi import Request
-    from . import redesign
 
-    @app.get("/api/v2/audit", **redesign.dormant())
+    @app.get("/api/v2/audit")
     def audit_view(request: Request, object: str | None = None, limit: int = LIMIT, before: str | None = None):
         """Who changed what. The owner reads every row; anyone else reads only their own changes."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            if not redesign.on(c):
-                raise Problem("not_found", "Not found", 404)
             mine = None if who.role == "owner" else who.actor
             return rows(c, obj=object, actor=mine, limit=limit, before=before)

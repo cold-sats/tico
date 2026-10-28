@@ -5,7 +5,7 @@ On demand only: never in CI.
     python3 evals/botops_automations/run.py --url http://127.0.0.1:8765 --owner-token <owner API token> \\
         [--only investor-drafts,priya-inbox-refuse] [--quiet 60] [--json out.json] [--record evals/botops_automations/saved]
 
-The server needs the redesign on and BotOps running on a computer with a model (a dev install whose runner is real; the
+The server needs BotOps running on a computer with a model (a dev install whose runner is real; the
 plain demo answers bots with one line and cannot be checked). The install needs Acme's people (Dana, who owns the
 requests, with dana@acme.example; Omar; Priya) as evals/redesign sets them up. API tokens come from Settings > Computers.
 

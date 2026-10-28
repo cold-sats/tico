@@ -21,10 +21,13 @@ Run from the repo root:
 Files
 - `harness.py`: the Acme org, the API calls, `Unmet`, `BUILT`, and the helpers the cases share.
 - `cases/`: caps (1-10), spend (11-15), inboxes (16-21), engine (22-31), permissions (32-35, 46), strategy (36-38),
-  migration (39-44), setting (45), recorder (90, the L4 recorder and replay judge).
-- `cases/migration_fixture.py`: the install built through the old APIs (cron and event routines, a webhook trigger and
-  its routine, custom wake rules, a task rule, two inboxes with Inbox Manager, a listening destination, an hourly limit,
-  turn budgets). `cases/migration.py` checks it.
+  migration (39-44), recorder (90, the L4 recorder and replay judge).
+- `cases/migration_fixture.py`: the install as the release before left it, built partly through routes that remain
+  (webhook trigger, task rule, system jobs, inboxes with Inbox Manager, listening destinations, a goal) and partly by
+  SQL (cron and event routines, custom wake rules, an hourly limit, turn budgets). `cases/migration.py` runs the
+  automatic cutover on it (`redesign_migration.cutover`) and checks the result through the real APIs and the report:
+  cutover (39), wake rules (40), runs and the old hook address (41), times (42), limits and budgets (43), restart and a
+  second cutover (44). Workflow 10 runs a working day on the cut-over install.
 - `matrix.py`: the seeded all-pairs plan and its skip rules (no server). `cases/matrix.py` builds and reads each row.
 - `workflows.py`: workflows 1-10 (TESTING L2c), run only with `--workflows`.
 - `fakes.py`: the judge replay, Slack and Gmail fakes, the incoming-webhook helpers, the outgoing receiver.

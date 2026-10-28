@@ -8,7 +8,7 @@ const TASK_PREF = 'tasks.view';
 function pageTasks(forced, openId = '') {
   TASKS_ST?.layoutAbort?.abort();
   PROP_TASKS = null;                       // the pickers' copy of the open tasks starts fresh with the page
-  const state = TASKS_ST = {view: 'foryou', tasks: [], routines: null, labels: [], kind: 'all', armed: 'all', open: openId, q: '', who: 'me', side: 'plate',
+  const state = TASKS_ST = {view: 'foryou', tasks: [], labels: [], open: openId, q: '', who: 'me', side: 'plate',
     loading: true, doneLoaded: false, doneLoading: false, doneNext: null, loadSeq: 0,
     filters: tasksEmptyFilters(), group: {...TASK_GROUP_DEFAULT}, collapsed: new Set(), folded: new Set(),
     selected: new Set(), anchor: '', cursor: '', since: null, tabKey: '', peek: '', bulkFail: new Map(), bulkMsg: '', memo: new Map(),
@@ -16,11 +16,7 @@ function pageTasks(forced, openId = '') {
   const query = tasksFiltersFromURL(state);
   const hadQuery = [...query.keys()].length > 0;
   if (state.urlView && TASK_VIEWS.some(([k]) => k === state.urlView)) forced = state.urlView;
-  try {
-    state.view = forced || localStorage.getItem('hub.tasks.view2') || 'foryou';
-    state.kind = localStorage.getItem('hub.recurring.kind') || 'all';
-    state.armed = localStorage.getItem('hub.recurring.armed') || 'all';
-  } catch { state.view = forced || 'foryou'; }
+  try { state.view = forced || localStorage.getItem('hub.tasks.view2') || 'foryou'; } catch { state.view = forced || 'foryou'; }
   taskPipelineState(state);
   if (hadQuery) state.type = state.urlType || 'general';
   tasksPrefsFromLocal(state);
@@ -142,25 +138,9 @@ function pageTasks(forced, openId = '') {
     const row = ev.target.closest('[data-task-key]');
     if (row && row.dataset.taskKey !== state.cursor) { state.cursor = row.dataset.taskKey; tasksCursorPaint(state); }
   });
-  bindRoutineActions(body);
   body.addEventListener('click', ev => {
     if (TASKS_ST !== state) return;
-    if (ev.target.closest('[data-new-routine],[data-edit-routine],[data-toggle-routine],[data-delete-routine]')) return;
-    const chip = ev.target.closest('[data-rfilter]');
-    if (chip) {
-      state[chip.dataset.rfilter] = chip.dataset.val;
-      try { localStorage.setItem('hub.recurring.' + chip.dataset.rfilter, state[chip.dataset.rfilter]); } catch {}
-      tasksRender(state);
-      return;
-    }
-    const exp = ev.target.closest('[data-expand-routine]');
-    if (exp && !ev.target.closest('a[href^="#/task/"]')) { ev.preventDefault(); toggleRoutineOccurrences(exp); return; }
     if (ev.target.closest('#board-more')) { void tasksLoadDone(state); return; }
-    if (state.view === 'recurring') {
-      const b = ev.target.closest('[data-open-task]'); if (!b) return;
-      ev.preventDefault(); taskModalOpen(b.dataset.openTask);
-      return;
-    }
     tasksBodyClick(state, ev);
   });
   state.layoutAbort = new AbortController();
@@ -213,8 +193,6 @@ function tasksDoneEnsure(state) {
 }
 function tasksNormalise(state, forced) {
   if (!TASK_VIEWS.some(([k]) => k === state.view)) state.view = forced || 'foryou';
-  if (!['all', 'cron', 'event', 'inbox'].includes(state.kind)) state.kind = 'all';
-  if (!['all', 'armed', 'idle'].includes(state.armed)) state.armed = 'all';
 }
 function tasksRemember(state) {
   taskPipelineRemember(state);
@@ -353,18 +331,18 @@ async function tasksLoad(state, opts = {}) {
   if (!cursor) state.activeComplete = false;
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
   if (!cursor) tasksRender(state);
-  const others = () => [v2Get('/v2/routines'), v2Get('/v2/tasks/labels'),
+  const others = () => [v2Get('/v2/tasks/labels'),
     taskTypesLoad().then(t => { state.typesLoaded = true; return t; }).catch(() => TASK_TYPES)];
-  let changed = null, active = null, rec, lab, held = null;
+  let changed = null, active = null, lab, held = null;
   const seen = new Set(), isFinished = t => ['done', 'closed'].includes(String(t.status));
   if (cursor) {
-    [changed, rec, lab] = await Promise.all([v2Get(tasksChangedPath(cursor)), ...others()]);
+    [changed, lab] = await Promise.all([v2Get(tasksChangedPath(cursor)), ...others()]);
     if (TASKS_ST !== state || state.loadSeq !== seq) return;
     if (!changed || changed.reset) { changed = null; state.since = null; state.activeComplete = false; }
   }
   if (!changed) {
     if (cursor) tasksRender(state);
-    [active, rec, lab] = await Promise.all([v2Get(activeTasksPath()), ...others()]);
+    [active, lab] = await Promise.all([v2Get(activeTasksPath()), ...others()]);
     if (TASKS_ST !== state || state.loadSeq !== seq) return;
   }
   if (changed) {
@@ -380,7 +358,6 @@ async function tasksLoad(state, opts = {}) {
     state.tasks = mergeTaskRows(state.tasks || [], active.tasks || []);
   }
   // A read that failed (offline, the server away) leaves the list as it was rather than empty; the next poll reads again.
-  state.routines = rec?.routines || null;
   state.labels = lab?.labels || [];
   state.tags = lab?.tags || [];
   state.loading = false;
@@ -600,20 +577,16 @@ function tasksRender(state) {
   decidePaintButton();
   el.dataset.view = state.view;
   el.setAttribute('role', 'tabpanel'); el.setAttribute('aria-labelledby', 'task-tab-' + state.view);
-  let html;
-  if (state.view === 'recurring') html = tasksRecurringHTML(state);
-  else {
-    const items = taskItems(state);
-    html = state.loading && !tasksFinishedView(state.view) && !items.length
-      ? skelRows(6)
-      : tasksFinishedView(state.view) ? tasksDoneHTML(items, state)
-      : state.view === 'board' ? tasksBoardHTML(items, state)
-      : tasksListHTML(items, state);
-  }
+  const items = taskItems(state);
+  let html = state.loading && !tasksFinishedView(state.view) && !items.length
+    ? skelRows(6)
+    : tasksFinishedView(state.view) ? tasksDoneHTML(items, state)
+    : state.view === 'board' ? tasksBoardHTML(items, state)
+    : tasksListHTML(items, state);
   // Needs you holds the server's list a page at a time: its order, groups, approvals and questions come with each page.
   const paged = tasksNeedsQueue(state) && !state.loading;
   if (paged) html += needsMoreButton();
-  if (state.view === 'recurring') el.innerHTML = html; else tasksPatch(el, html);
+  tasksPatch(el, html);
   if (state.view === 'board') boardReleaseSlots();
   needsMoreWatch(paged ? el : null);
   if (focusWhat && !el.contains(document.activeElement)) {

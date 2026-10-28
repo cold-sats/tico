@@ -1,5 +1,5 @@
 """What starts an automation (backend/automations.py): a task received, a catalog event, mail, Slack, an incoming
-webhook, listening and a schedule (DST-safe), with trigger filters, batch times, the chain guard and the redesign off."""
+webhook, listening and a schedule (DST-safe), with trigger filters, batch times, and the chain guard."""
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -8,7 +8,6 @@ import time_machine
 
 from backend import automations
 from backend.tests.test_api import api, get, headers, post  # noqa: F401
-from backend.tests.test_automation_api import turn_on
 
 WAKE = {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "ops", "text": "{{task.title}}"}}
 
@@ -37,7 +36,6 @@ def mail(msg_id="m1", subject="Invoice 4471", sender="billing@acme.example"):
 
 # ---------------------------------------------------------------------------------------------- tasks and events
 def test_a_task_received_runs_its_owners_automation_only(api):
-    turn_on(api)
     aid = make(api, {"type": "task_received", "to": "bot:ops"})
     post(api, "tasks", {"owner": "ops", "title": "Check the deploy", "body": "Please."})
     post(api, "tasks", {"owner": "coo", "title": "Not for ops", "body": "Please."})
@@ -46,7 +44,6 @@ def test_a_task_received_runs_its_owners_automation_only(api):
 
 
 def test_trigger_filters_drop_a_run_and_count_it_for_the_day(api):
-    turn_on(api)
     aid = make(api, {"type": "task_received", "to": "bot:ops",
                      "filters": [{"field": "task.title", "op": "contains", "value": "urgent"}]})
     post(api, "tasks", {"owner": "ops", "title": "Routine check", "body": "Please."})
@@ -57,7 +54,6 @@ def test_trigger_filters_drop_a_run_and_count_it_for_the_day(api):
 
 
 def test_an_event_trigger_and_the_chain_guard(api):
-    turn_on(api)
     spawn = {"id": "spawn", "type": "action", "do": "create_task", "args": {"title": "Follow up", "owner": "coo"}}
     aid = make(api, {"type": "event", "name": "task.created"}, [spawn])
     post(api, "tasks", {"owner": "ops", "title": "Start", "body": "Please."})
@@ -67,21 +63,14 @@ def test_an_event_trigger_and_the_chain_guard(api):
         assert c.execute("SELECT count(*) FROM tasks WHERE title='Follow up'").fetchone()[0] == 1
 
 
-def test_a_paused_automation_and_the_redesign_off_start_nothing(api):
-    turn_on(api)
+def test_a_paused_automation_starts_nothing(api):
     aid = make(api, {"type": "task_received", "to": "bot:ops"}, enabled=False)
     post(api, "tasks", {"owner": "ops", "title": "Paused", "body": "Please."})
     assert runs(api, aid)["runs"] == []
-    on = make(api, {"type": "message", "inbox": "ana@acme.example"})
-    api.put("/api/v2/settings/redesign", json={"enabled": False}, headers=headers())
-    assert fire(api, automations.on_mail, "ana@acme.example", mail()) == []
-    turn_on(api)
-    assert runs(api, on)["runs"] == []
 
 
 # ---------------------------------------------------------------------------------------------- mail and the send switch
 def test_mail_runs_the_inboxs_automation_and_queues_mail_actions_for_its_computer(api):
-    turn_on(api)
     archive = {"id": "gate", "type": "filter", "rules": [
         {"when": [{"field": "message.subject", "op": "contains", "value": "invoice"}], "then": [{"do": "archive"}]}]}
     aid = make(api, {"type": "message", "inbox": "ana@acme.example"}, [archive])
@@ -94,7 +83,6 @@ def test_mail_runs_the_inboxs_automation_and_queues_mail_actions_for_its_compute
 
 
 def test_send_reply_follows_the_inbox_send_switch(api):
-    turn_on(api)
     reply = {"id": "reply", "type": "action", "do": "send_reply", "args": {"body": "Thanks"}}
     make(api, {"type": "message", "inbox": "ana@acme.example"}, [reply])
     assert get(api, "inboxes/ana@acme.example") == {"inbox": "ana@acme.example", "send": True}
@@ -110,7 +98,6 @@ def test_send_reply_follows_the_inbox_send_switch(api):
 
 
 def test_only_the_inboxs_person_or_the_top_sets_its_switch(api):
-    turn_on(api)
     assert api.patch("/api/v2/inboxes/ana@acme.example", json={"send": False},
                      headers=headers("ben-test")).status_code == 403
     r = api.patch("/api/v2/inboxes/ben@acme.example", json={"send": False}, headers=headers("ben-test"))
@@ -130,7 +117,6 @@ def listed(api, name, readers=()):
 
 
 def test_slack_messages_reach_the_dm_or_channel_inbox(api):
-    turn_on(api)
     listed(api, "general")
     dm = make(api, {"type": "message", "inbox": "slack:dm"})
     general = make(api, {"type": "message", "inbox": "slack:#general"})
@@ -145,7 +131,6 @@ def test_slack_messages_reach_the_dm_or_channel_inbox(api):
 
 
 def test_a_webhook_and_a_listening_post_start_their_automations(api):
-    turn_on(api)
     hook = make(api, {"type": "webhook", "id": "trg_1"})
     leads = make(api, {"type": "listening", "destination": "leads"})
     out = fire(api, automations.on_webhook, "trg_1", "Deploys", "custom", "d1", {"ok": True}, "")
@@ -158,7 +143,6 @@ def test_a_webhook_and_a_listening_post_start_their_automations(api):
 
 # ---------------------------------------------------------------------------------------------- schedules and batches
 def test_a_schedule_keeps_its_wall_clock_time_across_daylight_saving(api):
-    turn_on(api)
     with time_machine.travel(datetime(2026, 10, 31, 13, 30, tzinfo=timezone.utc), tick=False):
         aid = make(api, {"type": "schedule", "cron": "0 9 * * *", "tz": "America/New_York"})
     store = api.app.state.store
@@ -173,7 +157,6 @@ def test_a_schedule_keeps_its_wall_clock_time_across_daylight_saving(api):
 
 
 def test_a_new_schedule_runs_at_the_next_run_it_showed_even_if_the_first_pass_comes_later(api):
-    turn_on(api)
     with time_machine.travel(datetime(2026, 10, 20, 9, 0, tzinfo=timezone.utc), tick=False):
         aid = make(api, {"type": "schedule", "cron": "0 7 * * *", "tz": "UTC"})
         assert get(api, f"automations/{aid}")["next_run"] == "2026-10-21T07:00:00.000000Z"
@@ -183,7 +166,6 @@ def test_a_new_schedule_runs_at_the_next_run_it_showed_even_if_the_first_pass_co
 
 
 def test_a_batched_inbox_filters_on_receipt_and_runs_the_rest_at_the_batch_time(api):
-    turn_on(api)
     gate = {"id": "gate", "type": "filter", "rules": [{"when": [], "then": [{"do": "label"}]}]}
     with time_machine.travel(datetime(2026, 10, 28, 9, 0, tzinfo=timezone.utc), tick=False):
         aid = make(api, {"type": "message", "inbox": "ana@acme.example"}, [gate, WAKE | {"args": {"bot": "ops"}}],
@@ -201,7 +183,6 @@ def test_a_batched_inbox_filters_on_receipt_and_runs_the_rest_at_the_batch_time(
 
 # ---------------------------------------------------------------------------------------------- retention
 def test_step_detail_is_pruned_after_30_days_and_the_run_row_stays(api):
-    turn_on(api)
     aid = make(api, {"type": "schedule", "cron": "0 9 * * *", "tz": "UTC"})
     run = post(api, f"automations/{aid}/run", {})["run"]
     store = api.app.state.store

@@ -2,7 +2,7 @@
 
 Each workflow is a day across bots on the fake clock, fed through the product's real paths (CONTRACT §2 Feeding
 input): mail through the mail sync's publish route, Slack through the gateway's events route, listening through the
-listening ingest and judge routes, events through the catalog's emit (backend/routines.emit), webhooks through the
+listening ingest and judge routes, events through H.hook (backend/hubdb.py, as producers send them), webhooks through the
 incoming trigger's URL, outgoing webhooks into fakes.Receiver. Checks read what the day left behind: runs, tasks,
 turns, deliveries. Each fails with the wave it waits on until the redesign is built.
 
@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 from .cases.strategy import canon
 from .fakes import MissingRecording, ReplayJudge, Receiver, attach_judge, deliver, hook, stripe_sig
 from .harness import (CLAUDE, CLAUDE_ID, CLAUDE_REF, DANA, DANA_ID, DANA_REF, LEAD_ID, LEAD_REF, OPENAI,
-                      OPENAI_ID, OPENAI_REF, PRIYA_ID, RELEASE_ID, W1, W2, W3, W4, W5, W6, Check, Reply, Scenario, Unmet,
+                      OPENAI_ID, OPENAI_REF, PRIYA_ID, RELEASE_ID, W2, W3, W4, W5, W6, Check, Reply, Scenario, Unmet,
                       body, close_task, comment, get_caps, got, inbox_read, inbox_send, mail_computer, publish_mail,
                       put_budget, put_cap, rows, send, setup, task_id_of, turn_of)
 from .record import INPUTS, load_inputs
@@ -160,10 +160,10 @@ def drain(org, slug, act=None, limit=8, **kwargs):
 
 
 def emit(org, kind, subject, payload=None):
-    """An event through the catalog's emit (backend/routines.emit), in a transaction as its producers call it."""
-    from backend import routines
+    """A catalog event through H.hook (outgoing webhooks and automations), in a transaction as its producers call it."""
+    from backend.store import H
     with org.store.transaction() as c:
-        return routines.emit(c, kind, subject, payload or {})
+        return H.hook(c, kind, subject, lambda: payload or {}, H.KEEPER)
 
 
 def sql(org, query, args=()):
@@ -303,8 +303,8 @@ class TimedJudge(ReplayJudge):
 
 
 class SteadyJudge(TimedJudge):
-    """Answers every call with the same middle answer for its questions (workflow 10): the differential checks the
-    migration, so both days get the same judge whatever it is asked."""
+    """Answers every call with the same middle answer for its questions (workflow 10): the day checks the cut-over
+    install, not the judge, so it gets the same answer whatever it is asked."""
 
     def __call__(self, state, questions, label=None, level=None):
         if level is not None:
@@ -457,14 +457,12 @@ def feed_slack(org, msgs):
 
 def slack_diag(org, gateway):
     """What the gateway's offer pass saw for each stored channel message, read after the tick (diagnostic only)."""
-    from backend import redesign
     with org.store.read() as c:
         rows = [dict(r) for r in c.execute("SELECT * FROM slack_events ORDER BY received, ts")]
         since = c.execute("SELECT MIN(created) FROM automations WHERE trigger_type='message' AND enabled=1 "
                           "AND deleted_at IS NULL AND flow_json LIKE '%slack:#%'").fetchone()[0]
         autos = [dict(r) for r in c.execute("SELECT name,trigger_type,enabled,created,deleted_at,owner FROM automations "
                                             "WHERE flow_json LIKE '%slack:#%'")]
-        on = redesign.on(c)
         senders = {}
         for r in rows:
             if r["state"] == "stored" and r["channel_kind"] == "channel":
@@ -472,7 +470,7 @@ def slack_diag(org, gateway):
                 senders[r["ts"]] = {"person": (person or {}).get("id"), "denied": denied}
     stored = [{k: r[k] for k in ("ts", "channel", "channel_kind", "author", "state", "processed", "received")}
               for r in rows if str(r["ts"]).startswith("wf1-")]
-    return {"on": on, "since": since, "autos": autos, "stored": stored, "senders": senders}
+    return {"since": since, "autos": autos, "stored": stored, "senders": senders}
 
 
 def assistant_slug(org, person, who=DANA):
@@ -1268,7 +1266,7 @@ BOTOPS, HEALTH = "botops", "health-monitor"
 
 
 def builtin_health(org):
-    """The Health Monitor becomes a built-in automation through the migration (CONTRACT §4, PLAN §8), so wave 5."""
+    """The Health Monitor shows as a built-in automation (CONTRACT §4, PLAN §8), so wave 5."""
     reply = org.api("get", "/api/v2/automations", who=DANA, wave=W5)
     if reply.status != 200:
         raise Unmet(W5, f"list: {reply.status} {reply.excerpt()}")
@@ -1279,10 +1277,9 @@ def builtin_health(org):
 
 
 def wf7_steps(org, f):
-    from .cases.migration import migrate
-    at(org, org.now() + dt.timedelta(minutes=2))   # the automations tick makes the built-ins once the setting is on
-    # The Health built-in is the migration's mirror of the health-monitor bot (CONTRACT section 6): convert first.
-    migrate(org, f)
+    # The Health built-in is the cutover's mirror of the health-monitor bot (CONTRACT section 6). The cutover ran at
+    # startup with nobody yet to own it; the automations tick (the Org's first, then this one) catches up for Dana.
+    at(org, org.now() + dt.timedelta(minutes=2))
     do(org, f, "health", W5, builtin_health, org)
     do(org, f, "monitor", W5, org.api, "get", "/api/v2/health-monitor", who=DANA, wave=W5)
     # The run guard trips on its own (backend/turn_budgets.py): WF9's loop from one seed task. Its held notices are the
@@ -1473,12 +1470,17 @@ def wf9_steps(org, f):
     do(org, f, "resumed", W2, turn, org, OPENAI_ID, wave=W2)
     org.scheduler_pass()
     do(org, f, "runs", W3, runs_of, org, f, "auto")
+    # The fake clock stands still through the loop, so the runs share one `started`: the order they were made in
+    # comes from the table.
+    f["made"] = [r["id"] for r in sql(org, "SELECT id FROM automation_runs ORDER BY rowid")]
 
 
 def wf9_spend_cap(f):
     """The first Bot turn step runs; once the $1 per 30 minutes is spent, later ones record spend_cap."""
     setup(f, "auto", "seed", "keep")
-    found = sorted(runs(f, "runs"), key=lambda r: str(r.get("started")))
+    made = f.get("made") or []
+    found = sorted(runs(f, "runs"), key=lambda r: (str(r.get("started")),
+                                                   made.index(r["id"]) if r.get("id") in made else len(made)))
     statuses = [status_of(r, "work") for r in found]
     return (statuses[:1] == ["ok"] and "spend_cap" in statuses[1:],
             f"Bot turn step per run, oldest first: {statuses[:8]}")
@@ -1529,45 +1531,19 @@ def wf9_release(f):
         f"{before} -> {after}"
 
 
-# ================================================================================================ 10 migration differential
-DAY10 = {1: (2026, 10, 21), 2: (2026, 10, 22)}
+# ================================================================================================ 10 migration day
+DAY10 = (2026, 10, 21)
 MAIL10 = {"03-mail-customer-question": DANA_MAIL, "04-mail-refund-request": DANA_MAIL,
           "09-mail-deadline-ask": DANA_MAIL, "07-mail-calendar-invite": PRIYA_MAIL,
           "14-mail-product-feedback": PRIYA_MAIL}
 PEOPLE10 = (DANA_ID, PRIYA_ID)
-# What may differ between the day before converting and the day after, and why. Everything else must match.
-ALLOWED = {
-    "ids": "automation, run, task, job and delivery ids are new on day two; no check compares an id",
-    "day shift": "day two is a day later: dates, mail ids and the release tag carry the day, so task titles mask "
-                 "dates and the tag, and webhooks are compared by event type only",
-    "inbox handler": "Inbox Managers retire (PLAN §8) and the person's Assistant handles the mail: both count as "
-                     "the inbox handler for that person",
-    "mail path": "before, mail reached the Inbox Manager's watcher outside the hub; after, a hub automation run: "
-                 "mail is compared as messages handled per mailbox, not by how, so the inbox handler's wakes are left "
-                 "out of the wake check",
-    "health monitor": "the Health Monitor becomes a built-in automation off the chart (PLAN §8): its tasks, wakes "
-                      "and webhook events (health.*, or naming the bot) are left out of both days",
-    "strategy bot": "the CEO Bot is renamed Strategy Bot on the same row (PLAN §8): both count as the strategy bot",
-    "automation events": "outgoing event types the redesign adds (automation.*) are left out; every type day one "
-                         "sent must still be sent as often",
-    "first morning": "the install never asked for the day before day one, so day one's Updates job asks for it (`Time "
-                     "for your daily update (<day before>)`), and day two's yesterday was asked on day one: that one "
-                     "reminder is left out of day one's wakes",
-    "turn title": "a converted routine's turn is titled exactly its automation's name, and a find item's turn appends "
-                  "` · <item title>` (the turn-titles rule); a legacy release task is headed `<name>: <tag>`. Both "
-                  "compare by the name (masked). Until turn-titles lands the converted title still carries step and run, "
-                  "so this check can be red",
-    "briefing webhook": "market.briefing is one event per ISO week (backend/market_briefing.py `post`: a replacement "
-                        "with the same bets sends none). Day one and day two fall in one week, so day one's briefing "
-                        "sends it and day two's replacement sends none; wf10_same checks that count, then the rest",
-}
-
-
+WEBHOOKS10 = ("release.published", "market.briefing", "task.created", "task.commented")
 HEALTH_BOT = "health-monitor"   # migration_fixture.HEALTH
 
 
 def handler(org, f, actor):
-    """The name a teammate is compared under (ALLOWED), or None when it is left out."""
+    """The name a teammate is counted under, or None when it is left out (the Health Monitor, a built-in off the
+    chart). The Inbox Managers retire and the person's Assistant handles the mail; the CEO Bot is the Strategy Bot."""
     from .cases.migration_fixture import CEO, HEALTH, INBOXES
     slug = str(actor or "").split(":", 1)[-1]
     if slug == HEALTH or "health" in slug:
@@ -1581,11 +1557,8 @@ def handler(org, f, actor):
 
 
 def masked(title):
-    """A task title as the two days compare it (ALLOWED, 'turn title'): a converted routine's turn is titled exactly its
-    automation's name, and a find item's turn appends ` · <item title>`, which is dropped. A legacy release task's
-    heading ends with its tag. Dates and tags are masked."""
+    """A task title with a find item's ` · <item title>`, dates and the release tag dropped."""
     title = (title or "").split(" · ", 1)[0]
-    title = re.sub(r": v1\.5\.\d+$", "", title)     # a legacy release task's heading ends with its tag
     title = re.sub(r"v1\.5\.\d+", "v1.5.N", title)
     return re.sub(r"\d{4}-\d{2}-\d{2}", "<date>", title)
 
@@ -1600,35 +1573,19 @@ def find_assistants(org, f):
             f["assistants"][slug] = person
 
 
-def write_briefing(org, day):
-    """The legacy Librarian writes its briefing itself, through the market route (backend/market_briefing.py `post`,
-    which emits market.briefing), as its turn does in the product. The converted built-in posts its turn's answer the
-    same way (post_update), so both days send the webhook once."""
-    def act(token, attempt):
-        week = "%d-W%02d" % dt.date(*day).isocalendar()[:2]
-        answer = org.api("post", "/api/v2/market/briefings",
-                         {"week": week, "title": "Morning briefing", "body": BRIEF, "items": []}, who=token, wave=W5)
-        if not 200 <= answer.status < 300:
-            raise Unmet(W5, f"briefing: {answer.status} {answer.excerpt()}")
-        return answer
-    return act
-
-
 def drain_all(org, f, errors):
-    if f["phase"] == 2:
-        find_assistants(org, f)
+    find_assistants(org, f)
     for slug in list(org.bot_slugs):
-        act = write_briefing(org, DAY10[1]) if f["phase"] == 1 and slug == LIBRARIAN else None
         try:
-            drain(org, slug, act, limit=6, text="Done for today.")
-        except Exception as exc:  # noqa: BLE001 (kept with the day: a claim the product refuses is a difference)
+            drain(org, slug, None, limit=6, text="Done for today.")
+        except Exception as exc:  # noqa: BLE001 (kept with the day: a claim the product refuses is reported)
             errors.append(f"{slug}: {type(exc).__name__}: {getattr(exc, 'what', exc)}"[:160])
 
 
 def publish_release(org, tag):
     """A release arrives as GitHub's release webhook delivers it (backend/github.py `release`): the milestone is recorded
     once (a repeat delivery is ignored there) and the first recording runs release_flow.published, which tells the
-    routines and the automations. Calling `published` directly would skip that dedupe."""
+    automations. Calling `published` directly would skip that dedupe."""
     from backend import github
     repo = org.store.settings.release_repo   # the server's release repository: the webhook's repository must match it
     payload = {"action": "published", "repository": {"full_name": repo},
@@ -1637,10 +1594,9 @@ def publish_release(org, tag):
         return github.release(c, payload, release_repo=repo)
 
 
-def fake_day(org, f, phase, receiver):
-    """The same day's work, with the setting off (phase 1) or after converting (phase 2), measured over its window."""
-    day, errors = DAY10[phase], []
-    f["phase"] = phase
+def fake_day(org, f, receiver):
+    """The install's working day after the cutover, measured over its window."""
+    day, errors = DAY10, []
 
     def safe(label, fn, *args):
         try:
@@ -1656,7 +1612,7 @@ def fake_day(org, f, phase, receiver):
     safe("05:00", at, org, utc(day, 5))
     ids = {}
     for mailbox in (DANA_MAIL, PRIYA_MAIL):
-        mail = [mail_from(found[stem]["state"], f"wf10-d{phase}-{stem}", mailbox=mailbox, date=iso(org.now()))
+        mail = [mail_from(found[stem]["state"], f"wf10-{stem}", mailbox=mailbox, date=iso(org.now()))
                 for stem, box in MAIL10.items() if box == mailbox]
         ids[mailbox] = [m["msg_id"] for m in mail]
         reply = safe("mail " + mailbox, publish_mail, org, mailbox, mail)
@@ -1666,16 +1622,17 @@ def fake_day(org, f, phase, receiver):
     tasks = {CLAUDE_ID: "Fix the CSV export", OPENAI_ID: "Review the billing page copy"}
     for bot, title in tasks.items():
         made = safe("task " + bot, send, org, DANA, bot, title)
-        f[f"d{phase}:{bot}"] = made if made is not None else Unmet(W5, "task not made")
+        f["task:" + bot] = made if made is not None else Unmet(W5, "task not made")
     safe("06:00", at, org, utc(day, 6))
+    f["commented_at"] = org.now()
     for bot in tasks:
-        safe("comment " + bot, comment, org, f, f"d{phase}:{bot}", DANA, "One more detail: keep the old format too.")
+        safe("comment " + bot, comment, org, f, "task:" + bot, DANA, "One more detail: keep the old format too.")
     drain_all(org, f, errors)
     fx = f.get("fixture") or {}
     for minutes in range(390, 16 * 60 + 1, 30):
         safe(f"{minutes // 60:02d}:{minutes % 60:02d}", at, org, utc(day, minutes // 60, minutes % 60))
         if minutes == 600:
-            safe("release", publish_release, org, f"v1.5.{phase}")
+            safe("release", publish_release, org, "v1.5.1")
         if minutes == 660:
             hook_ = fx.get("hook") or {}
             if hook_.get("id") and hook_.get("secret"):
@@ -1689,28 +1646,24 @@ def fake_day(org, f, phase, receiver):
         drain_all(org, f, errors)
     end = org.now()
     safe("deliver", deliver, org.app, receiver)
-    return measure(org, f, phase, start, end, ids, receiver, errors)
+    return measure(org, f, start, end, ids, receiver, errors)
 
 
-def measure(org, f, phase, start, end, ids, receiver, errors):
-    def inside(row):
+def measure(org, f, start, end, ids, receiver, errors):
+    def inside(row, since=start):
         at_ = when_of(row["created"])
-        return at_ is not None and start <= at_ <= end
+        return at_ is not None and since <= at_ <= end
     tasks = Counter()
     for row in sql(org, "SELECT owner,title,created FROM tasks"):
         who = handler(org, f, row["owner"])
         if who and inside(row):
             tasks[f"{who} | {masked(row['title'])}"] += 1
-    woken = Counter()
-    asked_first = f"Time for your daily update ({(dt.date(*DAY10[1]) - dt.timedelta(days=1)).isoformat()})"
-    for row in sql(org, "SELECT j.bot, j.created, m.body FROM jobs j JOIN messages m ON m.id=j.message_id"):
+    woken, after_comment = Counter(), Counter()
+    for row in sql(org, "SELECT bot, created FROM jobs"):
         who = handler(org, f, row["bot"])
-        # ALLOWED 'first morning': the install never asked for the day before day one, so only day one's Updates
-        # job asks for it; day two's yesterday was asked on day one already. ALLOWED 'mail path': the inbox handler's
-        # wakes are how mail was handled, and the mail check (messages handled per mailbox) covers that instead.
-        if (who and not who.startswith("inbox handler") and inside(row)
-                and not (phase == 1 and str(row["body"] or "").startswith(asked_first))):
+        if who and not who.startswith("inbox handler") and inside(row):
             woken[who] += 1
+            after_comment[who] += inside(row, f["commented_at"])
     hooks = Counter()
     for request in receiver.seen:
         text = request.content.decode(errors="replace")
@@ -1718,17 +1671,14 @@ def measure(org, f, phase, start, end, ids, receiver, errors):
             kind = str(json.loads(text).get("type"))
         except ValueError:
             kind = "unreadable"
-        if not kind.startswith(("automation", "health")) and HEALTH_BOT not in text:
+        if not kind.startswith("health") and HEALTH_BOT not in text:
             hooks[kind] += 1
     mail = {}
     for mailbox, msg_ids in ids.items():
         stored = {r["msg_id"] for r in sql(org, "SELECT msg_id FROM mail_messages WHERE mailbox=?", (mailbox,))}
-        handled = [i for i in msg_ids if i in stored]
-        if phase == 2:
-            handled = [i for i in handled if i in mail_runs(org, f, mailbox)]
-        mail[mailbox] = len(handled)
-    return {"tasks": dict(tasks), "woken": dict(woken), "webhooks": dict(hooks), "mail": mail,
-            "errors": sorted(set(errors))[:8], "window": [iso(start), iso(end)]}
+        mail[mailbox] = len([i for i in msg_ids if i in stored and i in mail_runs(org, f, mailbox)])
+    return {"tasks": dict(tasks), "woken": dict(woken), "after_comment": dict(after_comment),
+            "webhooks": dict(hooks), "mail": mail, "errors": sorted(set(errors))[:8], "window": [iso(start), iso(end)]}
 
 
 def mail_runs(org, f, mailbox):
@@ -1747,7 +1697,7 @@ def mail_runs(org, f, mailbox):
 
 
 def close_open(org):
-    """Dana closes what day one left open, so day two starts from the same empty board."""
+    """Dana closes what the install left open (a PR sweep run), so the day starts from an empty board."""
     left = 0
     for row in sql(org, "SELECT id FROM tasks WHERE status NOT IN ('closed','done')"):
         task = org.api("get", f"/api/v2/tasks/{row['id']}", wave=W5)
@@ -1758,91 +1708,75 @@ def close_open(org):
 
 
 def wf10_steps(org, f):
-    from .cases.migration import migrate
-    from .cases.migration_fixture import install_fixture
-    f["assistants"], f["phase"] = {}, 1
+    from .cases.migration_fixture import install_fixture, report, upgrade
+    f["assistants"] = {}
     attach_judge(org, SteadyJudge(org))
     do(org, f, "endpoint", W5, endpoint, org, "Ops feed", "https://hooks.acme.example/ops", ["*"])
     install_fixture(org, f)
-    close_open(org)   # both days start from the same empty board: the install's open tasks (a PR sweep run) close first
-    receiver_1 = Receiver()
-    do(org, f, "day1", W5, fake_day, org, f, 1, receiver_1)
-    f["left_open"] = close_open(org)
-    deliver(org.app, Receiver())   # what closing day one's tasks sent belongs to neither day
-    do(org, f, "setting", W1, org.redesign_on)
-    migrate(org, f)
-    deliver(org.app, Receiver())
-    try:
-        setup(f, "setting", "convert")
-    except Unmet as unmet:
-        f["day2"] = Unmet(unmet.wave, f"day two not run: {unmet.what}")
-        return
-    do(org, f, "day2", W5, fake_day, org, f, 2, Receiver())
+    do(org, f, "cutover", W5, upgrade, org)
+    do(org, f, "report", W5, report, org)
+    close_open(org)
+    deliver(org.app, Receiver())   # what the install and the cutover sent belongs to no day
+    do(org, f, "day", W5, fake_day, org, f, Receiver())
 
 
-
-def diff(one, two):
-    one, two = Counter(one), Counter(two)
-    lost, new = one - two, two - one
-    return not lost and not new, f"only day one: {dict(list(lost.items())[:4])}; only day two: " \
-        f"{dict(list(new.items())[:4])}"
-
-
-def day(f, n):
-    data = got(f, f"day{n}")
+def day(f):
+    data = got(f, "day")
     if not isinstance(data, dict):
-        raise Unmet(W5, f"day {n} was not measured")
+        raise Unmet(W5, "the day was not measured")
     return data
 
 
-def wf10_baseline(f):
-    """Day one, redesign off: the fixture opens tasks (release notes, deploy triage), wakes bots, sends webhooks, and
-    both mailboxes receive their mail."""
-    one = day(f, 1)
-    release = [k for k in one["tasks"] if k.startswith(RELEASE_ID) and "Release notes" in k]
-    deploy = [k for k in one["tasks"] if k.startswith(LEAD_ID) and "Deploy failure triage" in k]
-    ok = (release and deploy and one["woken"] and one["webhooks"]
-          and one["mail"] == {DANA_MAIL: 3, PRIYA_MAIL: 2})
+def wf10_moved(f):
+    """The cutover converted the install: every fixture routine, wake rule and inbox moved, nothing left pending or
+    failed."""
+    from .cases.migration_fixture import INBOXES, ROUTINES, WAKE_RULES, routine_id, rule_id
+    made = got(f, "cutover")
+    data = got(f, "report")
+    if not isinstance(made, dict) or not isinstance(data, dict):
+        return False, f"cutover {canon(made)[:80]}; report {canon(data)[:80]}"
+    now = {i["id"]: i.get("now") for i in data.get("items") or []}
+    wanted = [routine_id(n) for n in ROUTINES] + [rule_id(n) for n in WAKE_RULES] + \
+        ["inbox:" + box for _bot, box in INBOXES.values()]
+    off = {i: now.get(i) for i in wanted if now.get(i) not in ("moved", "runs as before")}
+    stuck = sorted(i for i, n in now.items() if str(n).startswith("pending") or n == "failed")
+    return not off and not stuck and not made.get("failed"), f"not moved {off}; pending or failed {stuck[:4]}; " \
+        f"cutover failed {made.get('failed')}"
+
+
+def wf10_day(f):
+    """The converted day does the work: tasks opened, bots woken, webhooks sent, no step refused."""
+    one = day(f)
+    ok = one["tasks"] and one["woken"] and one["webhooks"] and not one["errors"]
     return bool(ok), f"{sum(one['tasks'].values())} tasks, {sum(one['woken'].values())} wakes, " \
-        f"{sum(one['webhooks'].values())} webhooks, mail {one['mail']}; errors {one['errors'][:3]}"
-
-
-def wf10_converted(f):
-    """The dry run lists every fixture object, and convert is accepted."""
-    from .cases.migration_fixture import installed
-    installed(f, "trigger", *("routine:" + n for n in ("standup", "pr_sweep", "release_notes", "deploy_triage",
-                                                      "briefing")))
-    report = body(f, "dry")
-    fx = f["fixture"]
-    wanted = [i for i in [*fx["routines"].values(), fx["hook"]["id"], *fx["rules"].values()] if i]
-    missing = [i for i in wanted if i not in canon(report)]
-    setup(f, "convert")
-    return not missing, f"fixture objects not in the dry run: {missing}"
-
-
-def wf10_same(name):
-    def check(f):
-        one, two = day(f, 1), day(f, 2)
-        one_, two_ = dict(one[name]), dict(two[name])
-        if name == "webhooks":
-            # ALLOWED 'briefing webhook': market.briefing is sent once per ISO week. Day two's briefing replaces the one
-            # day one wrote when both fall in the same week, so the week is announced once, on day one.
-            weeks = [dt.date(*DAY10[n]).isocalendar()[:2] for n in (1, 2)]
-            sent = [one_.pop("market.briefing", 0), two_.pop("market.briefing", 0)]
-            want = [1, 0] if weeks[0] == weeks[1] else [1, 1]
-            if sent != want:
-                return False, f"market.briefing sent {sent} on the two days; once per week wants {want}"
-        ok, text = diff(one_, two_)
-        return ok, text + (f"; day two errors {two['errors'][:2]}" if two["errors"] and not ok else "")
-    return check
+        f"{sum(one['webhooks'].values())} webhooks; errors {one['errors'][:3]}"
 
 
 def wf10_once(f):
-    """No double fire: day two opens one release-notes task and one deploy-triage task."""
-    two = day(f, 2)
-    release = sum(n for k, n in two["tasks"].items() if k.startswith(RELEASE_ID) and "Release notes" in k)
-    deploy = sum(n for k, n in two["tasks"].items() if k.startswith(LEAD_ID) and "Deploy failure triage" in k)
+    """No double fire: one release-notes task and one deploy-triage task."""
+    one = day(f)
+    release = sum(n for k, n in one["tasks"].items() if k.startswith(RELEASE_ID) and "Release notes" in k)
+    deploy = sum(n for k, n in one["tasks"].items() if k.startswith(LEAD_ID) and "Deploy failure triage" in k)
     return release == 1 and deploy == 1, f"release-notes tasks {release}, deploy-triage tasks {deploy}"
+
+
+def wf10_mail(f):
+    """Each mailbox's mail is handled by its converted inbox automation."""
+    mail = day(f)["mail"]
+    return mail == {DANA_MAIL: 3, PRIYA_MAIL: 2}, f"handled per mailbox {mail}"
+
+
+def wf10_woken(f):
+    """Dana's comments wake both builders."""
+    woke = day(f)["after_comment"]
+    return all(woke.get(b) for b in (CLAUDE_ID, OPENAI_ID)), f"wakes after the comments {woke}"
+
+
+def wf10_hooks(f):
+    """The ops feed hears the release, the converted briefing's post and the day's tasks."""
+    sent = day(f)["webhooks"]
+    want = [k for k in WEBHOOKS10 if not sent.get(k)]
+    return not want, f"missing {want}; sent {sent}"
 
 
 # ================================================================================================ the list
@@ -1921,14 +1855,13 @@ WORKFLOWS = [
         Check("one held notice each to BotOps and Health", W2, wf9_notices),
         Check("paused and released, the bot works again", W2, wf9_release),
     ], bots={BOTOPS: ("botops", "claude"), HEALTH: ("health", "claude")}),
-    Scenario("10", "workflow-10-migration-differential",
-             "The fixture's day with the setting off, converted, then the same day again", wf10_steps, [
-                 Check("day one (off): tasks, wakes, webhooks and mail all seen", W5, wf10_baseline),
-                 Check("the dry run lists every fixture object; convert accepted", W5, wf10_converted),
-                 Check("day two opens the same tasks", W5, wf10_same("tasks")),
-                 Check("day two wakes the same bots", W5, wf10_same("woken")),
-                 Check("day two sends the same webhooks", W5, wf10_same("webhooks")),
-                 Check("day two handles the same mail per mailbox", W5, wf10_same("mail")),
+    Scenario("10", "workflow-10-migration-day",
+             "The fixture install cut over on startup, then a working day on the automations", wf10_steps, [
+                 Check("the cutover moved every routine, wake rule and inbox; none pending or failed", W5, wf10_moved),
+                 Check("the day opens tasks, wakes bots and sends webhooks, no step refused", W5, wf10_day),
                  Check("no double fire: one release-notes and one deploy-triage task", W5, wf10_once),
-             ], setting=False, bots=FIXTURE_BOTS),
+                 Check("each mailbox's mail handled by its inbox automation", W5, wf10_mail),
+                 Check("Dana's comments wake both builders", W5, wf10_woken),
+                 Check("the ops feed hears the release, the briefing and the tasks", W5, wf10_hooks),
+             ], bots=FIXTURE_BOTS, first_tick=False),
 ]
