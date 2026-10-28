@@ -11,6 +11,9 @@ function settingsValue(field, value) {
   if (field === 'wake_preset') return SETTINGS_WAKE_PRESETS.find(([preset]) => preset === value)?.[1] || String(value);
   if (field === 'keep_tasks_going') return value == null ? 'No limit' : value === 0 ? 'Off' : `${value} tasks`;
   if (field === 'turns_at_once') return value == null ? 'No limit' : `${value} ${value === 1 ? 'turn' : 'turns'}`;
+  if (field === 'task_model') return value?.model ? settingsChoiceLabel(value.harness || value.runtime, value.model, value.reasoning_effort) : 'Same as bot';
+  if (field === 'identity') return [value?.display_name, value?.description].filter(Boolean).join(' · ') || 'blank';
+  if (field === 'manages_reports') return value ? 'On' : 'Off';
   if (field === 'compact_at') return SETTINGS_COMPACT_AT.find(([size]) => size === value)?.[1] || String(value);
   if (field === 'placement') return value?.label ? `${value.label} · ${settingsPersonName(value.operator)}` : 'not assigned';
   if (field === 'definition') return [value?.display_name, value?.status,
@@ -87,11 +90,14 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
     const e = S.emps.find(row => row.name === change.bot), transition = transitionById.get(change.transition_id);
     const field = {owners:'who it works for',access:'access',model:'model',placement:'computer',fallback:'fallback',
       compact_at:'compact at',wake_preset:'wakes',profile:'profile',keep_tasks_going:'keep tasks going',
-      turns_at_once:'Turns at once',definition:'setup'}[change.field] || change.field;
+      turns_at_once:'Turns at once',definition:'setup',task_model:'task model',identity:'name and description',
+      manages_reports:'manages its reports'}[change.field] || change.field;
     const what = change.field === 'definition' ? settingsDefinitionChange(change.before, change.after)
       : `${settingsValue(change.field, change.before)} → ${settingsValue(change.field, change.after)}`;
+    // A manager bot's change says so: it acted for the bot, as its manager (backend/report_managers.py).
+    const by = change.via === 'report_manager' ? `${actorLabel(change.actor)}, as its manager` : actorLabel(change.actor);
     return `<div class="settings-history-row"><span>${avatar(change.bot, 24, stateOf(change.bot))}</span><div><strong>${esc(settingsBotName(change.bot))} · ${esc(field)}</strong>
-      <p>${esc(what)}</p><p>${esc(actorLabel(change.actor))} · ${esc(fmt(change.created))}${change.undone_at ? ` · undone ${esc(ago(change.undone_at))}` : ''}</p></div>
+      <p>${esc(what)}</p><p>${esc(by)} · ${esc(fmt(change.created))}${change.undone_at ? ` · undone ${esc(ago(change.undone_at))}` : ''}</p></div>
       <div class="history-action">${change.can_undo && e ? `<button class="ghost" type="button" data-settings-undo="${esc(change.id)}" data-bot="${esc(change.bot)}" data-revision="${e.revision}">Undo</button>` : ''}</div>
       ${settingsCheckpointDetails(transition)}</div>`;
   }).join('');

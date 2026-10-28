@@ -40,6 +40,7 @@ from . import automation_actions as A
 from . import automation_engine as E
 from . import automation_flow as F
 from . import people as P
+from . import report_managers
 from .models import Contract
 from . import audit_log
 from .store import H, Problem
@@ -264,10 +265,15 @@ class Chart:
 
     def __init__(self, c):
         from . import views
+        self.c = c
         self.roster, self.employees = views.roster(c), views.entries(c)
         self.archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
         self.groups = self.roster.get("org_groups") or {}
         self.bare = True                           # a bare person id in reports_to (backend/people.py org_parent)
+
+    def manages(self, slug):
+        """Whether the bot manages its direct reports now: the team rule and its own switch (report_managers.manages)."""
+        return report_managers.manages(self.c, slug)
 
     def up(self, key):
         head, _, rest = key.partition(":")
@@ -300,9 +306,17 @@ class Chart:
         return [lead for g in P.group_chain(gid, self.roster) for lead in [self.lead(g)] if lead]
 
 
+def _managers_down(chart, me, head):
+    """Whether bot `me` reaches `head` while every bot from the one above `head` up to `me`, `me` included, manages its
+    reports (report_managers.manages). People and groups on the way are passed over, as they were before the switch."""
+    path = chart.above(head)
+    return all(chart.manages(key[2:]) for key in path[:path.index(me) + 1] if key.startswith("b:"))
+
+
 def may_change(c, who, flow, chart=None):
     """The one rule for the UI, the CLI and MCP: the top of the org; the owner; anyone above the owner; the lead of the
     automation's group (or of a group it is in) and anyone above that lead. A peer is refused. Seeing follows it.
+    A bot above it changes it only while the bots between manage their reports (_managers_down).
     A `readonly` built-in (one the migration shows for work Tico still runs elsewhere) is changed by nobody."""
     if flow.get("readonly"):
         return False
@@ -314,7 +328,8 @@ def may_change(c, who, flow, chart=None):
     chart, owner = chart or Chart(c), _key(flow["owner"])
     gid = (flow.get("group") or "").partition(":")[2] or (owner[2:] if owner.startswith("g:") else "")
     heads = ([] if owner.startswith("g:") else [owner]) + (chart.leads(gid) if gid else [])
-    return any(me == head or me in chart.above(head) for head in heads)
+    return any(me == head or (me in chart.above(head) and (who.role != "bot" or _managers_down(chart, me, head)))
+               for head in heads)
 
 
 def may_pause(c, who, flow, can_edit=None):

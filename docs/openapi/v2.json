@@ -2705,6 +2705,75 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/manages-reports": {
+      "post": {
+        "summary": "Whether the bot's manager bot may change its direct reports: true is on (the default), false is off; the owner's team rule overrides it",
+        "operationId": "setBotManagesReports",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotManagesReports"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/onboarded": {
       "post": {
         "summary": "Mark onboarding complete, by a person above the bot on the org chart (its manager, their managers or the owner; 403 for anyone else): its `stage` goes from onboarding to active (`onboarding_state` `needs_setup` to `onboarded`) and its automations start. The bot's own call is its \"I'm ready\" with a `summary` and leaves it onboarding. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
@@ -25715,6 +25784,27 @@
         "items": {
           "$ref": "#/components/schemas/Bot"
         }
+      },
+      "BotManagesReports": {
+        "properties": {
+          "manages_reports": {
+            "type": "boolean",
+            "title": "Manages Reports"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "manages_reports",
+          "expected_revision"
+        ],
+        "title": "BotManagesReports",
+        "description": "Whether this bot changes its direct reports' model, task model, name and description (backend/report_managers.py).\nA person who manages the bot sets it; the team rule `managers_manage_reports` is the owner's."
       },
       "BotOnboarded": {
         "type": "object",

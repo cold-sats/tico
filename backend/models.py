@@ -1799,6 +1799,13 @@ class BotTurnsAtOnce(Contract):
     expected_revision: int
 
 
+class BotManagesReports(Contract):
+    """Whether this bot changes its direct reports' model, task model, name and description (backend/report_managers.py).
+    A person who manages the bot sets it; the team rule `managers_manage_reports` is the owner's."""
+    manages_reports: StrictBool
+    expected_revision: int = Field(ge=1)
+
+
 class BotKeepTasksGoing(Contract):
     keep_tasks_going: int | None = Field(None, ge=0, le=1000, strict=True,
         description="Automatic assigned-task starts: null is unlimited (default), 0 is off, N caps active work. Reviews have no cap.")
@@ -2032,6 +2039,7 @@ class AccessRules(Contract):
     stale_review: bool | None = None
     topic_fresh: bool | None = None
     stall_triage: bool | None = None
+    managers_manage_reports: bool | None = None
     go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
 
 

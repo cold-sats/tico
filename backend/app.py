@@ -65,6 +65,7 @@ from .bot_rows import BotRows
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
+from . import report_managers
 from .settings_admin import SettingsAdmin, compact_at as compact_at_of, repository_present
 from .readiness import absolute as absolute_link, can_run
 from . import fleet_check as fleet_check_module
@@ -2169,6 +2170,8 @@ def create_app(settings=None):
                         # Plain words for a cheaper task model on a high-stakes bot, against its model now ("" else).
                         "task_model_warning": task_models.warning(c, settings, bot["slug"], declared,
                                                                   task_models.of(declared)),
+                        # Whether it changes its direct reports (backend/report_managers.py): on unless turned off.
+                        "manages_reports": report_managers.switch_on(declared),
                         "wake": wake_presets.effective(declared),
                         "profile": profiles.effective(declared),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"], config)})
@@ -5302,7 +5305,7 @@ def create_app(settings=None):
                     rooms.archive_shared_room(c, who.actor, bot)
                 reset_bot_sessions(c, bot)
             return result
-        return mutate(request, body, work)
+        return mutate(request, body, settings_admin.as_report_manager(who, bot, "definition", work))
 
     @app.post("/api/v2/bots/{bot}/status")
     def status_set(request: Request, bot: str, body: M.StatusUpdate):
@@ -6384,7 +6387,7 @@ def create_app(settings=None):
         def work(c):
             from . import ceo_acts
             ceo_acts.gate(c, who.actor, "cost", f"change {bot}'s model to {body.model}")     # the owner's at every level
-            settings_admin._manager(c, who, bot)
+            settings_admin._manager(c, who, bot, report="model")
             from .shared_bots import refuse_copy
             refuse_copy(c, bot)
             choice = MODEL_BY_ID.get(body.model)
@@ -6440,7 +6443,7 @@ def create_app(settings=None):
                      "sessions_reset": reset})
             return {"bot": bot, "model": choice["id"], "runtime": runtime, "harness": harness,
                     "effort": effort, "revision": row["revision"] + 1, "sessions_reset": reset, "readiness": can}
-        return mutate(request, body, work)
+        return mutate(request, body, settings_admin.as_report_manager(who, bot, "model", work))
 
     @app.post("/api/v2/bots/{bot}/fallback")
     def fallback(request: Request, bot: str, body: M.BotFallback):
@@ -6463,7 +6466,16 @@ def create_app(settings=None):
         """The harness, model and effort the bot's tasks run on, or null for the same as the bot
         (backend/task_models.py). The bot's own model (POST .../model) never changes it, and this never changes that.
         `warning` is plain words for a cheaper pick on a bot that sends, spends, publishes or writes; it still saves."""
-        return mutate(request, body, lambda c: settings_admin.set_task_model(
+        who = request.state.identity
+        def work(c):
+            return settings_admin.set_task_model(c, who, bot, body)
+        return mutate(request, body, settings_admin.as_report_manager(who, bot, "task_model", work))
+
+    @app.post("/api/v2/bots/{bot}/manages-reports")
+    def bot_manages_reports(request: Request, bot: str, body: M.BotManagesReports):
+        """Whether this bot changes its direct reports (backend/report_managers.py). A person who manages this bot sets
+        it; with the owner's team rule `managers_manage_reports` off, no bot does, whatever this says."""
+        return mutate(request, body, lambda c: settings_admin.set_manages_reports(
             c, request.state.identity, bot, body))
 
     @app.post("/api/v2/bots/{bot}/compact-at")
@@ -6487,15 +6499,16 @@ def create_app(settings=None):
 
     @app.post("/api/v2/bots/{bot}/transitions")
     def begin_transition(request: Request, bot: str, body: M.BotTransitionCreate):
+        who = request.state.identity
         def work(c):
-            who = request.state.identity
             acting = delegated_identity(c, who, body.on_behalf_of) if body.on_behalf_of else who
             result = settings_admin.begin(c, acting, bot, body)
             if acting is not who:
                 H.event(c, who.actor, "bot.transition_delegated", bot,
                         {"on_behalf_of": acting.actor, "message_id": body.on_behalf_of, "kind": body.kind})
             return result
-        return mutate(request, body, work)
+        scope = "model" if body.kind == "model" else None
+        return mutate(request, body, settings_admin.as_report_manager(who, bot, scope, work))
 
     @app.get("/api/v2/settings/transitions/{transition_id}")
     def transition(request: Request, transition_id: str):

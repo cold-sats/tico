@@ -77,6 +77,8 @@ STABLE = [
      "Set automatic assigned-task starts: null is unlimited, 0 is off, N caps active work; reviews have no cap", None),
     ("/api/v2/bots/{bot}/turns-at-once", "post", "Bots", "setBotTurnsAtOnce",
      "Set the most turns the bot runs at once on every computer: null is no limit, 1 to 256 otherwise", None),
+    ("/api/v2/bots/{bot}/manages-reports", "post", "Bots", "setBotManagesReports",
+     "Whether the bot's manager bot may change its direct reports: true is on (the default), false is off; the owner's team rule overrides it", None),
     ("/api/v2/computers/{rid}/turns-at-once", "post", "Computers", "setComputerTurnsAtOnce",
      "Set the most turns a computer runs at once: null is automatic (its own capacity)", None),
     ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "The Computer login a bot runs on", "BotSubscription"),

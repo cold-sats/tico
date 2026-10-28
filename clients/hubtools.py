@@ -2949,7 +2949,8 @@ def inbox_send(api, args):
 
 
 @tool("hub_bot_update", "Change a bot's settings (reports to, name, description, status) with your own rights. "
-      "BotOps acts as the person who asked, citing their message.",
+      "BotOps acts as the person who asked, citing their message. "
+      "A manager bot changes only its direct report's name and description.",
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
        "description": _s("New description"), "template": _s("Correct the template metadata; use hub_template_list"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
@@ -2977,7 +2978,7 @@ def bot_set(api, args):
     # The bot's own revision, read as the person: BotOps may not see a bot they own but it does not.
     row = next((b for b in api.get("bots") if (b.get("slug") or b.get("name")) == args["slug"]), None)
     if not row or row.get("revision") is None:
-        row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
+        row = api.get(f"bots/{args['slug']}", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
     change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session", "subtask_session", "task_goal", "review_model", "capture_stream", "update_subscriptions") if args.get(k) is not None}
@@ -3793,7 +3794,7 @@ def task_cap_set(api, args):
 
 
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
-      "run in progress to end.",
+      "run in progress to end. A manager bot may change its direct report's model.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
        "effort": _s("Reasoning effort that model supports"), "harness": _s("A harness from that model's harnesses list"),
        "on_behalf_of": ON_BEHALF_OF},
@@ -3816,7 +3817,7 @@ def bot_model(api, args):
     if len(hit) != 1:
         raise ValueError(("No model matches " if not hit else "More than one model matches ") + str(requested)
                          + ". Models: " + ", ".join(str(m.get("id")) for m in choices))
-    revision = who.get(f"bots/{args['bot']}/access")["revision"]
+    revision = current["revision"]
     body = {"model": hit[0]["id"], "expected_revision": revision, **({"effort": args["effort"]} if args.get("effort") else {})}
     if args.get("harness"):
         body["harness"] = args["harness"]
@@ -5433,7 +5434,10 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
-    "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
+    # A bot or agent that manages the bot changes its name and description and its model (report_managers); the server
+    # refuses any other bot.
+    "hub_bot_update": REQUESTER + ("bot", "agent"), "hub_bot_model": REQUESTER + ("bot", "agent"),
+    "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     # Org changes: the Strategy Bot's owner chat makes one the person asked for, citing their words (`on_behalf_of`).
     **{name: REQUESTER + ("assistant",) for name in ("hub_group_update", "hub_group_delete", "hub_org_reports_to")},
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
@@ -5443,7 +5447,7 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_bot_turns_at_once",
                                     "hub_computer_turns_at_once", "hub_agent_pair_show", "hub_agent_pair_approve",
-                                    "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model",
+                                    "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live",
                                     "hub_bot_keep_tasks_going", "hub_stall_triage", "hub_bot_budget",
                                     "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
