@@ -1701,7 +1701,10 @@ def obsolete_notices_sql():
     entered) once the task is at another step, unless a person's act caused it,
     a pull request's checks result for a head no open pull request on the task is at any more (a newer push supersedes it),
     the review gate's comment on a refused move once the ticket has changed step since (Tico made the move, or someone
-    moved it elsewhere), and a self-filed task's "New task" notice while the task is parked and its filing turn has ended. The
+    moved it elsewhere), and a self-filed task's "New task" notice while the task is parked and its filing turn has ended.
+    A turn that started and yielded (a drain's time limit, a shared login's hold cap) is never one of them: it is the rest
+    of a turn already under way, often the one that finished the task, and cancelling it left the bot's status on "queued
+    to continue" with nothing queued (Dev 684). The
     idle claim asks the same question: when it counted notices the claim keeps, every claim from that computer went
     on to the write lock for nothing. It goes from this computer's bots to their queued jobs (jobs_queue): left to
     itself SQLite starts from every keeper notice ever sent, tens of milliseconds on each of a runner's claims."""
@@ -1731,7 +1734,9 @@ def obsolete_notices_sql():
             "AND NOT EXISTS (SELECT 1 FROM task_links l WHERE l.task_id=t.id AND l.kind='pr' "
             "AND lower(json_extract(l.detail_json,'$.head_sha'))=lower(json_extract(m.refs_json,'$.pr_head')))))) "
             "AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
-            "AND r.attempt_id=j.attempt_id AND r.decision='resume')")
+            "AND r.attempt_id=j.attempt_id AND r.decision='resume') "
+            "AND NOT EXISTS (SELECT 1 FROM attempts ya WHERE ya.id=j.attempt_id AND ya.started IS NOT NULL "
+            "AND ya.state='interrupted' AND json_extract(ya.result_json,'$.yielded'))")
 
 
 HAND_BACK_WAIT = 15          # seconds before a handed-back job is handed out again, doubled for each hand-back
