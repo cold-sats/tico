@@ -1898,7 +1898,7 @@ def market_briefing_post(api, args):
 
 
 @tool("hub_market_briefing_latest", "The newest weekly market briefing with its body, its items and the bets it touches "
-      "(`briefing` is null before the first).", {})
+      "(`briefing` is null before the first); `source` names the automation run that posted it, if one did.", {})
 def market_briefing_latest(api, args):
     return api.get("market/briefings/latest")
 # ----------------------------------------------------------------------------- market spend
@@ -2855,7 +2855,8 @@ _AUTO_FIELDS = {
     "spend_cap": {"type": ["object", "null"], "description": "{per_30m: dollars} for its LLM and bot turns; null = the bot's limit"},
     "batch": {"type": "object", "description": "{times: [\"08:00\", ...], tz}: filters on receipt, the rest at these times"},
     "trigger": {"type": "object", "description": "{type: message|task_received|schedule|webhook|listening|event, ...}"},
-    "steps": {"type": "array", "items": {"type": "object"}, "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action)"},
+    "steps": {"type": "array", "items": {"type": "object"}, "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action). "
+              "post_update takes {to: [updates, market], text?}: no text posts what the bot_turn before it wrote"},
 }
 
 
