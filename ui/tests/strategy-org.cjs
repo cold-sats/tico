@@ -14,9 +14,8 @@ const zoomOf = page => page.locator('#rdo-cv').evaluate(el => Number(el.style.zo
 async function chart(page, tag) {
   await page.locator(card('bot:builder')).waitFor();
   assert.equal(await page.locator('.rdo-card.top').innerText().then(t => t.split('\n')[0]), 'Ana Silva', tag + ': the owner on top');
-  for (const helper of ['bot:botops', 'bot:librarian', 'bot:coo', 'bot:mail-sorter'])
+  for (const helper of ['bot:botops', 'bot:librarian', 'bot:coo', 'bot:mail-sorter', 'bot:goal-manager'])
     assert.equal(await page.locator(card(helper)).count(), 0, `${tag}: ${helper} is off the chart`);
-  assert.equal(await page.locator(card('bot:goal-manager')).count(), 1, tag + ': the Strategy Bot is on it');
   assert.ok(await inGroup(page, 'bot:builder', 'eng'), tag + ': Builder in Engineering');
   assert.equal(await page.locator('[data-rdo-group="eng"] [data-rdo-group="web"]').count(), 1, tag + ': Web nests in Engineering');
   assert.equal(await page.locator('[data-rdo-group="eng"] .rdo-card').first().getAttribute('data-rdo-ref'), 'bot:eng-lead', tag + ': the lead first');
