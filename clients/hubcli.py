@@ -22,7 +22,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub note list [--to me|X] [--from me|X] [--since 24h|ISO] [--waiting]   notes, newest first
     hub note delete <id>                   take back a note no run has carried yet
     hub task create --owner <bot|human> --title "..." [--body "..."|--body-file f] [--due D] [--parent ID]
-                    [--goal ID] [--dry-run] the checks a create would fail, nothing written
+                    [--goal ID] [--model M [--effort E] [--harness H]] [--dry-run] the checks a create would fail,
+                    nothing written
+    hub task model <id> [<model>] [--effort E] [--harness H] [--clear]
+                                           the model this task's runs use; --clear puts it back on the bot's task model
                     [--next-run]           for a bot: no wake; its next run carries the task
                                            blocked on a person? --owner <person> --parent <your task>
                                            for a person, the body's first paragraph is the ask (as --note below)
@@ -369,6 +372,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            to get its repository and finishes by itself (`--help`: the file's shape)
     hub bot model <bot> [<model>] [--effort E]
                                            list the models, or change the bot's
+    hub bot task-model <bot> [<model>] [--effort E] [--harness H] [--clear]
+                                           the model the bot's tasks run on; --clear puts them back on its own
     hub bot pause|resume <bot>             stop or restart a bot (resume places one that has no computer)
     hub bot budget <bot> [--hour N] [--day N] | release
                                            read or set a bot's runs per hour and per day (0 no limit, default follows the
@@ -953,6 +958,10 @@ def parser():
     s.add_argument("--type", help="task type id or name; defaults to General")
     s.add_argument("--step", help="step id or name in the type")
     s.add_argument("--number", type=int, help="movers: keep an imported ticket's number")
+    s.add_argument("--model", help="the model this bot-owned task's runs use, from `hub bot model`'s list; leave out "
+                                   "for the bot's task model")
+    s.add_argument("--effort", help="the reasoning effort that model takes")
+    s.add_argument("--harness", help="the harness that runs that model")
     s.set_defaults(fn="task create")
     types = task.add_parser("type", help="manage task types (movers only)").add_subparsers(dest="type_sub")
     bots_help = ("what every bot may do with the type's tasks: parties (only the bots on each task), "
@@ -1234,6 +1243,15 @@ def parser():
     s = task.add_parser("run", help="start a bot's task now, as the task")
     s.add_argument("id")
     s.set_defaults(fn="task run")
+    s = task.add_parser("model", help="the model this task's runs use, with its effort and harness; --clear puts it "
+                                      "back on the bot's task model")
+    s.add_argument("id")
+    s.add_argument("model", nargs="?", help="a model id or name; leave out to change only --effort or --harness")
+    s.add_argument("--effort")
+    s.add_argument("--harness")
+    s.add_argument("--clear", action="store_true",
+                   help="clear the task's own model: its runs use the bot's task model again")
+    s.set_defaults(fn="task model")
     s = task.add_parser("snooze", help="set a task aside until a date: off the lists, Needs you and stall wakes "
                         "until then, when its owner bot is woken once")
     s.add_argument("id")
@@ -2468,6 +2486,15 @@ def parser():
     s.add_argument("--effort")
     s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
     s.set_defaults(fn="bot model")
+    s = bot.add_parser("task-model", help="the model the bot's tasks run on, with its effort and harness; --clear puts "
+                                          "them back on the bot's own model")
+    s.add_argument("bot")
+    s.add_argument("model", nargs="?", help="a model id or name; leave out to change only --effort or --harness")
+    s.add_argument("--effort")
+    s.add_argument("--harness")
+    s.add_argument("--clear", action="store_true", help="the bot's tasks run on its own model again")
+    s.add_argument("--on-behalf-of", help="the open task a person asked you for, when something else started this run")
+    s.set_defaults(fn="bot task-model")
     for verb in ("pause", "resume"):
         s = bot.add_parser(verb, help=f"{verb} a bot (BotOps)")
         s.add_argument("bot")

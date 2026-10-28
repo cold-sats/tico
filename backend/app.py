@@ -33,7 +33,8 @@ from . import ask_ingest, ceo_bot, invites, owner_link
 from . import login_holds
 from . import step_age
 from . import bot_stops, turn_budgets, proposals, task_caps
-from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
+from . import (auto_tasks, check_models, profiles, run_triggers, task_models, task_run_models, team_rules, update_feeds,
+               topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits)
 from . import task_privacy as privacy
 from . import task_relations as TR
 from . import task_roles as TRo
@@ -3384,6 +3385,8 @@ def create_app(settings=None):
                     "runs": task_runs(c, who, tid),
                     # The model a bot's check subtask runs on (backend/check_models.py), or null.
                     "check_model": H.check_model(c, tid),
+                    # The task's own model (backend/task_run_models.py), or null when its runs use the bot's task model.
+                    "run_model": task_run_models.of(c, tid),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_execution(c, who, row):
@@ -3498,6 +3501,15 @@ def create_app(settings=None):
             check = check_choice(c, who, body, owner, parent_id)
         else:
             check, unchecked = check_models.review_default(c, settings, owner, parent_id)
+        # The task's own model, checked before anything is written (the same rights as the bot's model, a bot never).
+        run_model = None
+        if body.model is not None or body.effort or body.harness:
+            if not H.is_bot(owner):
+                raise Problem("owner", "Only a task a bot runs has a model to choose", 422)
+            if body.model is None:
+                raise Problem("model", "Choose a model to pick an effort or harness for it", 422)
+            run_model = settings_admin.task_run_choice(c, who, H.actor_id(owner), "set the model a new task runs on",
+                                                       body.model, body.effort, body.harness)
         for other, _ in others:
             auth.task(c, who, other)
         parent = H.task(c, parent_id) if parent_id else None
@@ -3574,6 +3586,8 @@ def create_app(settings=None):
                             qa_not_checkable_live=body.qa_not_checkable_live,
                             quiet_notice=bool(joins) or bool(gate and gate["acts"]), from_private=bool(kept))
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
+        if run_model:
+            task_run_models.set_choice(c, who.actor, row["id"], run_model, note="Set when the task was filed")
         task_caps.record(c, row["id"], who.actor, owner)     # a send, counted against the sender's cap for this owner
         if gate:
             ask_ingest.record(c, ingest, gate, row["id"])
@@ -4028,6 +4042,21 @@ def create_app(settings=None):
             waiver = qa_waivers.waive(c, who.actor, task_id, body.head, body.reason, body.step, snapshots,
                                       manager=bool(manager))
             return {"waiver": waiver, "task": task_view(H.task(c, task_id), c, visible_sql=auth.task_sql(c, who), who=who)}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/tasks/{tid}/model")
+    def task_run_model(request: Request, tid: str, body: M.TaskRunModel):
+        """The model this task's runs use, with its effort and harness (backend/task_run_models.py). An absent
+        `model` keeps it and changes only what is named; a null `model` clears it, so the bot's task model runs
+        the task again.
+        Whoever may change the bot's model may change this, and a bot never does. `readiness` says whether the bot's
+        computer can run it now; `warning` is plain words for a cheaper pick on a bot that sends, spends, publishes or
+        writes. It still saves."""
+        def work(c):
+            who = request.state.identity
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
+            return settings_admin.set_task_run_model(c, who, task_id, body)
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/snooze")

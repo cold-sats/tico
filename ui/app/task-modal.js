@@ -262,6 +262,7 @@ function taskModalBind(d, task, full = false) {
       } catch (e) { toast(e.message, true); }
     };
   }
+  taskRunModelBind(d, task);
   d.querySelectorAll('[data-copy-session]').forEach(b => b.onclick = () =>
     void copyText(b.dataset.copySession).then(() => toast('Copied'), () => toast('Could not copy', true)));
   d.querySelectorAll('[data-drop-link]').forEach(b => b.onclick = async () => {
@@ -320,6 +321,82 @@ function taskSessionsHTML(t) {
     <form class="inline task-link-add" data-modal-session hidden><input type="text" autocomplete="off" spellcheck="false" placeholder="URL or resume command" aria-label="Add a session"></form></section>`;
 }
 
+// Runs on (POST /v2/tasks/{id}/model, backend/task_run_models.py): the model this task's runs use, or the bot's task model
+// until one is set on it. The model list is GET /v2/models, read once here and by the automation step editor, which offers
+// the same models. Gateway tier picks (tico-*) are made in the bot's settings, so they stay out of both.
+let TASK_RUN_ROWS = null, TASK_RUN_LOADING = null;
+function taskRunCatalog() {
+  TASK_RUN_LOADING ||= get('/v2/models').then(d => {
+    TASK_RUN_ROWS = (d.models || []).filter(m => !m.deprecated && !/^tico-/.test(m.id || ''));
+    return TASK_RUN_ROWS;
+  }, () => { TASK_RUN_LOADING = null; return []; });
+  return TASK_RUN_LOADING;
+}
+const taskRunOpts = (list, val) => list.map(([k, label]) => `<option value="${esc(k)}"${k === val ? ' selected' : ''}>${esc(label)}</option>`).join('');
+// The choice a form starts on: the task's own model, harness and effort, or none (the bot's task model).
+const taskRunPick = run => ({model: run?.model || '', harness: run?.harness || '', effort: run?.reasoning_effort || ''});
+function taskRunWords(run, rows) {
+  if (!run?.model) return "The bot's task model";
+  const row = (rows || []).find(m => m.id === run.model);
+  return [row?.label || run.model, (row?.harnesses || []).length > 1 ? harnessWords(run.harness) : '', run.reasoning_effort].filter(Boolean).join(' · ');
+}
+function taskRunModelBody(run, rows, pick) {
+  const head = '<h3 class="rail-h">Runs on</h3>', now = `<p class="task-run-now">${esc(taskRunWords(run, rows))}</p>`;
+  if (!rows) return `${head}${now}<p class="muted">Loading the models…</p>`;
+  const row = rows.find(m => m.id === pick.model), harnesses = (row?.harnesses || []).length > 1 ? row.harnesses : [];
+  return `${head}${now}<form class="task-run-form" data-run-model-form>
+    <label><span>Model</span><select data-run-model>${taskRunOpts([['', "The bot's task model"], ...rows.map(m => [m.id, m.label || m.id])], pick.model)}</select></label>
+    ${harnesses.length ? `<label><span>Harness</span><select data-run-harness>${taskRunOpts(harnesses.map(h => [h, harnessWords(h) || h]), pick.harness)}</select></label>` : ''}
+    ${row?.efforts?.length ? `<label><span>Effort</span><select data-run-effort>${taskRunOpts(row.efforts.map(e => [e, e]), pick.effort)}</select></label>` : ''}
+    <button type="submit" class="ghost" data-run-model-apply disabled>Apply</button></form>`;
+}
+// Shown on a bot's task, from the task as GET /v2/tasks/{id} answers it (list rows leave out run_model).
+function taskRunModelHTML(t) {
+  if (!String(t.owner || '').startsWith('bot:') || t.run_model === undefined) return '';
+  return `<section class="tsec task-run-model" data-task-run-model aria-label="Runs on">${taskRunModelBody(t.run_model, TASK_RUN_ROWS, taskRunPick(t.run_model))}</section>`;
+}
+// A model change redraws the harness and effort it offers, starting on that model's own (or the task's saved ones when
+// it is the model already saved). Apply saves what is picked; a blank model clears the task's own choice.
+function taskRunModelBind(d, task) {
+  const sec = $('[data-task-run-model]', d);
+  if (!sec) return;
+  const id = String(task.id), run = task.run_model || null, state = {pick: taskRunPick(run)};
+  const same = () => state.pick.model === (run?.model || '') && (!state.pick.model || (state.pick.harness === (run.harness || '')
+    && state.pick.effort === (run.reasoning_effort || '')));
+  const paint = () => {
+    sec.innerHTML = taskRunModelBody(run, TASK_RUN_ROWS, state.pick);
+    const apply = sec.querySelector('[data-run-model-apply]'); if (apply) apply.disabled = same();
+  };
+  if (!TASK_RUN_ROWS) void taskRunCatalog().then(() => { if (sec.isConnected && TASK_RUN_ROWS) paint(); });
+  sec.onchange = ev => {
+    const t = ev.target;
+    if (t.matches('[data-run-model]')) {
+      const row = (TASK_RUN_ROWS || []).find(m => m.id === t.value);
+      state.pick = !row ? taskRunPick(null) : row.id === run?.model ? taskRunPick(run)
+        : {model: row.id, harness: row.harnesses?.[0] || '', effort: row.default_effort || row.efforts?.[0] || ''};
+      paint(); sec.querySelector('[data-run-model]')?.focus();
+      return;
+    }
+    if (t.matches('[data-run-harness]')) state.pick.harness = t.value;
+    if (t.matches('[data-run-effort]')) state.pick.effort = t.value;
+    sec.querySelector('[data-run-model-apply]').disabled = same();
+  };
+  sec.onsubmit = async ev => {
+    ev.preventDefault();
+    const apply = sec.querySelector('[data-run-model-apply]');
+    if (!apply || apply.disabled) return;
+    apply.disabled = true;
+    const {model, harness, effort} = state.pick;
+    const body = model ? Object.fromEntries(Object.entries({model, harness, effort}).filter(([, v]) => v)) : {model: null};
+    try {
+      const saved = await post(`/v2/tasks/${encodeURIComponent(id)}/model`, body);
+      if (saved.warning) toast(saved.warning);
+      const data = await get(`/v2/tasks/${encodeURIComponent(id)}`);
+      if (TASKS_ST) void tasksLoad(TASKS_ST);
+      if (d.open && String(d.dataset.task) === id && data.task) void taskModalShow(data.task, d);
+    } catch (e) { toast(e.message, true); apply.disabled = same(); }
+  };
+}
 const TASK_REL_ADD = [['related', 'Related'], ['blocked_by', 'Blocked by'], ['blocks', 'Blocks'], ['duplicate_of', 'Duplicate of'], ['follow_up', 'Follow-up of']];
 const TASK_REL_GROUPS = [['blocks', 'in', 'Blocked by'], ['blocks', 'out', 'Blocks'], ['related', 'both', 'Related'], ['duplicate_of', 'out', 'Duplicate of'],
   ['duplicate_of', 'in', 'Duplicated by'], ['follow_up', 'out', 'Follow-up of'], ['follow_up', 'in', 'Follow-ups']];
@@ -826,6 +903,7 @@ function hubModalHTML(t, it, opts = {}) {
         ${links.length ? `<div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}</div>` : ''}
         <form class="inline task-link-add" data-modal-link hidden><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link"></form></section>
       ${roadmapTaskHTML(t)}
+      ${taskRunModelHTML(t)}
       ${taskSessionsHTML(t)}
       <section class="tsec task-runs" data-task-runs aria-label="Runs" hidden></section>
       ${t.relations ? taskRelHTML(t) : ''}

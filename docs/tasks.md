@@ -623,6 +623,21 @@ digest, a Manager wakes for people, tasks given to it, its own clock and its exc
 
 `GET /api/v2/event-types` (`hub event-types`, `hub_event_types`) lists the named events a rule or automation can use.
 
+## Choosing the model a task runs on
+
+A bot's task runs on the bot's task model, or on its own model while that is not set
+([Run a bot's tasks on another model](harnesses.md#run-a-bots-tasks-on-another-model)). A task can name its own model,
+effort and harness instead. In a bot's task window, **Runs on** picks them and **Apply** saves. When filing, use
+`hub task create --model <id> --effort <effort> --harness <harness>`. To change a task that already exists, use
+`hub task model <id> <model> --effort <effort> --harness <harness>`, or `hub task model <id> --clear` to return it to the
+bot's task model. `hub_task_create`, `hub_task_model` and `POST /api/v2/tasks/{id}/model` (with `{"model": null}` to clear) do
+the same. `hub bot task-model` and `hub_bot_task_model` read or set the bot's task model. `GET /api/v2/tasks/{id}` shows
+the task's own choice as `run_model`.
+
+Whoever may change the bot's model may change a task's model. A bot never does, not even on its own task. A run uses
+the task's own model first, then the bot's task model, then the bot's own model; a review or check subtask keeps its
+check model.
+
 ## Snoozing a task
 
 **Snooze** sets a task aside until a date: it tells its bot or person that nobody plans to get to it

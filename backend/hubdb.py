@@ -852,6 +852,14 @@ ALTER TABLE task_links ADD COLUMN activity_at TEXT;
 # install that ran it earlier never got them and every task trigger failed quietly. Every statement is IF NOT EXISTS.
 RULE_TASK_TABLES_SCHEMA = "-- rule_task_runs, rule_task_state for installs that ran RULE_EVENTS_SCHEMA first\n" + RULE_EVENTS_SCHEMA
 
+# The model one task's runs use (backend/task_run_models.py), kept apart from task_check_models: a check holds when its
+# model cannot run, and this falls back to the bot's own model. One row per task; appended so existing installs get it.
+TASK_RUN_MODELS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_run_models (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id), runtime TEXT NOT NULL, model TEXT NOT NULL,
+  harness TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', set_by TEXT, set_at TEXT);
+"""
+
 
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
@@ -871,7 +879,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               TICO_NOTICES_SCHEMA, WEBHOOKS_V2_SCHEMA, WEBHOOKS_V3_SCHEMA,
               WEBHOOKS_V4_SCHEMA, WEBHOOKS_V5_SCHEMA, WEBHOOKS_V6_SCHEMA, RUN_SESSION_SCHEMA,
               TASK_CAPS_SCHEMA, TASK_CAP_LOG_SCHEMA, TASK_LINK_ACTIVITY_SCHEMA,
-              RULE_TASK_TABLES_SCHEMA]
+              RULE_TASK_TABLES_SCHEMA, TASK_RUN_MODELS_SCHEMA]
 
 
 class Refused(Exception):
