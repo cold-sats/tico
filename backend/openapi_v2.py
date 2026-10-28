@@ -1289,6 +1289,15 @@ SCHEMAS.update({
     "TeamBudgetState": obj({"turns_per_hour": "i", "turns_per_day": "i", "defaults": {"type": "object"}}),
 })
 
+# The redesign's audit trail (backend/audit_log.py).
+STABLE.extend([
+    ("/api/v2/audit", "get", "Team", "listAudit",
+     "Who changed caps, spend, groups and automations, newest first (owner: all; others: their own)", "AuditPage"),
+])
+SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "properties": {
+    "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+    "next": {"type": ["string", "null"]}}}})
+
 # Bot profiles (backend/profiles.py).
 STABLE.extend([
     ("/api/v2/profiles", "get", "Bots", "listProfiles",

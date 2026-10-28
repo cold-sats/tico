@@ -6853,6 +6853,8 @@ def create_app(settings=None):
     from . import automations, redesign
     redesign.install(app, store, auth, mutate)
     automations.install(app, store, auth, mutate)
+    from . import audit_log
+    audit_log.install(app, store, auth)
     profiles.install(app, store, auth, mutate, settings_admin)
     from . import release_flow
     release_flow.install(app, store, auth, mutate)
