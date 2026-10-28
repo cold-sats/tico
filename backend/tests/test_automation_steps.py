@@ -216,6 +216,15 @@ def test_find_runs_the_rest_once_per_item():
     assert [r.get("item") for r in run["steps"]] == [None, 0, 1] and run["status"] == "ok"
 
 
+def test_find_lists_its_items_with_long_text_cut():
+    """CONTRACT §2: a find's output is its items; the run log keeps each one's text short."""
+    services = Services(items=[{"id": "m1", "subject": "Invoice 1", "snippet": "x" * 2000}, {"id": "m2"}])
+    run = E.execute(flow({"id": "f", "type": "find", "source": "mail", "query": "Invoice"}), MESSAGE, services)
+    out = run["steps"][0]["outputs"]
+    assert out["count"] == 2 and [i["id"] for i in out["items"]] == ["m1", "m2"]
+    assert len(out["items"][0]["snippet"]) == E.ITEM_TEXT
+
+
 def test_find_with_nothing_is_an_empty_run():
     run = E.execute(flow({"id": "f", "type": "find", "source": "tasks"}, note("each")), {}, Services())
     assert run["status"] == "empty" and statuses(run) == [("f", "ok")]

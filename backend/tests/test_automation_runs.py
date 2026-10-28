@@ -260,7 +260,7 @@ def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_
 def test_a_failed_item_is_tried_again_once_then_passed_over_and_counted(api):
     turn_on(api)
     bad = {"id": "gate", "type": "filter", "rules": [
-        {"when": [{"field": "item.title", "op": "contains", "value": "bad"}], "then": [{"do": "note"}]}]}
+        {"when": [{"field": "item.title", "op": "contains", "value": "bad"}], "then": [{"do": "post_update"}]}]}
     aid = make(api, [{**FIND, "limit": 10}, bad])
     ids = [post(api, "tasks", {"owner": "ops", "title": f"Acme batch {word}", "body": "x"})["id"]
            for word in ("bad", "good")]

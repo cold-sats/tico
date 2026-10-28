@@ -6,6 +6,7 @@ import json
 from types import SimpleNamespace
 
 from backend import automations
+from backend.store import H
 from backend.tests.test_api import api, get, post  # noqa: F401
 from backend.tests.test_automation_api import turn_on
 
@@ -66,11 +67,12 @@ def test_find_mail_reads_only_the_owners_mailboxes(api):
         for box, mid in (("ana@acme.example", "a1"), ("ben@acme.example", "b1")):
             c.execute("INSERT INTO mail_messages(mailbox,msg_id,epoch,date,from_addr,to_json,cc_json,subject,snippet,"
                       "labels_json,body,attachments_json,updated) VALUES(?,?,0,'',?,'[]','[]','Invoice','',"
-                      "'[]','','[]',?)", (box, mid, "billing@acme.example", "2026-10-28T09:00:00Z"))
+                      "'[]','','[]',?)", (box, mid, "billing@acme.example", H.shift(H.now(), minutes=5)))
     find = {"id": "look", "type": "find", "source": "mail", "query": "Invoice", "limit": 10}
     aid = post(api, "automations", flow(steps=[find]))["id"]
     run = post(api, f"automations/{aid}/run", {})["run"]
-    assert run["steps"][0]["outputs"] == {"count": 1}
+    out = run["steps"][0]["outputs"]
+    assert out["count"] == 1 and [i["mailbox"] for i in out["items"]] == ["ana@acme.example"]
 
 
 def test_a_manual_runs_input_names_only_what_the_owner_may_read(api):

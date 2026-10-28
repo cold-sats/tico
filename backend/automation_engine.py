@@ -245,12 +245,22 @@ def _bot_turn(flow, state, thread, step, services):
 def _find(flow, state, thread, step, services):
     values = values_of(state, thread)
     items = list(services.find(step["source"], F.render(step.get("query") or "", values), step.get("limit", 20)))
-    _record(state, thread, step, "ok", {"count": len(items)})
+    _record(state, thread, step, "ok", {"count": len(items), "items": [_brief(item) for item in items]})
     state["empty"] = not items
     place = next(n for n, t in enumerate(state["threads"]) if t is thread)
     state["threads"][place:place + 1] = [
         _thread(n, item, thread["outputs"], thread["trail"], thread["next"], thread["batched"])
         for n, item in enumerate(items)]
+
+
+ITEM_TEXT = 500   # what the run log keeps of each found item's text; the item's own steps read all of it
+
+
+def _brief(item):
+    """A found item as its step's outputs list it: long text cut, so the run row stays small."""
+    if not isinstance(item, dict):
+        return item
+    return {k: (v[:ITEM_TEXT] if isinstance(v, str) else v) for k, v in item.items()}
 
 
 def _paths(flow, state, thread, step, services):

@@ -284,6 +284,18 @@ def test_a_send_claimed_after_the_switch_went_off_is_a_draft(api, computer):
         assert c.execute("SELECT count(*) FROM events WHERE action='automation.send_off'").fetchone()[0] == 1
 
 
+def test_a_send_queued_with_the_switch_off_still_says_send_off_once_drafted(api, computer):
+    """The switch was off when the run queued it: a draft from the start, and the computer's report keeps send_off."""
+    aid = automate(api, SEND)
+    assert api.patch(f"/api/v2/inboxes/{BOX}", json={"send": False}, headers=headers()).status_code == 200
+    computer.sync()
+    assert last_run(api, aid)["steps"][0]["outputs"]["send_off"] is True
+    computer.worker.mail_action_tick()
+    assert computer.gmail.sent == [] and len(computer.drafts()) == 1
+    step = last_run(api, aid)["steps"][0]
+    assert step["status"] == "ok" and step["outputs"]["detail"] == "send_off" and step["outputs"]["draft"]
+
+
 def test_a_forward_claimed_after_the_switch_went_off_is_a_draft_to_its_target(api, computer):
     aid = automate(api, {"id": "fwd", "type": "action", "do": "forward",
                          "args": {"to": "ap@acme.example", "body": "For payment."}})

@@ -47,7 +47,16 @@ def test_label_note_and_assign_work_on_the_runs_task(api):
     assert act(api, "note", {"text": "Seen by the automation"}, values)["ok"]
     assert act(api, "assign", {"owner": "coo"}, values)["ok"]
     assert sql(api, "SELECT owner FROM tasks WHERE id=?", (values["task"]["id"],))[0]["owner"] == "bot:coo"
-    assert not act(api, "assign", {}, values)["ok"] and not act(api, "note", {})["ok"]
+    assert not act(api, "assign", {}, values)["ok"]
+
+
+def test_a_note_with_no_task_or_bot_stays_in_the_run_log(api):
+    """A schedule, a mail or a sample task with no id has nothing to note on: the step keeps the note itself."""
+    turn_on(api)
+    for values in ({}, MAIL, {"task": {"title": "No id"}}):
+        done = act(api, "note", {"text": "Seen"}, values)
+        assert done == {"ok": True, "detail": "noted in the run log", "note": "Seen"}, done
+    assert not sql(api, "SELECT id FROM task_events WHERE note='Seen'")
 
 
 def test_wake_bot_wakes_it_with_the_run_on_the_notice(api):

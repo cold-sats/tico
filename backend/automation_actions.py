@@ -82,12 +82,13 @@ def _message(values):
     return message if isinstance(message, dict) else None
 
 
-def _queue_mail(c, auto, run_id, action, message, args):
+def _queue_mail(c, auto, run_id, action, message, args, result=None):
+    """`result` starts the action's result: a send the switch turned into a draft keeps `send_off` once reported."""
     aid = H.new_id()
-    c.execute("INSERT INTO automation_mail_actions(id,automation_id,run_id,mailbox,msg_id,action,args_json,state,created) "
-              "VALUES(?,?,?,?,?,?,?,'queued',?)",
+    c.execute("INSERT INTO automation_mail_actions(id,automation_id,run_id,mailbox,msg_id,action,args_json,state,created,"
+              "result_json) VALUES(?,?,?,?,?,?,?,'queued',?,?)",
               (aid, auto["id"], run_id, str(message.get("mailbox") or "").strip().lower(), str(message.get("id") or ""),
-               action, json.dumps(args, default=str), H.now()))
+               action, json.dumps(args, default=str), H.now(), json.dumps(result) if result else None))
     return {"ok": True, "detail": f"{action} queued", "mail_action": aid, "queued": True}
 
 
@@ -112,7 +113,8 @@ def _mail_or_slack(do):
         if do == "send_reply" and not send_on(c, _inbox(message)):
             H.event(c, acts_as(c, auto) or H.KEEPER, "automation.send_off", auto["id"],
                     {"run": run_id, "mailbox": message.get("mailbox"), "msg_id": message.get("id")})
-            return {**_queue_mail(c, auto, run_id, "draft", message, args), "detail": "send_off"}
+            return {**_queue_mail(c, auto, run_id, "draft", message, args, {"send_off": True}), "detail": "send_off",
+                    "send_off": True}
         if do == "forward" and args.get("webhook"):
             return _webhook(c, auto, "custom.forward.automation", args["webhook"], message)
         return _queue_mail(c, auto, run_id, action, message, args)
@@ -254,11 +256,13 @@ def _told(c, auto, bot):
 
 
 def _note(c, auto, run_id, args, values):
-    if values.get("task"):
-        return _on_task("note")(c, auto, run_id, args, values)
+    """On the run's task, else to `bot`; with neither (a sample task with no id, a mail, a schedule) the note is kept
+    in the run log only, as its step's `note`."""
     bot = R._slug(args.get("bot"))
+    if task_of(c, auto, values):
+        return _on_task("note")(c, auto, run_id, args, values)
     if not bot:
-        return _fail("note needs a task or a bot")
+        return {"ok": True, "detail": "noted in the run log", "note": _text(args, "text", "note")}
     room = _told(c, auto, bot)
     ok, detail = R._tell_bot(c, "automation:" + auto["id"], bot, _text(args, "text", "note") or "A note.",
                              {"automation": auto["id"], "automation_run": run_id, **_chain_refs(auto)}, wake=False,
