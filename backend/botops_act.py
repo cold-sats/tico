@@ -161,8 +161,9 @@ DO = _routes(
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
     # Automations (backend/automations.py): the route checks the person's place on the org chart.
-    ("POST", r"automations"), ("PATCH", rf"automations/{_S}"), ("DELETE", rf"automations/{_S}"),
-    ("POST", rf"automations/{_S}/(delete|run)"), ("POST", rf"automations/{_S}/versions/{_S}/restore"),
+    # Deleting one is CONFIRM below, as deleting a routine is.
+    ("POST", r"automations"), ("PATCH", rf"automations/{_S}"),
+    ("POST", rf"automations/{_S}/run"), ("POST", rf"automations/{_S}/versions/{_S}/restore"),
     ("DELETE", rf"automations/{_S}/versions/{_S}"), ("PATCH", rf"inboxes/{_S}"),
     ("POST", rf"settings/history/{_S}/undo"),
     ("POST", rf"settings/transitions/{_S}/(apply-without-checkpoint|cancel)"),
@@ -236,7 +237,7 @@ LIMITS = re.compile(API + rf"usage/limits(/{_S})?")
 CONFIRM = _routes(
     ("POST", rf"(people|humans)/{_S}"),
     ("PUT", r"access/limits"), ("PUT", r"access/allow"),
-    ("POST", rf"routines/{_S}/delete"),
+    ("POST", rf"routines/{_S}/delete"), ("DELETE", rf"automations/{_S}"), ("POST", rf"automations/{_S}/delete"),
     ("POST", rf"(runners|computers)/{_S}/(member-bots|revoke)"),
     ("POST", rf"(goal-proposals|proposals)/{_S}/decide"),
     ("POST", r"support/tickets"),
@@ -338,6 +339,16 @@ def owner_only(method, path, body=None):
             or (method == "PUT" and bool(RULES.fullmatch(path)) and own_powers(body)))
 
 
+AUTOMATION_DELETE = (re.compile(API + rf"automations/({_S})"), re.compile(API + rf"automations/({_S})/delete"))
+
+
+def automation_deleted(method, path):
+    """The automation id a delete names (DELETE automations/{id}, POST automations/{id}/delete), else None."""
+    path, method = normalize(path) or "", str(method or "").upper()
+    found = AUTOMATION_DELETE[0 if method == "DELETE" else 1].fullmatch(path) if method in ("DELETE", "POST") else None
+    return found.group(1) if found else None
+
+
 def own_powers(body):
     return isinstance(body, dict) and any(body.get(name) is not None for name in OWN_POWER_RULES)
 
@@ -375,6 +386,8 @@ SUMMARIES = [
     ("DELETE", re.compile(API + r"providers/gateway"), "Turn off the Tico AI Gateway (its saved key is forgotten)"),
     ("POST", re.compile(API + r"providers/gateway/automatic"), "Connect the Tico AI Gateway automatically again"),
     ("PUT", re.compile(API + rf"usage/(limits(/{_S})?|pools/.+)"), "Change a spending limit"),
+    ("DELETE", re.compile(API + rf"automations/{_S}"), "Delete an automation"),
+    ("POST", re.compile(API + rf"automations/{_S}/delete"), "Delete an automation"),
 ]
 
 

@@ -5288,6 +5288,9 @@ def create_app(settings=None):
                 path, "Your role can't change this: ask " + who_may, settings.public_url))
         if refusal:
             raise refusal
+        if aid := botops_act.automation_deleted(method, path):
+            from . import automations
+            automations.deletable(c, acting, aid)          # refused at once (404, 403, a built-in 409)
         with store.transaction() as w:
             card = propose_card(w, acting, method, path, body, botops_act.card_summary(method, path, body),
                                 what=what, shown=shown)

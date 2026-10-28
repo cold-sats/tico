@@ -318,6 +318,21 @@ def _seen_if_builtin(c, who, flow):
     return may_see(c, who, flow) if flow.get("builtin") else may_change(c, who, flow)
 
 
+def deletable(c, who, aid):
+    """The row `who` may delete, else the refusal the delete route answers (404, 403, a built-in 409). BotOps checks
+    it before it hands a person a Confirm card for a delete, so no card fails on the tap."""
+    _require_on(c)
+    row = _row(c, aid)
+    if not row:
+        raise Problem("not_found", "No such automation", 404)
+    if not _seen_if_builtin(c, who, flow_of(row)):
+        raise Problem("forbidden", "Only its owner, the people above its owner or its group's lead may delete this "
+                      "automation", 403)
+    if row["builtin"]:
+        raise Problem("builtin", "A built-in automation cannot be deleted; the top of the org may pause it", 409)
+    return row
+
+
 def _require(c, who, flow, what="change this automation"):
     if not may_change(c, who, flow):
         raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
@@ -1614,9 +1629,9 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
-            row = found(c, who, aid, "delete this automation", rule=_seen_if_builtin)
-            if row["builtin"]:
-                raise Problem("builtin", "A built-in automation cannot be deleted; the top of the org may pause it", 409)
+            _require_on(c)
+            auth.domain(who)
+            row = deletable(c, who, aid)
             c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (H.now(), aid))
             for dropped in c.execute("SELECT id FROM automation_runs WHERE automation_id=? AND status IN "
                                      "('queued','waiting')", (aid,)).fetchall():
