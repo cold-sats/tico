@@ -244,26 +244,22 @@ def apply(c, actor_, sender, receiver, per_day, via=None):
 
 def propose(c, who, sender, receiver, per_day):
     """A bot's own cap as an approval a person decides (kind task_cap, the payload is the change). Returns its id."""
+    from .proposals import decider
     row = H.approval_request(c, who.actor, "task_cap", {"sender": ref(sender), "receiver": ref(receiver),
-                                                        "per_day": per_day})
+                                                        "per_day": per_day}, to=decider(c))
     return row["id"]
 
 
 def apply_approved(c, actor_, aid):
-    """A person approved a bot's cap change: the hub applies it, audited with the approval as `via`, and BotOps hears once.
-    The receiver must still be a manager above the sender."""
+    """A person approved a bot's cap change: the hub applies it, audited with the approval as `via` (backend/proposals.py
+    spends the approval and tells BotOps). The receiver must still be a manager above the sender."""
     if not redesign.on(c):
         raise Problem("not_found", "Task caps are part of the redesign, which is off", 404)
     change = H.approval(c, aid)["payload"]
     sender, receiver = _teammate(c, change["sender"]), _teammate(c, change["receiver"])
     if receiver not in above(c, sender):
         raise Problem("validation", "The receiver is no longer a manager above the sender", 422)
-    per_day = change.get("per_day")
-    apply(c, actor_, sender, receiver, per_day, via=f"approval:{aid}")
-    if H.bot(c, "botops"):
-        what = (f"Task cap removed: {_name(c, sender)} to {_name(c, receiver)}." if per_day is None else
-                f"Task cap set: {_name(c, sender)} sends {_name(c, receiver)} {per_day} a day.")
-        H.say(c, H.KEEPER, H.bot_actor("botops"), f"{what} Approved by {_name(c, actor_)}.", kind="notice")
+    apply(c, actor_, sender, receiver, change.get("per_day"), via=f"approval:{aid}")
 
 
 def forget(c, teammate):

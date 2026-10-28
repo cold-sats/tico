@@ -31,7 +31,7 @@ from . import outcome_stats
 from . import ask_ingest, ceo_bot, invites, owner_link
 from . import login_holds
 from . import step_age
-from . import bot_stops, turn_budgets, redesign, task_caps
+from . import bot_stops, turn_budgets, proposals, redesign, task_caps
 from . import auto_tasks, check_models, profiles, run_triggers, task_models, team_rules, update_feeds, topic_change, usage_limits, bot_to_bot, wake_presets, visuals, wake_rules, quiet_work, milestone_waits
 from . import task_privacy as privacy
 from . import task_relations as TR
@@ -4573,8 +4573,14 @@ def create_app(settings=None):
             lifecycle.refuse_send(c, who, None, what="anything")
             if body.task_id:
                 auth.task(c, who, body.task_id)
-            return H.approval_request(c, who.actor, body.kind, body.payload, body.task_id,
-                                      supersedes=body.supersedes_approval)
+            to = None
+            if body.kind in proposals.KINDS:     # a redesign proposal: checked now, decided by the top of the org
+                proposals.check(c, body.kind, body.payload)
+                to = proposals.decider(c)
+            row = H.approval_request(c, who.actor, body.kind, body.payload, body.task_id,
+                                     supersedes=body.supersedes_approval, to=to)
+            # A proposal answers as a bot's cap PUT does too: the approval's id and that it waits on a person.
+            return {**row, "approval": row["id"], "status": "pending"} if body.kind in proposals.KINDS else row
         return mutate(request, body, work)
 
     @app.get("/api/v2/approvals/{aid}")
@@ -4604,8 +4610,8 @@ def create_app(settings=None):
                 require_person(who)
             privacy.require_payload(c, who, row)
             decided = H.approval_decide(c, who.actor, aid, body.decision, body.note)
-            if row["kind"] == "task_cap" and body.decision == "approved":
-                task_caps.apply_approved(c, who.actor, aid)     # a bot's cap change: the hub applies it (CONTRACT §5)
+            if row["kind"] in proposals.KINDS and body.decision == "approved":
+                proposals.apply(c, auth, settings, who, row)     # the hub applies it itself (CONTRACT §5)
             return decided
         return mutate(request, body, work)
 

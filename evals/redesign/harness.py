@@ -392,6 +392,20 @@ def decide(org, approval_id, decision, who=DANA):
     return org.api("post", f"/api/v2/approvals/{approval_id}", {"decision": decision}, who=who, wave=W2)
 
 
+def hub_notices(org, slug, who=DANA):
+    """The hub's notices to a bot (CONTRACT §5 BotOps note, §1 run guard): messages from `keeper` of kind `notice`, read
+    as the owner reads a bot's rooms: GET /api/v2/conversations?bot=<slug>, then each room's messages."""
+    rooms = org.api("get", f"/api/v2/conversations?bot={slug}", who=who, wave=W2)
+    if rooms.status != 200:
+        raise Unmet(W2, f"{slug}'s conversations: {rooms.status} {rooms.excerpt()}")
+    found = []
+    for room in rooms.body.get("conversations") or []:
+        page = org.api("get", f"/api/v2/conversations/{room['id']}/messages", who=who, wave=W2)
+        found += [m for m in (page.body.get("messages") or []) if isinstance(page.body, dict)
+                  and m.get("from_actor") == "keeper" and m.get("kind") == "notice"]
+    return found
+
+
 def approval_id_of(reply):
     """The approval a bot's proposal filed (CONTRACT §1: {"approval": "<id>", ...}), or None."""
     data = reply.body if isinstance(reply.body, dict) else {}

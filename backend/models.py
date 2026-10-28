@@ -867,7 +867,8 @@ class MarketPage(Contract):
 
 
 class ApprovalCreate(Contract):
-    kind: Literal["send", "spend", "publish", "merge", "support"]
+    # task_cap, spend_limit, group and org are the redesign's proposals (backend/proposals.py), refused while it is off.
+    kind: Literal["send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org"]
     payload: dict
     task_id: ID | None = None
     supersedes_approval: ID | None = None

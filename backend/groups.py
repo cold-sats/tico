@@ -186,6 +186,54 @@ def _may_change(auth, who):
         raise Problem("forbidden", "Only an owner or an admin changes groups", 403)
 
 
+def led_groups(c, who, roster=None):
+    """With the redesign on, the groups `who` (an actor) leads and every group below them; empty when it is off."""
+    from . import redesign
+    if not redesign.on(c):
+        return set()
+    roster = roster or _roster(c)
+    out = set()
+    for gid, group in roster["org_groups"].items():
+        if group.get("lead") and task_caps.actor(group["lead"]) == who:
+            out |= P.group_and_below(gid, roster)
+    return out
+
+
+def _lead_move(c, who, gid, body, roster):
+    """A lead's move inside what it leads (CONTRACT §3): only an `add`, into a group it leads or one below, of teammates
+    already in such a group. Anything else from a lead who is not an admin is the owner's (or an `org` approval)."""
+    if any(v is not None for v in (body.name, body.parent, body.lead, body.bet_id)) or body.remove.people \
+            or body.remove.bots or not (body.add.people or body.add.bots):
+        return False
+    led = led_groups(c, who.actor, roster)
+    if gid not in led:
+        return False
+    configs = _configs(c)
+    homes = [P.team_of(slug, configs, roster) for slug in body.add.bots] + \
+        [(P.person(pid, roster) or {}).get("team") for pid in body.add.people]
+    return all(home in led for home in homes)
+
+
+def _snapshot(c):
+    """Every group's row, by id, for the audit; None while the redesign is off (nothing is audited then)."""
+    from . import redesign
+    if not redesign.on(c):
+        return None
+    return {row["id"]: row for row in rows(_roster(c), _configs(c), _archived(c))}
+
+
+def _audit(c, actor, before, via=None):
+    """One audit row per group a change touched (CONTRACT §5, object `group:<id>`): a move changes the group it left
+    and the one it joined."""
+    if before is None:
+        return
+    from . import audit_log
+    after = _snapshot(c)
+    for gid in sorted(set(before) | set(after)):
+        if before.get(gid) != after.get(gid):
+            audit_log.write(c, actor, f"group:{gid}", before.get(gid), after.get(gid), via)
+
+
 
 def _set_bet(c, who, group, bet_id):
     """The strategy bet a group serves: the owner's link, like the bets themselves. "" unlinks it."""
@@ -239,8 +287,9 @@ def _lead_check(c, roster, configs, gid, lead, explicit):
         _save(c, roster)
 
 
-def create(c, auth, settings, who, body):
+def create(c, auth, settings, who, body, via=None):
     _may_change(auth, who)
+    before = _snapshot(c)
     roster = _roster(c)
     groups = roster["org_groups"]
     parent = (body.parent or "").strip()
@@ -258,12 +307,15 @@ def create(c, auth, settings, who, body):
     roster = _finish(c, roster, people, changed)
     _lead_check(c, roster, _configs(c), gid, groups[gid].get("lead", ""), explicit=bool(body.lead))
     H.event(c, who.actor, "group.created", gid, {"name": body.name.strip(), "parent": parent})
+    _audit(c, who.actor, before, via)
     return one(c, roster, gid)
 
 
-def update(c, auth, settings, who, gid, body):
-    _may_change(auth, who)
+def update(c, auth, settings, who, gid, body, via=None):
     roster = _roster(c)
+    if not (who.role == "owner" or auth.bot_admin(who) or _lead_move(c, who, gid, body, roster)):
+        _may_change(auth, who)
+    before = _snapshot(c)
     groups = roster["org_groups"]
     if gid not in groups:
         raise Problem("not_found", "Group not found", 404)
@@ -288,12 +340,14 @@ def update(c, auth, settings, who, gid, body):
     H.event(c, who.actor, "group.updated", gid, {"name": body.name, "parent": body.parent, "bet_id": body.bet_id,
                                                   "added": {"people": body.add.people, "bots": body.add.bots},
                                                   "removed": {"people": body.remove.people, "bots": body.remove.bots}})
+    _audit(c, who.actor, before, via)
     return one(c, roster, gid)
 
 
 def delete(c, auth, who, gid):
     """The group goes; the groups and teammates in it move up to the group it was in (or to no group)."""
     _may_change(auth, who)
+    before = _snapshot(c)
     roster = _roster(c)
     groups = roster["org_groups"]
     if gid not in groups:
@@ -317,6 +371,7 @@ def delete(c, auth, who, gid):
     c.execute("DELETE FROM subscription_assignments WHERE scope='group' AND target=?", (gid,))
     _finish(c, roster, people, changed)
     H.event(c, who.actor, "group.deleted", gid, {"moved_to": up})
+    _audit(c, who.actor, before)
     return {"id": gid, "deleted": True, "moved_to": up}
 
 

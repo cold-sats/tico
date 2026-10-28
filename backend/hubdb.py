@@ -150,13 +150,16 @@ TITLE_LINT = os.environ.get("TICO_TITLE_LINT", "warn")     # warn | refuse | off
 # the write accepted, refused only when TICO_STYLE_LINT=refuse. Bots lost whole runs rewriting
 # for them. A missing title or approval field is structural and always refused.
 STYLE_LINT = os.environ.get("TICO_STYLE_LINT", "warn")     # warn | refuse | off
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap")
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
 APPROVAL_FIELDS = {"send": ("to", "cc", "subject", "body_sha256", "mailbox"),
                    "spend": ("amount", "account", "what"),
                    "publish": ("url", "content_sha256"),
                    "merge": ("repo", "pr"),
                    # A bot's own task cap (backend/task_caps.py): the pair; per_day null asks to remove the cap.
                    "task_cap": ("sender", "receiver"),
+                   # The redesign's other proposals (backend/proposals.py checks their whole shape): a spend limit, a
+                   # group change, a teammate's move to another group.
+                   "spend_limit": (), "group": (), "org": ("bot",),
                    # A report to the Tico team (backend/support.py `file_approved`): the message, its hash, and whether
                    # the version and install ID go with it. Nothing else may: no email, no diagnostics bundle.
                    "support": ("message", "content_sha256")}
@@ -8099,7 +8102,7 @@ def _approval_facts(row):
             "decision_owner": row.get("decision_owner")}
 
 
-def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None):
+def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None, to=None):
     """Rule 6. One exact payload, one open request per payload, a human decides, spent once.
 
     A request replaces the asker's older undecided one it names (`supersedes`), and any it has open on the same task
@@ -8142,7 +8145,7 @@ def approval_request(conn, actor, kind, payload, task_id=None, supersedes=None):
     if kind == "support" and is_human(actor):
         # A person's own report (their token, or the Assistant for them) is theirs to approve and is filed as them.
         owner = actor
-    owner = owner or human_actor(default_human(conn))
+    owner = to or owner or human_actor(default_human(conn))     # `to`: a redesign proposal's decider
     ts = now()
     ask = ("Send this to Tico support? " + _clip(payload["message"], 200) if kind == "support"
            else f"Approve this {kind}: " + _clip(text, 200))
