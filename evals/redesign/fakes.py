@@ -2,8 +2,8 @@
 suite already uses (the source line is in its docstring), except the Gmail fake, which is imported unchanged. Nothing
 here reaches a network or a real service.
 
-The judge is a replay. A call is answered from recordings/<key>.json (real model output, saved once by the recorder),
-else from the next scripted answer, else MissingRecording. RECORD=1 is the recorder's switch and is not built yet.
+The judge is a replay. A call is answered from the next scripted answer when the caller passed one, else from
+recordings/<key>.json (real model output, saved once by `python -m evals.redesign.record`), else MissingRecording.
 REDESIGN_LIVE=1 turns on the live sample (5% of recorded calls, at most 10 a run). The live call is not built: only the
 decision is, and go_live says so."""
 import hashlib
@@ -37,28 +37,32 @@ def recording_key(state, questions, level):
 
 class ReplayJudge:
     """app.state.judge for the scenarios. Same call shape as backend/tests/test_judge.py:16 FakeJudge, which keeps
-    every call. `script` is a list of answer dicts, used in order when no recording matches; a scripted answer is a
-    stand-in for a model answer, so checks read routing and storage, never the model."""
+    every call. `script` is a list of answer dicts, used first and in order, so a routing check gets the exact
+    confidence it scripted; once it is spent, a recording answers. A scripted answer stands in for a model answer, so
+    checks read routing and storage, never the model."""
 
     def __init__(self, script=(), fail=None):
         self.script, self.fail, self.calls = list(script), fail, []
 
     def __call__(self, state, questions, label=None, level=None):
-        if os.environ.get("RECORD"):
-            raise NotImplementedError("record: not built")
         self.calls.append({"state": state, "questions": questions, "label": label, "level": level})
         if self.fail:
             raise self.fail
         if level is None:
             # The engine callable takes no level, but CONTRACT §2 puts decide.level on the step: the replay key needs it.
             raise Unmet(GAP, "the judge engine is called without a level, and CONTRACT §2 names decide.level")
-        path = RECORDINGS / f"{recording_key(state, questions, level)}.json"
-        if path.exists():
-            return json.loads(path.read_text())
         if self.script:
+            # A passed script wins over a recording: a named scenario needs the exact confidence it scripted.
             return {"model": "scripted", "usage": {"input_tokens": 0, "output_tokens": 0}, "ms": 0,
                     "answers": self.script.pop(0)}
-        raise MissingRecording(f"no recording {path.name} and no script left; re-record with RECORD=1 (not built)")
+        path = RECORDINGS / f"{recording_key(state, questions, level)}.json"
+        if path.exists():
+            saved = json.loads(path.read_text())
+            return {name: saved[name] for name in ("model", "usage", "ms", "answers")}
+        raise MissingRecording(
+            f"no recording recordings/{path.name} and no scripted answer for this call; re-record with "
+            "`python -m evals.redesign.record` (the recorder needs live credentials: HUB_API_URL and HUB_TOKEN, "
+            "or TYPESAFE_API_KEY)")
 
 
 def live_sample(rng, sent_so_far):
