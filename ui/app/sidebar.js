@@ -597,11 +597,14 @@ function orgSorted(parent, kids) {
     return chartFallback(a, b);                          // then the chart's own order, as on the server
   });
 }
-// The person at the top of the team chart: the one human at its top that nobody is above, usually the owner. None when
-// there are several (or the top one sits in a group), so the chart never picks one of two.
+// The person at the top of the team chart: the install's owner when nobody is above them and they are in no group, even
+// beside other such people (a test account, say); else the only human at the top that nobody is above. None otherwise,
+// so the chart never picks one of two others.
 function orgTopPerson(byParent) {
   const tops = (byParent[''] || []).filter(n => n.kind === 'person' && !orgBossKey(n));
-  return tops.length === 1 ? tops[0] : null;
+  const me = S.me?.role === 'owner' ? mePerson()?.id : '', roles = tops.filter(n => n.person?.role === 'owner');
+  return tops.find(n => S.me?.owner_id && n.id === S.me.owner_id) || tops.find(n => me && n.id === me)
+    || (roles.length === 1 ? roles[0] : tops.length === 1 ? tops[0] : null);
 }
 // Whether one of my personal tokens has reached Tico (GET /v2/me/tokens): undefined before asking, null when I may not
 // hold tokens (no button), else true or false. Without one, my row offers Connect (ui/connect-agent.js).
@@ -651,10 +654,10 @@ function renderTree() {
     const at = n => { const manager = orgReportsTo(n), list = lists[manager] || []; return {parent: manager, order: list.length > 1 ? list : []}; };
     return sorted.map(node => row(node, depth, false, at(node))).join('');
   };
-  // The top of the chart is not drawn as one more level: the one person nobody is above is a plain row, and the groups,
-  // then the humans and bots, that report to them follow at the same level, then the rest of the top. Their reports
-  // keep their order and Move menu, and a drop on the top row still reports there. With several such people (or the
-  // top person in a group) the chart nests as before.
+  // The top of the chart is not drawn as one more level: its top person (orgTopPerson) is a plain row, and the groups,
+  // then the humans and bots, that report to them follow at the same level, then the rest of the top, where any other
+  // person nobody is above nests their own reports as usual. The top person's reports keep their order and Move menu,
+  // and a drop on the top row still reports there. With no top person the chart nests as before.
   const top = orgTopPerson(byParent), topKey = top ? 'p:' + top.id : '';
   const recTop = () => {
     if (!top) return rec('', 0);

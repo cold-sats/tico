@@ -426,9 +426,10 @@ async function owner(browser) {
 // The top of the chart is not one more level: Ana, whom nobody is above, is a plain row (no chevron), and the groups and
 // the humans and bots that report to her sit at her level, at desktop and phone widths. Nothing about whom anyone
 // reports to changes: a drop on her row still makes a bot report to her, and her reports keep their Move menu. A fold of
-// her row saved before (hub.collapsed.v3.*) hides nothing. With two people at the top the chart nests as before.
+// her row saved before (hub.collapsed.v3.*) hides nothing. Another person at the top does not undo it; with the owner
+// not at the top and two others there, the chart nests as before.
 async function topOfChart(browser) {
-  const {page, errors, calls, people} = await open(browser, {id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.test', cloud: true});
+  const {page, errors, calls, people} = await open(browser, {id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.test', cloud: true, owner_id: 'ana'});
   for (const width of [1300, 390]) {
     if (width === 390) {
       await page.setViewportSize({width: 390, height: 844});
@@ -458,16 +459,34 @@ async function topOfChart(browser) {
   await node(page, 'p:ana').waitFor();
   for (const key of ['p:cara', 'b:scout', 'g:marketing']) assert.equal(await node(page, key).isVisible(), true, `${key} shows`);
 
-  // Two people nobody is above: neither is picked as the top, and the chart nests under each as before.
-  people.push({id: 'dana', name: 'Dana Ruiz', org_parent: '', team: ''});
+  // A second person nobody is above (a leftover test account, say) does not undo it: the owner stays the top, and the
+  // other one is an ordinary row at the top after the owner's reports, with their own report under them.
+  people.push({id: 'dana', name: 'Dana Ruiz', org_parent: '', team: ''},
+              {id: 'eve', name: 'Eve Park', org_parent: 'p:dana', team: '', reports_to: 'dana'});
   await page.evaluate(() => refresh(true));
-  await page.locator('#tree [data-toggle="p:ana"]').waitFor();
+  await page.locator('#tree [data-toggle="p:dana"]').waitFor();
   assert.deepEqual(await shape(page), [
-    {Ana: ['Cara', 'Scout']}, 'Dana', {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {Sales: []}]);
-  assert.equal(await level(page, 'b:scout'), 2);
+    'Ana', {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {Sales: []}, 'Cara', 'Scout', {Dana: ['Eve']}]);
+  assert.equal(await page.locator('#tree [data-toggle="p:ana"]').count(), 0);
+  assert.equal(await level(page, 'p:dana'), 1);
+  assert.equal(await level(page, 'p:eve'), 2);
   assert.deepEqual(calls, []);
   assert.deepEqual(errors, []);
   await page.close();
+
+  // The owner under someone, with two other people nobody is above: no one is picked as the top, and the chart nests
+  // under each as before.
+  const ben = await open(browser, {id: 'ben', role: 'viewer', name: 'Ben', email: 'ben@example.test', cloud: true, company_role: 'member', owner_id: 'ana'});
+  ben.people.find(p => p.id === 'ana').org_parent = 'p:dana';
+  ben.people.find(p => p.id === 'ana').reports_to = 'dana';
+  ben.people.push({id: 'dana', name: 'Dana Ruiz', org_parent: '', team: ''}, {id: 'zed', name: 'Zed Ito', org_parent: '', team: ''});
+  await ben.page.evaluate(() => refresh(true));
+  await ben.page.locator('#tree [data-toggle="p:dana"]').waitFor();
+  assert.deepEqual(await shape(ben.page), [
+    {Dana: [{Ana: ['Cara', 'Scout']}]}, 'Zed', {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}]);
+  assert.equal(await ben.page.locator('#tree li.org-top').count(), 0, 'no top row');
+  assert.deepEqual(ben.errors, []);
+  await ben.page.close();
 }
 
 async function member(browser) {
