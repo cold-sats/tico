@@ -1153,10 +1153,20 @@ def wf5_receiver(f):
 
 
 # ================================================================================================ 6 release
+def release_sending(org):
+    """The owner turns on the Release Manager's outbound sending: a bot's webhook to an outside address needs that
+    switch (backend/webhooks.py), and a bot may not set it itself (as billing_sending does for Billing)."""
+    reply = org.api("post", f"/api/v2/bots/{RELEASE_ID}/mail-settings", {"outbound_send": True}, wave=W3)
+    if reply.status >= 300:
+        raise Unmet(W3, f"sending: {reply.status} {reply.excerpt()}")
+    return reply
+
+
 def wf6_steps(org, f):
     receiver = Receiver()
     do(org, f, "endpoint", W3, endpoint, org, "Release feed", "https://hooks.acme.example/releases",
        ["custom.release_shipped"])
+    do(org, f, "sending", W3, release_sending, org)
     released = {"type": "event", "name": "release.published"}
     do(org, f, "qa", W3, make_auto, org, "Post-release QA", "bot:" + RELEASE_ID, released,
        [step("check", "bot_turn", bot=RELEASE_ID, prompt="Smoke-test the release and report what broke.")])
