@@ -39,6 +39,7 @@ function route() {
   if (!isMarketRoute(S.route)) window.marketStop?.();
   if (!isStrategyRoute(S.route)) window.strategyStop?.();
   if (!isLensesRoute(S.route)) window.lensesStop?.();
+  if (!isAutomationsRoute(S.route)) automationsStop();
   taskChatStop(); $('#task-modal')?.close();
   if (!S.route.startsWith(DOCS)) DOC_LOAD++;
   // Leaving Mail abandons its fetches, its debounced search (which would set the hash back) and
@@ -141,6 +142,7 @@ function route() {
   else if (S.route === '#/replay' || S.route.startsWith('#/replay?')) pageReplay();
   else if (/^#\/computers\/[^/?]+\/screen$/.test(S.route)) pageComputerScreen(decodeURIComponent(S.route.split('/')[2]), from);
   else if (/^#\/computers\/[^/?]+\/performance$/.test(S.route)) pageComputerPerformance(decodeURIComponent(S.route.split('/')[2]));
+  else if (isAutomationsRoute(S.route)) pageAutomations();
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
   window.syncLibrarianRail?.();
   $('#main').scrollTop = 0;
