@@ -159,7 +159,8 @@ def test_a_webhook_and_a_listening_post_start_their_automations(api):
 # ---------------------------------------------------------------------------------------------- schedules and batches
 def test_a_schedule_keeps_its_wall_clock_time_across_daylight_saving(api):
     turn_on(api)
-    aid = make(api, {"type": "schedule", "cron": "0 9 * * *", "tz": "America/New_York"})
+    with time_machine.travel(datetime(2026, 10, 31, 13, 30, tzinfo=timezone.utc), tick=False):
+        aid = make(api, {"type": "schedule", "cron": "0 9 * * *", "tz": "America/New_York"})
     store = api.app.state.store
     automations.tick(store, datetime(2026, 10, 31, 13, 30, tzinfo=timezone.utc))   # after Saturday's 09:00 EDT
     assert get(api, f"automations/{aid}")["next_run"] == "2026-11-01T14:00:00.000000Z"   # Sunday 09:00 EST
@@ -169,6 +170,16 @@ def test_a_schedule_keeps_its_wall_clock_time_across_daylight_saving(api):
     done = runs(api, aid)["runs"]
     assert len(done) == 1 and done[0]["trigger_ref"] == "schedule:2026-11-01T14:00:00.000000Z"
     assert get(api, f"automations/{aid}")["next_run"] == "2026-11-02T14:00:00.000000Z"
+
+
+def test_a_new_schedule_runs_at_the_next_run_it_showed_even_if_the_first_pass_comes_later(api):
+    turn_on(api)
+    with time_machine.travel(datetime(2026, 10, 20, 9, 0, tzinfo=timezone.utc), tick=False):
+        aid = make(api, {"type": "schedule", "cron": "0 7 * * *", "tz": "UTC"})
+        assert get(api, f"automations/{aid}")["next_run"] == "2026-10-21T07:00:00.000000Z"
+    automations.tick(api.app.state.store, datetime(2026, 10, 21, 7, 5, tzinfo=timezone.utc))   # no pass before
+    done = runs(api, aid)["runs"]
+    assert len(done) == 1 and done[0]["trigger_ref"] == "schedule:2026-10-21T07:00:00.000000Z"
 
 
 def test_a_batched_inbox_filters_on_receipt_and_runs_the_rest_at_the_batch_time(api):

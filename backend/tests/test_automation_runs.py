@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import time_machine
 
 from backend import automations
 from backend.store import H
@@ -183,9 +184,10 @@ def test_a_rename_keeps_the_schedules_due_time(api):
 
 def test_a_schedules_filters_hold_its_run(api):
     turn_on(api)
-    aid = make(api, [{"id": "n", "type": "action", "do": "wake_bot", "args": {"bot": "ops"}}],
-               trigger={"type": "schedule", "cron": "0 9 * * *", "tz": "UTC",
-                        "filters": [{"field": "schedule.cron", "op": "contains", "value": "never"}]})
+    with time_machine.travel(datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc), tick=False):
+        aid = make(api, [{"id": "n", "type": "action", "do": "wake_bot", "args": {"bot": "ops"}}],
+                   trigger={"type": "schedule", "cron": "0 9 * * *", "tz": "UTC",
+                            "filters": [{"field": "schedule.cron", "op": "contains", "value": "never"}]})
     store = api.app.state.store
     automations.tick(store, datetime(2030, 1, 1, 10, 0, tzinfo=timezone.utc))
     automations.tick(store, datetime(2030, 1, 2, 9, 0, 30, tzinfo=timezone.utc))

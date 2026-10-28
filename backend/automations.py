@@ -186,15 +186,20 @@ def _save(c, actor, aid, flow, before, *, current=None, summary=None, new_versio
                                                     summary))
     columns = (flow["name"], flow["owner"], flow.get("group") or None, flow["trigger"]["type"], int(flow["enabled"]),
                int(flow["builtin"]), json.dumps(flow, sort_keys=True), n, now)
+    # A new schedule is due at its next time after now, set here, so the time GET shows as next_run is the one the
+    # scheduler runs even when its first pass comes after it.
+    due = _iso(_due(flow["trigger"], datetime.fromisoformat(now.replace("Z", "+00:00")))) \
+        if flow["trigger"]["type"] == "schedule" else None
     if prior:
         # A due time stays through a rename, cap or group change, so the occurrence due now still runs; a new
         # schedule, or one turned back on, starts from the next time after now.
         again = (before or {}).get("trigger") != flow["trigger"] or (flow["enabled"] and not (before or {}).get("enabled"))
         c.execute("UPDATE automations SET name=?,owner=?,grp=?,trigger_type=?,enabled=?,builtin=?,flow_json=?,version=?,"
-                  "updated=?,next_due=CASE WHEN ? THEN NULL ELSE next_due END WHERE id=?", (*columns, int(again), aid))
+                  "updated=?,next_due=CASE WHEN ? THEN ? ELSE next_due END WHERE id=?", (*columns, int(again), due, aid))
     else:
         c.execute("INSERT INTO automations(name,owner,grp,trigger_type,enabled,builtin,flow_json,version,updated,id,"
-                  "created,created_by,found_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (*columns, aid, now, actor, now))
+                  "created,created_by,found_since,next_due) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (*columns, aid, now, actor, now, due))
     audit_log.write(c, actor, "automation:" + aid, before, flow, via)
     return _row(c, aid)
 
