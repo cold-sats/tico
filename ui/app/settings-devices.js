@@ -362,6 +362,8 @@ function machineUpdateWords(update) {
 // Turns at once on a computer: a whole number from 1 to 256, or empty for automatic. Anything else is named under the
 // row and not sent. The note is set from the answer, since a pop-up whose field is still focused is not redrawn.
 async function settingsTurnsAtOnceSave(input) {
+  // A change that arrives while the last one is still saving is the same value: it is not sent a second time.
+  if (input.disabled) return;
   settingsFieldClear(input);
   const text = input.value, n = Number(text);
   const whole = input.checkValidity() && (text === '' || (Number.isInteger(n) && n >= 1 && n <= 256));
