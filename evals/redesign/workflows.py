@@ -1284,19 +1284,14 @@ def wf7_steps(org, f):
     # The Health built-in is the migration's mirror of the health-monitor bot (CONTRACT section 6): convert first.
     migrate(org, f)
     do(org, f, "health", W5, builtin_health, org)
-    do(org, f, "failed", W3, emit, org, "bot.run_failed", f"{OPENAI_ID}:r1",
-       {"bot": OPENAI_ID, "attempt": "r1", "reason": "login expired"})
-    do(org, f, "held", W3, emit, org, "bot.held", f"{OPENAI_ID}:budget", {"bot": OPENAI_ID, "reason": "budget"})
+    do(org, f, "monitor", W5, org.api, "get", "/api/v2/health-monitor", who=DANA, wave=W5)
+    # The run guard trips on its own (backend/turn_budgets.py): WF9's loop from one seed task. Its held notices are the
+    # hub's (CONTRACT section 1). Health's event path is a later PR (CONTRACT section 6).
+    do(org, f, "budget", W2, wf9_budget, org)
+    do(org, f, "seed", W2, send, org, DANA, OPENAI_ID, "Start the loop")
+    do(org, f, "loop", W2, wf9_loop, org)
     org.scheduler_pass()
-    do(org, f, "botops_1", W3, drain, org, BOTOPS, text="Looked into it.")
-    do(org, f, "findings", W3, org.api, "get", "/api/v2/health-monitor", who=DANA, wave=W3)
-    at(org, org.now() + dt.timedelta(hours=1))
-    do(org, f, "failed_again", W3, emit, org, "bot.run_failed", f"{OPENAI_ID}:r2",
-       {"bot": OPENAI_ID, "attempt": "r2", "reason": "login expired"})
-    org.scheduler_pass()
-    do(org, f, "botops_2", W3, drain, org, BOTOPS, text="Looked into it.")
-    do(org, f, "runs", W3, lambda: all_runs(org, body(f, "health")["id"]))
-    f["botops_tasks"] = sql(org, "SELECT id,title,body,status FROM tasks WHERE owner=?", ("bot:" + BOTOPS,))
+    do(org, f, "notices", W2, hub_holds, org)
 
 
 def wf7_builtin(f):
@@ -1305,25 +1300,23 @@ def wf7_builtin(f):
     return data.get("builtin") is True, f"{data.get('name')} builtin {data.get('builtin')}"
 
 
-def wf7_ran(f):
-    """Health ran once per event: three runs."""
-    setup(f, "health")
-    found = runs(f, "runs")
-    subjects = [len(naming(found, s)) for s in (f"{OPENAI_ID}:r1", f"{OPENAI_ID}:budget", f"{OPENAI_ID}:r2")]
-    return subjects == [1, 1, 1] and len(found) == 3, f"{len(found)} runs; per event {subjects}"
+def wf7_enabled(f):
+    """The Health built-in is enabled exactly when the Health monitor is on, as the convert set them."""
+    setup(f, "health", "monitor")
+    enabled = body(f, "health").get("enabled")
+    on = bool(body(f, "monitor").get("on"))
+    return enabled is not None and bool(enabled) == on, f"built-in enabled {enabled}; monitor on {on}"
 
 
-def wf7_finding(f):
-    """The Health monitor's finding names builder-openai."""
-    setup(f, "health", "findings")
-    return OPENAI_ID in canon(body(f, "findings")), got(f, "findings").excerpt()
-
-
-def wf7_botops(f):
-    """The repeated failure makes exactly one BotOps task about builder-openai."""
-    setup(f, "health")
-    about = [t for t in f["botops_tasks"] if OPENAI_ID in (t["title"] or "") + (t["body"] or "")]
-    return len(about) == 1, f"{len(about)} BotOps tasks about {OPENAI_ID}"
+def wf7_notices(f):
+    """A run-guard trip sends one held notice to BotOps and one to the Health monitor: hub notices from the keeper, kind
+    notice, refs.held naming the bot (CONTRACT section 1)."""
+    setup(f, "budget", "seed", "loop", "notices")
+    held = [r for r in body(f, "notices") if OPENAI_ID in str(r["refs_json"])]
+    to_botops = [r for r in held if "botops" in str(r["to_actor"])]
+    to_health = [r for r in held if "health-monitor" in str(r["to_actor"])]
+    return len(to_botops) == 1 and len(to_health) == 1 and len(held) == 2, \
+        f"{len(held)} held notices; BotOps {len(to_botops)}, Health {len(to_health)}"
 
 
 # ================================================================================================ 8 edit by chat
@@ -1908,11 +1901,10 @@ WORKFLOWS = [
         Check("Updates names v1.4.0 and the feed gets it once", W3, wf6_told),
         Check("v1.4.1 the next day runs both again", W3, wf6_next),
     ]),
-    Scenario("7", "workflow-7-health", "Failures reach the Health built-in, a finding and one BotOps task", wf7_steps, [
+    Scenario("7", "workflow-7-health", "A run-guard trip reaches BotOps and the Health monitor", wf7_steps, [
         Check("Health is a built-in automation", W5, wf7_builtin),
-        Check("Health runs once per event", W5, wf7_ran),
-        Check("the finding names builder-openai", W5, wf7_finding),
-        Check("the repeated failure makes one BotOps task", W5, wf7_botops),
+        Check("Health is enabled as its monitor is on", W5, wf7_enabled),
+        Check("one held notice each to BotOps and Health", W2, wf7_notices),
     ], bots={BOTOPS: ("botops", "claude"), HEALTH: ("health", "claude")}),
     Scenario("8", "workflow-8-edit-by-chat", "Dana asks the Automations Bot for a change; it waits as a pending version",
              wf8_steps, [
