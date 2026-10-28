@@ -1156,11 +1156,11 @@ def wf6_steps(org, f):
         act("post", "post_update", to=["updates"], text="Released {{event.subject}}"),
         act("tell", "call_webhook", webhook=endpoint_id(f, "endpoint"), event="custom.release_shipped",
             body={"release": "{{event.subject}}"})]))
-    do(org, f, "emit_1", W3, emit, org, "release.published", "v1.4.0", {"tag": "v1.4.0"})
+    do(org, f, "emit_1", W3, publish_release, org, "v1.4.0")
     org.scheduler_pass()
     do(org, f, "qa_runs_1", W3, runs_of, org, f, "qa")
     do(org, f, "notify_runs_1", W3, runs_of, org, f, "notify")
-    do(org, f, "emit_dup", W3, emit, org, "release.published", "v1.4.0", {"tag": "v1.4.0"})
+    do(org, f, "emit_dup", W3, publish_release, org, "v1.4.0")
     org.scheduler_pass()
     do(org, f, "qa_runs_dup", W3, runs_of, org, f, "qa")
     do(org, f, "notify_runs_dup", W3, runs_of, org, f, "notify")
@@ -1170,7 +1170,7 @@ def wf6_steps(org, f):
     do(org, f, "delivered", W3, deliver, org.app, receiver)
     f["seen_1"] = [r.content.decode(errors="replace") for r in receiver.seen]
     at(org, org.now() + dt.timedelta(days=1))
-    do(org, f, "emit_2", W3, emit, org, "release.published", "v1.4.1", {"tag": "v1.4.1"})
+    do(org, f, "emit_2", W3, publish_release, org, "v1.4.1")
     org.scheduler_pass()
     do(org, f, "qa_turns_2", W3, drain, org, RELEASE_ID, text="Smoke test passed on v1.4.1.")
     org.scheduler_pass()
