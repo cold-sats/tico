@@ -83,7 +83,7 @@ API shapes starts a hub instead: `support/real-hub.cjs` runs `support/real_hub_s
 
 ```js
 const {startHub, pageAs} = require('./support/real-hub.cjs');
-const hub = await startHub({seeds: ['org', 'redesign_on']});
+const hub = await startHub({seeds: ['org']});
 const page = await pageAs(browser, hub, 'ana', {phone: true});   // 390×844 with touch; the default is 1440×900
 await page.context().close();
 await hub.stop();                                                 // stops the hub process this test started

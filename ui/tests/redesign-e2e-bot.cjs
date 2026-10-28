@@ -5,7 +5,7 @@
 const assert = require('node:assert/strict');
 const {run, open, ok, automationNamed, sideways, shot, t} = require('./support/redesign-e2e.cjs');
 
-run('redesign-e2e-bot', ['org', 'toured', 'redesign_on', 'automations', 'bot_proposal'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-bot', ['org', 'toured', 'automations', 'bot_proposal'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/automations'});
   const triage = await automationNamed(page, 'Inbox triage');
   const pending = (await ok(page, 'GET', `automations/${triage.id}/versions?status=pending`)).versions;

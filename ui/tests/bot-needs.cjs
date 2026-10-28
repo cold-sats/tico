@@ -116,9 +116,9 @@ const LAYOUT = [{builtin: 'needs', name: 'Needs You'}, {builtin: 'active', name:
     const tab = key => rail.locator(`#bot-tab-t-${key}`);
     await rail.locator('#t-needs .trow').first().waitFor();
 
-    // One Tasks section with its tabs and their counts, before Updates, Files and Routines; no folded section after it.
+    // One Tasks section with its tabs and their counts, before Updates and Files; no folded section after it.
     const order = await rail.evaluate(el => [...el.querySelectorAll(':scope>.bot-w>.rail-sec')].map(c => c.id));
-    assert.deepEqual(order, ['bot-tasks', 'bot-latest', 'bot-files', 'bot-recurring'], JSON.stringify(order));
+    assert.deepEqual(order, ['bot-tasks', 'bot-latest', 'bot-files'], JSON.stringify(order));
     assert.equal(await rail.locator('#bot-assigned').count(), 0);
     assert.equal(await rail.locator('#bot-tasks .rail-h').innerText().then(s => s.trim().toLowerCase()), 'tasks');
     await page.waitForFunction(() => document.querySelector('#cnt-c4')?.textContent.trim() === '1'

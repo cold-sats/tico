@@ -14,7 +14,6 @@
 .gt-standing{color:var(--muted)}
 .gt-group{min-height:26px;grid-template-areas:"ind name name name name"}
 .gt-group>.gt-name{font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted)}
-.gt-sep{padding:12px 10px 4px;margin-top:6px;border-top:1px solid var(--line);font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted)}
 .gt-chip{display:inline-flex;align-items:center;gap:5px;max-width:120px;height:20px;padding:0 7px;border-radius:10px;background:var(--surface2);font-size:var(--t-sm);white-space:nowrap}
 .gt-chip>.tnum{overflow:hidden;text-overflow:ellipsis}
 .gt-row:hover .gt-chip{background:var(--bg)}

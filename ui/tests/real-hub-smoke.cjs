@@ -1,4 +1,4 @@
-// The real-hub helper (ui/tests/support/real-hub.cjs) on a real hub seeded with the scenario org and the redesign setting:
+// The real-hub helper (ui/tests/support/real-hub.cjs) on a real hub seeded with the scenario org:
 // the owner opens the app on a phone and on a desktop and the shell renders, and a non-owner teammate signs in as
 // itself. The reference for writing a real-hub test (ui/README.md).
 const {chromium} = require('playwright');
@@ -9,7 +9,7 @@ const {t} = require('./support/load.cjs');
 const whoami = page => page.evaluate(async () => (await fetch('/api/v2/me', {cache: 'no-store'})).json());
 
 (async () => {
-  const hub = await startHub({seeds: ['org', 'redesign_on']});
+  const hub = await startHub({seeds: ['org']});
   let browser;
   try {
     browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});

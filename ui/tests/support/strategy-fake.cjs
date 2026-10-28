@@ -26,12 +26,12 @@ function listeningStats(now = new Date()) {
 // One page on the fake hub. viewer: who is signed in (ana owns Acme; ben leads Sales and so Outbound below it; cara
 // is in Engineering).
 // briefing: false answers {briefing: null}. listening: 403 answers the stats with that status.
-async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org', redesign = true, viewer = 'ana', briefing = true, listening = 200} = {}) {
+async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org', viewer = 'ana', briefing = true, listening = 200} = {}) {
   const fx = fixture('redesign-org.json');
   const person = fx.people.find(p => p.id === viewer);
   const me = viewer === fx.me.id ? fx.me : {id: viewer, name: person?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};
-  const config = {company_name: 'Acme', ...(redesign ? {redesign: true} : {})};
+  const config = {company_name: 'Acme'};
   const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: fx.needs[viewer] || [], approvals: []};
   const writes = [];
   // A teammate joins a group and leaves the one it was in (backend/groups.py); `remove` leaves it in no group.

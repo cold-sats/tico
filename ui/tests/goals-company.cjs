@@ -118,7 +118,7 @@ const panelFor = async (page, owner) => {
       const why = panel.locator('[data-why="g-top"]');
       assert.equal(await why.innerText(), 'Not tied to the vision', 'a note, not an error, and no Write button while a proposal waits');
       assert.equal(await why.locator('.err').count(), 0);
-      assert.match(await panel.locator('[data-why-prop="p-why"]').innerText(), /CEO Bot proposes More rentals is the vision's first step\./);
+      assert.match(await panel.locator('[data-why-prop="p-why"]').innerText(), /Strategy Bot proposes More rentals is the vision's first step\./);
       assert.equal(await panel.locator('.kpi-props [data-proposal="p-why"]').count(), 0, 'shown once, as the Why line');
       // Edit, then accept as edited.
       await panel.locator('[data-why-prop="p-why"] [data-why-edit]').click();
@@ -191,7 +191,7 @@ const panelFor = async (page, owner) => {
       const {page, errors} = await open(browser, {needs});
       const rows = page.locator('#goal-needs li');
       assert.equal(await rows.count(), 2);
-      assert.match(await rows.nth(0).innerText(), /^Tell your CEO Bot what this company is for/);
+      assert.match(await rows.nth(0).innerText(), /^Tell your Strategy Bot what this company is for/);
       assert.match(await rows.nth(1).innerText(), /These goals need a Why line: Grow rentals 30%, Double organic signups/);
       assert.equal(await page.locator('#goal-needs [data-kpi]').count(), 0);
       await rows.nth(1).locator('[data-need-why-goal="g-cmo"]').waitFor();
@@ -221,7 +221,7 @@ const panelFor = async (page, owner) => {
       const text = await row.innerText();
       assert.match(text, /A recovery · Double organic signups/);
       assert.match(text, /Signups 40 against 120\./);
-      assert.match(text, /Push SEO first · the CEO Bot's pick/);
+      assert.match(text, /Push SEO first · the Strategy Bot's pick/);
       assert.match(text, /Head of Marketing is paused right now; this part would come back to you/);
       assert.equal(await row.locator('[data-option="1"]').getAttribute('class'), 'primary');
       await Promise.all([page.waitForResponse(r => r.url().endsWith('/proposals/p-rec/decide')), row.locator('[data-option="0"]').click()]);

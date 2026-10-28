@@ -42,7 +42,7 @@ function inboxRuns(now = Date.now()) {
 
 // One page on the fake hub. viewer: the person signed in (any but the fixture's owner sees nothing editable).
 // tweak(fx) changes the fixture copy before the page reads it. proposal: a bot's pending version on the inbox one.
-async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana', tweak = null, draft = false,
+async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', viewer = 'dana', tweak = null, draft = false,
                                          proposal = false} = {}) {
   const fx = clone(JSON.parse(fs.readFileSync(FIXTURE, 'utf8')));
   if (draft) { fx.automations.push(clone(DRAFT)); fx.versions = {...fx.versions, au_draft: clone(DRAFT_VERSIONS)}; }
@@ -50,7 +50,7 @@ async function openAutomations(browser, {viewport = PHONE, hash = '#/automations
   const owner = viewer === fx.me.id;
   const me = owner ? fx.me : {id: viewer, name: fx.people.find(p => p.id === viewer)?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};
-  const config = redesign ? {redesign: true} : {};
+  const config = {};
   const db = {
     list: fx.automations.map(a => ({...a, can_edit: owner && a.can_edit !== false})),
     versions: {}, runs: {au_inbox: inboxRuns()}, conv: null, messages: [],

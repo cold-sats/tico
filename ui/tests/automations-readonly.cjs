@@ -1,7 +1,7 @@
 // Automations for a viewer without edit rights (can_edit false on every automation, CONTRACT §2) against the fake hub in
 // support/automations-fake.cjs: no switches, no "+", the spend limit is shown but not a button, an editor shows its
 // fields off with no Save, ⋯ offers Versions only and Versions offers no Restore; a proposal can be read, not turned on.
-// With the team's `redesign` setting off, #/automations lands on Updates. A phone first, then a computer.
+// A phone first, then a computer.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openAutomations, PHONE, DESKTOP, sideways, shot} = require('./support/automations-fake.cjs');
@@ -72,15 +72,6 @@ async function readOnly(page, writes) {
       await page.locator('[data-more]').click();
       assert.deepEqual(await page.locator('.au-menu [data-mi]').evaluateAll(b => b.map(x => x.dataset.mi)), ['versions'], 'no Test run');
       assert.deepEqual(writes, []);
-      assert.deepEqual(errors, []);
-      await page.close();
-    }
-    // Dormant: with redesign off the address is unknown, so it lands on Updates; nothing of the page is drawn.
-    for (const viewport of [PHONE, DESKTOP]) {
-      const {page, errors} = await openAutomations(browser, {viewport, redesign: false, hash: '#/automations/au_inbox'});
-      await page.waitForURL(/#\/updates/);
-      assert.equal(await page.locator('#au-root').count(), 0);
-      assert.equal(await page.evaluate(() => document.querySelector('#main').classList.contains('au-layout')), false);
       assert.deepEqual(errors, []);
       await page.close();
     }

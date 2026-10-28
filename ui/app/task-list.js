@@ -11,7 +11,7 @@ const TASK_GROUP_DEFAULT = {list: 'status', foryou: 'need'};
 // What it takes groups your own Needs you only: it follows the server's queue, which is yours alone.
 const taskGroupsFor = (view, state) => TASK_GROUPS.filter(([k]) => k !== 'need' || (view === 'foryou' && (!state || tasksNeedsQueue(state, view))));
 const tasksEmptyFilters = () => Object.fromEntries(TASK_FILTER_FIELDS.map(([k]) => [k, []]));
-const isTasksRoute = r => [TASKS, BOARD, ISSUES, RECURRING].includes(String(r || '').split('?')[0]);
+const isTasksRoute = r => [TASKS, BOARD, ISSUES].includes(String(r || '').split('?')[0]);
 const PHONE = '(max-width:760px)';
 // Small inline icons (the icon font is a fixed subset; these never need it).
 const TL_ICON = {
@@ -207,7 +207,7 @@ function tasksCounts(state) {
   if (state.loading) return {};
   const active = taskItems(state, 'list');
   return {foryou: tasksNeedsQueue(state, 'foryou') ? tasksMyCount(active) : taskItems(state, 'foryou').length, list: active.length,
-    snoozed: taskItems(state, 'snoozed').length, recurring: typeof routineItems === 'function' ? routineItems(state).length : 0};
+    snoozed: taskItems(state, 'snoozed').length};
 }
 
 // ---- whose tasks the first tab shows: Me (Needs you, in the server's queue with its asks and approvals), Everyone
@@ -605,7 +605,7 @@ function tasksListHTML(items, state) {
       <div class="tl-rows" id="${id}" role="list"${g.label ? ` aria-label="${esc(g.label)}"` : ' aria-label="Tasks"'}${collapsed ? ' hidden' : ''}>${more.map(it => it.kind === 'ask' ? looseAskRow(it) : it.kind === 'stale' ? staleCardHTML(it) : needsV2Item(it, false)).join('')}${tops.map(it => taskListRowHTML(it, ctx)).join('')}</div></section>`;
   }).join('')}${filtered}${done && state.doneNext != null ? '<button class="ghost tl-more" type="button" id="board-more">Show more</button>' : ''}</div>`;
 }
-// Done: everything finished, newest first, a page at a time (routine runs live under Recurring).
+// Done: everything finished, newest first, a page at a time (a schedule's runs are under Automations › Runs).
 function tasksDoneHTML(items, state) {
   const list = items.filter(it => !isRecurringTask(it.task));
   if (state.doneLoading && !list.length) return '<div class="tl-empty">Loading finished tasks…</div>';
@@ -640,7 +640,6 @@ function tasksTools(state) {
     state.who = 'me'; state.memo = new Map(); tasksURLWrite(state);
   }
   tasksPaint(tabs, tasksTabsHTML(state));
-  $('#task-bar').hidden = state.view === 'recurring';
   const who = $('#task-who-wrap');
   if (who) {
     who.hidden = state.view !== 'foryou';

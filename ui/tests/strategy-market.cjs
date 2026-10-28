@@ -1,8 +1,8 @@
-// Strategy › Market's Briefing and Listening with the redesign on (ui/app/redesign-market.js) against the fake hub in
+// Strategy › Market's Briefing and Listening (ui/app/redesign-market.js) against the fake hub in
 // support/strategy-fake.cjs (the Acme example). Briefing: Market opens on it, a front page with the headline, its first
 // lines and the items by kind, Read opens the whole page; with none, one line. Listening: posts per day by source over
 // two weeks, the spike marked and lighting its posts, one line per recent post, the destinations folded under Settings.
-// With the setting off, Market and Settings › Listening are today's. A phone first, then a computer.
+// A phone first, then a computer.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openStrategy, PHONE, DESKTOP, sideways, shot} = require('./support/strategy-fake.cjs');
@@ -22,7 +22,6 @@ async function briefing(page, tag) {
   assert.match(await page.locator('.rdb-deck').innerText(), /^Two of Acme's rivals now sell release checks/, tag + ': its first lines');
   assert.deepEqual(await texts(page, '.rdb-cols h3'), ['CHANGES', 'SIGNALS', 'THEMES', 'SIZE'], tag + ': items by kind');
   assert.equal(await page.locator('.rdb-cols p').count(), 5, tag + ': every item');
-  assert.equal(await page.locator('#market-briefing').count(), 0, tag + ': not the old one-line card');
   assert.equal(await sideways(page), false, tag + ': no sideways scroll');
 }
 
@@ -101,20 +100,6 @@ async function listening(page, tag) {
       await page.locator('#rdm-body .rdm-none').waitFor();
       assert.equal(await page.locator('#rdm-body').innerText(), 'Not shared with you.', '403: says so');
       assert.deepEqual(errors, [], '403: no page errors');
-      await page.close();
-    }
-    // Dormant: Market is today's (players, the one-line briefing card, no Briefing or Listening view) and Listening
-    // stays in Settings.
-    for (const viewport of [PHONE, DESKTOP]) {
-      const tag = viewport.width + ' off';
-      const {page, errors} = await openStrategy(browser, {viewport, redesign: false, hash: '#/strategy/market'});
-      await page.locator('#market-briefing').waitFor();
-      assert.deepEqual(await page.locator('.mkt-views [data-market-view]').evaluateAll(a => a.map(x => x.dataset.marketView).filter(v => v === 'briefing' || v === 'listening')), [], tag + ': no new views');
-      assert.equal(await page.locator('.rdb, .rdm').count(), 0, tag + ': nothing new drawn');
-      await page.evaluate(() => { location.hash = '#/settings/listening'; });
-      await page.locator('[data-listen-dest="leads"]').waitFor();
-      assert.equal(await page.locator('.rdm').count(), 0, tag + ': Settings › Listening as today');
-      assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }
     console.log('strategy market ok');

@@ -8,7 +8,7 @@ const {run, open, ok, automationNamed, sideways, shot, t} = require('./support/r
 const selectedDot = page => page.evaluate(() => [...document.querySelectorAll('.au-dots [data-dot]')]
   .findIndex(d => d.getAttribute('aria-selected') === 'true'));
 
-run('redesign-e2e-paths', ['org', 'toured', 'redesign_on', 'automations'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-paths', ['org', 'toured', 'automations'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/automations'});
   const route = await automationNamed(page, 'Route mail');
   await page.locator(`.au-row[data-row="${route.id}"] a`).click();

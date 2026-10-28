@@ -48,14 +48,14 @@ const assistantName = () => {
 };
 const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_bot;
 // The assistant, BotOps, the Librarian, the CEO Bot and the Task Manager are built in to every team: pause and rename
-// them, never archive or delete. The Task Manager's entry point is Settings > Rules, not the org chart.
+// them, never archive or delete. The Task Manager's entry point is Settings > System, not the org chart.
 const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager' || slug === 'task-manager';
-// The CEO Bot (backend/ceo_bot.py, slug goal-manager) is on every install, at the top of the org chart, by the name the
-// owner gave it, else "CEO Bot". Its old name never shows: a roster read before the upgrade renamed it says "CEO Bot".
-// With the redesign on (ui/app/redesign.js) it is the Strategy Bot: the default name reads so, a name the owner gave stays.
-const redesignOn = () => !!S.config?.redesign;
-const ceoDefaultName = () => redesignOn() ? 'Strategy Bot' : 'CEO Bot';
-const ceoDefaultish = name => !name || name === 'Goal Manager' || (redesignOn() && name === 'CEO Bot');
+// The Strategy Bot (backend/ceo_bot.py, slug goal-manager) is on every install, at the top of the org chart, by the name
+// the owner gave it, else "Strategy Bot": its older default names ("CEO Bot", "Goal Manager") read so too.
+// The redesign is the only design; redesignOn() stays for callers that still ask.
+const redesignOn = () => true;
+const ceoDefaultName = () => 'Strategy Bot';
+const ceoDefaultish = name => !name || name === 'Goal Manager' || name === 'CEO Bot';
 const ceoBotName = () => {
   const name = String((S.emps || []).find(e => e.name === 'goal-manager')?.display_name || '').trim();
   return ceoDefaultish(name) ? ceoDefaultName() : name;

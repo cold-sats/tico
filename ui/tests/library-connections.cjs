@@ -1,9 +1,8 @@
-// Library › Connections with the redesign on (ui/app/redesign-library.js) against fixtures/redesign-connections.json
+// Library › Connections (ui/app/redesign-library.js) against fixtures/redesign-connections.json
 // (the Acme example, shaped as GET /api/v2/tools and /api/v2/tools/{service} answer): one row per tool with its kind and
 // write level, grouped In use / Available / Removed; a row opens the tool's own page, read only (no credentials, no
 // learning added or deleted), as its own screen on a phone and beside the list on a computer; back returns to the list.
-// Shown, not live: nothing on the page writes. An empty team reads one line. With the setting off there is no
-// Connections item and the address is unknown, and the Tools page keeps its credentials and learning form.
+// Shown, not live: nothing on the page writes. An empty team reads one line.
 // Phone first (390×844), then a computer. TICO_UI_SHOTS=<dir> saves screenshots.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -18,11 +17,11 @@ const roster = fixture('redesign-roster.json');
 const PHONE = {width: 390, height: 844}, DESKTOP = {width: 1440, height: 900};
 const LIST = '#/library/connections';
 
-async function open(browser, {viewport = PHONE, hash = LIST, redesign = true, tools = FX.tools.integrations, listGate = null} = {}) {
+async function open(browser, {viewport = PHONE, hash = LIST, tools = FX.tools.integrations, listGate = null} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block', hasTouch: viewport === PHONE});
   const errors = [], writes = [];
   page.on('pageerror', e => errors.push(e.message));
-  const config = {company_name: 'Acme', ...(redesign ? {redesign: true} : {})};
+  const config = {company_name: 'Acme'};
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname, method = req.method();
     const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -168,25 +167,6 @@ async function readOnlyPage(page, tag, title, learnings) {
       await page.close();
     }
 
-    // Off: no Connections item, the address is unknown, and the Tools page is today's.
-    for (const viewport of [PHONE, DESKTOP]) {
-      const tag = 'off ' + viewport.width;
-      const {page, errors} = await open(browser, {viewport, redesign: false});
-      assert.ok(await hashSoon(page, '#/updates'), tag + ': the address lands on Updates');
-      await page.locator('#tree li').first().waitFor();
-      assert.equal(await page.locator('[data-nav="connections"], .rd-lib, #lc-root').count(), 0, tag + ': no Connections item');
-      if (viewport === DESKTOP) {
-        await page.evaluate(() => { location.hash = '#/integrations/close-crm'; });
-        await page.locator('#int-detail h1').filter({hasText: 'Close CRM'}).waitFor();
-        assert.equal(await page.locator('#int-detail .int-key').count(), 1, tag + ': Tools keeps the credentials button');
-        assert.equal(await page.locator('#int-learn-add').count(), 1, tag + ': and the learning form');
-        assert.equal(await page.locator('[data-delete-learning]').count(), 2, tag + ': and the owner\'s delete');
-        assert.equal(await page.locator('[data-learning-count]').count(), 0, tag + ': and its heading');
-        assert.equal(await page.getAttribute('#int-body a[href^="#/"]', 'href'), '#/integrations/postgres', tag + ': siblings stay in Tools');
-      }
-      assert.deepEqual(errors, [], tag + ': no page errors');
-      await page.close();
-    }
     console.log('library connections ok');
   } finally {
     await browser.close();

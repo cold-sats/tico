@@ -4,7 +4,7 @@
 const assert = require('node:assert/strict');
 const {run, open, ok, sideways, shot, t} = require('./support/redesign-e2e.cjs');
 
-run('redesign-e2e-connections', ['org', 'toured', 'redesign_on', 'connection'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-connections', ['org', 'toured', 'connection'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/library/connections'});
   const tools = await ok(page, 'GET', 'tools');
   assert.ok(JSON.stringify(tools).includes('acme-billing'), `${tag}: the hub lists it`);

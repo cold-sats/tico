@@ -621,15 +621,14 @@ async function kpiAddBind(form, goal, done) {
 // ---------------------------------------------------------------- the page: one tree
 // The team, then every human and every bot that is not archived, nested the way the team chart nests them,
 // whether or not they have a goal. One line each: the owner, their first goal (cut short, the whole of it in the
-// tooltip) and its KPIs as small chips; more goals follow on lines of their own. Message bots
-// sit in their own group below; built-ins have their own entry points. Tapping any line opens that owner's panel.
+// tooltip) and its KPIs as small chips; more goals follow on lines of their own. Helper bots stay off the chart (as on
+// the Org tab); one with goals still shows at the end. Tapping any line opens that owner's panel.
 function goalTreeShape() {
   const people = (S.people || []).filter(p => !p.hidden);
   const bots = (S.emps || []).filter(e => !['archived', 'retired'].includes(e.status));
   // The sidebar's own rule: built-in and message bots stay outside the chart.
   const helper = isHelperBot;
   const placed = bots.filter(e => !helper(e));
-  const helpers = bots.filter(e => helper(e) && !isBuiltInBot(e.name)).sort((a, b) => helperRank(a) - helperRank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
   const keys = new Set([...(S.orgGroups || []).map(g => 'g:' + g.id), ...people.map(p => 'p:' + p.id), ...placed.map(e => 'b:' + e.name)]);
   const byParent = {}, groupOf = orgGroupOf(people, placed);
   const put = (parent, node) => (byParent[keys.has(parent) ? parent : ''] ||= []).push(node);
@@ -643,7 +642,7 @@ function goalTreeShape() {
     if (parent.startsWith('b:') && !keys.has(parent)) parent = e.operator || e.users?.[0]?.id ? 'p:' + (e.operator || e.users[0].id) : '';
     put(orgHang('b:' + e.name, parent, groupOf), {kind: 'bot', ...e});
   }
-  return {byParent, helpers};
+  return {byParent};
 }
 // The org chart's order: a group's humans and bots first, then the groups in it; a manager's reports in the order
 // someone put them; then the chart's own order (chartFallback).
@@ -780,7 +779,7 @@ function goalsRender(state) {
   for (const g of state.goals.filter(goalLive)) (owned[g.owner] ||= []).push(g);
   for (const list of Object.values(owned)) list.sort(goalRank);
   for (const k of state.other) (loose[k.owner] ||= []).push(k);
-  const {byParent, helpers} = goalTreeShape();
+  const {byParent} = goalTreeShape();
   const seen = new Set([GOAL_COMPANY]);
   const rows = (actor, depth, standing) => { seen.add(actor); return goalTreeRows(actor, depth, owned[actor] || [], loose[actor] || [], standing); };
   const walk = (parent, depth, path) => (byParent[parent] || []).slice().sort(goalTreeOrder(parent)).map(n => {
@@ -791,14 +790,9 @@ function goalsRender(state) {
     return rows(n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, depth, n.kind === 'person' ? n.person.goals : '') + below;
   }).join('');
   const tree = goalTreeRows(GOAL_COMPANY, 0, owned[GOAL_COMPANY] || [], loose[GOAL_COMPANY] || []) + walk('', 0, new Set());
-  // With the redesign on, helpers are off the chart here too (as on the Org tab); one with goals still shows below.
-  const help = redesignOn() ? '' : [
-    ['Message bots', helpers.filter(e => !isBuiltInBot(e.name))],
-  ].map(([name, members]) => members.length ? `<li class="gt-sep">${name}</li>` + members.map(e => rows('bot:' + e.name, 0)).join('') : '').join('');
   // Anyone else with goals (someone gone from the roster) still shows, at the end.
   const rest = Object.keys(owned).filter(a => !seen.has(a)).map(a => rows(a, 0)).join('');
-  body.innerHTML = goalStrategyHtml(state) + goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}`
-    + help + '</ul>';
+  body.innerHTML = goalStrategyHtml(state) + goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}</ul>`;
   for (const li of body.querySelectorAll('.gt-row')) {
     const open = () => goalPanelOpen(state, li.dataset.owner, {tapped: li.dataset.goal || ''});
     li.onclick = open;
