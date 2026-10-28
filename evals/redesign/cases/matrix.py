@@ -230,6 +230,18 @@ def label_of(n, row):
     return f"#{n} " + "/".join(row[k] for k in keys)
 
 
+def queue_of(org, slug, task):
+    """What the hub holds for the bot and for the turn's own job, for a claim that hands out nothing (read for the
+    report only)."""
+    with org.store.read() as c:
+        bot = c.execute("SELECT state FROM bots WHERE slug=?", (slug,)).fetchone()
+        states = c.execute("SELECT state, count(*) FROM jobs WHERE bot=? GROUP BY state", (slug,)).fetchall()
+        own = c.execute("SELECT j.state FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot=? "
+                        "AND json_extract(m.refs_json,'$.task')=?", (slug, task)).fetchall()
+    return (f"bot {bot[0] if bot else None}, its jobs {dict((k, v) for k, v in states)}, "
+            f"the turn's job {[row[0] for row in own]}")
+
+
 def claim_turn(org, bot, task, outcome):
     """One runner pass for one turn, as the harness's Org.turn makes it: claim the bot's next job, start it, complete it
     with `outcome`. Jobs claimed before the turn's own are completed as they come (a claim takes the oldest), so no
@@ -243,7 +255,7 @@ def claim_turn(org, bot, task, outcome):
         body = claim.body if isinstance(claim.body, dict) else {}
         attempt = body.get("attempt")
         if not attempt:
-            return False, body.get("waiting") or body.get("paused") or "no job handed out"
+            return False, body.get("waiting") or body.get("paused") or f"no job handed out; {queue_of(org, slug, task)}"
         mine = ((attempt.get("message") or {}).get("refs") or {}).get("task") == task
         base = f"/api/v2/attempts/{attempt['id']}"
         for step, payload in (("started", {"thread_id": "redesign"}),
