@@ -18,7 +18,7 @@ const roster = fixture('redesign-roster.json');
 const PHONE = {width: 390, height: 844}, DESKTOP = {width: 1440, height: 900};
 const LIST = '#/library/connections';
 
-async function open(browser, {viewport = PHONE, hash = LIST, redesign = true, tools = FX.tools.integrations} = {}) {
+async function open(browser, {viewport = PHONE, hash = LIST, redesign = true, tools = FX.tools.integrations, listGate = null} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block', hasTouch: viewport === PHONE});
   const errors = [], writes = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -40,7 +40,7 @@ async function open(browser, {viewport = PHONE, hash = LIST, redesign = true, to
     if (p === '/api/v2/status') return json({bots: []});
     // The tools (backend/integrations.py; /integrations is the old spelling of /tools).
     const m = p.match(/^\/api\/v2\/(?:tools|integrations)(?:\/([^/]+))?$/);
-    if (m && !m[1]) return json({label: 'Available tools', integrations: tools});
+    if (m && !m[1]) { await listGate; return json({label: 'Available tools', integrations: tools}); }
     if (m) {
       const one = FX.pages[decodeURIComponent(m[1])];
       return one ? json(one) : json({error: {code: 'not_found', detail: 'No tool named ' + m[1]}}, 404);
@@ -148,6 +148,22 @@ async function readOnlyPage(page, tag, title, learnings) {
       assert.ok(await page.locator('.lc-list').isVisible(), tag + ': a page that will not load leaves the list');
       await shot(page, 'desktop-connection-missing');
       assert.deepEqual(writes, [], tag + ': nothing written');
+      assert.deepEqual(errors, [], tag + ': no page errors');
+      await page.close();
+    }
+
+    // The list is slow and the address moves to another connection meanwhile: the later address wins, no errors.
+    {
+      const tag = 'desktop slow list';
+      let release;
+      const listGate = new Promise(r => { release = r; });
+      const {page, errors} = await open(browser, {viewport: DESKTOP, hash: LIST + '/close-crm', listGate});
+      await page.evaluate(h => { location.hash = h; }, LIST + '/postgres');
+      await page.waitForFunction(() => location.hash.endsWith('/postgres'));
+      release();
+      await readOnlyPage(page, tag, 'Acme Postgres', 0);
+      assert.equal(await page.locator('.lc-row.sel').getAttribute('data-service'), 'postgres', tag + ': the later address is selected');
+      assert.ok(await hashSoon(page, LIST + '/postgres'), tag + ': and stays');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }

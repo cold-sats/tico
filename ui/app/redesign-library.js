@@ -8,7 +8,7 @@
 const RD_CONNECTIONS = '#/library/connections';
 const LC_KIND_ICONS = {api: 'api', sql: 'inventory_2', browser: 'travel_explore', mail: 'mail', cli: 'code', mcp: 'link'};
 const LC_WRITES = {never: ['Read only', 'ok'], approval: ['Approval', 'waiting'], allowed: ['Writes', '']};
-let LC = null;              // {rows, error, service, root}
+let LC = null;              // {rows, error, service, root, loading}
 const lcPhone = () => matchMedia('(max-width:760px)').matches;
 const lcHref = service => RD_CONNECTIONS + (service ? '/' + encodeURIComponent(service) : '');
 
@@ -21,18 +21,25 @@ function lcGrouped(rows) {
 }
 
 async function pageRdConnections() {
-  const service = decodeURIComponent(S.route.slice(RD_CONNECTIONS.length + 1).split('?')[0] || '');
+  const route = S.route, service = decodeURIComponent(route.slice(RD_CONNECTIONS.length + 1).split('?')[0] || '');
   $('#main').classList.add('lc-layout');
-  if (!LC || !document.body.contains(LC.root)) {
+  if (LC?.loading && document.body.contains(LC.root)) {
+    // The list is still loading for an earlier visit: wait for it, then draw only if this is still the route.
+    const state = LC;
+    await state.loading;
+    if (LC !== state || S.route !== route) return;
+  } else if (!LC || !document.body.contains(LC.root)) {
     $('#main').innerHTML = `<div class="lc" id="lc-root">
       <header class="lc-ph"><h1>Connections</h1>${helpBubble('Write level: what bots may change there. Read only, with approval, or freely.')}</header>
       <div class="lc-body"><aside class="lc-list" aria-label="Connections"><div class="lc-scroll"><p class="muted lc-pad">Loading…</p></div></aside>
         <section class="lc-pane" aria-live="polite"><div id="int-detail"></div></section></div></div>`;
-    LC = {rows: null, error: '', service: null, root: $('#lc-root')};
+    LC = {rows: null, error: '', service: null, root: $('#lc-root'), loading: null};
     const state = LC;
-    try { state.rows = (await get('/v2/tools')).integrations || []; }
-    catch (e) { state.rows = []; state.error = e.message; }
-    if (LC !== state) return;
+    state.loading = get('/v2/tools').then(r => { state.rows = r.integrations || []; },
+                                          e => { state.rows = []; state.error = e.message; });
+    await state.loading;
+    state.loading = null;
+    if (LC !== state || S.route !== route) return;   // left, or moved to another connection meanwhile
   }
   // A computer opens on the first connection; a phone opens on the list.
   if (!service && !lcPhone() && LC.rows.length) { location.replace(lcHref(lcGrouped(LC.rows)[0][1][0].service)); return; }
