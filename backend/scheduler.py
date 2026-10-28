@@ -508,6 +508,8 @@ class Scheduler:
                     webhook_delivery.prune(c, stamp(at))       # outgoing webhooks: events and finished sends keep a month
                     from . import automations
                     automations.prune(c, stamp(at))            # automation runs: step detail keeps 30 days
+                    from . import redesign_migration
+                    redesign_migration.prune(c, stamp(at))     # the migration's snapshot keeps one day
                     from . import webhooks
                     webhooks.auto_disable(c, stamp(at))        # an endpoint that failed every attempt for five days is turned off
                 sweep_idempotency(self.store, stamp(at))

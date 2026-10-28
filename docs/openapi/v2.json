@@ -14140,6 +14140,275 @@
         ]
       }
     },
+    "/api/v2/redesign/migration/convert": {
+      "post": {
+        "summary": "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag has no yes, unless `accept` names it; 409 while an earlier convert can still be restored",
+        "operationId": "migrationConvert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Accept"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationConverted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/redesign/migration/dry-run": {
+      "post": {
+        "summary": "Every routine, wake rule, job, inbox, limit and budget, what it becomes and its flags. Writes nothing",
+        "operationId": "migrationDryRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Empty"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/redesign/migration/resolve": {
+      "post": {
+        "summary": "Say yes to flags (`accept`: flag ids, or object ids for every flag on one); answers the dry run again",
+        "operationId": "migrationResolve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Accept"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/redesign/migration/restore": {
+      "post": {
+        "summary": "Within a day of converting: the old objects back, the converted automations deleted. 410 once the day is over",
+        "operationId": "migrationRestore",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Empty"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationRestored"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/relay": {
       "get": {
         "summary": "The Gateway key, how many relay addresses exist, the last pull, the last problem and what waits at the Gateway",
@@ -23777,6 +24046,36 @@
   },
   "components": {
     "schemas": {
+      "Accept": {
+        "properties": {
+          "accept": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Accept",
+        "description": "Flags the owner says yes to: flag ids, object ids (every flag on it), or {id, flags} as the dry run lists them."
+      },
       "AcceptPhone": {
         "properties": {
           "price_micros": {
@@ -32685,6 +32984,189 @@
         },
         "required": [
           "message"
+        ],
+        "additionalProperties": true
+      },
+      "MigrationConverted": {
+        "type": "object",
+        "properties": {
+          "migration": {
+            "type": "string"
+          },
+          "snapshot": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "expires": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "expires",
+              "id"
+            ],
+            "additionalProperties": true
+          },
+          "expires": {
+            "type": "string"
+          },
+          "converted": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "kept": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "counts": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "converted",
+          "failed",
+          "migration"
+        ],
+        "additionalProperties": true
+      },
+      "MigrationObject": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "becomes": {
+            "description": "The automation flow it becomes, the new values, or \"unchanged\""
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "keeps": {
+                  "type": "boolean"
+                },
+                "accepted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "accepted",
+                "id",
+                "kind",
+                "text"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "becomes",
+          "flags",
+          "id",
+          "kind"
+        ],
+        "additionalProperties": true
+      },
+      "MigrationReport": {
+        "type": "object",
+        "properties": {
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MigrationObject"
+            }
+          },
+          "counts": {
+            "type": "object"
+          },
+          "flags": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "open": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "open",
+              "total"
+            ],
+            "additionalProperties": true
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "migration": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The latest convert: id, state (converting, converted, restored, expired), created, expires, restorable"
+          }
+        },
+        "required": [
+          "counts",
+          "flags",
+          "objects",
+          "ready"
+        ],
+        "additionalProperties": true
+      },
+      "MigrationRestored": {
+        "type": "object",
+        "properties": {
+          "migration": {
+            "type": "string"
+          },
+          "restored": {
+            "type": "boolean"
+          },
+          "automations_removed": {
+            "type": "integer"
+          },
+          "routines": {
+            "type": "integer"
+          },
+          "rules": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "automations_removed",
+          "migration",
+          "restored",
+          "routines",
+          "rules"
         ],
         "additionalProperties": true
       },

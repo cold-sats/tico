@@ -78,6 +78,9 @@ def create(c, actor, bot, fields, *, key=None, at=None):
     if key is not None:
         existing = c.execute("SELECT id FROM schedules WHERE bot=? AND routine_key=?", (bot, key)).fetchone()
         if existing:
+            from . import redesign_migration
+            if redesign_migration.holds(c, "routine", existing["id"]):
+                return row(c, existing["id"])      # converted to an automation: a re-seed must not bring it back
             return update(c, actor, existing["id"], {**fields, "enabled": fields.get("enabled", True)},
                           at=at, restore=True)
     sid = bot + ":" + (key or H.new_id()[:12])

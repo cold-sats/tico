@@ -435,6 +435,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task-manager run                   run the department check now
     hub task-manager bot on|off            turn the Task Manager bot itself on or off (the owner)
     hub redesign [--on|--off]              the new design for the whole team; leave both out to read (the owner switches it)
+    hub redesign migrate [--dry-run|--resolve|--convert|--restore] [--accept ID]...
+                                           move routines, wake rules, jobs, inboxes and limits to the redesign (the owner)
     hub stall-triage [--on|--off]          quiet task triage: Decide reads a quiet task's last messages before its stall check
                                            stays silent (the owner or an admin; on by default)
     hub service-key create --label "Billing backend"
@@ -2718,6 +2720,15 @@ def parser():
     on = s.add_mutually_exclusive_group()
     on.add_argument("--on", dest="on", action="store_true", default=None, help="switch it on")
     on.add_argument("--off", dest="on", action="store_false", help="switch it off; leave both out to read the switch")
+    s.add_argument("migrate", nargs="?", choices=["migrate"],
+                   help="migrate: move routines, wake rules, jobs, inboxes and limits to the redesign")
+    step = s.add_mutually_exclusive_group()
+    for flag, action, words in (("--dry-run", "dry_run", "list every object, what it becomes and its flags (default)"),
+                                ("--resolve", "resolve", "say yes to the flags named with --accept"),
+                                ("--convert", "convert", "snapshot, then convert (refused while a flag has no yes)"),
+                                ("--restore", "restore", "undo the convert, within a day of it")):
+        step.add_argument(flag, dest="action", action="store_const", const=action, help=words)
+    s.add_argument("--accept", action="append", metavar="ID", help="a flag id (or object id) to say yes to; repeat")
     s.set_defaults(fn="redesign")
     roadmap = sub.add_parser("roadmap", help="public roadmaps: ranking and company settings (docs/roadmaps.md)").add_subparsers(dest="sub")
     s = roadmap.add_parser("tasks", help="roadmap tasks ranked by requests, organization or size")

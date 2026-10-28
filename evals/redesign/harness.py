@@ -25,7 +25,7 @@ GAP = "CONTRACT gap"   # a check the CONTRACT cannot back yet: it names no route
 
 # Waves that have landed on main. The PR that merges a wave adds its label here: from then on a failing check prints
 # its detail instead of "not built yet".
-BUILT = {W1, W3, W4}
+BUILT = {W1, W3, W4, W5}
 
 # Teammates: the test token each signs in with, the CONTRACT §3 ref and the bare id the API takes as an owner.
 # The Acme cast (DECISIONS.md): Dana owns the hub; Omar and Priya are people. Omar is a peer of the Engineering Lead and

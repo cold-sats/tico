@@ -65,6 +65,7 @@ CLI_TOOL_ALIASES = {
     "hub_automation_show": ("hub_automation_get",), "hub_automation_inbox": ("hub_inbox_send",),
     "hub_repo_tick": ("hub_repo_update",), "hub_repo_untick": ("hub_repo_update",),
     "hub_bot_repos": ("hub_bot_repos_get", "hub_bot_repos_set"),
+    "hub_redesign": ("hub_redesign", "hub_redesign_migrate"),   # `hub redesign migrate --dry-run|...`
     "hub_task_manager_status": ("hub_task_manager",), "hub_task_manager_on": ("hub_task_manager_set",),
     "hub_task_manager_off": ("hub_task_manager_set",), "hub_task_manager_schedule": ("hub_task_manager_set",),
     "hub_task_manager_bot": ("hub_task_manager_set",),
@@ -4377,6 +4378,25 @@ def redesign(api, args):
     return _as_person(api).call("PUT", "settings/redesign", {"enabled": bool(args["on"])}, _key(args))
 
 
+@tool("hub_redesign_migrate", "Move this install's routines, wake rules, system jobs, inboxes, limits and budgets to the "
+      "redesign (redesign on, the owner or BotOps for the owner). `dry_run` lists every object, what it becomes and its "
+      "flags, writing nothing; `resolve` says yes to flags (`accept`: flag or object ids); `convert` snapshots, then "
+      "converts (refused while a flag has no yes); `restore` undoes a convert within a day.",
+      {"action": {"type": "string", "enum": ["dry_run", "resolve", "convert", "restore"],
+                  "description": "dry_run (default), resolve, convert or restore"},
+       "accept": {"type": "array", "items": {"type": "string"},
+                  "description": "flag ids (or object ids: every flag on it) to say yes to, for resolve or convert"}},
+      writes=True)
+def redesign_migrate(api, args):
+    action = (args.get("action") or "dry_run").replace("-", "_")
+    if action not in ("dry_run", "resolve", "convert", "restore"):
+        raise ValueError("action is dry_run, resolve, convert or restore")
+    body = {"accept": list(args["accept"])} if args.get("accept") and action in ("resolve", "convert") else {}
+    if action == "resolve" and not body:
+        raise ValueError("resolve needs accept: the flag ids to say yes to")
+    return _as_person(api).call("POST", "redesign/migration/" + action.replace("_", "-"), body, _key(args))
+
+
 # ----------------------------------------------------------------------------- approvals
 @tool("hub_approval_request", "Ask a person for a yes or no on one exact action. Only a person "
       "decides; an approval is spent once. If the owner already told you in Tico to send a "
@@ -5468,7 +5488,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_apply", "hub_rule_dismiss", "hub_stall_triage", "hub_redesign", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_apply", "hub_rule_dismiss", "hub_stall_triage", "hub_redesign", "hub_redesign_migrate", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",

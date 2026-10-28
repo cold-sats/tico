@@ -1373,6 +1373,39 @@ SCHEMAS.update({
     "PersonAssistant": obj({"bot": {"type": ["string", "null"]}}),
 })
 
+# The redesign's migration (backend/redesign_migration.py): 404 until the team turns the redesign on; the owner only.
+STABLE.extend([
+    ("/api/v2/redesign/migration/dry-run", "post", "Automations", "migrationDryRun",
+     "Every routine, wake rule, job, inbox, limit and budget, what it becomes and its flags. Writes nothing",
+     "MigrationReport"),
+    ("/api/v2/redesign/migration/resolve", "post", "Automations", "migrationResolve",
+     "Say yes to flags (`accept`: flag ids, or object ids for every flag on one); answers the dry run again",
+     "MigrationReport"),
+    ("/api/v2/redesign/migration/convert", "post", "Automations", "migrationConvert",
+     "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag "
+     "has no yes, unless `accept` names it; 409 while an earlier convert can still be restored", "MigrationConverted"),
+    ("/api/v2/redesign/migration/restore", "post", "Automations", "migrationRestore",
+     "Within a day of converting: the old objects back, the converted automations deleted. 410 once the day is over",
+     "MigrationRestored"),
+])
+SCHEMAS.update({
+    "MigrationObject": obj({"kind": "s", "id": "s", "title": "s",
+                            "becomes": {"description": "The automation flow it becomes, the new values, or \"unchanged\""},
+                            "flags": items(obj({"id": "s", "kind": "s", "text": "s", "keeps": "b", "accepted": "b"},
+                                               required=["id", "kind", "text", "accepted"]))},
+                           required=["kind", "id", "becomes", "flags"]),
+    "MigrationReport": obj({"objects": items(ref("MigrationObject")), "counts": {"type": "object"},
+                            "flags": obj({"total": "i", "open": "i"}), "ready": "b",
+                            "migration": {"type": ["object", "null"], "description": "The latest convert: id, state "
+                                          "(converting, converted, restored, expired), created, expires, restorable"}},
+                           required=["objects", "counts", "flags", "ready"]),
+    "MigrationConverted": obj({"migration": "s", "snapshot": obj({"id": "s", "expires": "s"}), "expires": "s",
+                               "converted": items({"type": "object"}), "failed": items({"type": "object"}),
+                               "kept": items({"type": "object"}), "counts": {"type": "object"}},
+                              required=["migration", "converted", "failed"]),
+    "MigrationRestored": obj({"migration": "s", "restored": "b", "automations_removed": "i", "routines": "i", "rules": "i"}),
+})
+
 # Bot profiles (backend/profiles.py).
 STABLE.extend([
     ("/api/v2/profiles", "get", "Bots", "listProfiles",

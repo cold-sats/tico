@@ -24,6 +24,7 @@ MAX_STEPS = 100         # every step in the flow, nested ones included
 MAX_RULES = 50
 MAX_CONDS = 20
 MAX_TEXT = 8000
+MAX_PROMPT = 32000           # an llm or bot_turn prompt (an Inbox Manager's instructions can run long)
 MAX_FIND = 100
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39}")
 OWNER = re.compile(r"(person|bot|group):[a-z0-9][a-z0-9._-]{0,63}")
@@ -203,7 +204,7 @@ def _check_step(step, where, seen, depth, counts):
     elif kind == "llm":
         _need(isinstance(step.get("as"), str) and re.fullmatch(r"(assistant:|bot:)[a-z0-9][a-z0-9._-]{0,63}", step["as"]),
               where, "as is assistant:<person> or bot:<slug>")
-        _text(step.get("prompt"), where, "prompt")
+        _text(step.get("prompt"), where, "prompt", cap=MAX_PROMPT)
         _need(isinstance(step.get("out"), str) and NAME.fullmatch(step["out"]), where, "out names the result, such as draft")
     elif kind == "find":
         _need(depth == 0, where, "find is a top-level step")
@@ -218,7 +219,7 @@ def _check_step(step, where, seen, depth, counts):
     elif kind == "bot_turn":
         _need(isinstance(step.get("bot"), str) and re.fullmatch(r"(bot:)?[a-z0-9][a-z0-9._-]{0,63}", step["bot"]), where,
               "bot names a bot")
-        _text(step.get("prompt"), where, "prompt")
+        _text(step.get("prompt"), where, "prompt", cap=MAX_PROMPT)
     elif kind == "action":
         check_action({"do": step.get("do"), "args": step.get("args", {})}, where)
     elif kind == "paths":
@@ -388,7 +389,7 @@ def all_hold(conds, values, match="all"):
     return any(results) if match == "any" else all(results)
 
 
-def render(text, values, cap=MAX_TEXT):
+def render(text, values, cap=MAX_PROMPT):
     """`{{field}}` in a prompt or an action's text, from the run's values."""
     return templating.render(str(text or ""), values, cap=cap)
 
