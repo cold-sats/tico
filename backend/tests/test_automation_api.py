@@ -53,6 +53,18 @@ def test_everything_is_404_while_the_redesign_is_off(api):
     get(api, "automations/auto_x/runs", expected=404)
 
 
+def test_malformed_requests_are_404_while_the_redesign_is_off_too(api):
+    """Validation runs after the dormancy check: a body the route would refuse still answers 404, not 422."""
+    for method, path, body in (("POST", "automations", []), ("PATCH", "automations/auto_x", []),
+                               ("DELETE", "automations/auto_x/versions/nope", None),
+                               ("POST", "automations/mail-actions/claim", []),
+                               ("PATCH", "inboxes/ana@acme.example", []),
+                               ("POST", "redesign/migration/convert", []),
+                               ("GET", "audit?limit=many", None), ("GET", "people/ana/assistant", None)):
+        r = api.request(method, "/api/v2/" + path, json=body, headers=headers())
+        assert r.status_code == 404, (method, path, r.status_code, r.text)
+
+
 def test_only_the_owner_turns_the_redesign_on(api):
     r = api.put("/api/v2/settings/redesign", json={"enabled": True}, headers=headers("ben-test"))
     assert r.status_code == 403

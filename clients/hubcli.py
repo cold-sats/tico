@@ -237,6 +237,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub automation runs <id> [--limit N] [--before RUN]
     hub automation versions <id> [--pending]
     hub automation restore <id> <n>        make version n current (a pending one keeps its number)
+    hub automation discard <id> <n>        drop a pending version (a proposal); the automation stays as it is
+    hub automation question-sets           the question sets a Decide step may name (set: id@version)
+    hub audit [--object O] [--limit N] [--before B]
+                                           who changed caps, spend, groups, automations and inboxes; the owner sees all
     hub automation inbox <inbox> [--send on|off]
                                            an inbox's send switch (email, slack:dm, slack:#chan); off = drafts only
     hub trigger list                       webhooks people and bots made; a routine runs --on webhook.<id>
@@ -1869,10 +1873,21 @@ def parser():
     s.add_argument("id")
     s.add_argument("n", type=int)
     s.set_defaults(fn="automation restore")
+    s = auto.add_parser("discard", help="drop a pending version (a proposal)")
+    s.add_argument("id")
+    s.add_argument("n", type=int)
+    s.set_defaults(fn="automation discard")
+    s = auto.add_parser("question-sets", help="the question sets a Decide step may name")
+    s.set_defaults(fn="automation question-sets")
     s = auto.add_parser("inbox", help="read or set an inbox's send switch")
     s.add_argument("inbox", help="an email address, slack:dm or slack:#<channel>")
     s.add_argument("--send", choices=["on", "off"], help="leave out to read it")
     s.set_defaults(fn="automation inbox")
+    s = sub.add_parser("audit", help="who changed caps, spend, groups, automations and inboxes, newest first (the owner sees all)")
+    s.add_argument("--object", help="one object, such as automation:<id> or inbox:<address>")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--before", help="`next` from the page before")
+    s.set_defaults(fn="audit")
 
     s = sub.add_parser("event-types", help="every event Tico names, with a one-line description and an example payload")
     s.add_argument("--group", help="only this group: task, approval, needs_you, bot, release, meeting, strategy, market, "

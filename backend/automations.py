@@ -1411,6 +1411,7 @@ def install(app, store, auth, mutate):
 
     hub = Hub(app, store)
     store.automations = hub
+    dormant = redesign.dormant()
 
     @app.middleware("http")
     async def automation_doorbell(request, call_next):
@@ -1430,7 +1431,7 @@ def install(app, store, auth, mutate):
             raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
         return row
 
-    @app.get("/api/v2/automations")
+    @app.get("/api/v2/automations", **dormant)
     def automations_list(request: Request, owner: str = "", limit: int = 50, cursor: int = 0):
         """The automations the caller may change (the same rule decides what they see), newest first."""
         who = request.state.identity
@@ -1444,7 +1445,7 @@ def install(app, store, auth, mutate):
         shown, more = page(visible[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"automations": shown, "next": more}
 
-    @app.get("/api/v2/automations/question-sets")
+    @app.get("/api/v2/automations/question-sets", **dormant)
     def automations_question_sets(request: Request):
         """The saved question sets a Decide step may name, each with its questions."""
         from clients import judge as J
@@ -1460,7 +1461,7 @@ def install(app, store, auth, mutate):
                          "questions": data["questions"]})
         return {"sets": sets}
 
-    @app.post("/api/v2/automations")
+    @app.post("/api/v2/automations", **dormant)
     def automations_create(request: Request, body: AutomationIn):
         """Save a new automation as version 1. The caller must be allowed to change an automation of that owner."""
         who = request.state.identity
@@ -1475,13 +1476,13 @@ def install(app, store, auth, mutate):
             return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)
         return mutate(request, body, work)
 
-    @app.get("/api/v2/automations/{aid}")
+    @app.get("/api/v2/automations/{aid}", **dormant)
     def automations_get(request: Request, aid: str):
         who = request.state.identity
         with store.read() as c:
             return view(c, found(c, who, aid, rule=may_see), who, detail=True)
 
-    @app.patch("/api/v2/automations/{aid}")
+    @app.patch("/api/v2/automations/{aid}", **dormant)
     def automations_update(request: Request, aid: str, body: AutomationPatch):
         """Change an automation. A change to its trigger, steps or batch times is a new version. A bot that may not
         change it (and the Automations Bot always) proposes instead: a pending version a person restores. Pausing a
@@ -1549,16 +1550,16 @@ def install(app, store, auth, mutate):
             return {"id": aid, "deleted": True}
         return mutate(request, body, work)
 
-    @app.delete("/api/v2/automations/{aid}")
+    @app.delete("/api/v2/automations/{aid}", **dormant)
     def automations_delete(request: Request, aid: str, body: Empty | None = None):
         return delete(request, aid, body or Empty())
 
-    @app.post("/api/v2/automations/{aid}/delete")
+    @app.post("/api/v2/automations/{aid}/delete", **dormant)
     def automations_delete_post(request: Request, aid: str, body: Empty | None = None):
         """The same delete for clients that only POST (the hub CLI and MCP)."""
         return delete(request, aid, body or Empty())
 
-    @app.post("/api/v2/automations/{aid}/run")
+    @app.post("/api/v2/automations/{aid}/run", **dormant)
     def automations_run(request: Request, aid: str, body: RunNow | None = None):
         """Run it now, whatever its trigger and batch times say; `input` stands in for the trigger's output (the page's
         "Test with sample"). Answers with the run once it has gone as far as it can now."""
@@ -1587,7 +1588,7 @@ def install(app, store, auth, mutate):
         with store.read() as c:
             return {"run": run_view(c.execute("SELECT * FROM automation_runs WHERE id=?", (rid,)).fetchone())}
 
-    @app.get("/api/v2/automations/{aid}/runs")
+    @app.get("/api/v2/automations/{aid}/runs", **dormant)
     def automations_runs(request: Request, aid: str, limit: int = 25, before: str = ""):
         """Its runs, newest first, each with its steps' status, outputs and cost (kept 30 days); `next` is the `before`
         for the page after. `daily` holds the counts, which include what the trigger's filters dropped."""
@@ -1607,7 +1608,7 @@ def install(app, store, auth, mutate):
         runs, cut = page([run_view(r) for r in rows], limit, 0, RUN_BYTES)
         return {"runs": runs, "next": runs[-1]["id"] if cut is not None and runs else None, "daily": days}
 
-    @app.get("/api/v2/automations/{aid}/versions")
+    @app.get("/api/v2/automations/{aid}/versions", **dormant)
     def automations_versions(request: Request, aid: str, status: str = "", limit: int = 50, cursor: int = 0):
         """Its versions, newest first; `status=pending` for the proposals waiting on a person."""
         with store.read() as c:
@@ -1620,7 +1621,7 @@ def install(app, store, auth, mutate):
         shown, more = page(rows[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"versions": shown, "next": more}
 
-    @app.post("/api/v2/automations/{aid}/versions/{n}/restore")
+    @app.post("/api/v2/automations/{aid}/versions/{n}/restore", **dormant)
     def automations_restore(request: Request, aid: str, n: int, body: Empty | None = None):
         """A pending version becomes the current one and keeps its number; an older one is saved as a new version.
         Either way its trigger, steps and batch times replace the current ones."""
@@ -1641,7 +1642,7 @@ def install(app, store, auth, mutate):
             return view(c, saved, who, detail=True)
         return mutate(request, body, work)
 
-    @app.delete("/api/v2/automations/{aid}/versions/{n}")
+    @app.delete("/api/v2/automations/{aid}/versions/{n}", **dormant)
     def automations_discard(request: Request, aid: str, n: int, body: Empty | None = None):
         """Discard a pending version (a proposal); any other version stays (409)."""
         who, body = request.state.identity, body or Empty()
@@ -1667,14 +1668,14 @@ def install(app, store, auth, mutate):
         if not (person and "@" in inbox and str(person.get("email") or "").lower() == inbox):
             raise Problem("forbidden", "Only the inbox's person or the top of the org sets its send switch", 403)
 
-    @app.get("/api/v2/inboxes/{inbox}")
+    @app.get("/api/v2/inboxes/{inbox}", **dormant)
     def inbox_view(request: Request, inbox: str):
         inbox = inbox.strip().lower()
         with store.read() as c:
             inbox_rights(c, request.state.identity, inbox)
             return {"inbox": inbox, "send": A.send_on(c, inbox)}
 
-    @app.patch("/api/v2/inboxes/{inbox}")
+    @app.patch("/api/v2/inboxes/{inbox}", **dormant)
     def inbox_update(request: Request, inbox: str, body: InboxSend):
         who, inbox = request.state.identity, inbox.strip().lower()
 
@@ -1690,7 +1691,7 @@ def install(app, store, auth, mutate):
             return after
         return mutate(request, body, work)
 
-    @app.get("/api/v2/people/{person}/assistant")
+    @app.get("/api/v2/people/{person}/assistant", **dormant)
     def person_assistant(request: Request, person: str):
         """The bot an `assistant:<person>` step runs on, once one has run (null before)."""
         from . import assistant
@@ -1716,7 +1717,7 @@ def install(app, store, auth, mutate):
             raise Problem("forbidden", "Another computer reads this mailbox", 403)
         return runner
 
-    @app.post("/api/v2/automations/mail-actions/claim")
+    @app.post("/api/v2/automations/mail-actions/claim", **dormant)
     def automation_mail_claim(request: Request, body: MailClaim):
         """A lease of up to 20 of the mailbox's queued actions for MAIL_LEASE_MINUTES. A send is read against the
         inbox's send switch now, not when it was queued: off, a send or forward is claimed as a draft and its step
@@ -1735,9 +1736,14 @@ def install(app, store, auth, mutate):
                                                     "detail": f"no result after {MAIL_TRIES} tries"})
                 else:
                     c.execute("UPDATE automation_mail_actions SET state=? WHERE id=?", (_requeue(c, row), row["id"]))
-            rows = [dict(r) for r in c.execute(
-                "SELECT * FROM automation_mail_actions WHERE state='queued' AND mailbox=? ORDER BY created LIMIT 20",
-                (mailbox,))]
+            rows, spent = [], 0
+            for r in c.execute("SELECT * FROM automation_mail_actions WHERE state='queued' AND mailbox=? "
+                               "ORDER BY created LIMIT 20", (mailbox,)):
+                size = len(r["args_json"] or "") + len(r["result_json"] or "")
+                if rows and spent + size > LIST_BYTES:
+                    break                  # the rest stay queued for the next claim
+                spent += size
+                rows.append(dict(r))
             sending = A.send_on(c, mailbox)
             out = []
             for r in rows:
@@ -1757,7 +1763,7 @@ def install(app, store, auth, mutate):
             return {"actions": out, "lease_seconds": MAIL_LEASE_MINUTES * 60}
         return mutate(request, body, work)
 
-    @app.post("/api/v2/automations/mail-actions/{mid}/result")
+    @app.post("/api/v2/automations/mail-actions/{mid}/result", **dormant)
     def automation_mail_result(request: Request, mid: str, body: MailResult):
         """What the computer did. Idempotent by action id: once done or failed, a repeat (a lost answer, a late
         report after the lease ran out) changes nothing. A failure it may retry goes back to the queue until

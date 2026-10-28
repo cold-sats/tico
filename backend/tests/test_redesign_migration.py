@@ -2,8 +2,10 @@
 import json
 import pytest
 
+from backend import redesign_migration
 from backend.tests.test_api import api, get, post, put  # noqa: F401
 from backend.tests.test_automation_api import turn_on
+from backend.tests.test_member_bots import botops  # noqa: F401  (fixture)
 
 
 def seed(api):
@@ -197,6 +199,27 @@ def test_hub_tool_runs_the_dry_run_for_the_owner_only(api):
     assert not err and report["counts"]["total"] >= 3, report
     err, refused = call(api, "hub_redesign_migrate", {"action": "convert"}, token="ben-test")
     assert err and "owner" in str(refused), refused
+
+
+def test_botops_runs_the_owners_dry_run_and_a_convert_waits_for_her_tap(api, botops):
+    from backend.tests.test_botops_confirm_cards import card_in_chat
+    from backend.tests.test_botops_parity import act
+    from backend.tests.test_member_bots import finish, turn
+
+    seed(api)
+    turn_on(api)
+    ana = turn(api, botops, person="ana-test", text="Check the redesign migration")
+    dry = act(api, ana, "POST", "redesign/migration/dry-run", {})
+    assert dry.status_code == 200 and dry.json()["counts"]["total"] >= 3, dry.text
+    card = act(api, ana, "POST", "redesign/migration/convert", {})
+    assert card.status_code == 200 and card.json()["needs_confirm"], card.text
+    card_in_chat(api, card.json(), "ana")
+    with db(api).read() as c:
+        assert not redesign_migration.converted(c)
+    finish(api, botops, ana)
+    ben = turn(api, botops, person="ben-test", text="Convert the redesign migration")
+    assert act(api, ben, "POST", "redesign/migration/convert", {}).status_code == 403
+    finish(api, botops, ben)
 
 
 @pytest.mark.parametrize("argv,action", [(["redesign", "migrate"], None),
