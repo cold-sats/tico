@@ -422,6 +422,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            when the report runs (business = hourly, weekdays 08:00 to 18:00)
     hub task-manager run                   run the department check now
     hub task-manager bot on|off            turn the Task Manager bot itself on or off (the owner)
+    hub redesign [--on|--off]              the new design for the whole team; leave both out to read (the owner switches it)
     hub stall-triage [--on|--off]          quiet task triage: Decide reads a quiet task's last messages before its stall check
                                            stays silent (the owner or an admin; on by default)
     hub service-key create --label "Billing backend"
@@ -2655,6 +2656,11 @@ def parser():
     on.add_argument("--off", dest="on", action="store_false", help="switch it off; leave both out to read the switch")
     on.add_argument("--no-on", dest="on", action="store_false", help=argparse.SUPPRESS)      # the old spelling
     s.set_defaults(fn="stall-triage")
+    s = sub.add_parser("redesign", help="the new design (Strategy tabs, Budget, Automations) for the whole team; the owner switches it")
+    on = s.add_mutually_exclusive_group()
+    on.add_argument("--on", dest="on", action="store_true", default=None, help="switch it on")
+    on.add_argument("--off", dest="on", action="store_false", help="switch it off; leave both out to read the switch")
+    s.set_defaults(fn="redesign")
     roadmap = sub.add_parser("roadmap", help="public roadmaps: ranking and company settings (docs/roadmaps.md)").add_subparsers(dest="sub")
     s = roadmap.add_parser("tasks", help="roadmap tasks ranked by requests, organization or size")
     s.add_argument("--sort", choices=["requester_count", "external_requesters", "important", "organization", "size"])

@@ -22,7 +22,7 @@ const lensRunId = () => {
   return rest.startsWith('/') ? decodeURIComponent(rest.slice(1)) : '';
 };
 const lensRunHref = id => LENSES_ROUTE + '/' + encodeURIComponent(id);
-const lensCeo = () => { const n = typeof ceoBotName === 'function' ? ceoBotName() : 'CEO Bot'; return n === 'CEO Bot' ? 'the CEO Bot' : n; };
+const lensCeo = () => { const n = typeof ceoBotName === 'function' ? ceoBotName() : 'CEO Bot'; return n === 'CEO Bot' || n === 'Strategy Bot' ? 'the ' + n : n; };
 const lensErrorCode = error => error?.body?.error?.code || '';
 const lensFirstLine = text => String(text || '').split('\n').find(line => line.trim()) || '';
 

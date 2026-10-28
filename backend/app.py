@@ -6852,6 +6852,8 @@ def create_app(settings=None):
     turn_budgets.install(app, store, auth, mutate, settings_admin)
     from . import audit_log
     audit_log.install(app, store, auth)
+    from . import redesign
+    redesign.install(app, store, auth, mutate)
     profiles.install(app, store, auth, mutate, settings_admin)
     from . import release_flow
     release_flow.install(app, store, auth, mutate)
