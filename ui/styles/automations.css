@@ -31,7 +31,7 @@
 .au-c{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
 /* a narrow pane puts the spend limit and Flow/Runs on a second row, as a phone does, so the name stays whole */
 @media (min-width:761px){.au-c{container-type:inline-size}}
-@container (max-width:640px){.au-hd{flex-wrap:wrap}.au-hd2{order:10;flex-basis:100%}.au-hd2 .au-sp-phone{display:block;flex:1}}
+@container (max-width:640px){.au-c .au-hd{flex-wrap:wrap}.au-c .au-hd2{order:10;flex-basis:100%}.au-hd2 .au-sp-phone{display:block;flex:1}}
 .au-hd{display:flex;align-items:center;flex-wrap:nowrap;gap:8px 10px;padding:10px 20px;min-height:53px;border-bottom:1px solid var(--line)}
 .au-hd:empty{border:0;padding:0;min-height:0}
 .au-name{margin:0;font-size:var(--t-lg);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -36,6 +36,14 @@ run('redesign-e2e-automations', ['org', 'toured', 'redesign_on', 'automations'],
   await page.locator('.au-hd .au-name:text("Inbox triage")').waitFor();
   await page.locator('.au-card[data-open="sort"]').waitFor();
   assert.match(await page.locator('.au-trig').innerText(), /dana@acme\.example/);
+  // The header keeps everything inside it and the name whole (a narrow pane wraps Flow/Runs to a second row).
+  const head = await page.locator('.au-hd').evaluate(hd => {
+    const box = hd.getBoundingClientRect(), name = hd.querySelector('.au-name');
+    const out = [...hd.querySelectorAll('.au-name, .au-sw, .au-ver, .au-more, .au-chip, .au-seg')]
+      .filter(el => el.checkVisibility() && el.getBoundingClientRect().right > box.right + 1).map(el => el.className);
+    return {out, cut: name.scrollWidth > name.clientWidth + 1};
+  });
+  assert.deepEqual(head, {out: [], cut: false}, `${tag}: the header fits`);
   assert.equal(await sideways(page), false);
   await shot(page, `${tag}-03-flow`);
 
