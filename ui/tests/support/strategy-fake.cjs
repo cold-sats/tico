@@ -1,5 +1,5 @@
 // A stand-in hub for the Strategy content scripts (ui/tests/strategy-*.cjs): the org chart's groups and moves
-// (redesign CONTRACT §3), org proposals through Needs you and their decisions (§5), Market › Listening's stats with
+// (redesign CONTRACT §3), Market › Listening's stats with
 // `daily` and `recent`, and the latest market briefing, over fixtures/redesign-{org,listening,briefing}.json (the Acme
 // example), plus the boot stubs. Writes change what a page reads back and are recorded in `writes`.
 const fs = require('node:fs');
@@ -32,7 +32,7 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
   const me = viewer === fx.me.id ? fx.me : {id: viewer, name: person?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};
   const config = {company_name: 'Acme', ...(redesign ? {redesign: true} : {})};
-  const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: fx.needs[viewer] || [], approvals: []};
+  const db = {people: fx.people, emps: fx.employees, groups: fx.groups, needs: []};
   const writes = [];
   // A teammate joins a group and leaves the one it was in (backend/groups.py); `remove` leaves it in no group.
   const move = (kind, id, to) => {
@@ -82,24 +82,6 @@ async function openStrategy(browser, {viewport = PHONE, hash = '#/strategy/org',
       }
       return json(g);
     }
-    // Approvals (§5): a proposal is filed; a decision on an org move applies it and leaves Needs you.
-    if (p === '/api/v2/approvals' && method === 'POST') {
-      const id = 'ap_' + (db.approvals.length + 2);
-      db.approvals.push({id, ...body});
-      return json({id, kind: body.kind, payload: body.payload, decision: null, approval: id, status: 'pending'});
-    }
-    m = p.match(/^\/api\/v2\/approvals\/([^/]+)$/);
-    if (m && method === 'POST') {
-      const item = db.needs.find(x => x.id === decodeURIComponent(m[1]));
-      if (!item) return refuse(404, 'not_found', 'No such approval');
-      if (body.decision === 'approved') {
-        const {bot, to} = item.payload, id = bot.slice(bot.indexOf(':') + 1);
-        move(bot.startsWith('person:') ? 'people' : 'bots', id, to);
-      }
-      db.needs = db.needs.filter(x => x !== item);
-      return json({id: item.id, decision: body.decision});
-    }
-
     // Market.
     if (p === '/api/v2/listening/stats') return listening === 200 ? json(listeningStats()) : refuse(listening, 'forbidden', 'Not yours');
     if (p === '/api/v2/listening/destinations') return json(fixture('redesign-listening.json').destinations);

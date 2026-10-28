@@ -2,9 +2,9 @@
    (pinch and pan) and a desktop. The owner on top; under them the teammates outside groups and every top-level group,
    a group a dashed outline with its name on a tab that folds it. Inside a group the lead comes first and teammates hang
    under whoever they report to. Helpers (BotOps, the Librarian, Assistants, message bots) are off
-   the chart. Tapping a teammate opens a sheet: their home group and Move to…. The owner and the leads above both groups
-   move them at once (PATCH /api/v2/groups/{id}); anyone else's move is a proposal (POST /api/v2/approvals, kind `org`),
-   and proposals waiting on the viewer show as one row on top with Approve and Decline (redesign CONTRACT §3, §5).
+   the chart. Tapping a teammate opens a sheet: their home group, and Move to… for the owner (any group) and a lead (the
+   groups it leads), which moves them at once (PATCH /api/v2/groups/{id}). Anyone else sees the group only; org changes
+   beyond that are the Strategy Bot's to suggest in words and to make when the person asks it (redesign CONTRACT §3).
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -39,15 +39,14 @@ function rdoLeadsAbove(gid) {
   for (let g = rdoGroup(gid), hops = 0; g && hops < 20; g = g.parent ? rdoGroup(g.parent) : null, hops++) if (g.lead) out.push(g.lead);
   return out;
 }
-// Moves at once for the owner (and bot admins, who edit groups in the sidebar) and for a lead over both groups; anyone
-// else proposes. The hub has the last word: a 403 turns the move into a proposal.
-function rdoMayMove(from, to) {
-  if (orgCanGroups()) return true;
-  const me = 'person:' + (S.me?.id || '');
-  return !!from && !!to && rdoLeadsAbove(from).includes(me) && rdoLeadsAbove(to).includes(me);
+// The groups this viewer may move a teammate of `from` into: every one (and No group) for the owner and bot admins,
+// who edit groups in the sidebar; for a lead over `from`, the groups it leads and those below (backend/groups.py
+// `_lead_move`); else none. The hub has the last word.
+function rdoMoveTargets(from) {
+  if (orgCanGroups()) return null;
+  const me = 'person:' + (S.me?.id || ''), mine = g => rdoLeadsAbove(g).includes(me);
+  return from && mine(from) ? rdoGroups().filter(g => mine(g.id)).map(g => g.id) : [];
 }
-// Org moves waiting on this viewer: Needs you's approvals of kind `org` (payload {bot, from, to}).
-const rdoProposals = () => (S.v2?.needs || []).filter(it => it.kind === 'approval' && it.what === 'org' && it.payload?.bot);
 
 // ----------------------------------------------------------------- the tree
 // The sidebar's chart (orgTreeByParent: groups, reports_to, the CEO Bot's place) without helpers and recruiting seats.
@@ -73,13 +72,13 @@ function rdoCount(by, key, seen = new Set()) {
 }
 
 // ----------------------------------------------------------------- drawing
-function rdoCard(n, {top = false, moving = new Set()} = {}) {
+function rdoCard(n, {top = false} = {}) {
   const ref = rdoRef(n), name = rdoName(n);
   const lead = rdoLeadOf(ref).length > 0;
   const bot = n.kind === 'bot' ? (S.emps || []).find(e => e.name === n.name) : null;
   const role = top ? 'Owner' : lead ? 'Lead' : String(bot?.role || '').trim().length <= 24 ? String(bot?.role || '').trim() : '';
   const av = n.kind === 'person' ? personAvatar(n.person || {name}, 16) : avatar(n.name, 16);
-  const cls = ['rdo-card', top && 'top', lead && 'lead', moving.has(ref) && 'pv'].filter(Boolean).join(' ');
+  const cls = ['rdo-card', top && 'top', lead && 'lead'].filter(Boolean).join(' ');
   return `<button type="button" class="${cls}" data-rdo-ref="${esc(ref)}" aria-label="${esc(name)}"><b>${esc(name)}</b>
     <span class="rdo-r">${av}${role ? `<span class="rdo-rl">${esc(role)}</span>` : ''}</span></button>`;
 }
@@ -102,30 +101,17 @@ function rdoGroupBlock(by, g, ctx, depth) {
 }
 function rdoChartHtml() {
   const by = rdoTree(), top = rdoTop(by);
-  const moving = new Set(rdoProposals().map(p => p.payload.bot));
-  const ctx = {seen: new Set(), moving};
+  const ctx = {seen: new Set()};
   const row = top ? [...(by[rdoKey(top)] || []), ...(by[''] || []).filter(n => n !== top)] : (by[''] || []);
   if (top) ctx.seen.add(rdoKey(top));
   const cols = rdoSorted(row, '').map(n => rdoNode(by, n, ctx, 0)).filter(Boolean);
   if (!top && !cols.length) return '<p class="muted rd-empty">No one on the chart yet.</p>';
-  return (top ? `<div class="rdo-top${cols.length ? ' has-row' : ''}">${rdoCard(top, {top: true, moving})}</div>` : '')
+  return (top ? `<div class="rdo-top${cols.length ? ' has-row' : ''}">${rdoCard(top, {top: true})}</div>` : '')
     + (cols.length ? `<ul class="rdo-row">${cols.map(c => `<li>${c}</li>`).join('')}</ul>` : '');
-}
-// One row per proposed move: who → where (where from in its title), decided on its own.
-function rdoPropsHtml() {
-  const props = rdoProposals();
-  if (!props.length) return '';
-  const row = p => {
-    const who = rdoRefName(p.payload.bot), to = rdoGroupName(p.payload.to), id = esc(p.id);
-    return `<div class="rdo-prop" data-rdo-prop="${id}"><span class="rdo-props-t" title="${esc(`${who}: ${rdoGroupName(p.payload.from)} → ${to}`)}"><span class="rdo-props-k">Proposed</span> <b>${esc(who)}</b> → ${esc(to)}</span>
-      <span class="rdo-props-b"><button type="button" class="ghost" data-rdo-decide="declined" data-rdo-id="${id}" aria-label="Decline" title="Decline"><span aria-hidden="true">✕</span></button><button type="button" class="primary" data-rdo-decide="approved" data-rdo-id="${id}" aria-label="Approve" title="Approve"><span class="nav-icon" aria-hidden="true">check</span></button></span></div>`;
-  };
-  return `<div class="rdo-props" role="region" aria-label="Proposed moves">${props.map(row).join('')}</div>`;
 }
 function rdoDraw() {
   const cv = $('#rdo-cv'), pane = $('#rdo-pane');
   if (!cv || !pane) return;
-  $('#rdo-props-host').innerHTML = rdoPropsHtml();
   cv.innerHTML = rdoChartHtml();
   rdoFitHeight();
   if (RDO.zoom == null) {
@@ -175,20 +161,19 @@ async function pageRdOrg() {
   main.classList.add('strategy-layout', 'rd-org-layout');
   RDO ||= {groups: null, zoom: null, folded: rdoFoldedLoad()};
   RDO.zoom = null;
-  main.innerHTML = strategyHeadHtml('org') + `<div id="rdo-props-host"></div>
-    <div class="rdo-wrap"><div class="rdo-pane" id="rdo-pane"><div class="rdo-cv rd-org" id="rdo-cv"></div></div>
+  main.innerHTML = strategyHeadHtml('org') + `<div class="rdo-wrap"><div class="rdo-pane" id="rdo-pane"><div class="rdo-cv rd-org" id="rdo-cv"></div></div>
       <div class="rdo-zoom" role="group" aria-label="Zoom"><button type="button" class="ghost" data-rdo-zoom="out" aria-label="Zoom out">−</button>
         <button type="button" class="ghost" data-rdo-zoom="in" aria-label="Zoom in">+</button></div></div>`;
   rdoWire($('#rdo-pane'));
   window.removeEventListener('resize', rdoFitHeight); window.addEventListener('resize', rdoFitHeight);
   rdoDraw();
-  // The groups, and Needs you read fresh: a move proposed since the last read shows on open.
-  const [groups] = await Promise.all([get('/v2/groups').catch(() => null), v2NeedsRead().catch(() => null)]);
+  // The groups with their leads.
+  const groups = await get('/v2/groups').catch(() => null);
   if (seq !== RDO_SEQ || !$('#rdo-cv')) return;
   if (groups) RDO.groups = Array.isArray(groups) ? groups : groups.groups || [];
   rdoDraw();
 }
-// After a move or a decision: the roster (homes), the groups (leads) and Needs you (proposals) again.
+// After a move: the roster (homes) and the groups (leads) again.
 async function rdoReload() {
   await refresh(true);
   const groups = await get('/v2/groups', {fresh: true}).catch(() => null);
@@ -247,53 +232,40 @@ document.addEventListener('click', ev => {
   const zoom = ev.target.closest('[data-rdo-zoom]');
   if (zoom) { rdoZoom(RDO.zoom * (zoom.dataset.rdoZoom === 'in' ? 1.25 : 0.8)); return; }
   const card = ev.target.closest('[data-rdo-ref]');
-  if (card) { rdoSheet(card.dataset.rdoRef); return; }
-  const decide = ev.target.closest('[data-rdo-decide]');
-  if (decide) void rdoDecide(decide);
+  if (card) rdoSheet(card.dataset.rdoRef);
 });
 
-async function rdoDecide(button) {
-  const decision = button.dataset.rdoDecide, id = button.dataset.rdoId;
-  button.closest('.rdo-prop').querySelectorAll('button').forEach(b => { b.disabled = true; });
-  try {
-    await post(`/v2/approvals/${encodeURIComponent(id)}`, {decision});
-    toast(decision === 'approved' ? 'Approved' : 'Declined');
-  } catch (e) { toast(e.message, true); }
-  await rdoReload();
-}
-
-// Move to…: every group in chart order, nested ones indented, and No group.
-function rdoGroupOptions(current) {
+// Move to…: the groups `allowed` names (all of them when null) in chart order, nested ones indented; No group for those
+// who may move anyone.
+function rdoGroupOptions(current, allowed) {
   const groups = S.orgGroups || [], out = [];
   const walk = (parent, depth) => groups.filter(g => (g.parent || '') === parent).sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(g => {
     if (depth > 10 || out.some(([id]) => id === g.id)) return;
-    out.push([g.id, ' '.repeat(depth * 2) + g.name]); walk(g.id, depth + 1);
+    out.push([g.id, '\u00a0'.repeat(depth * 2) + g.name]); walk(g.id, depth + 1);
   });
   walk('', 0);
   for (const g of groups) if (!out.some(([id]) => id === g.id)) out.push([g.id, g.name]);
-  return [['', 'No group'], ...out].map(([id, label]) => `<option value="${esc(id)}"${id === current ? ' selected' : ''}>${esc(label)}</option>`).join('');
+  const shown = allowed ? out.filter(([id]) => allowed.includes(id)) : [['', 'No group'], ...out];
+  return shown.map(([id, label]) => `<option value="${esc(id)}"${id === current ? ' selected' : ''}>${esc(label)}</option>`).join('');
 }
 function rdoSheet(ref) {
-  const name = rdoRefName(ref), from = rdoHome(ref), led = rdoLeadOf(ref);
+  const name = rdoRefName(ref), from = rdoHome(ref), led = rdoLeadOf(ref), targets = rdoMoveTargets(from);
+  const may = !targets || targets.length > 0;
   const id = ref.slice(ref.indexOf(':') + 1), href = ref.startsWith('person:') ? `#/person/${encodeURIComponent(id)}` : `#/bot/${encodeURIComponent(id)}`;
   const body = `<div class="bd-fields rdo-sheet">
       <div class="bd-field"><span>Group</span><span data-rdo-home>${esc(rdoGroupName(from))}${led.length ? ` · lead of ${esc(led.map(rdoGroupName).join(', '))}` : ''}</span></div>
-      <label class="bd-field"><span>Move to…</span><select name="to">${rdoGroupOptions(from)}</select></label>
+      ${may ? `<label class="bd-field"><span>Move to…</span><select name="to">${rdoGroupOptions(from, targets)}</select></label>` : ''}
       <a class="rdo-open" href="${href}">Open ${esc(name)}</a></div>`;
   const dlg = useDialog(name, body, async form => {
     const to = form.to.value;
     if (to === from) throw new Error('Already in ' + rdoGroupName(to) + '.');
-    if (rdoMayMove(from, to)) {
-      try { await rdoMove(ref, from, to); toast(`${name} moved to ${rdoGroupName(to)}`); return; }
-      catch (e) { if (e.status !== 403) throw e; }
-    }
-    await post('/v2/approvals', {kind: 'org', payload: {bot: ref, from, to}});
-    toast('Sent for approval');
+    await rdoMove(ref, from, to);
+    toast(`${name} moved to ${rdoGroupName(to)}`);
   }, () => void rdoReload());
   dlg.classList.add('rd-sheet', 'rdo-dialog');
-  const form = dlg.querySelector('form'), submit = form.querySelector('[type=submit]');
-  const label = () => { submit.textContent = form.to.value === from ? 'Move' : rdoMayMove(from, form.to.value) ? 'Move' : 'Ask to move'; };
-  form.to.onchange = label; label();
+  const submit = dlg.querySelector('[type=submit]');
+  if (may) submit.textContent = 'Move';
+  else dlg.querySelector('.use-dialog-row').remove();
   dlg.querySelector('.rdo-open').onclick = () => dlg.close();
 }
 // The move itself: into a group (it leaves the one it was in), or out of its group.

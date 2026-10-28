@@ -17,7 +17,6 @@
 .rdo-card.lead{border-color:var(--muted)}
 .rdo-card.top{width:150px;min-height:48px;background:color-mix(in srgb,var(--accent) 14%,var(--surface));border-color:var(--accent)}
 .rdo-card.top b{-webkit-line-clamp:1;font-size:var(--t-base)}
-.rdo-card.pv{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
 .rdo-r{display:flex;align-items:center;gap:5px;min-width:0}
 .rdo-rl{font-size:var(--t-xs);line-height:1.2;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 
@@ -53,21 +52,11 @@
 .rdo-gi.is-g{margin-top:10px}
 .rdo-gi.is-g+.rdo-gi:not(.is-g){margin-top:6px}
 
-/* Proposed moves waiting on you: one row on top. */
-.rdo-props{margin:0 0 8px;border:1px solid var(--accent);border-radius:9px;background:var(--surface);font-size:var(--t-sm)}
-.rdo-prop{display:flex;align-items:center;gap:10px;min-height:40px;padding:4px 6px 4px 12px}
-.rdo-prop+.rdo-prop{border-top:1px solid var(--line)}
-.rdo-props-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rdo-props-k{color:var(--muted)}
-.rdo-props-b{display:flex;gap:6px;flex:none}
-.rdo-props-b button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;width:36px;padding:0}
-.rdo-props-b .nav-icon{font-size:18px;width:18px;height:18px;color:inherit}
 .rdo-sheet .bd-field>span:last-child{color:var(--muted);text-align:right}
 .rdo-open{font-size:var(--t-sm)}
 
 @media (max-width:760px){
   .rdo-pane{max-height:none}
-  .rdo-props-b button{min-height:36px;width:40px}
   .rdo-zoom button{width:36px;height:36px}
 }
 

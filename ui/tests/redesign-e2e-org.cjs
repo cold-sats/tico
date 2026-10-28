@@ -1,9 +1,9 @@
 // Journey 7 on a real hub (redesign TESTING.md §L3): Strategy › Org on a phone (then a desktop). Dana, the top of the
 // org, taps Builder (Claude) and moves it from Engineering to Release: the hub's groups have it there at once. Omar
-// leads Engineering only, so moving Builder (OpenAI) to Release is "Ask to move": an `org` approval (CONTRACT §5) and
-// nothing moves. Dana sees it in Needs you and as one row on Org; Approve moves it.
+// leads Engineering only, so his Move to… offers Engineering's groups and not Release, and a Release teammate's sheet
+// has no Move to…. No approval is filed: org changes beyond that are the Strategy Bot's to suggest in words.
 const assert = require('node:assert/strict');
-const {run, open, go, ok, sideways, shot, t} = require('./support/redesign-e2e.cjs');
+const {run, open, ok, sideways, shot, t} = require('./support/redesign-e2e.cjs');
 
 const card = ref => `.rdo-card[data-rdo-ref="${ref}"]`;
 const groupsOf = async page => { const g = await ok(page, 'GET', 'groups'); return g.groups || g; };
@@ -37,44 +37,29 @@ run('redesign-e2e-org', ['org', 'toured', 'redesign_on', 'groups'], async ({hub,
   assert.ok(!holds(groupNamed(groups, 'Engineering'), 'builder-claude'), `${tag}: and out of Engineering`);
   await shot(page, `${tag}-03-moved`);
 
-  // Omar (lead of Engineering, not Release) asks to move Builder (OpenAI).
+  // Omar (lead of Engineering, not Release): Move to… offers only what he leads; Release's teammates have none.
   const omar = await open(browser, hub, 'omar', {phone, hash: '#/strategy/org'});
   await omar.locator(card('bot:builder-openai')).click();
-  const ask = omar.locator('dialog.rd-sheet[open]');
-  await ask.waitFor();
-  await ask.locator('select[name="to"]').selectOption({label: 'Release'});
-  assert.equal(await ask.locator('[type=submit]').innerText(), 'Ask to move', `${tag}: a lead outside its groups asks`);
-  await shot(omar, `${tag}-04-ask-sheet`);
-  await ask.locator('[type=submit]').click();
-  await ask.waitFor({state: 'detached'});
-  await omar.locator('.toast:has-text("Sent for approval")').waitFor();
-  assert.equal(await omar.locator('.rdo-props').count(), 0, `${tag}: Omar does not decide`);
+  const mine = omar.locator('dialog.rd-sheet[open]');
+  await mine.waitFor();
+  const options = (await mine.locator('select[name="to"] option').allInnerTexts()).map(o => o.trim());
+  assert.ok(options.includes('Engineering') && !options.includes('Release') && !options.includes('No group'),
+    `${tag}: a lead moves inside its groups only: ${options}`);
+  assert.equal(await mine.locator('[type=submit]').innerText(), 'Move');
+  await shot(omar, `${tag}-04-lead-sheet`);
+  await mine.locator('[data-close]').first().click();
+  await omar.locator(card('bot:builder-claude')).click();
+  const theirs = omar.locator('dialog.rd-sheet[open]');
+  await theirs.waitFor();
+  assert.equal(await theirs.locator('select[name="to"], [type=submit]').count(), 0, `${tag}: no Move to… outside his groups`);
+  await theirs.locator('[data-close]').first().click();
   groups = await groupsOf(omar);
-  assert.ok(holds(groupNamed(groups, 'Engineering'), 'builder-openai'), `${tag}: nothing moves before Dana approves`);
+  assert.ok(holds(groupNamed(groups, 'Engineering'), 'builder-openai'), `${tag}: nothing moved`);
+  const needs = await ok(page, 'GET', 'needs-you');
+  assert.equal((needs.items || needs.needs || needs).filter(it => it.kind === 'approval' && ['org', 'group'].includes(it.what)).length, 0,
+    `${tag}: no org approval for Dana`);
   assert.deepEqual(omar.errors, [], `${tag}: no page errors for Omar`);
   await omar.context().close();
-
-  // Dana: in Needs you, and one row on Org.
-  const needs = await ok(page, 'GET', 'needs-you');
-  const asked = (needs.items || needs.needs || needs).filter(it => it.kind === 'approval' && it.what === 'org');
-  assert.equal(asked.length, 1, `${tag}: one org approval for Dana: ${JSON.stringify(needs).slice(0, 300)}`);
-  assert.deepEqual(asked[0].payload, {bot: 'bot:builder-openai', from: eng.id, to: release.id});
-  assert.equal(asked[0].requested_by, 'human:omar');
-  await go(page, '#/strategy');
-  await go(page, '#/strategy/org');
-  const row = page.locator('.rdo-props');
-  await row.waitFor({timeout: t(10000)});
-  assert.match(await row.innerText(), /Builder \(OpenAI\)|builder-openai/);
-  assert.equal(await page.locator(`.rdo-card.pv[data-rdo-ref="bot:builder-openai"]`).count(), 1);
-  assert.equal(await sideways(page), false);
-  await shot(page, `${tag}-05-proposal`);
-  await page.locator('[data-rdo-decide="approved"]').click();
-  await row.waitFor({state: 'detached'});
-  await page.locator(`[data-rdo-group="${release.id}"] ${card('bot:builder-openai')}`).waitFor({timeout: t(10000)});
-  groups = await groupsOf(page);
-  assert.ok(holds(groupNamed(groups, 'Release'), 'builder-openai'), `${tag}: approved, the hub moved it`);
-  assert.ok(!holds(groupNamed(groups, 'Engineering'), 'builder-openai'), `${tag}: and out of Engineering`);
-  await shot(page, `${tag}-06-approved`);
   assert.deepEqual(page.errors, [], `${tag}: no page errors`);
   await page.context().close();
 });
