@@ -215,3 +215,12 @@ def test_a_filter_stop_before_the_batch_never_waits():
     gate = {"id": "gate", "type": "filter", "rules": [{"when": [], "stop": True}]}
     run = E.execute(flow(gate, note("later"), batch={"times": ["13:00"]}), MESSAGE, Services())
     assert run["status"] == "ok"
+
+
+def test_a_turn_that_fails_fails_the_run():
+    services = Services()
+    f = flow({"id": "x", "type": "llm", "as": "bot:coo", "prompt": "p", "out": "o"}, note("after"))
+    run = E.execute(f, MESSAGE, services)
+    assert E.answer(run, "msg_1", "interrupted", ok=False)
+    E.advance(f, run, services)
+    assert run["status"] == "failed" and statuses(run) == [("x", "failed")] and services.acted == []

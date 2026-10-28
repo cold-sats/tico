@@ -3992,6 +3992,8 @@ class Execution:
                   (body.outcome, H.now(), body.text,
                    encode({**body.model_dump(exclude={"load_snapshot"}), **({'source_pause': 'quota'} if source_pause else {}),
                            **({"check": check["runtime"]} if check else {})}), aid))
+        from . import automations
+        automations.turn_done(c, row, body.outcome, body.text)   # an automation waiting on this turn goes on
         quota_continue = False
         if source_pause and not body.fallback and row['thread_id'] and worked:
             computer = c.execute('SELECT capabilities_json FROM runners WHERE id=?', (row['runner_id'],)).fetchone()

@@ -1400,15 +1400,20 @@ def _building(conn, task_id):
 
 
 def hook(conn, type, subject, data, actor, revision=None):
-    """Tell the outgoing webhooks (backend/webhooks.py) that `type` happened to `subject`, in the caller's write. `data`
-    is a function that makes the event's thin payload, called only when some endpoint is listening. Never raises: a
-    webhook problem must not undo or refuse the change that caused it."""
+    """Tell the outgoing webhooks (backend/webhooks.py) and the automations (backend/automations.py) that `type` happened
+    to `subject`, in the caller's write. `data` is a function that makes the event's thin payload, called only when
+    someone is listening. Never raises: a webhook problem must not undo or refuse the change that caused it."""
     try:
         from . import webhooks
         if webhooks.listening(conn):
             webhooks.publish(conn, type, subject, data(), actor, revision=revision)
     except Exception:
         logging.getLogger(__name__).warning("webhook event %s was not queued", type, exc_info=True)
+    try:
+        from . import automations
+        automations.on_event(conn, type, subject, data, actor)    # dormant unless the redesign is on
+    except Exception:
+        logging.getLogger(__name__).warning("automations did not hear %s", type, exc_info=True)
 
 
 def _task_facts(conn, task_id, actor, **more):

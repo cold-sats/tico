@@ -60,17 +60,21 @@ def values_of(state, thread):
     return out
 
 
-def answer(state, ref, text, cost=0.0):
-    """An `llm` turn finished: its thread gets the text as the step's output and is ready again. Returns whether a
-    waiting thread had that ref."""
+def answer(state, ref, text, cost=0.0, ok=True):
+    """An `llm` turn finished: its thread gets the text as the step's output and is ready again; a turn that did not
+    finish (`ok` false) fails the thread. Returns whether a waiting thread had that ref."""
     for thread in state["threads"]:
         wait = thread.get("wait") or {}
         if thread["state"] == WAITING and wait.get("kind") == "turn" and wait.get("ref") == ref:
-            thread["outputs"][wait["out"]] = {"text": text, "ref": ref}
             record = state["steps"][wait["record"]]
-            record.update(status="ok", outputs={"text": text, "ref": ref}, cost=round(record["cost"] + cost, 6))
+            outputs = {"text": text, "ref": ref} if ok else {"error": str(text or "the turn did not finish")[:300], "ref": ref}
+            record.update(status="ok" if ok else "failed", outputs=outputs, cost=round(record["cost"] + cost, 6))
             state["cost"] = round(state["cost"] + cost, 6)
-            thread.update(state=READY, wait=None)
+            if ok:
+                thread["outputs"][wait["out"]] = outputs
+            thread.update(state=READY if ok else FAILED, wait=None)
+            if not ok:
+                state["status"] = _status(state)
             return True
     return False
 
