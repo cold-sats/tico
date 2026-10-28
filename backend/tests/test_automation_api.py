@@ -187,6 +187,8 @@ def test_only_the_top_pauses_a_builtin(api):
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET reports_to='human:ben' WHERE bot='ops'")
     shipped = builtin(api)
+    shown = get(api, f"automations/{shipped}", "ben-test")
+    assert shown["can_edit"] is True and shown["can_pause"] is False      # he edits it, but only the top pauses it
     patch(api, shipped, {"name": "Renamed by Ben"}, "ben-test")          # ops reports to Ben: he may edit it
     patch(api, shipped, {"enabled": False}, "ben-test", expected=403)
 
@@ -198,6 +200,7 @@ def test_what_wakes_bots_is_the_hubs_read_only_builtin_the_top_may_only_pause(ap
     automations.tick(api.app.state.store)                                  # made once
     wakes = [a for a in get(api, "automations")["automations"] if a["name"] == "What wakes bots"]
     assert len(wakes) == 1 and wakes[0]["builtin"] is True and wakes[0]["can_edit"] is False
+    assert wakes[0]["can_pause"] is True                                   # the page shows the top its switch
     shown = get(api, f"automations/{wakes[0]['id']}")
     assert shown["owner"] == "person:ana" and shown["trigger"]["type"] == "event" and shown["readonly"] is True
     assert shown["steps"] and all(s["type"] == "filter" for s in shown["steps"])

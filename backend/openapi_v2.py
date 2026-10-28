@@ -1379,7 +1379,7 @@ _RUN = obj({"id": "s", "automation_id": "s", "version": "i", "trigger_ref": "s",
            required=["id", "automation_id", "version", "status", "steps"])
 SCHEMAS.update({
     "Automation": obj({"id": "s", "name": "s", "owner": "s", "enabled": "b", "trigger": {"type": "object"},
-                       "steps": items({"type": "object"}), "version": "i", "can_edit": "b",
+                       "steps": items({"type": "object"}), "version": "i", "can_edit": "b", "can_pause": "b",
                        "spend_cap": {"type": ["object", "null"]}, "batch": {"type": ["object", "null"]},
                        "last_run": {"type": ["object", "null"]},
                        "counts": obj({"today": obj({"runs": "i", "dropped": "i"})}),

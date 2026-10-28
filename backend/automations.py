@@ -140,6 +140,7 @@ def view(c, row, who=None, detail=False):
             out["next_run"] = row["next_due"] or _iso(_due(flow["trigger"], datetime.now(timezone.utc)))
     if who is not None:
         out["can_edit"] = may_change(c, who, flow)
+        out["can_pause"] = may_pause(c, who, flow, out["can_edit"])
     return out
 
 
@@ -284,6 +285,14 @@ def may_change(c, who, flow, chart=None):
     gid = (flow.get("group") or "").partition(":")[2] or (owner[2:] if owner.startswith("g:") else "")
     heads = ([] if owner.startswith("g:") else [owner]) + (chart.leads(gid) if gid else [])
     return any(me == head or me in chart.above(head) for head in heads)
+
+
+def may_pause(c, who, flow, can_edit=None):
+    """Who may switch it on or off: a built-in (read-only or not) only the top of the org, anything else whoever may
+    change it. The page shows the switch on this, so a read-only built-in still shows it to the top."""
+    if flow.get("builtin") or flow.get("readonly"):
+        return who.role == "owner"
+    return may_change(c, who, flow) if can_edit is None else can_edit
 
 
 def may_see(c, who, flow):

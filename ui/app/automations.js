@@ -77,7 +77,8 @@ async function pageAutomations() {
       // A slow answer for an automation left behind must not land on the one now open.
       let cur;
       try { cur = auNormal(await get(auApi(id))); }
-      catch (e) { if (AU === state && state.id === id) { state.cur = null; state.root.querySelector('.au-pane').innerHTML = `<p class="err">${esc(e.message)}</p>`; } return; }
+      catch (e) { if (AU === state && state.id === id) { state.cur = null; state.root.querySelector('.au-pane').innerHTML = [403, 404].includes(e.status)
+        ? '<p class="muted au-pad">Not shared with you</p>' : `<p class="err">${esc(e.message)}</p>`; } return; }
       if (AU !== state || state.id !== id) return;
       state.cur = cur;
     }
@@ -138,6 +139,8 @@ function auGrouped(list) {
   return [['Mine', mine], ...[...groups].map(([g, xs]) => [auGroupName(g), xs]), ['Company', company]].filter(([, xs]) => xs.length);
 }
 const auRowName = a => { const src = auSource(a.trigger); return {name: a.name || 'Untitled', src: src && !String(a.name || '').includes(src) ? src : ''}; };
+// The on/off switch: `can_pause` (a read-only built-in shows it to the top of the org only); older hubs send can_edit.
+const auMayPause = a => a.can_pause ?? !!a.can_edit;
 function auSwitch(on, label, attrs = '') {
   return `<input type="checkbox" role="switch" class="people-switch au-sw" aria-label="${esc(label)}"${on ? ' checked' : ''} ${attrs}>`;
 }
@@ -151,7 +154,7 @@ function auDrawList() {
     return `<div class="au-row${a.id === AU.id ? ' sel' : ''}${a.enabled === false ? ' off' : ''}" data-row="${esc(a.id)}">
       <a href="${auHref(a.id)}" title="${esc(name + (src ? ' · ' + src : ''))}"${a.id === AU.id ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${AU_TRIGGER_ICONS[a.trigger?.type] || 'schedule'}</span>
       <span class="au-nm">${esc(name)}${src ? ` <span class="muted">· ${esc(src)}</span>` : ''}</span></a>
-      ${a.can_edit ? auSwitch(a.enabled !== false, name + ' on', `data-on="${esc(a.id)}"`) : a.enabled === false ? '<span class="pill">Off</span>' : ''}</div>`;
+      ${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', `data-on="${esc(a.id)}"`) : a.enabled === false ? '<span class="pill">Off</span>' : ''}</div>`;
   }).join('')).join('') || `<p class="muted au-pad">${q ? 'No matches' : 'No automations'}</p>`;
 }
 
@@ -163,8 +166,8 @@ function auDrawHead() {
   const seg = ['flow', 'runs'].map(v => `<a role="tab" href="${auHref(AU.id, v)}" aria-selected="${AU.view === v || (v === 'flow' && AU.view === 'bot')}">${v === 'flow' ? 'Flow' : 'Runs'}</a>`).join('');
   hd.innerHTML = `<a class="au-icon au-back" href="${AUTOMATIONS}" aria-label="Back"><span class="nav-icon" aria-hidden="true">chevron_left</span></a>
     <h2 class="au-name">${esc(name)}</h2>
-    ${a ? `<span class="au-own">${personCircle(auActorName(a.owner), 18)}${esc(auActorName(a.owner))}</span>
-    ${a.can_edit ? auSwitch(a.enabled !== false, name + ' on', 'data-on-cur') : a.enabled === false ? '<span class="pill">Off</span>' : ''}
+    ${a ? `<span class="au-own" title="${esc(auActorName(a.owner))}">${personCircle(auActorName(a.owner), 18)}<span class="au-own-n">${esc(auActorName(a.owner))}</span></span>
+    ${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', 'data-on-cur') : a.enabled === false ? '<span class="pill">Off</span>' : ''}
     <span class="au-sp"></span>
     <div class="au-hd2">
       ${a.can_edit ? `<button class="au-chip" type="button" data-spend><span class="nav-icon" aria-hidden="true">payments</span>${esc(auSpendWords(a))}</button>`
@@ -259,7 +262,8 @@ function auOnClick(e) {
 // The ⋯ menu: versions, delete (refused for a built-in, so it is shown off with why).
 function auMoreHTML() {
   const a = AU.cur;
-  return `<button type="button" role="menuitem" data-mi="versions"><span class="nav-icon" aria-hidden="true">history</span>Versions</button>
+  return `${a.can_edit && !a.readonly ? '<button type="button" role="menuitem" data-mi="run"><span class="nav-icon" aria-hidden="true">play_arrow</span>Test run</button>' : ''}
+    <button type="button" role="menuitem" data-mi="versions"><span class="nav-icon" aria-hidden="true">history</span>Versions</button>
     ${a.can_edit ? `<button type="button" role="menuitem" data-mi="delete"${a.builtin ? ' disabled title="Built-in automations can’t be deleted"' : ''}>
       <span class="nav-icon" aria-hidden="true">delete</span>${a.builtin ? 'Built-in' : 'Delete'}</button>` : ''}`;
 }
@@ -267,6 +271,7 @@ async function auMoreAct(what) {
   auMenuClose();
   const a = AU.cur, state = AU;
   if (what === 'versions') { auEdOpen({kind: 'versions'}); return; }
+  if (what === 'run') { auEdOpen({kind: 'run', text: auSample(a.trigger)}); return; }
   if (what !== 'delete' || a.builtin || !confirm(`Delete ${a.name}?`)) return;
   try {
     await writeRequest('DELETE', auApi(a.id));

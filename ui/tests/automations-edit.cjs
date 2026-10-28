@@ -58,13 +58,20 @@ async function saved(page, writes, n) {
       await page.locator('[data-op="add"][data-at="qs"]').click();
       await page.fill('[data-b="qs.4.id"]', 'urgent');
       assert.equal(await page.locator('[data-b="set"]').inputValue(), '');
+      // The hub's judge needs what to ask: an empty one is stopped here, not sent.
+      const before = writes.length;
+      await page.locator('.au-ed [data-op="save"]').click();
+      await page.waitForSelector('.toast:has-text("needs what to ask")');
+      assert.equal(writes.length, before);
+      await page.fill('[data-b="qs.4.ask"]', 'Is it urgent?');
       body = await saved(page, writes, 9);
       const d = body.steps[1];
       assert.equal(d.level, 'high');
       assert.equal('set' in d, false);
       assert.deepEqual(Object.keys(d.questions), ['bucket', 'is_ask', 'money', 'legal', 'urgent']);
       assert.deepEqual(Object.keys(d.questions.bucket.criteria), ['needs-owner', 'reply', 'route', 'archive', 'watch']);
-      assert.deepEqual(d.questions.urgent, {type: 'noul'});
+      assert.deepEqual(d.questions.urgent, {type: 'noul', instructions: 'Is it urgent?'});
+      assert.equal(d.questions.money.instructions, 'Is it about money?');
       assert.match(await page.locator('.au-card[data-open="dc1"]').innerText(), /Custom questions[\s\S]*urgent/);
 
       // LLM inside a path: who it runs as, and the prompt.

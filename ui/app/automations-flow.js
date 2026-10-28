@@ -13,6 +13,9 @@ const AU_ACTIONS = {archive: 'Archive', leave_for_you: 'Leave for you', draft_re
 const AU_FIND = {mail: 'Mail', tasks: 'Tasks', prs: 'Pull requests', listening: 'Listening', docs: 'Docs'};
 const AU_OPS = {is: '=', is_not: '≠', '>=': '≥', '<=': '≤', contains: 'has', matches: 'matches'};
 const AU_MAX_PATHS = 10, AU_MAX_DEPTH = 3;
+// A Filter rule's action: the hub keeps {do, args} (CONTRACT §2 ACTIONS); older copies said just the name.
+const auThenDo = x => typeof x === 'string' ? x : x?.do || '';
+const auThenWords = then => (then || []).map(x => AU_ACTIONS[auThenDo(x)] || auThenDo(x));
 
 const auPct = p => Math.round(Number(p) * 100) + '%';
 // "d1.bucket" reads "bucket": the step's output name is plumbing; a trigger's "message.from" reads "from".
@@ -85,7 +88,7 @@ function auStepCard(s) {
   if (s.type === 'filter') {
     const rules = s.rules || [];
     body = rules.map(r => `<div class="au-rule"><span>${esc(auCondsText(r.when, r.match) || 'Always')}</span><span class="nav-icon" aria-hidden="true">arrow_forward</span>
-      ${(r.then || []).map(x => `<span class="au-c1">${esc(AU_ACTIONS[x] || x)}</span>`).join('')}</div>`).join('');
+      ${auThenWords(r.then).map(x => `<span class="au-c1">${esc(x)}</span>`).join('')}</div>`).join('');
   } else if (s.type === 'decide') {
     const ids = auQuestionIds(s);
     body = `<div class="au-chips">${ids.map(q => `<span class="au-c1">${esc(q)}</span>`).join('') || '<span class="muted">No questions</span>'}</div>`;
@@ -160,8 +163,8 @@ function auNextOut(prefix) {
 }
 function auNewStep(type) {
   const s = {id: auNewId(), type, enabled: true};
-  if (type === 'filter') s.rules = [{when: [{field: 'message.from', op: 'contains', value: ''}], match: 'all', then: ['archive'], stop: true}];
-  if (type === 'decide') Object.assign(s, {questions: {question: {type: 'noul'}}, level: 'medium', out: auNextOut('d')});
+  if (type === 'filter') s.rules = [{when: [{field: 'message.from', op: 'contains', value: ''}], match: 'all', then: [{do: 'archive', args: {}}], stop: true}];
+  if (type === 'decide') Object.assign(s, {questions: {question: {type: 'noul', instructions: ''}}, level: 'medium', out: auNextOut('d')});
   if (type === 'llm') Object.assign(s, {as: 'assistant:' + (S.me?.id || ''), prompt: '', out: auNextOut('l')});
   if (type === 'find') Object.assign(s, {source: 'mail', query: '', since: 'last_run', limit: 20});
   if (type === 'bot_turn') Object.assign(s, {bot: (S.emps || []).find(e => e.name !== AU_BOT)?.name || '', prompt: ''});

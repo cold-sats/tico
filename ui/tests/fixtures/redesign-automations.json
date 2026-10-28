@@ -9,9 +9,10 @@
   "groups": [{"id": "engineering", "name": "Engineering"}],
   "question_sets": [
     {"id": "mail-triage@1", "questions": {
-      "bucket": {"type": "choice", "criteria": {"needs-owner": "", "reply": "", "route": "", "archive": "", "watch": ""}},
-      "is_ask": {"type": "noul"}, "money": {"type": "noul"}, "legal": {"type": "noul"}}},
-    {"id": "support-triage@2", "questions": {"urgency": {"type": "score", "max": 3}}}
+      "bucket": {"type": "choice", "instructions": "Which bucket is this mail?", "criteria": {"needs-owner": "", "reply": "", "route": "", "archive": "", "watch": ""}},
+      "is_ask": {"type": "noul", "instructions": "Is it an ask?"}, "money": {"type": "noul", "instructions": "Is it about money?"},
+      "legal": {"type": "noul", "instructions": "Is it legal?"}}},
+    {"id": "support-triage@2", "questions": {"urgency": {"type": "score", "max": 3, "instructions": "How urgent?", "criteria": ["Low", "Medium", "High"]}}}
   ],
   "automations": [
     {"id": "au_inbox", "name": "Inbox · dana@acme.example", "owner": "person:dana", "enabled": true, "builtin": false,

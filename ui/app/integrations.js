@@ -185,11 +185,13 @@ async function integrationDetail(service, load, {base = INTEGRATIONS, head = '',
   INT_ROWS = [{service: page.service, title: page.title, kind: page.kind, summary: page.summary,
                access: page.access, credentials: page.credentials, aliases: page.aliases || [],
                writes: page.writes, owner: page.owner}];
+  // The redesign's read-only page leaves out a fact with nothing to say; today's page keeps every label.
+  const metaRow = (dt, dd) => readOnly && !dd ? '' : `<dt>${dt}</dt><dd>${dd}</dd>`;
   $('#int-detail').innerHTML = `<div class="meeting-head">${head}<div><h1>${esc(page.title)}</h1></div>
       ${readOnly ? '' : `<button class="int-key" type="button" data-int-cred="${esc(page.service)}" title="Credentials for ${esc(page.title)}" aria-label="Credentials for ${esc(page.title)}">key_vertical</button>`}</div>
-    <section class="card"><dl class="int-meta"><dt>Access</dt><dd>${esc(page.access)}</dd><dt>Credentials</dt><dd>${page.credentials.map(c => esc(c)).join('<br>')}</dd>
+    <section class="card"><dl class="int-meta">${metaRow('Access', esc(page.access))}${metaRow('Credentials', page.credentials.map(c => esc(c)).join('<br>'))}
       <dt>Writes</dt><dd><span class="pill ${page.writes === 'never' ? 'ok' : page.writes === 'approval' ? 'waiting' : ''}">${esc(page.writes)}</span> · owner ${esc(page.owner)}${page.aliases?.length ? ' · also <span class="mono">' + page.aliases.map(esc).join(', ') + '</span>' : ''}</dd>
-      <dt>Declared as</dt><dd><pre class="mono">${esc(page.declared_as.trim())}</pre></dd></dl></section>
+      ${metaRow('Declared as', page.declared_as.trim() && `<pre class="mono">${esc(page.declared_as.trim())}</pre>`)}</dl></section>
     <section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>
     ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2></header>
       <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
