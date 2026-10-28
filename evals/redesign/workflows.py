@@ -10,7 +10,7 @@ Read shapes this script assumes where the CONTRACT names none (each listed as a 
 - a run names what started it (a message id, a task id, an event subject, an item url) somewhere in its row, most
   likely `trigger_ref`; checks find a run by that text
 - action `args` (CONTRACT §6 gap): create_task {owner, title, body}, send_reply {text}, label {label}, post_update
-  {to, text}, call_webhook {webhook, event, body}; `{{step.text}}` reads a step's output
+  {to, text}, call_webhook {webhook, type, data}; `{{step.text}}` reads a step's output
 - Find on prs: query "open, no activity for 24 hours" (no query language is named)
 - batch times are read in the team's time zone (America/Los_Angeles); the CONTRACT names none"""
 import datetime as dt
@@ -1173,8 +1173,8 @@ def wf6_steps(org, f):
        [step("check", "bot_turn", bot=RELEASE_ID, prompt="Smoke-test the release and report what broke.")])
     do(org, f, "notify", W3, lambda: make_auto(org, "Release notify", "bot:" + RELEASE_ID, released, [
         act("post", "post_update", to=["updates"], text="Released {{event.subject}}"),
-        act("tell", "call_webhook", webhook=endpoint_id(f, "endpoint"), event="custom.release_shipped",
-            body={"release": "{{event.subject}}"})]))
+        act("tell", "call_webhook", webhook=endpoint_id(f, "endpoint"), type="custom.release_shipped",
+            data={"release": "{{event.subject}}"})]))
     do(org, f, "emit_1", W3, publish_release, org, "v1.4.0")
     org.scheduler_pass()
     do(org, f, "qa_runs_1", W3, runs_of, org, f, "qa")
