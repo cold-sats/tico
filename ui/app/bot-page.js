@@ -196,11 +196,11 @@ function botQuarantineCard(slug) {
       <p class="muted" id="bot-quarantine-result"></p>
     </section>`;
 }
-// The banner at the top of a bot's page while it is over its spend limit; Usage is where a limit is raised.
+// The banner at the top of a bot's page while it is over its spend limit; Budget, open at the bot, is where a limit is raised.
 function botLimitHTML(slug) {
   const limit = overLimit(slug); if (!limit) return '';
   const usd = n => '$' + Number(n || 0).toFixed(2);
-  return `<section class="bot-limit" role="status"><span aria-hidden="true">⚠</span> ${esc(overLimitWord(limit))}${limit.limit != null ? ` (${usd(limit.spent)} of ${usd(limit.limit)})` : ''}. <a href="#/usage">Raise limit</a></section>`;
+  return `<section class="bot-limit" role="status"><span aria-hidden="true">⚠</span> ${esc(overLimitWord(limit))}${limit.limit != null ? ` (${usd(limit.spent)} of ${usd(limit.limit)})` : ''}. <a href="#/strategy/budget/${encodeURIComponent('bot:' + slug)}">Raise limit</a></section>`;
 }
 // The alert beside the name and the limit banner come and go with the status poll and live events.
 function botAlertDraw() {
