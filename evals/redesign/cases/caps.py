@@ -2,6 +2,7 @@
 The count is the sender's tasks for the receiver today, minus the ones it closed before the receiver acted."""
 import datetime as dt
 
+from ..fakes import ReplayJudge, attach_judge
 from ..harness import (DANA, DANA_ID, DANA_REF, CLAUDE, CLAUDE_ID, CLAUDE_REF, LEAD, LEAD_ID, LEAD_REF, OPENAI,
                        OPENAI_ID, OPENAI_REF, RELEASE_ID, RELEASE_REF, W2, W3, Check, Scenario, accepted, automation,
                        auto_id, body, close_task, comment, got, make_group, put_cap, replied, rows, run_now, send, setup,
@@ -35,7 +36,8 @@ def refused_count(f, key, count, needs):
 def decided(f):
     setup(f, "cap", "sent")
     ran = rows(body(f, "runs"))
-    hit = any(step.get("outputs", {}).get("d1") for run in ran for step in run.get("steps", [])
+    # A Decide step's outputs are keyed by question id (CONTRACT §2 Runs): task-rank@1's needs_you.
+    hit = any((step.get("outputs") or {}).get("needs_you") for run in ran for step in run.get("steps", [])
               if step.get("id") == "rank")
     return hit, f"{len(ran)} run(s) of the rank step"
 
@@ -48,7 +50,7 @@ def via_manager(f):
 
 def self_run_ok(f):
     setup(f, "cap")
-    run = body(f, "ran")
+    run = body(f, "ran").get("run") or {}   # POST /{id}/run answers {"run": {...}} (CONTRACT §2)
     return run.get("status") == "ok", f"run {run.get('status')}"
 
 
@@ -61,6 +63,9 @@ def follows_group(f):
 
 # ---------------------------------------------------------------------------------------------- 1 lead under cap
 def s1_steps(org, f):
+    # A scripted answer in task-rank@1's shape (questions/task-rank.json): the check reads the ranking, not the model.
+    org.step(f, "judge", attach_judge, org, ReplayJudge([{"needs_you": {"type": "noul", "noul": 0.9},
+                                                           "urgency": {"type": "score", "score": 2}}]))
     org.step(f, "cap", put_cap, org, CLAUDE_REF, LEAD_REF, 10)
     org.step(f, "auto", automation, org, "Rank · engineering-lead", LEAD_REF,
              trigger={"type": "task_received", "to": LEAD_REF},
