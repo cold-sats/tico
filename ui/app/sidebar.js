@@ -21,8 +21,8 @@ document.querySelectorAll('[data-section-toggle]').forEach(button => button.oncl
 });
 renderNavSections();
 // The built-ins stay out of the team chart. The Assistant and BotOps have their own rows in the main rail (each
-// person's private Assistant is its own page, ui/app/assistant-page.js); the CEO Bot is on Goals and the
-// Librarian on Docs and Market. Search, bot pickers and a person's page do not list the Assistant or the Librarian;
+// person's private Assistant is its own page, ui/app/assistant-page.js); the Strategy Bot is beside the Strategy tabs
+// and the Librarian on Docs and Market. Search, bot pickers and a person's page do not list the Assistant or the Librarian;
 // Settings > Bots manages all four, and #/bot/<slug> opens each.
 const isHiddenBot = slug => slug === assistantBot() || slug === 'librarian';
 const shownEmps = () => (S.emps || []).filter(e => !isHiddenBot(e.name));
@@ -44,22 +44,23 @@ function orgBossKey(n) {
 }
 function orgHang(key, boss, groupOf) {
   const group = groupOf[key] || '';
-  // The CEO Bot hangs under the owner wherever the owner sits. A bot the server hangs under
-  // the CEO Bot (backend/ceo_bot.py) stays in its group only when that group hangs under the CEO Bot too, else it
-  // leaves the group for the CEO Bot's branch: the owner's own group never moves there, or the chart would loop.
+  // The Strategy Bot hangs under the owner wherever the owner sits; it is a helper, off the chart, so what hangs under it
+  // shows under the owner (orgTreeWithHelpers). A bot the server hangs under the Strategy Bot (backend/ceo_bot.py) stays
+  // in its group only when that group hangs under the Strategy Bot too, else it leaves the group for the owner's branch:
+  // the owner's own group never moves there, or the chart would loop.
   if (boss && (key === 'b:goal-manager' || (boss === 'b:goal-manager' && group && !orgGroupUnderCeo(group)))) return boss;
   if (group) return boss && groupOf[boss] === group ? boss : 'g:' + group;
   return boss && !groupOf[boss] ? boss : '';
 }
-// Whether this group, through its top-level group, hangs under the CEO Bot (orgGroupParent).
+// Whether this group, through its top-level group, hangs under the Strategy Bot (orgGroupParent).
 function orgGroupUnderCeo(id) {
   const byId = new Map((S.orgGroups || []).map(g => [g.id, g]));
   let g = byId.get(id);
   for (let hops = 0; g?.parent && byId.has(g.parent) && hops < 20; hops++) g = byId.get(g.parent);
   return g?.org_parent === 'b:goal-manager';
 }
-// Where a group hangs: in its parent group, else at the top. The server hangs the top-level
-// group of a Head it puts under the CEO Bot there too (`org_parent`, backend/ceo_bot.py), when the CEO Bot is on the chart.
+// Where a group hangs: in its parent group, else at the top. The server hangs the top-level group of a Head it puts under
+// the Strategy Bot there too (`org_parent`, backend/ceo_bot.py), and the chart lifts it to the owner with the Head.
 const orgGroupParent = (g, keys) => g.parent && keys.has('g:' + g.parent) ? 'g:' + g.parent
   : g.org_parent === 'b:goal-manager' && keys.has('b:goal-manager') ? 'b:goal-manager' : '';
 function orgGroupOf(people, bots, seats = []) {
@@ -75,8 +76,7 @@ function orgTreeByParent() {
   // "Only bots I can read or write": a bot the caller may merely see leaves the chart, and the
   // bots under it hang from the next thing that is left.
   // Built-in and message bots sit apart, as on Goals; a bot that reports to one hangs where it would have.
-  // A CEO Bot this person hid from their chart (`chart_hidden`) is left off; nothing was moved under it.
-  const bots = (S.emps || []).filter(e => orgBranchVisible(e) && orgMineKeep(e) && !e.chart_hidden);
+  const bots = (S.emps || []).filter(e => orgBranchVisible(e) && orgMineKeep(e));
   const empIds = new Set(bots.map(e => e.name));
   const seats = S.seats || [];
   const groupOf = orgGroupOf(people, bots, seats);
@@ -89,9 +89,6 @@ function orgTreeByParent() {
   }
   for (const e of bots) {
     let boss = orgBossKey({kind: 'bot', ...e});
-    // Under a CEO Bot this person hid: the next row up, where GET /api/v2/org hangs it too.
-    const hiddenBoss = boss.startsWith('b:') && (S.emps || []).find(x => x.name === boss.slice(2) && x.chart_hidden);
-    if (hiddenBoss) boss = orgBossKey({kind: 'bot', ...hiddenBoss});
     if (boss.startsWith('b:') && !empIds.has(boss.slice(2))) {
       const owner = e.operator || e.users?.[0]?.id;
       boss = owner ? 'p:' + owner : '';
@@ -223,7 +220,6 @@ function defaultCollapsed() {
     if (!k || !by[k].length) continue;
     if (k.startsWith('g:')) continue;
     if (founder && k === 'p:' + founder.id) continue;
-    if (k === 'b:goal-manager') continue;        // the CEO Bot heads the chart: its Heads show
     keys.add(k);
   }
   return keys;
@@ -328,17 +324,6 @@ function orgMoveStep(key, parent, step) {
   return orgOrderSave(parent, keys, key);
 }
 let ORG_MENU = null;                       // the key whose Move menu is open
-// Hide from my chart, from the CEO Bot's menu: the toast names it by its current name and offers it back at once.
-async function ceoChartHideFromTree() {
-  const name = ceoBotName();
-  try {
-    await ceoChartSet(true);
-    toast(`${name} is hidden from your chart. Settings > Bots > ${name} shows it again.`, false,
-      {label: 'Show on my chart', run: () => ceoChartSet(false)});
-    // Its row and menu are gone: the way back has focus.
-    [...document.querySelectorAll('.toast button')].pop()?.focus();
-  } catch (e) { toast(e.message, true); renderTree(); }
-}
 async function orgDrop(from, to) {
   const isGroup = to.startsWith('g:');
   if (from.startsWith('g:')) {
@@ -580,8 +565,8 @@ $('#org-history').onclick = () => {
   renderTree();
 };
 // Helpers (built-ins and message bots) are off the Team list; they have their own entry points. `reports_to` is untouched,
-// and a bot that reports to one hangs where it would have. The Strategy Bot is built in but on the chart, at its top.
-const isHelperBot = e => (isBuiltInBot(e.name) && e.name !== 'goal-manager') || !!e.helper
+// and a bot that reports to one hangs where it would have. The Strategy Bot is one too: its place is the Strategy tabs.
+const isHelperBot = e => isBuiltInBot(e.name) || !!e.helper
   || (S.people || []).some(p => p.inbox_bot === e.name);
 // The order here and on Goals: the Assistant, then the other built-ins, then message bots.
 const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'task-manager', 'inbox'];
@@ -660,17 +645,15 @@ function renderTree() {
     const at = n => { const manager = orgReportsTo(n), list = lists[manager] || []; return {parent: manager, order: list.length > 1 ? list : []}; };
     return sorted.map(node => row(node, depth, false, at(node))).join('');
   };
-  // A report's place among its manager's reports: its drop zones and its Move menu. The CEO Bot's row always has the
-  // menu, with Hide from my chart (one person's view; Settings > Bots > CEO Bot shows it again).
+  // A report's place among its manager's reports: its drop zones and its Move menu.
   const placeAttrs = (key, at) => at.order.includes(key) ? ` data-org-in="${esc(at.parent)}" data-org-place` : '';
   const moveMenu = (key, name, at) => {
-    const i = at.order.indexOf(key), ceo = key === 'b:goal-manager';
-    if (i < 0 && !ceo) return '';
-    const open = ORG_MENU === key, label = (ceo ? 'More for ' : 'Move ') + name;
-    const moves = i < 0 ? '' : `<button type="button" role="menuitem" data-org-step="-1"${i === 0 ? ' disabled' : ''}>Move up</button><button type="button" role="menuitem" data-org-step="1"${i === at.order.length - 1 ? ' disabled' : ''}>Move down</button>`;
-    const hide = ceo ? '<button type="button" role="menuitem" data-org-hide-ceo>Hide from my chart</button>' : '';
-    return `<span class="org-order${open ? ' open' : ''}"><button type="button" class="org-tool" data-org-menu="${esc(key)}" data-org-in="${esc(at.parent)}" aria-haspopup="menu" aria-expanded="${open}" title="${ceo ? 'More' : 'Move'}" aria-label="${esc(label)}"><span class="nav-icon" aria-hidden="true">more_horiz</span></button>`
-      + (open ? `<span class="org-order-menu" role="menu" aria-label="${esc(label)}">${moves}${hide}</span>` : '')
+    const i = at.order.indexOf(key);
+    if (i < 0) return '';
+    const open = ORG_MENU === key, label = 'Move ' + name;
+    const moves = `<button type="button" role="menuitem" data-org-step="-1"${i === 0 ? ' disabled' : ''}>Move up</button><button type="button" role="menuitem" data-org-step="1"${i === at.order.length - 1 ? ' disabled' : ''}>Move down</button>`;
+    return `<span class="org-order${open ? ' open' : ''}"><button type="button" class="org-tool" data-org-menu="${esc(key)}" data-org-in="${esc(at.parent)}" aria-haspopup="menu" aria-expanded="${open}" title="Move" aria-label="${esc(label)}"><span class="nav-icon" aria-hidden="true">more_horiz</span></button>`
+      + (open ? `<span class="org-order-menu" role="menu" aria-label="${esc(label)}">${moves}</span>` : '')
       + '</span>';
   };
   // flat: the history list, one row per bot and person, no children and nothing to drag
@@ -771,12 +754,6 @@ function renderTree() {
     const seat = ev.target.closest('[data-seat-open]');
     if (seat) { ev.preventDefault(); setDrawer(false); void recruitSeat(seat.dataset.seatOpen); return; }
     const opener = ev.target.closest('[data-org-menu]'), step = ev.target.closest('[data-org-step]');
-    if (ev.target.closest('[data-org-hide-ceo]')) {
-      ev.preventDefault();
-      ORG_MENU = null;
-      void ceoChartHideFromTree();
-      return;
-    }
     if (step) {
       ev.preventDefault();
       const btn = step.closest('.org-order').querySelector('[data-org-menu]');
