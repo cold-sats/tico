@@ -132,6 +132,68 @@
     }
   ],
   "paths": {
+    "/api/v2/approvals": {
+      "post": {
+        "summary": "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
+        "operationId": "requestApproval",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRequested"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Needs you"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/approvals/{aid}": {
       "get": {
         "summary": "One approval request",
@@ -24333,6 +24395,63 @@
         ],
         "title": "Answer"
       },
+      "ApprovalCreate": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "send",
+              "spend",
+              "publish",
+              "merge",
+              "support",
+              "task_cap",
+              "spend_limit",
+              "group",
+              "org"
+            ],
+            "title": "Kind"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "supersedes_approval": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Approval"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "payload"
+        ],
+        "title": "ApprovalCreate"
+      },
       "ApprovalDecision": {
         "properties": {
           "decision": {
@@ -24356,6 +24475,28 @@
           "decision"
         ],
         "title": "ApprovalDecision"
+      },
+      "ApprovalRequested": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "additionalProperties": true
       },
       "Assistant": {
         "type": "object",

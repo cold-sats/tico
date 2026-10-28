@@ -1314,14 +1314,14 @@ SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "p
     "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     "next": {"type": ["string", "null"]}}}})
 
-# The redesign's audit trail (backend/audit_log.py).
+# The redesign's proposals (backend/proposals.py): a change a person decides, applied by the hub on approve.
 STABLE.extend([
-    ("/api/v2/audit", "get", "Team", "listAudit",
-     "Who changed caps, spend, groups and automations, newest first (owner: all; others: their own)", "AuditPage"),
+    ("/api/v2/approvals", "post", "Needs you", "requestApproval",
+     "Ask a person to approve an action. With the redesign on, kinds task_cap, spend_limit, group and org are proposals "
+     "the top of the org decides; the hub applies one on approve, audited with via approval:<id>, and tells BotOps",
+     "ApprovalRequested"),
 ])
-SCHEMAS.update({"AuditPage": {"type": "object", "required": ["rows", "next"], "properties": {
-    "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-    "next": {"type": ["string", "null"]}}}})
+SCHEMAS.update({"ApprovalRequested": obj({"id": "s", "kind": "s", "approval": "s", "status": "s"}, required=["id", "kind"])})
 # The redesign setting (backend/redesign.py).
 STABLE.extend([
     ("/api/v2/settings/redesign", "get", "Team", "getRedesign", "Whether the team turned the redesign on (also `redesign` in config)",
