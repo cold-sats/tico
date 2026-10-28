@@ -3510,6 +3510,194 @@ def team_budget(api, args):
     return _as_person(api).post("settings/turn-budgets", body, key=_key(args)) if body else _as_person(api).get("settings/turn-budgets")
 
 
+# ----------------------------------------------------------------------------- outgoing webhooks
+_WEBHOOK_EVENTS = {"type": "array", "items": {"type": "string"},
+                   "description": "Event names (`task.done`), groups (`task.*`) or `*`; see hub_event_types"}
+
+
+_WEBHOOK_FILTER = {"type": "object", "description": "Which events the endpoint gets, beyond its event names: departments, bots "
+                   "(slugs) and task_types (ids or names), each a list; empty or missing means all. Applies to events about a "
+                   "task or a bot; the rest (a release, a health finding) always pass",
+                   "properties": {"departments": {"type": "array", "items": {"type": "string"}},
+                                  "bots": {"type": "array", "items": {"type": "string"}},
+                                  "task_types": {"type": "array", "items": {"type": "string"}}}}
+_WEBHOOK_HEADERS = {"type": "array", "maxItems": 10, "description": "Up to 10 custom headers sent with every post, replacing the "
+                    "list. A `secret` header's value is sealed and never shown again: leave `value` out to keep it. Tico sets "
+                    "webhook-*, host, content-length, content-type, transfer-encoding and connection itself",
+                    "items": {"type": "object", "properties": {"name": {"type": "string"}, "value": {"type": "string"},
+                                                              "secret": {"type": "boolean"}}, "required": ["name"]}}
+
+
+def webhook_options(fields):
+    """The CLI's flags as the tool's arguments: `--departments/--bots/--task-types` become `filter`, `--header` and
+    `--secret-header` ("Name: value") become `headers`; `--no-filter` and `--no-headers` clear them."""
+    picked = {k: fields.pop(k) for k in ("departments", "bots", "task_types") if k in fields}
+    if picked:
+        fields["filter"] = picked
+    if fields.pop("no_filter", False):
+        fields["filter"] = {}
+    headers = []
+    for flag, secret in (("header", False), ("secret_header", True)):
+        for text in fields.pop(flag, None) or []:
+            name, colon, value = text.partition(":")
+            if not colon and not secret:
+                raise ValueError(f"--header is Name: value, not {text!r}")
+            # A plain header sends no `secret` key: BotOps' requests refuse any key named like a secret.
+            headers.append({"name": name.strip(), **({"secret": True} if secret else {}),
+                            **({"value": value.strip()} if colon else {})})
+    if headers:
+        fields["headers"] = headers
+    if fields.pop("no_headers", False):
+        fields["headers"] = []
+    return fields
+
+
+def _hook_path(args, *tail):
+    from urllib.parse import quote
+    return "/".join(["webhooks", quote(args["id"], safe=""), *tail])
+
+
+@tool("hub_webhook_list", "Outgoing webhook endpoints you may see (an admin sees everyone's), each with its events, state "
+      "and 7-day delivered, failed and pending counts. A bot sees names and hosts only.",
+      {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0},
+       "on_behalf_of": ON_BEHALF_OF})
+def webhook_list(api, args):
+    return _as_person(api, args.get("on_behalf_of")).get("webhooks", limit=args.get("limit"), offset=args.get("offset"))
+
+
+@tool("hub_webhook_create", "Make an outgoing webhook endpoint: Tico posts the chosen events to an https address, signed "
+      "(Standard Webhooks). A person's call returns the signing `secret` once; save it. A bot's call files a `send` approval "
+      "and returns it as `approval`; once a person approves, repeat the same call and the endpoint is made, owned by that person.",
+      {"name": _s("What it is for"), "url": _s("The https address Tico posts to"), "events": _WEBHOOK_EVENTS,
+       "rate_per_hour": {"type": "integer", "minimum": 1, "description": "Most sends an hour (default 600); more wait"},
+       "allow_http": {"type": "boolean", "description": "Owner only: allow plain http to this computer (localhost), for development"},
+       "filter": _WEBHOOK_FILTER, "headers": _WEBHOOK_HEADERS,
+       "on_behalf_of": ON_BEHALF_OF}, required=("name", "url"), writes=True)
+def webhook_create(api, args):
+    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "filter", "headers") if args.get(k) is not None}
+    return _as_person(api, args.get("on_behalf_of")).post("webhooks", body, key=_key(args))
+
+
+@tool("hub_webhook_show", "One endpoint and its last ten delivery attempts.",
+      {"id": _s("The endpoint id (ep_...)"), "on_behalf_of": ON_BEHALF_OF}, required=("id",))
+def webhook_show(api, args):
+    return _as_person(api, args.get("on_behalf_of")).get(_hook_path(args))
+
+
+@tool("hub_webhook_update", "Change an endpoint's name, address, events, filter, custom headers or hourly rate (and, for the owner, the plain-http switch).",
+      {"id": _s("The endpoint id"), "name": _s("New name"), "url": _s("New https address"), "events": _WEBHOOK_EVENTS,
+       "rate_per_hour": {"type": "integer", "minimum": 1},
+       "allow_http": {"type": "boolean", "description": "Owner only"},
+       "filter": _WEBHOOK_FILTER, "headers": _WEBHOOK_HEADERS,
+       "expected_revision": {"type": "integer", "minimum": 1, "description": "The revision you read; a stale one answers 409. "
+                             "Needed to change the address"},
+       "credentials": {"type": "string", "enum": ["keep", "clear"],
+                       "description": "When the new address is another destination and secret headers keep their saved "
+                                      "values (the update answers 409 destination_change): keep sends them there, clear "
+                                      "removes them and pauses the endpoint until they are typed again. Ask the person"},
+       "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def webhook_update(api, args):
+    body = {k: args[k] for k in ("name", "url", "events", "rate_per_hour", "allow_http", "filter", "headers", "expected_revision",
+                                 "credentials")
+            if args.get(k) is not None}
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "update"), body, key=_key(args))
+
+
+@tool("hub_webhook_rotate", "Make a new signing secret (returned once). The old one keeps signing beside it for 24 hours.",
+      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def webhook_rotate(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "rotate"), {}, key=_key(args))
+
+
+@tool("hub_webhook_pause", "Stop sending to an endpoint; what is queued waits.",
+      {"id": _s("The endpoint id"), "reason": _s("Why, shown on the endpoint"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id",), writes=True)
+def webhook_pause(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "pause"), {"reason": args.get("reason") or ""},
+                                                           key=_key(args))
+
+
+@tool("hub_webhook_resume", "Send to a paused endpoint again.",
+      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def webhook_resume(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "resume"), {}, key=_key(args))
+
+
+@tool("hub_webhook_delete", "Delete an endpoint and cancel what is waiting to be sent to it.",
+      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def webhook_delete(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "delete"), {}, key=_key(args))
+
+
+@tool("hub_webhook_send", "Send a custom event (`custom.<name>`) to one endpoint. A bot needs its send switch on and an "
+      "endpoint that listens for the name.",
+      {"id": _s("The endpoint id"), "type": _s("custom.<name>, lowercase"),
+       "data": {"type": "object", "description": "The event's data, up to 64 KB"},
+       "subject": _s("What it is about (an id); defaults to the type"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id", "type"), writes=True)
+def webhook_send(api, args):
+    body = {"type": args["type"], "data": args.get("data") or {}, "subject": args.get("subject") or ""}
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "send"), body, key=_key(args))
+
+
+@tool("hub_webhook_sends", "An endpoint's send log, newest first: type, subject, state (ready, sending, delivered, failed, "
+      "cancelled, withheld), attempts, last status and next attempt. Give `send` for one send with its attempts.",
+      {"id": _s("The endpoint id"), "send": _s("One send's id (wh_...)"),
+       "state": {"type": "string", "enum": ["ready", "sending", "delivered", "failed", "cancelled", "withheld"]},
+       "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0},
+       "on_behalf_of": ON_BEHALF_OF}, required=("id",))
+def webhook_sends(api, args):
+    who = _as_person(api, args.get("on_behalf_of"))
+    if args.get("send"):
+        from urllib.parse import quote
+        return who.get(_hook_path(args, "sends", quote(args["send"], safe="")))
+    return who.get(_hook_path(args, "sends"), state=args.get("state"), limit=args.get("limit"), offset=args.get("offset"))
+
+
+@tool("hub_webhook_retry", "Send a failed, cancelled or delivered send again now (a delivered one is a resend); it keeps its id, so a receiver that already got it drops the repeat.",
+      {"id": _s("The endpoint id"), "send": _s("The send's id (wh_...)"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id", "send"), writes=True)
+def webhook_retry(api, args):
+    from urllib.parse import quote
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "sends", quote(args["send"], safe=""), "retry"),
+                                                           {}, key=_key(args))
+
+
+@tool("hub_webhook_recover", "Send again every send that gave up since a date (`2026-10-20` or a time): same ids and bodies, so a "
+      "receiver that kept the first one drops the repeat. At most 500 at a time (`more` says run it again). The endpoint must be on.",
+      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id", "since"), writes=True)
+def webhook_recover(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "recover"), {"since": args["since"]}, key=_key(args))
+
+
+@tool("hub_webhook_replay", "Send the events since a date that this endpoint should have had and has no send for (it was added "
+      "late, or its filter changed). The same tests as a live event: its event names, its filter, and what its owner may read. "
+      "Events are kept 30 days. A round looks at 500 events; when it answers `more`, call again with its `next_since` as `since` "
+      "and its `next_after` as `after`. The endpoint must be on.",
+      {"id": _s("The endpoint id"), "since": _s("A date like 2026-10-20, or a time (or the last round's next_since)"),
+       "after": _s("The last round's next_after, when continuing"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id", "since"), writes=True)
+def webhook_replay(api, args):
+    body = {"since": args["since"], **({"after": args["after"]} if args.get("after") else {})}
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "replay"), body, key=_key(args))
+
+
+@tool("hub_webhook_enable", "Turn an endpoint back on. After Tico turned it off for failing (five days of failed attempts), "
+      "the answer's `recover` says the date to give hub_webhook_recover to send again what it held back.",
+      {"id": _s("The endpoint id"), "on_behalf_of": ON_BEHALF_OF}, required=("id",), writes=True)
+def webhook_enable(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "enable"), {}, key=_key(args))
+
+
+@tool("hub_webhook_example", "Send an event type's example to one endpoint, to test the receiver (default `custom.example`).",
+      {"id": _s("The endpoint id"), "type": _s("An event name from hub_event_types"), "on_behalf_of": ON_BEHALF_OF},
+      required=("id",), writes=True)
+def webhook_example(api, args):
+    return _as_person(api, args.get("on_behalf_of")).post(_hook_path(args, "example"), {"type": args.get("type") or ""},
+                                                           key=_key(args))
+
+
 @tool("hub_task_caps", "Read the task caps: how many tasks each teammate may create for another per day, with "
       "today's count, the tasks closed before the receiver acted, and the refused creates. Also the changes bots asked "
       "for, which a person approves or declines as approvals. A cap is off until someone sets one.", {})

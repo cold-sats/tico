@@ -548,10 +548,10 @@ STABLE = [
      "lead for the bots in the group and those below. A bot over a limit takes no new job until the period turns over or the "
      "limit is raised", "BotUsageLimit"),
     ("/api/v2/usage/pools/company", "put", "Usage", "setTeamUsageLimit",
-     "A limit on every bot's estimated spend together, per hour, day, week and month; empty removes it. Over it, no bot "
+     "A limit on every bot's estimated spend together, per hour, day, week and month; null removes a field, one left out stays. Over it, no bot "
      "takes a new job (owner and bot administrators)", "UsagePoolLimit"),
     ("/api/v2/usage/pools/groups/{group}", "put", "Usage", "setGroupUsageLimit",
-     "A limit on the estimated spend of a group's bots together, nested groups included; empty removes it. Over it, none "
+     "A limit on the estimated spend of a group's bots together, nested groups included; null removes a field, one left out stays. Over it, none "
      "of them takes a new job (owner and bot administrators; also the lead of the group or one above "
      "it, within the parent group's limit)", "UsagePoolLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),

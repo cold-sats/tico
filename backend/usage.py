@@ -142,7 +142,7 @@ def _caps_of(row):
 
 
 def save_pool(c, auth, who, scope, body, via=None):
-    """A limit on the combined spend of the whole team or a group; empty removes it. The owner and bot administrators;
+    """A limit on the combined spend of the whole team or a group; a field set to null removes it, a field left out keeps it. The owner and bot administrators;
     also the lead of the group or of one above it."""
     gid = scope.split(":", 1)[1] if scope != usage_limits.COMPANY else None
     if not auth.bot_admin(who):
@@ -165,7 +165,7 @@ def save_pool(c, auth, who, scope, body, via=None):
 
 
 def save_limit(c, auth, who, bot, body, via=None):
-    """A bot's own limits; empty follows the company default. Its owners and administrators, and the lead of a group it
+    """A bot's own limits; a field set to null follows the company default, a field left out keeps it. Its owners and administrators, and the lead of a group it
     is in. Returns (the saved caps, who may edit)."""
     led = led_bots(c, who)
     if who.role not in ("owner", "human") and not led:
@@ -305,7 +305,7 @@ def install(app, store, auth, mutate, settings):
         return mutate(request, body, work)
 
     def set_pool(request, scope, body):
-        """A limit on the combined spend of the whole team or a group; empty removes it."""
+        """A limit on the combined spend of the whole team or a group; a field set to null removes it, a field left out keeps it."""
         who = request.state.identity
         auth.domain(who)
         return mutate(request, body, lambda c: save_pool(c, auth, who, scope, body))
@@ -322,7 +322,7 @@ def install(app, store, auth, mutate, settings):
 
     @app.put("/api/v2/usage/limits/{bot}")
     def set_limit(request: Request, bot: str, body: M.UsageLimit):
-        """A bot's own 30-minute, daily, weekly and monthly limit in estimated USD; empty follows the company default. A
+        """A bot's own 30-minute, daily, weekly and monthly limit in estimated USD; a field set to null follows the company default, a field left out keeps it. A
         person who runs the bot but is not an administrator may not go above the company default. A group's lead may set
         it for every bot in the group."""
         who = request.state.identity

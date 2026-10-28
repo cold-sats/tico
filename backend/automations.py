@@ -685,15 +685,19 @@ def _absorbed(c, row):
 def _no_input(c, row, settings, at, zone):
     """Why a converted routine's scheduled run would have nothing to work on (backend/routines.py `no_input`: the CEO
     Bot's KPI pass with the regular checks off, the Librarian's curate run with nothing new), or None."""
-    source = flow_of(row).get("source")
+    flow = flow_of(row)
+    source = flow.get("source")
     if not isinstance(source, dict) or source.get("kind") != "routine" or settings is None:
         return None
     schedule = c.execute("SELECT * FROM schedules WHERE id=?", (source.get("id"),)).fetchone()
     if not schedule:
         return None
+    # Its words are the automation's now: a team that rewrote them (or added steps) gave it other work.
+    steps = flow.get("steps") or []
+    words = steps[0].get("prompt") if len(steps) == 1 and steps[0].get("type") == "bot_turn" else None
     from . import routines
     try:
-        return routines.no_input(c, settings, schedule, at.astimezone(ZoneInfo(zone)))
+        return routines.no_input(c, settings, {**dict(schedule), "playbook": words}, at.astimezone(ZoneInfo(zone)))
     except Exception:  # noqa: BLE001 - a check that fails lets the run go ahead
         log.exception("no_input check failed for %s", row["id"])
         return None
@@ -1620,6 +1624,17 @@ def install(app, store, auth, mutate):
         with store.read() as c:
             return view(c, found(c, who, aid, rule=may_see), who, detail=True)
 
+    def _resume_task_triggers(c, aid, flow):
+        """Turning a "What wakes" automation on resumes its task triggers that ran too often (50 an hour)."""
+        from . import redesign_migration
+        try:
+            ids = [r["id"] for r in redesign_migration.wake_rules_of(aid, flow)]
+        except ValueError:
+            return
+        if ids and H._has_table(c, "rule_task_state"):
+            c.execute(f"UPDATE rule_task_state SET paused_at=NULL, pause_reason=NULL WHERE rule_id IN "
+                      f"({','.join('?' * len(ids))})", ids)
+
     @app.patch("/api/v2/automations/{aid}")
     def automations_update(request: Request, aid: str, body: AutomationPatch):
         """Change an automation. A change to its trigger, steps or batch times is a new version. A bot that may not
@@ -1668,6 +1683,8 @@ def install(app, store, auth, mutate):
                 warning = "This is a built-in automation: the work it does stops until it is turned back on."
             if flow != before:
                 row = _save(c, who.actor, aid, flow, before, summary=summary, via=_via(who))
+            if changes.get("enabled") is True and flow.get("wakes"):
+                _resume_task_triggers(c, aid, flow)
             return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
         return mutate(request, body, work)
 

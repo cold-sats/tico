@@ -491,10 +491,12 @@ def _route(c, found, delivery, type_, via, body, headers, auth):
     fired = []
     if builtin(trigger_id):
         # A notice from Tico Team is judged once, as `tico.notice`; `webhook.received` is for senders outside Tico.
-        return fired, tico_notices.arrived(c, found, delivery, type_, via, body, _payload_of(body), content, _judge)
-    results = _judge(c, {"trigger": trigger_id, "trigger_name": found["name"], "type": type_, "delivery": delivery,
-                         "via": via, "payload": _payload_of(body), "content": content, "cut": cut})
+        results = tico_notices.arrived(c, found, delivery, type_, via, body, payload, content, _judge)
+    else:
+        results = _judge(c, {"trigger": trigger_id, "trigger_name": found["name"], "type": type_, "delivery": delivery,
+                             "via": via, "payload": payload, "content": content, "cut": cut})
     from . import automations
+    # An automation on the webhook (a routine on `webhook._tico` included) runs on every call it hears.
     results = results + automations.on_webhook(c, trigger_id, found["name"], type_, delivery, payload, shown)
     return fired, results
 
@@ -664,6 +666,11 @@ def given_to(c, bot, trigger_id, base):
     on, params = _delivery_match("o.occurrence", f"{event_of(trigger_id)}:{base}")
     if c.execute("SELECT 1 FROM schedule_occurrences o JOIN tasks t ON t.id=o.task_id WHERE t.owner=? AND " + on + " LIMIT 1",
                  (bot, *params)).fetchone():
+        return True
+    # A turn or wake an automation run on this call sent the bot (Tico's notice names the run).
+    on, params = _delivery_match("r.trigger_ref", f"webhook:{trigger_id}:{base}")
+    if c.execute("SELECT 1 FROM messages m JOIN automation_runs r ON r.id=json_extract(m.refs_json,'$.automation_run') "
+                 "WHERE m.to_actor=? AND m.from_actor=? AND " + on + " LIMIT 1", (bot, H.KEEPER, *params)).fetchone():
         return True
     on, params = _delivery_match("json_extract(refs_json,'$.delivery')", base)
     # Only Tico's own notices count: a person can put any refs on a message they send.

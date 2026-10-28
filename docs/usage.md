@@ -51,8 +51,8 @@ it.
 - Separate from these cost limits, each bot has a run budget (runs per hour and per day, default 300 and 2500) that stops a runaway loop; see [Run budgets](how-it-works.md).
 - A message is sent once per bot or pool, period and limit, so raising a limit arms it again.
 
-`GET /api/v2/usage/limits`, `PUT /api/v2/usage/limits` (the default), `PUT /api/v2/usage/limits/{bot}` (empty follows the default),
-`PUT /api/v2/usage/pools/company` and `PUT /api/v2/usage/pools/groups/{group}` (empty removes it).
+`GET /api/v2/usage/limits`, `PUT /api/v2/usage/limits` (the default), `PUT /api/v2/usage/limits/{bot}` (a field set to null follows the default; one left out stays),
+`PUT /api/v2/usage/pools/company` and `PUT /api/v2/usage/pools/groups/{group}` (a field set to null removes it; one left out stays).
 
 ## API
 

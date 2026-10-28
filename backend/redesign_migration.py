@@ -157,7 +157,9 @@ def plan(c, who):
     return out
 
 
-def _routines(c, done):
+def _routines(c, done, fresh=False):
+    """The routines still to move. `fresh`: one written after the cutover (`adopt`), such as a template's routine Tico
+    seeds while it builds the bot; a bot still `planned` (being set up, not away) keeps the routine's own switch."""
     from . import automations, event_catalog as CAT, routines, triggers
     rows = c.execute("SELECT s.*, coalesce(sc.timezone, ?) AS timezone, coalesce(sc.enabled, 1) AS enabled "
                      "FROM schedules s LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
@@ -186,7 +188,7 @@ def _routines(c, done):
         enabled = bool(row["enabled"])
         if not found or found.get("state") == "archived":
             flags.append(_flag(sid, "no_bot", f"Its bot {bot} is gone; it stays a routine", keeps=True))
-        elif found.get("state") != "active":
+        elif found.get("state") != "active" and not (fresh and found.get("state") == "planned"):
             enabled = False
             flags.append(_flag(sid, "bot_not_active", f"{_bot_name(c, bot)} is {found.get('state')}: the automation "
                                                       "starts off; turn it on when the bot is back"))
@@ -815,7 +817,7 @@ def adopt(c, kind, ident):
     who, mid = system_who(c), record["migration"]
     done = {(r["kind"], r["id"]) for r in c.execute("SELECT kind, id FROM redesign_migrated")}
     if kind == "routine":
-        objects = [o for o in _routines(c, done) if o["id"] == ident]
+        objects = [o for o in _routines(c, done, fresh=True) if o["id"] == ident]
         made = []
         for obj in objects:
             if any(f.get("keeps") for f in obj["flags"]):

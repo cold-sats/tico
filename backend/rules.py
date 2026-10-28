@@ -1370,7 +1370,10 @@ def step_entered(conn, actor, row, *, skip=()):
     Callers can skip recipients already notified by the event that moved the task."""
     try:
         incident = incident_task(conn, row)
-        if not incident and not conn.execute("SELECT 1 FROM rules WHERE enabled=1 AND event='step_entered' LIMIT 1").fetchone():
+        from . import redesign_migration
+        # A row naming a step entry, kept or moved into a "What wakes" automation (a Dev tickets type's are adopted).
+        if not incident and not conn.execute("SELECT 1 FROM rules WHERE enabled=1 AND event='step_entered' LIMIT 1").fetchone() \
+                and not any(r["event"] == "step_entered" for r in redesign_migration.wake_rows(conn, "step_entered")):
             return
         step = conn.execute("SELECT name FROM task_steps WHERE id=?", (row.get("step_id"),)).fetchone()
         flow = _release_flow()

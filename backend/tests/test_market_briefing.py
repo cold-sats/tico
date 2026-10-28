@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from backend import routines
+from backend import automations
 from backend.store import H
 from backend.tests.test_api import api, get, post, setup_attempt  # noqa: F401
 from backend.tests.test_market import _librarian, _seed
@@ -31,8 +31,14 @@ def seeded(api, tmp_path):
 
 @pytest.fixture
 def events(monkeypatch):
-    seen = []
-    monkeypatch.setattr(routines, "emit", lambda c, kind, subject, payload=None, **kw: (kind == "market.briefing" and seen.append((kind, subject, payload))) and [])
+    """The `market.briefing` events the automations hear (H.hook), with their payloads."""
+    seen, heard = [], automations.on_event
+
+    def listen(c, type_, subject, data, actor):
+        if type_ == "market.briefing":
+            seen.append((type_, subject, data() if callable(data) else data))
+        return heard(c, type_, subject, data, actor)
+    monkeypatch.setattr(automations, "on_event", listen)
     return seen
 
 
@@ -92,7 +98,7 @@ def test_a_draft_bet_is_not_touched_until_it_is_published(seeded, events):
 def test_the_event_goes_out_once_a_week_with_the_touched_bets(seeded, events):
     cited, _ = publish_bets(seeded)
     brief(seeded, items=[item("company/northwind")])
-    assert events == [("market.briefing", WEEK, {"week": WEEK, "bets": cited["id"]})]
+    assert events == [("market.briefing", WEEK, {"week": WEEK, "bets": [cited["id"]]})]
     brief(seeded, items=[item("company/northwind")], body="Edited.")      # same bets: no second event
     assert len(events) == 1
     brief(seeded, items=[item("company/northwind", "company/brightline")], body="Edited again.")

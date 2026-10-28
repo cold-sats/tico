@@ -124,8 +124,9 @@ def test_a_bot_asks_and_botops_proposes_where_that_bot_may_not_change(api, botop
     assert [r["actor"] for r in audit_rows(api, proposed["id"])] == ["human:ana"]
 
 
-def test_the_guide_is_dormant_and_carries_the_flow_format(api, botops):
-    assert api.get("/api/v2/automations/guide", headers=headers()).status_code == 404
+def test_the_guide_carries_the_flow_format(api, botops):
+    route = api.get("/api/v2/automations/guide", headers=headers())
+    assert route.status_code == 200 and "hub automation create --file -" in route.json()["text"]
     attempt = turn(api, botops, person="cara-test", text="Make me an automation")
     err, guide = mcp(api, "hub_automation_guide", {}, attempt["token"])
     assert not err and "hub automation create --file -" in guide["text"] and "`send_reply`" in guide["text"], guide
