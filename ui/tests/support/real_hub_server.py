@@ -30,10 +30,13 @@ from evals.redesign.harness import Org  # noqa: E402
 from evals.redesign.seeds import SEEDS  # noqa: E402
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def bound_socket():
+    """A loopback socket already bound to a free port and handed to uvicorn as is, so no other process can take the
+    port between choosing it and serving on it."""
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    return sock
 
 
 def teammate_tokens(world):
@@ -56,13 +59,14 @@ def main(argv=None):
     server = thread = None
     try:
         settings = world.app.state.auth.settings
-        port = free_port()
+        sock = bound_socket()
+        port = sock.getsockname()[1]
         settings.public_url = f"http://127.0.0.1:{port}"
         skipped = [name for name in names if SEEDS[name](world) is False]
         # The lifespan already ran under the test client, so uvicorn must not run it again.
         server = uvicorn.Server(uvicorn.Config(world.app, host="127.0.0.1", port=port, log_level="warning",
                                                lifespan="off"))
-        thread = threading.Thread(target=server.run, daemon=True)
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
         thread.start()
         for _ in range(600):   # a count, not a clock: the world's clock is frozen
             if server.started or not thread.is_alive():
