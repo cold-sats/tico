@@ -4276,6 +4276,15 @@ def stall_triage(api, args):
     return _as_person(api).call("PUT", "system-routines/stall_triage", {"on": bool(args["on"])}, _key(args))
 
 
+@tool("hub_redesign", "The new design (Strategy tabs, Budget, task caps, Automations, the new sidebar): one switch for the "
+      "whole team, off by default. Anyone reads it; only the owner (or BotOps for the owner) switches it. Omit `on` to read.",
+      {"on": {"type": "boolean", "description": "true switches it on, false off; leave out to read"}}, writes=True)
+def redesign(api, args):
+    if args.get("on") is None:
+        return _as_person(api).get("settings/redesign")
+    return _as_person(api).call("PUT", "settings/redesign", {"enabled": bool(args["on"])}, _key(args))
+
+
 # ----------------------------------------------------------------------------- approvals
 @tool("hub_approval_request", "Ask a person for a yes or no on one exact action. Only a person "
       "decides; an approval is spent once. If the owner already told you in Tico to send a "
@@ -5367,7 +5376,7 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_apply", "hub_rule_dismiss", "hub_stall_triage", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_apply", "hub_rule_dismiss", "hub_stall_triage", "hub_redesign", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",

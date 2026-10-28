@@ -215,6 +215,8 @@ DO = _routes(
     ("PATCH", r"release-schedule"), ("POST", r"release/now"),
     ("POST", r"settings/turn-budgets"),
     ("PUT", rf"system-routines/{_S}"), ("POST", rf"system-routines/{_S}/run"), ("POST", r"task-manager/turn-(on|off)"),
+    # The redesign switch (backend/redesign.py): the owner's; the route refuses anyone else.
+    ("PUT", r"settings/redesign"),
 )
 
 # Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is
