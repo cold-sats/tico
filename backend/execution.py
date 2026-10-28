@@ -1702,7 +1702,8 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     message = H.message(c, job["message_id"])
     if not privacy.message_readable(c, "bot:" + job["bot"], message):
         return "unreadable"
-    # The bot's budget and back-off are the bot's state, not this job's: an error reading them is shared_check's.
+    # The bot's budget and back-off are the bot's own state: an error reading them is shared_check's, and the whole
+    # bot is passed over. The checks below depend on this job, so an error in them holds this job alone.
     with shared_check():
         if why := turn_budgets.refusal(c, job["bot"], message) or run_backoff.job_refusal(c, job["bot"], message):
             return why              # over its run budget or waiting out failed runs: except for a person's message
@@ -1985,6 +1986,9 @@ class Execution:
         # bot's repository (backend/app.py finish_pending_go_live).
         self.readiness_reported = None
         self.served_at = None   # when this process last answered a runner (heartbeat, claim, attempt call)
+        # Bot -> (when its claim check may run again, failed checks in a row), for a bot whose check raised. Kept in
+        # memory: a restart runs each check once more, which costs one traceback.
+        self.check_backoff = {}
         self.stall_lock = threading.Lock()
         self.stall_graces = []
         self.stall_seen = None
@@ -2641,6 +2645,8 @@ class Execution:
             bot = row["bot"]
             if failed is not None and bot in failed.bots:
                 continue            # its check raised earlier in this claim: passed over for the rest of it
+            if self.check_waiting(bot):
+                continue            # its check raised and its back-off has not ended: the check does not run yet
             try:
                 with shared_check():
                     why, config = claim_refusal(c, self.store.settings, runner, bot, row["config_json"],
@@ -2700,11 +2706,15 @@ class Execution:
                     continue        # old strict-primary runners cannot route a saved fallback
                 if not continues and continuation_thread(c, row["id"]):
                     continue        # left queued for a runner that continues its thread: this one would start it afresh
-                if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None:
-                    # A login hold is the bot's login's state, shared with the bots on it (shared_check).
-                    with shared_check():
-                        waiting = login_refusal(c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]],
-                                                row["id"], subscription_context)
+                why = job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live)
+                if why != "unreadable":
+                    # The bot's checks ran for this job without raising: the back-off their last failure started ends.
+                    self.check_backoff.pop(row["bot"], None)
+                if why is None:
+                    # The job's own login hold: an error reading it holds this job alone. The bot's login as a whole is
+                    # checked once per bot, in claim_refusal, where an error passes the bot over.
+                    waiting = login_refusal(c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]],
+                                            row["id"], subscription_context)
                     if not waiting:
                         return row
             except Exception as exc:
@@ -3026,6 +3036,7 @@ class Execution:
             if answer.get("attempt"):
                 # The run is handed out: a retry that starts clears its hold and its bot's Health finding.
                 claim_holds.started(c, row["id"])
+                self.check_backoff.pop(row["bot"], None)
             return answer
 
     def start_claimed(self, c, who, body, runner, row):
@@ -3318,14 +3329,23 @@ class Execution:
         return c.execute("SELECT 1 FROM (SELECT j.id AS id " + obsolete_notices_sql() + ") o WHERE o.id=? LIMIT 1",
                          (who.runner_id, H.KEEPER, now, job_id)).fetchone() is not None
 
+    def check_waiting(self, bot):
+        """Whether the bot's claim check raised and its back-off has not ended: the claim passes the bot over without
+        running the check. hold_failed sets the back-off."""
+        wait = self.check_backoff.get(bot)
+        return wait is not None and H.now() < wait[0]
+
     def hold_failed(self, c, failed):
         """Record what the claim's ClaimFaults found, and clear it: each job it could not evaluate or start is held, and
-        each bot whose check raised is logged once and named in Health (claim_holds.check_failed)."""
+        each bot whose check raised is logged once, named in Health (claim_holds.check_failed) and passed over until
+        its back-off ends (check_waiting)."""
         while failed.jobs:
             job_id, error = failed.jobs.pop(0)
             claim_holds.hold(c, self.store.settings, job_id, error)
         while failed.new_bots:
             bot, exc = failed.new_bots.pop(0)
+            tries = self.check_backoff.get(bot, (None, 0))[1] + 1
+            self.check_backoff[bot] = (H.shift(H.now(), seconds=claim_holds.check_delay(tries)), tries)
             claim_holds.check_failed(c, bot, exc)
 
     def attempt(self, c, who, aid, active=True, final=False, arrived=None):
@@ -3826,9 +3846,12 @@ class Execution:
         task_room = ((H.task(c, origin_task) or {}).get("conversation_id")
                      if origin_task and str(dict(attempt).get("lane") or "").startswith("task:") else None)
         taken = 0
-        candidates = c.execute("SELECT m.* FROM jobs j JOIN messages m ON m.id=j.message_id "
+        candidates = c.execute("SELECT m.*,j.id AS job_id FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "JOIN conversations cv ON cv.id=m.conversation_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
+                             # A run the claim holds is not taken into a running turn until its wait ends, as the
+                             # claim would not start it either.
+                             "AND (j.held=0 OR (j.hold_reason=? AND j.hold_until<=?)) "
                              # A bot limited to one task takes nothing else into a running turn either.
                              f"AND {scoped_sql()} "
                              # A redirect replaces the turn being stopped, so it starts the next one instead.
@@ -3838,7 +3861,7 @@ class Execution:
                              "JOIN messages active_message ON active_message.id=active_job.message_id "
                              "WHERE active_attempt.id=?) OR m.conversation_id=? OR (m.kind='ask' AND m.wait_s>0 "
                              "AND m.from_actor LIKE 'bot:%')) ORDER BY m.rowid",
-                             (attempt["bot"], aid, task_room)).fetchall()
+                             (attempt["bot"], claim_holds.REASON, H.now(), aid, task_room)).fetchall()
         read_at = c.total_changes
         for i, row in enumerate(candidates):
             # Ten at a time, counted after the filters below: older work queued for other lanes must
@@ -3907,6 +3930,7 @@ class Execution:
                       "WHERE message_id=?", (aid, aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_inputs VALUES(?,?,NULL)", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
+            claim_holds.clear(c, row["job_id"], "Its held run went into a running turn.")
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
             taken += 1
         # `attempt_id` lets the response check read these as the bot, as for the turn itself:

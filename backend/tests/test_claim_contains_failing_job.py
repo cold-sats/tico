@@ -11,11 +11,11 @@ import sqlite3
 
 import pytest
 
-from backend import (batch_work, claim_holds, execution, gateway_connection, health_monitor, read_deps, run_backoff,
-                     task_privacy as privacy, turn_budgets, wake_presets)
+from backend import (batch_work, claim_holds, execution, gateway_connection, health_monitor, providers, read_cache,
+                     read_deps, run_backoff, task_privacy as privacy, turn_budgets, wake_presets)
 from backend.store import H
 from backend.tests.test_api import (  # noqa: F401 (api is a fixture)
-    api, assign, claim, get, headers, post, ready, runner)
+    api, assign, claim, get, headers, post, ready, runner, setup_attempt)
 from backend.tests.test_held_runs import task_held
 from backend.tests.test_run_backoff import at, complete, setup as budget_setup
 
@@ -367,8 +367,9 @@ def test_a_bot_check_that_raises_is_logged_once_per_claim_and_named_in_health_un
         [finding] = [f for f in health_monitor.findings(c, store.settings) if f["check_id"] == "claim_check"]
     assert "RuntimeError" in finding["title"]
 
-    # The bot's check reads again: its next run starts, and the finding clears.
+    # Once the back-off has passed, the check reads again: its next run starts, and the finding clears.
     monkeypatch.undo()
+    at(monkeypatch, api, H.shift(H.now(), seconds=claim_holds.CHECK_RETRY_FIRST + 1))
     assert claim(api, machine)["bot"] == "ops"
     with store.transaction() as c:
         assert "claim_check" not in {f["check_id"] for f in health_monitor.findings(c, store.settings)}
@@ -543,3 +544,185 @@ def test_a_claim_passes_over_at_most_claim_picks_obsolete_notices(api, monkeypat
         with store.read() as c:
             assert c.execute("SELECT state FROM jobs WHERE id=?", (open_job["id"],)).fetchone()[0] == "queued"
         assert claim(api, machine)["job_id"] == open_job["id"]
+
+
+def test_a_login_check_that_raises_for_one_job_holds_that_job_and_the_bots_other_job_starts(api, monkeypatch):
+    """The login check of one job (its continuation's login) is that job's error: the job is held, and the bot's other
+    queued job is handed out in the same claim, rather than the whole bot being passed over."""
+    machine = runner(api, "ana")
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    post(api, "chat/ops", {"text": "first"})
+    post(api, "chat/ops", {"text": "second"})
+    bad, other = [job["id"] for job in jobs_of(api, "ops")]
+    real = execution.login_refusal
+
+    def raising(c, settings, runner_id, bot, config, job_id=None, ctx=None):
+        if job_id == bad:
+            raise RuntimeError("the job's continuation cannot be read")
+        return real(c, settings, runner_id, bot, config, job_id, ctx)
+    monkeypatch.setattr(execution, "login_refusal", raising)
+
+    turn = claim(api, machine)
+    assert turn is not None and turn["job_id"] == other
+    held, started = jobs_of(api, "ops")
+    assert (held["held"], held["hold_reason"]) == (1, claim_holds.REASON)
+    assert (started["state"], started["held"]) == ("leased", 0)
+
+
+def test_a_team_wide_provider_error_fails_the_claim_and_passes_no_bot_over(api, monkeypatch):
+    """The company's provider choice is every bot's: when it cannot be read the claim fails. Passing each bot over with
+    its own claim_check finding would hide a team-wide fault behind one finding per bot."""
+    machine = runner(api, "ana")
+    two_bots_with_chats(api, machine)
+
+    # The read beneath providers.load: its team-wide error fails the claim whichever bot's claim reads it.
+    real = read_cache.metadata
+
+    def unreadable(c, key):
+        if key == providers.KEY:
+            raise RuntimeError("the provider choice cannot be read")
+        return real(c, key)
+    monkeypatch.setattr(read_cache, "metadata", unreadable)
+
+    with pytest.raises(RuntimeError):
+        claim(api, machine)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM service_health WHERE service GLOB 'claim_check:*'").fetchone()[0] == 0
+    assert all(not job["held"] for job in jobs_of(api, "ops") + jobs_of(api, "cpo"))
+
+
+def test_a_claim_hold_on_a_running_bots_run_is_not_delivered_as_input_until_its_wait_ends(api, monkeypatch):
+    """A run the claim holds is not folded into a running turn of its bot while its wait runs: its state stays queued
+    and its hold stays. Once the wait has ended it is delivered, and its hold and Needs-you item clear."""
+    r, _, first = setup_attempt(api)
+    post(api, f"attempts/{first['id']}/started", {"thread_id": "thread"}, r["token"])
+    follow = post(api, "chat/ops", {"text": "Also include the weekly numbers"})
+    store = api.app.state.store
+    with store.transaction() as c:
+        job = c.execute("SELECT id FROM jobs WHERE message_id=?", (follow["id"],)).fetchone()[0]
+        claim_holds.hold(c, store.settings, job, "RuntimeError")
+    item = hold_of(api, job)["hold_task_id"]
+
+    def delivered():
+        return [m["id"] for m in post(api, f"attempts/{first['id']}/inputs", {}, r["token"])["messages"]]
+    assert delivered() == []
+    assert (hold_of(api, job)["state"], hold_of(api, job)["held"]) == ("queued", 1)
+
+    wait_ends(api, monkeypatch, job)
+    assert delivered() == [follow["id"]]
+    after = hold_of(api, job)
+    assert (after["state"], after["held"], after["hold_reason"]) == ("input", 0, None)
+    assert item_status(api, item) not in H.ACTIVE_STATUSES
+
+
+def test_a_failing_bot_check_is_not_run_again_by_polls_inside_its_back_off(api, monkeypatch, caplog):
+    """After a bot's check raises, its polls pass the bot over without running the check again and without the writer
+    lock until the back-off passes. The traceback is logged once per back-off, and the next back-off is longer."""
+    machine = runner(api, "ana")
+    two_bots_with_chats(api, machine)
+    calls = bot_check_raising(monkeypatch, turn_budgets, "refusal", "ops")
+    writes = []
+    claimed = execution.Execution.claim
+
+    def counted(self, *args, **kwargs):
+        writes.append(1)
+        return claimed(self, *args, **kwargs)
+    monkeypatch.setattr(execution.Execution, "claim", counted)
+
+    def logged():
+        return len([r for r in caplog.records if r.exc_info and "claim check failed for bot ops" in r.getMessage()])
+    assert claim(api, machine)["bot"] == "cpo"
+    assert (len(calls), logged()) == (1, 1)
+    writes_before = len(writes)
+    for _ in range(10):
+        assert claim(api, machine) is None
+    assert (len(calls), len(writes), logged()) == (1, writes_before, 1)
+
+    # The back-off passes: the check runs once more, fails again, and the next wait is twice as long.
+    at(monkeypatch, api, H.shift(H.now(), seconds=claim_holds.CHECK_RETRY_FIRST + 1))
+    assert claim(api, machine) is None
+    assert (len(calls), logged()) == (2, 2)
+    for _ in range(10):
+        assert claim(api, machine) is None
+    assert len(calls) == 2
+    at(monkeypatch, api, H.shift(H.now(), seconds=2 * claim_holds.CHECK_RETRY_FIRST - 1))
+    # The other bot's run may be handed out again once its lease lapses: only the check's count is asserted.
+    claim(api, machine)
+    assert len(calls) == 2
+    at(monkeypatch, api, H.shift(H.now(), seconds=2))
+    assert claim(api, machine) is None
+    assert (len(calls), logged()) == (3, 3)
+    # Health reads the check too, after the claim's count: its finding names the bot all the while.
+    store = api.app.state.store
+    with store.transaction() as c:
+        assert "claim_check" in {f["check_id"] for f in health_monitor.findings(c, store.settings)}
+
+
+def wake_notice(api, task_id, body):
+    """A notice on one task for ops, batched by its wake preset (the completion kind)."""
+    with api.app.state.store.transaction() as c:
+        H._wake(c, H.task(c, task_id), "bot:ops", body, {"wake_batch": "completion"})
+    with api.app.state.store.read() as c:
+        return c.execute("SELECT j.id FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot='ops' AND m.body=?",
+                         (body,)).fetchone()[0]
+
+
+def batch_task(api, title):
+    with api.app.state.store.transaction() as c:
+        return H.task_create(c, H.KEEPER, title, "Done.", H.bot_actor("ops"), lint=False)["id"]
+
+
+def batch_hold(api, job_id):
+    with api.app.state.store.read() as c:
+        return dict(c.execute("SELECT hold_until,held,hold_reason FROM jobs WHERE id=?", (job_id,)).fetchone())
+
+
+def test_a_batch_planned_while_a_claim_hold_still_waits_keeps_its_own_window(api, monkeypatch):
+    """A batch's release is set by its own window, not by a run the claim holds and is still waiting for: the held run
+    has a wait of its own (wake_presets._batch_slot's waiting query)."""
+    t0 = "2026-10-24T12:00:00.000000Z"
+    store = api.app.state.store
+    at(monkeypatch, api, t0)
+    post(api, "bots/ops/wake-preset", {"wake_preset": "token_saver",
+         "expected_revision": get(api, "bots/ops")["revision"]})
+    first = wake_notice(api, batch_task(api, "first"), "Finished: first")
+    wake_tick(api, t0)
+    wake_tick(api, H.shift(t0, minutes=31))
+    at(monkeypatch, api, H.shift(t0, minutes=31))
+    with store.transaction() as c:
+        claim_holds.hold(c, store.settings, first, "RuntimeError")          # held until t0 + 32 min
+    at(monkeypatch, api, H.shift(t0, minutes=40))
+    second = wake_notice(api, batch_task(api, "second"), "Finished: second")
+    wake_tick(api, H.shift(t0, minutes=41))
+    assert batch_hold(api, second)["hold_until"] == H.shift(t0, minutes=70)
+    assert batch_hold(api, second)["held"] == 1
+
+
+def test_a_batch_planned_after_a_claim_hold_was_let_go_is_not_spaced_by_that_holds_wait(api, monkeypatch):
+    """The next batch of a bot waits a window after its last batch went out, never after a run the claim held: a held
+    run let go at its wait's end does not move that window (wake_presets._batch_slot's last query)."""
+    t0 = "2026-10-24T12:00:00.000000Z"
+    store = api.app.state.store
+    at(monkeypatch, api, t0)
+    post(api, "bots/ops/wake-preset", {"wake_preset": "token_saver",
+         "expected_revision": get(api, "bots/ops")["revision"]})
+    first = wake_notice(api, batch_task(api, "first"), "Finished: first")
+    wake_tick(api, t0)
+    wake_tick(api, H.shift(t0, minutes=31))
+    at(monkeypatch, api, H.shift(t0, minutes=40))
+    second = wake_notice(api, batch_task(api, "second"), "Finished: second")
+    at(monkeypatch, api, H.shift(t0, minutes=44))
+    with store.transaction() as c:
+        claim_holds.hold(c, store.settings, first, "RuntimeError")          # held until t0 + 45 min
+    at(monkeypatch, api, H.shift(t0, minutes=46))
+    with store.transaction() as c:
+        claim_holds.release_due(c)
+    wake_tick(api, H.shift(t0, minutes=46))
+    assert batch_hold(api, first)["held"] == 0
+    assert batch_hold(api, second)["hold_until"] == H.shift(t0, minutes=70)
+
+
+def wake_tick(api, when):
+    with api.app.state.store.transaction() as c:
+        wake_presets.tick(c, when)

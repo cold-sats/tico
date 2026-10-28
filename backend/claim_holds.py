@@ -8,8 +8,10 @@ and the first claim after the wait releases it to the queue (release_due). A run
 its held runs, the job's task a note, and Health a finding. Releasing the bot (bot_stops.release, POST
 /api/v2/bots/{bot}/release) frees its held runs at once.
 
-An error in a bot-wide check (its budget, back-off or login hold) is not one run's: the claim passes the bot over, and
-Health names the check (check_failed). None of the bot's runs is held for it.
+An error in a bot-wide check (its budget, back-off or login hold) is not one run's: the claim passes the bot over,
+and Health names the check (check_failed). None of the bot's runs is held for it. The claim does not run that check
+again until a back-off has passed (check_delay), so a persistent fault costs one traceback per back-off, not one per
+poll.
 """
 
 import json
@@ -23,11 +25,18 @@ REASON = "Couldn't start: an error while preparing this run"
 RETRY_FIRST = 60            # seconds a held run waits before its first retry; doubles for each failed try in a row
 RETRY_MAX = 3600            # and never longer than this
 CHECK = "claim_check:"      # the service_health row of a bot whose claim check is failing
+CHECK_RETRY_FIRST = 60      # seconds a bot whose check raised is passed over before the check runs again
+CHECK_RETRY_MAX = 300       # doubled for each failed check in a row, and never longer than this
 
 
 def delay(tries):
     """The wait after the `tries`-th failed try in a row, in seconds."""
     return min(RETRY_MAX, RETRY_FIRST * 2 ** max(0, tries - 1))
+
+
+def check_delay(tries):
+    """The back-off after a bot's `tries`-th failed claim check in a row, in seconds."""
+    return min(CHECK_RETRY_MAX, CHECK_RETRY_FIRST * 2 ** max(0, tries - 1))
 
 
 def hold(c, settings, job_id, error):
