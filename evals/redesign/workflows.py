@@ -1359,6 +1359,10 @@ def wf9_steps(org, f):
        spend_cap={"per_30m": 1.00})
     do(org, f, "seed", W2, send, org, DANA, OPENAI_ID, "Start the loop")
     do(org, f, "loop", W2, wf9_loop, org)
+    # The automation's own follow-ups never start it again (the chain, backend/automations.py MAX_CHAIN): a fresh task
+    # from a person starts a second run, which the spend cap then meets.
+    do(org, f, "keep", W2, send, org, DANA, OPENAI_ID, "Keep going")
+    org.scheduler_pass()
     do(org, f, "held_now", W2, org.api, "get", f"/api/v2/bots/{OPENAI_ID}/budget", wave=W2)
     at(org, org.now() + dt.timedelta(hours=1))
     do(org, f, "later", W2, turn, org, OPENAI_ID, wave=W2)
@@ -1376,7 +1380,7 @@ def wf9_steps(org, f):
 
 def wf9_spend_cap(f):
     """The first Bot turn step runs; once the $1 per 30 minutes is spent, later ones record spend_cap."""
-    setup(f, "auto", "seed")
+    setup(f, "auto", "seed", "keep")
     found = sorted(runs(f, "runs"), key=lambda r: str(r.get("started")))
     statuses = [status_of(r, "work") for r in found]
     return (statuses[:1] == ["ok"] and "spend_cap" in statuses[1:],
@@ -1745,7 +1749,9 @@ WORKFLOWS = [
                  Check("after turn-on version 2 runs and labels", W3, wf8_after),
                  Check("restoring version 1 makes version 3 with the old flow", W3, wf8_restore),
              ], bots={HELPER: ("helper", "claude")}),
-    Scenario("9", "workflow-9-runaway", "A self-feeding automation hits its spend cap, then the run guard", wf9_steps, [
+    Scenario("9", "workflow-9-runaway",
+             "A self-feeding automation: its follow-ups stop at the chain, a fresh task hits the spend cap, then the run "
+             "guard holds the bot", wf9_steps, [
         Check("the spend cap stops Bot turn steps after the first", W3, wf9_spend_cap),
         Check("the run guard holds the bot at 6 turns", W2, wf9_held),
         Check("still held an hour later", W2, wf9_still),
