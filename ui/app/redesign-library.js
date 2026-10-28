@@ -104,7 +104,7 @@ function lcGrouped(items) {
 
 // ----------------------------------------------------------------- the page
 async function pageRdTools() {
-  const route = S.route, [path, query = ''] = route.split('?');
+  const [path, query = ''] = S.route.split('?');
   const key = path.slice(RD_TOOLS.length + 1).split('/').map(decodeURIComponent).join('/');
   const params = new URLSearchParams(query);
   $('#main').classList.add('lc-layout');
@@ -112,7 +112,7 @@ async function pageRdTools() {
     // The list is still loading for an earlier visit: wait for it, then draw only if this is still the route.
     const state = LC;
     await state.loading;
-    if (LC !== state || S.route !== route) return;
+    if (LC !== state || S.route.split('?')[0] !== path) return;
   } else if (!LC || !document.body.contains(LC.root)) {
     $('#main').innerHTML = `<div class="lc" id="lc-root">
       <header class="lc-ph"><h1>Tools</h1>${helpBubble('Who may use each tool, and what they may change there: read only, with approval, or freely.')}
@@ -136,7 +136,8 @@ async function pageRdTools() {
             e => { state.rows = []; state.error = e.message; })
       .then(() => { state.loading = null; if (LC !== state) return; state.items = lcModel(state.rows); lcDrawControls(); });
     await state.loading;
-    if (LC !== state || S.route !== route) return;   // left, or moved to another tool meanwhile
+    // Left, or moved to another tool meanwhile (a filter typed while it loads changes only the query).
+    if (LC !== state || S.route.split('?')[0] !== path) return;
   }
   // `?show=credentials` (the old Credentials page's links) opens on the credentials.
   const show = params.get('show');
