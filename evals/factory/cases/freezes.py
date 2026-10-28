@@ -4,8 +4,6 @@ answers is one a computer sends. Limits, holds and pauses are set through the pr
 sign-in state. A group is a roster entry the sim writes itself (World.add_group), and the limit a turn meets is the error
 line its runtime gives (`hit`). The sim also loses a probe turn (its computer goes off, or its job is cancelled before it
 finishes), and marks that where it happens."""
-import datetime as dt
-
 from evals.factory.scenarios import BASE, Scenario, at, board_keeps_moving, both, tickets
 from evals.factory.world import START
 
@@ -15,31 +13,6 @@ TWO_DAYS = "You've hit your session limit · resets Oct 22, 9am (UTC)"   # a sec
 PACKET_BOT = "fleet-01"                                                 # the bot the moved-input run messages
 PACKET_TEXTS = ("Check the packet figures.", "Confirm the totals before you answer.")
 LOWERED = [(at(1, 30), at(1, 42))]                                      # a cap is lowered from 10:30 to 10:42
-
-
-def _utc(text):
-    return dt.datetime.fromisoformat(str(text).replace("Z", "+00:00"))
-
-
-def limit_cooldowns(run):
-    """Each limited bot's wait, from its limit (its status's `since`) to the time its runs may start again, as the server
-    holds it (execution.limit_until): the login hold's reset when the hold names one, else LIMIT_COOLDOWN (1800 s), or
-    LIMIT_COOLDOWN_LONG (7200 s) once LIMIT_STRIKES (3) limits came in a row. Read from World.limit_window after each
-    limited turn, so the constant is the server's own."""
-    return [(_utc(win["since"]), _utc(win["until"]), f"{win['bot']} cooling off ({win['source']})")
-            for win in run.w.limit_windows if win["since"] and win["until"]]
-
-
-def probe_runs(run):
-    """Each probe that a round met holding its login's queue (sim.Run.probe_seen): from its attempt's creation to its end,
-    or to its lease lapsing when it was lost, or to now while it is still out. The server holds the rest of that login's
-    queue while a probe is live (login_holds.holding: "probing")."""
-    now, out = run.w.now(), []
-    for job in sorted(run.probe_seen):
-        for row in run.w.sql("SELECT created, finished, lease_until FROM attempts WHERE job_id=?", (job,)):
-            end = _utc(row["finished"]) if row["finished"] else min(_utc(row["lease_until"]), now)
-            out.append((_utc(row["created"]), end, f"probe {job[:6]} holds its login's queue"))
-    return out
 
 
 def hit(runtime, text):
@@ -295,12 +268,12 @@ def inputs_moved(bot, texts):
     return check
 
 
-def freeze_checks(since, *extra, waits=(), evidence=(limit_cooldowns, probe_runs)):
+def freeze_checks(since, *extra, waits=(), fallback=False):
     """The checks every freeze runs, the board's from `since` on. `waits` are windows (offsets on the scenario's clock)
-    the scenario declares; `evidence` are functions of the run that return windows from the server's own records (a
-    bot's cooling off, a probe holding its login), read when the check runs."""
+    that a team-wide or group-wide cap holds every login; `fallback` is set where the freeze is about a fallback
+    login."""
     return [*BASE, ("the board keeps moving from the event on", None,
-                    board_keeps_moving(since, waits, evidence)), *extra]
+                    board_keeps_moving(since, waits, fallback)), *extra]
 
 
 SCENARIOS = [
@@ -333,7 +306,8 @@ SCENARIOS = [
              setup=setup_with(10, each=12, providers=("openai",)), claim="runner", signed_in=("fake", "codex"),
              capacity=8, fleet=24, during=at_times([(at(0, 20), hit("fake", WEEKLY))]),
              checks=freeze_checks(at(0, 20),
-                                  ("most turns after the hold run on codex", None, most_turns_on("codex", at(0, 20))))),
+                                  ("most turns after the hold run on codex", None, most_turns_on("codex", at(0, 20))),
+                                  fallback=True)),
     Scenario("freeze_combined",
              "The weekly hold, a company hourly limit lowered and raised, codex held for two days so the second fallback "
              "takes the work, and two reviewers paused.",
@@ -349,7 +323,7 @@ SCENARIOS = [
                                    most_turns_on("claude", at(1, 0))),
                                   ("no turn starts past the cap while it is lowered", None,
                                    spend_under(3, at(1, 30), at(1, 42))),
-                                  waits=LOWERED)),
+                                  waits=LOWERED, fallback=True)),
     Scenario("freeze_probe_stale",
              "The login's hold ends at 10:30 and its probe turn is lost mid-run: the probe's time goes stale and the queue "
              "must go on without it.",

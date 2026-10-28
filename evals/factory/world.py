@@ -616,18 +616,3 @@ class World:
                         + ("AND bot=? " if slug else "") + "GROUP BY bot", (slug,) if slug else ())
         return {r["bot"]: (r["n"], r["held"] or 0) for r in rows}
 
-    def queued_bots(self, slugs):
-        """The bots among `slugs` with a queued job that is not held, and how many queued jobs are held. The queue alone
-        is read, never the server's limit and hold checks: a check holds this count against what its scenario knows, so
-        a hold the server sets cannot hide the work it blocks. A held job is counted apart, so a hold that never lifts
-        shows as held jobs, not as a stall."""
-        slugs = sorted(slugs)
-        if not slugs:
-            return 0, 0
-        marks = ",".join("?" * len(slugs))
-        with self.store.read() as c:
-            bots = c.execute(f"SELECT DISTINCT bot FROM jobs WHERE state='queued' AND held=0 AND bot IN ({marks})",
-                             slugs).fetchall()
-            held = c.execute(f"SELECT count(*) FROM jobs WHERE state='queued' AND held=1 AND bot IN ({marks})",
-                             slugs).fetchone()[0]
-        return len(bots), held
