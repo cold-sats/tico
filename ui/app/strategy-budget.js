@@ -10,6 +10,11 @@ let BUDGET = null;          // the open tab: {load, mode, limits, caps, capsErro
 // [limit field, label, spent field, short window name] (CONTRACT §1 Spend names).
 const BUDGET_PERIODS = [['per_30m_usd', 'Per 30 min', '30m_spent', '30m'], ['daily_usd', 'Per day', 'day_spent', 'day'],
   ['weekly_usd', 'Per week', 'week_spent', 'week'], ['monthly_usd', 'Per month', 'month_spent', 'month']];
+// The hour window installs had before 30 minutes replaced it (CONTRACT §1): still enforced where it is set, so it shows,
+// binds and is edited like the others, and it is never sent unless it shows.
+const BUDGET_HOURLY = ['hourly_usd', 'Per hour', 'hour_spent', 'hour'];
+const budgetPeriods = row => row?.hourly_usd != null || row?.own_hourly_usd != null
+  ? [BUDGET_PERIODS[0], BUDGET_HOURLY, ...BUDGET_PERIODS.slice(1)] : BUDGET_PERIODS;
 // "$27.38", "$80", "$5,000": cents only when there are any.
 const budgetMoney = n => {
   const v = Math.round(Number(n || 0) * 100) / 100;
@@ -18,7 +23,7 @@ const budgetMoney = n => {
 const budgetPlain = n => { const v = Math.round(Number(n) * 100) / 100; return Number.isInteger(v) ? String(v) : v.toFixed(2); };
 // The window that binds: the one the bot is held by, else the set one nearest its limit (the shorter on a tie).
 function budgetBinding(row) {
-  const set = BUDGET_PERIODS.filter(([k]) => row?.[k] != null);
+  const set = budgetPeriods(row).filter(([k]) => row?.[k] != null);
   if (!set.length) return null;
   const held = set.find(p => p[3] === row.blocked || p[3] === row.blocked_by?.period);
   if (held) return held;
@@ -120,12 +125,13 @@ function budgetSpendHtml(state) {
   return html || '<p class="muted bd-none">No bots</p>';
 }
 
-// The money editor: the four windows, each an amount or No limit.
+// The money editor: the four windows (five with an hour limit still set), each an amount or No limit.
 function budgetSpendEdit(key, name) {
   const limits = BUDGET?.limits || {};
   const row = key === 'company' ? limits.pools?.company : key.startsWith('group:') ? limits.pools?.groups?.[key.slice(6)] : limits.bots?.[key.slice(4)];
   const own = k => row?.['own_' + k] !== undefined ? row['own_' + k] : row?.[k];
-  const body = `<div class="bd-fields">${BUDGET_PERIODS.map(([k, label]) => {
+  const periods = budgetPeriods(row);
+  const body = `<div class="bd-fields">${periods.map(([k, label]) => {
     const v = own(k), none = v == null;
     return `<div class="bd-field bd-window"><span>${label}</span>
       <span class="bd-money">$<input name="${k}" inputmode="decimal" autocomplete="off" value="${none ? '' : budgetPlain(v)}"${none ? ' disabled' : ''} aria-label="${label}"></span>
@@ -135,7 +141,7 @@ function budgetSpendEdit(key, name) {
     : '/v2/usage/limits/' + encodeURIComponent(key.slice(4));
   const dlg = useDialog(name, body, async form => {
     const amounts = {};
-    for (const [k, label] of BUDGET_PERIODS) {
+    for (const [k, label] of periods) {
       if (form[k + '_none'].checked) { amounts[k] = null; continue; }
       const t = String(form[k].value).trim().replace(/^\$\s*/, '');
       if (!/^\d+(\.\d{1,2})?$/.test(t)) throw new Error(`${label}: a dollar amount, like 4.00, or No limit`);
@@ -145,7 +151,7 @@ function budgetSpendEdit(key, name) {
   }, budgetReload);
   dlg.classList.add('rd-sheet');
   const form = dlg.querySelector('form');
-  for (const [k] of BUDGET_PERIODS) form[k + '_none'].onchange = () => {
+  for (const [k] of periods) form[k + '_none'].onchange = () => {
     form[k].disabled = form[k + '_none'].checked;
     if (!form[k].disabled) form[k].focus();
   };
