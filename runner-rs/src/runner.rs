@@ -1139,9 +1139,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tico-turn-limit-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("projects")).unwrap();
         let path = dir.join("runner.json");
-        std::fs::write(&path, json!({"url":url, "token":"synthetic", "runner_id":"r1", "capacity":3, "projects_dir":dir.join("projects")}).to_string()).unwrap();
+        std::fs::write(&path, json!({"url":url, "token":"synthetic", "runner_id":"r1", "capacity":3,
+                                     "projects_dir":dir.join("projects")}).to_string()).unwrap();
         let config = Config::load(&path).unwrap();
-        let runner = Runner::new(config.clone(), Client::new(&config.url(), &config.token(), 5, 0).unwrap(), State::open(&dir.join("state")).unwrap());
+        let client = Client::new(&config.url(), &config.token(), 5, 0).unwrap();
+        let runner = Runner::new(config.clone(), client, State::open(&dir.join("state")).unwrap());
         assert_eq!(runner.turn_limit.load(Ordering::SeqCst), 3);
         let mut body = json!({"version": "test"});
         assert!(runner.post_heartbeat(&mut body).await.0.is_ok());

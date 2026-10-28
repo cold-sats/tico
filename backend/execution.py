@@ -1427,8 +1427,8 @@ def claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_b
                   default=None):
     """Why `runner`'s claim passes over all of `bot`'s queued work, or (None, config) when it may look at the bot's
     jobs. A bot at its own "Turns at once" holds its work on every computer ("bot_limit") once nothing else holds it."""
-    why, config = _claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_bots, subscription_context,
-                                 default)
+    why, config = _claim_refusal(c, settings, runner, bot, config_json, draining, ready, held_bots,
+                                 subscription_context, default)
     if why is None and (limit := start_places.bot_limit(config)) is not None and start_places.bot_held(c, bot) >= limit:
         return "bot_limit", None
     return why, config

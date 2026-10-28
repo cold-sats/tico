@@ -85,7 +85,9 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
   const pendingRows = pending.map(t => `<div class="settings-history-row"><span>${avatar(t.bot, 24, stateOf(t.bot))}</span><div><strong>${esc(settingsBotName(t.bot))} · ${t.kind === 'model' ? 'model change' : 'computer move'}</strong><p>${esc(t.state === 'preparing' ? `Checkpointing ${t.progress.prepared} of ${t.progress.total} conversations` : t.error || t.state)}</p></div><div class="history-action"><span class="pill ${t.state === 'failed' ? 'fail' : 'waiting'}">${esc(t.state)}</span><button class="ghost" type="button" data-transition-review="${esc(t.id)}">Review</button></div></div>`).join('');
   const rows = changes.map(change => {
     const e = S.emps.find(row => row.name === change.bot), transition = transitionById.get(change.transition_id);
-    const field = {owners:'who it works for',access:'access',model:'model',placement:'computer',fallback:'fallback',compact_at:'compact at',wake_preset:'wakes',profile:'profile',keep_tasks_going:'keep tasks going',turns_at_once:'Turns at once',definition:'setup'}[change.field] || change.field;
+    const field = {owners:'who it works for',access:'access',model:'model',placement:'computer',fallback:'fallback',
+      compact_at:'compact at',wake_preset:'wakes',profile:'profile',keep_tasks_going:'keep tasks going',
+      turns_at_once:'Turns at once',definition:'setup'}[change.field] || change.field;
     const what = change.field === 'definition' ? settingsDefinitionChange(change.before, change.after)
       : `${settingsValue(change.field, change.before)} → ${settingsValue(change.field, change.after)}`;
     return `<div class="settings-history-row"><span>${avatar(change.bot, 24, stateOf(change.bot))}</span><div><strong>${esc(settingsBotName(change.bot))} · ${esc(field)}</strong>

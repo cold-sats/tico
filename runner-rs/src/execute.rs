@@ -2640,8 +2640,10 @@ mod tests {
         // The owner sets 1 under the machine's 2: a turn is running, so a second start waits and asks nothing.
         runner.turn_limit.store(crate::config::turn_limit(Some(1), runner.capacity), Ordering::SeqCst);
         runner.places.lock().unwrap().insert("a1".into());
-        let waited = tokio::time::timeout(Duration::from_millis(300), runner.wait_start_place(&start("a2"), &lease_flags())).await;
-        assert!(waited.is_err() && seen.lock().unwrap().is_empty(), "a start past the owner's limit reached the server");
+        let waited = tokio::time::timeout(Duration::from_millis(300),
+                                          runner.wait_start_place(&start("a2"), &lease_flags())).await;
+        assert!(waited.is_err() && seen.lock().unwrap().is_empty(),
+                "a start past the owner's limit reached the server");
         // The owner raises it to 3 above the machine's 2: with two turns running, a third start is admitted.
         runner.turn_limit.store(crate::config::turn_limit(Some(3), runner.capacity), Ordering::SeqCst);
         runner.places.lock().unwrap().insert("a2".into());

@@ -115,7 +115,8 @@ and in the main chat, still take turns.
 Nothing caps a bot below the computer's turns. When a turn frees, it goes to the bot holding the fewest turns
 there, then to the work that has waited longest, so bots that share a computer take turns between them. A bot's own
 **Turns at once** (set in its editor) caps its turns across every computer together, a person's message included: at
-its limit its queued work waits on every computer, and its other bots keep their turns. Work held back this way says "Waiting for a
+its limit its queued work waits on every computer, and its other bots keep their turns. Work held back this way says
+"Waiting for a
 free turn on <computer>" in its chat and on its task. The task shows the same waiting reason as the chat (a paused bot,
 an update, a computer being set up) to anyone who can read the task.
 

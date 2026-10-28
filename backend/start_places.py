@@ -81,6 +81,8 @@ def held_totals(c):
 TURNS_AT_ONCE = "turns_at_once_v1"
 BOT_KEY = "turns_at_once"
 MAX_TURNS = 256
+# The wait a parked turn shows when the bot is at its own limit: the same words Health and the task use for it.
+BOT_WAIT = "at its turn limit"
 
 
 def turn_limit(runner):
@@ -107,14 +109,12 @@ def at_turn_limit(c, bot):
     return limit is not None and bot_held(c, bot) >= limit
 
 
-def bot_held(c, bot):
-    """Turns the bot holds on every computer together: what its "Turns at once" is checked against. The same rule
-    as `held`, without the computer."""
-    now = H.now()
-    return c.execute("SELECT count(*) FROM attempts a LEFT JOIN start_places p ON p.attempt_id=a.id "
-                     "WHERE a.bot=? AND a.state IN ('leased','running') AND (a.state='running' OR (a.state='leased' "
-                     "AND a.lease_until>? AND (p.start_until>? OR p.attempt_id IS NULL OR p.managed=0)))",
-                     (bot, now, now)).fetchone()[0]
+def bot_held(c, bot, exclude=None):
+    """Turns the bot holds on every computer together: what its "Turns at once" is checked against. A turn holds its
+    place from its claim until it ends, whether it is starting, parked on a wait or running: a parked turn still
+    belongs to the bot, so the bot's next one cannot start beside it. `exclude` leaves out one attempt."""
+    return c.execute("SELECT count(*) FROM attempts a WHERE a.bot=? AND a.id IS NOT ? AND (a.state='running' "
+                     "OR (a.state='leased' AND a.lease_until>?))", (bot, exclude, H.now())).fetchone()[0]
 
 
 def claim(c, aid):
@@ -184,6 +184,14 @@ def reserve(c, attempt, settings=None):
     if settings and not counted and org_turns.observe(c, settings, detailed=False)['at_stop']:
         waiting(c, aid, org_turns.REASON)
         return {'reserved': False, 'waiting': org_turns.REASON}
+    # The bot's own limit is checked before the computer's: a turn held by its bot waits for the bot's turns, not for
+    # a place, so it is not "computer busy" and does not hold the computer's other starts. This turn is already one of
+    # the bot's turns (bot_held counts it), so the grant checks the others.
+    bot_config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (attempt['bot'],)).fetchone()
+    bot_cap = bot_limit(H._json(bot_config[0], {}) if bot_config else {})
+    if bot_cap is not None and bot_held(c, attempt['bot'], exclude=aid) >= bot_cap:
+        waiting(c, aid, BOT_WAIT)
+        return {'reserved': False, 'waiting': BOT_WAIT}
     capacity = turn_limit(c.execute("SELECT * FROM runners WHERE id=?", (rid,)).fetchone())
     # Waiters ready to run take their turns by original claim order. Login/lane waiters are not ready yet.
     ahead = c.execute("SELECT 1 FROM start_places p JOIN attempts a ON a.id=p.attempt_id "

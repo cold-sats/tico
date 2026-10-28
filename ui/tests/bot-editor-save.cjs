@@ -58,7 +58,9 @@ const {unrouted} = require('./support/routes.cjs');
           Object.assign(helper, {display_name: body.display_name, description: body.description});
           return json({name: 'helper', display_name: helper.display_name, revision: ++helper.revision});
         }
-        if (what === 'compact-at' || what === 'keep-tasks-going' || what === 'turns-at-once') return json({bot: 'helper', revision: ++helper.revision});
+        if (what === 'compact-at' || what === 'keep-tasks-going' || what === 'turns-at-once') {
+          return json({bot: 'helper', revision: ++helper.revision});
+        }
         if (what === 'archive') return json({bot: 'helper', archived: true});
         if (what === 'transitions' && refuseTransition) return json({error: {detail: 'Bot configuration changed; refresh before saving'}}, 409);
         if (what === 'transitions') return json({id: 'tr-1', bot: 'helper', kind: 'model', state: 'preparing'});
@@ -205,7 +207,8 @@ const {unrouted} = require('./support/routes.cjs');
     await page.waitForFunction(() => /Checkpointing 0 of 1/.test(document.querySelector('#transition-dialog')?.innerText || ''));
     await page.evaluate(() => { clearInterval(SETTINGS_TRANSITION_TIMER); document.querySelector('#transition-dialog').close(); });
 
-    // Model, compact-at, keep-tasks and turns at once changed: nothing is posted until Save bot, then all of them save together.
+    // Model, compact-at, keep-tasks and turns at once changed: nothing is posted until Save bot, then all
+    // of them save together.
     await open();
     await pick('model', 'codex', 'gpt-6-luna');
     await editor.locator('[data-bot-compact]').selectOption('400000');
@@ -219,7 +222,8 @@ const {unrouted} = require('./support/routes.cjs');
     await save();
     await transition.locator('[data-confirm-prepare]').click();
     await closed();
-    assert.deepEqual(calls.map(c => [c.what, c.body.expected_revision]), [['definition', 13], ['compact-at', 14], ['keep-tasks-going', 15], ['turns-at-once', 16], ['transitions', 17]],
+    assert.deepEqual(calls.map(c => [c.what, c.body.expected_revision]),
+      [['definition', 13], ['compact-at', 14], ['keep-tasks-going', 15], ['turns-at-once', 16], ['transitions', 17]],
       'Save bot saves every held change, chaining the revision');
     assert.equal(calls[1].body.compact_at, 400000);
     assert.equal(calls[2].body.keep_tasks_going, 3);

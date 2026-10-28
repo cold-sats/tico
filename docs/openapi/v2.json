@@ -2500,7 +2500,7 @@
     },
     "/api/v2/bots/{bot}/turns-at-once": {
       "post": {
-        "summary": "Set the most turns the bot runs at once across every computer: null is no limit, 1 to 256 otherwise",
+        "summary": "Set the most turns the bot runs at once on every computer: null is no limit, 1 to 256 otherwise",
         "operationId": "setBotTurnsAtOnce",
         "parameters": [
           {
@@ -3571,7 +3571,7 @@
     },
     "/api/v2/computers/{rid}/turns-at-once": {
       "post": {
-        "summary": "Set the most turns a computer runs at once: null is automatic (its own capacity). A computer that cannot take a raised number runs at most the capacity it reports",
+        "summary": "Set the most turns a computer runs at once: null is automatic (its own capacity)",
         "operationId": "setComputerTurnsAtOnce",
         "parameters": [
           {
@@ -24342,6 +24342,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "turns_at_once",
           "expected_revision"
         ],
         "title": "BotTurnsAtOnce"
@@ -33311,6 +33312,9 @@
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "turns_at_once"
+        ],
         "title": "RunnerTurnsAtOnce"
       },
       "Seat": {

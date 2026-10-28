@@ -2208,8 +2208,9 @@ def install_views(app, store, auth, mutate, task_view):
             # One pass for every renamed subscription (not one registry_metadata lookup per shared login).
             login_names = display_names(c)
             runners = list(c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
-                                      "accepts_member_bots,turns_at_once,screen,performance,capabilities_json,restart_since,readiness_at "
-                                      "FROM runners ORDER BY created"))
+                                      "accepts_member_bots,turns_at_once,screen,performance,capabilities_json,"
+                                      "restart_since,"
+                                      "readiness_at FROM runners ORDER BY created"))
             from . import usage_limits
             from .start_places import describe, summaries, turn_limit
             # One company Default for every computer's queue classify: without it each summary rebuilds

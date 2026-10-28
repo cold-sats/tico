@@ -108,3 +108,50 @@ def test_health_names_a_bot_at_its_limit_by_its_reason_and_says_so(api):
     stuck = [row for row in get(api, "health")["stuck"] if row.get("bot") == "ops"]
     assert [row["reason"] for row in stuck] == ["bot_limit"], stuck
     assert "At its turn limit" in stuck[0]["why"]
+
+
+def test_a_parked_turn_still_holds_its_bots_turn(api):
+    """A parked turn is one of its bot's turns: the claim does not start the bot's next task on another lane beside
+    it, and the parked turn's own start, once its wait clears, takes the bot's one place, not a second one."""
+    machine = task_bot(api, lanes=True, capacity=4)
+    new_task(api, "first")
+    new_task(api, "second")
+    assert set_bot(api, 1)["turns_at_once"] == 1
+    parked = claim(api, machine)
+    assert parked is not None and parked["bot"] == "ops"
+    post(api, f"attempts/{parked['id']}/start-place", {"waiting": "pre-start requirements"}, machine["token"])
+    assert claim(api, machine) is None
+    assert post(api, f"attempts/{parked['id']}/start-place", {}, machine["token"])["reserved"] is True
+    assert claim(api, machine) is None
+
+
+def test_a_parked_turn_waits_for_its_bot_when_the_limit_drops_under_its_other_turn(api):
+    """A limit lowered while two of the bot's turns are held: the parked one is refused its place and says why, the way
+    a computer's capacity refuses one, and gets it once the other turn ends."""
+    machine = task_bot(api, lanes=True, capacity=4)
+    new_task(api, "first")
+    new_task(api, "second")
+    assert set_bot(api, 2)["turns_at_once"] == 2
+    other, parked = claim(api, machine), claim(api, machine)
+    assert other is not None and parked is not None
+    post(api, f"attempts/{parked['id']}/start-place", {"waiting": "pre-start requirements"}, machine["token"])
+    assert set_bot(api, 1)["turns_at_once"] == 1
+    assert post(api, f"attempts/{parked['id']}/start-place", {}, machine["token"]) == {
+        "reserved": False, "waiting": "at its turn limit"}
+    post(api, f"attempts/{other['id']}/complete", {"outcome": "interrupted", "text": "", "last_seq": 0},
+         machine["token"])
+    assert post(api, f"attempts/{parked['id']}/start-place", {}, machine["token"])["reserved"] is True
+
+
+def test_omitting_the_turns_at_once_field_is_refused_and_an_explicit_null_clears_it(api):
+    machine = task_bot(api, lanes=True, capacity=4)
+    assert set_computer(api, machine, 2)["turn_limit"] == 2
+    assert set_bot(api, 1)["turns_at_once"] == 1
+    post(api, f"computers/{machine['runner_id']}/turns-at-once", {}, expected=422)
+    post(api, "bots/ops/turns-at-once", {"expected_revision": get(api, "bots/ops")["revision"]},
+         token="ana-test", expected=422)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT turns_at_once FROM runners WHERE id=?", (machine["runner_id"],)).fetchone()[0] == 2
+    assert get(api, "bots/ops")["turns_at_once"] == 1
+    assert set_computer(api, machine, None)["turn_limit"] == 4
+    assert set_bot(api, None)["turns_at_once"] is None

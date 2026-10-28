@@ -280,7 +280,8 @@ const {unrouted} = require('./support/routes.cjs');
         assert.equal(helper.keep_tasks_going, stored);
         await openEditor();
       }
-      // Turns at once saves the same way; a value out of range or not a whole number is named under its row and not sent.
+      // Turns at once saves the same way; a value out of range or not a whole number is named under its row
+      // and not sent.
       const turns = editor.locator('[data-bot-turns-at-once]');
       for (const [value, stored] of [['5', 5], ['', null]]) {
         const before = helper.revision;
