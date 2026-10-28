@@ -2901,8 +2901,10 @@ class Execution:
             selected, prepared = None, False
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
-        # Backfill a free turn after queued conversations and awaited results keep their place.
-        if row is None and selected is None and (pending := auto_tasks.missing(c, self.store.settings, runner, body)):
+        # Backfill a free turn after queued conversations and awaited results keep their place. A claim that passed over
+        # a dropped pick leaves backfill to the next poll: its scan under the writer lock is not repeated in a busy moment.
+        if (row is None and selected is None and not passed
+                and (pending := auto_tasks.missing(c, self.store.settings, runner, body))):
             auto_tasks.enqueue(c, pending)
             row = self.candidate(c, who, body, runner, failed=failed, skip=passed)
             self.hold_failed(c, failed)
