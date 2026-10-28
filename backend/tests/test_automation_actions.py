@@ -6,6 +6,7 @@ from backend import automation_actions as A
 from backend.store import H
 from backend.tests.test_api import api, post  # noqa: F401
 from backend.tests.test_automation_api import turn_on
+from backend.tests.test_market import _librarian
 
 MAIL = {"message": {"source": "mail", "mailbox": "ana@acme.example", "id": "m1", "subject": "Invoice"}}
 SLACK = {"message": {"source": "slack", "inbox": "slack:#general", "channel": "C1", "ts": "1.1", "text": "Help?"}}
@@ -71,6 +72,50 @@ def test_post_update_posts_as_the_owner(api):
     turn_on(api)
     assert act(api, "post_update", {"text": "Shipped the fix"}, owner="bot:ops")["ok"]
     assert act(api, "post_update", {}) == {"ok": False, "detail": "post_update needs text"}
+
+
+BRIEF = {"brief": {"ref": "task_9", "turn": {"bot": "librarian", "task": "task_9"},
+                   "text": "# Acme market, Tuesday\n\n- Northwind cut its price.\n- No bet is touched."}}
+
+
+def test_post_update_to_market_and_updates_posts_the_turns_briefing(api):
+    """With no text it posts what the turn before wrote: the week's briefing on Market, one line on the Librarian's
+    daily update pointing at it. Both name the run; a second run the same day keeps one line."""
+    _librarian(api)
+    turn_on(api)
+    with api.app.state.store.transaction() as c:
+        from backend import updates
+        updates.post(c, "librarian", "- Mapped three new competitors.", kind="daily")
+    for _ in range(2):
+        done = act(api, "post_update", {"to": ["market", "updates"]}, BRIEF, owner="bot:librarian")
+        assert done["ok"] and done["briefing"] and done["update"], done
+    source = {"automation": "auto_t", "run": "run_1", "task": "task_9"}
+    latest = api.get("/api/v2/market/briefings/latest", headers={"Authorization": "Bearer ana-test"}).json()["briefing"]
+    assert (latest["title"], latest["body"], latest["source"]) == (
+        "Acme market, Tuesday", "- Northwind cut its price.\n- No bet is touched.", source)
+    row = sql(api, "SELECT body, source_json FROM updates WHERE bot='librarian' AND kind='daily'")
+    assert len(row) == 1 and json.loads(row[0]["source_json"]) == source
+    assert row[0]["body"] == ("- Mapped three new competitors.\n"
+                              "- Market briefing: Acme market, Tuesday ([read](#/strategy/market/briefing))")
+    listed = api.get("/api/v2/updates", headers={"Authorization": "Bearer ana-test"}).json()["updates"]
+    assert [u["source"] for u in listed if u["bot"] == "librarian"] == [source]
+
+
+def test_post_update_to_market_is_the_librarians_or_the_top_of_the_orgs(api):
+    _librarian(api)
+    turn_on(api)
+    assert act(api, "post_update", {"to": ["market"], "text": "Acme week"}, owner="bot:ops") == {
+        "ok": False, "detail": "only the Librarian and the top of the org post to Market"}
+    assert act(api, "post_update", {"to": ["market"], "text": "Acme week"}, owner="person:ana")["ok"]
+    assert act(api, "post_update", {"to": ["slack"], "text": "x"}) == {
+        "ok": False, "detail": "to lists where to post: updates, market"}
+    # A post by hand clears the run's mark.
+    assert act(api, "post_update", {"text": "- Curated the map."}, owner="bot:librarian")["ok"]
+    assert sql(api, "SELECT source_json FROM updates WHERE bot='librarian'")[0]["source_json"]
+    with api.app.state.store.transaction() as c:
+        from backend import updates
+        updates.post(c, "librarian", "- Hand-written.", kind="daily")
+    assert sql(api, "SELECT source_json FROM updates WHERE bot='librarian'") == [{"source_json": None}]
 
 
 def test_call_webhook_queues_a_delivery_to_a_saved_hook_only(api):

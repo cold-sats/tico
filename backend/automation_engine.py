@@ -8,7 +8,8 @@ the forks it took (`trail`) and the next step in that list. Paths never rejoin a
 that cursor is the whole position. A run starts with one thread; a `find` replaces it with one per item.
 
 A thread stops when its list ends, a filter rule says stop, a fork has no path or a step fails. A turn over the spend
-cap is recorded as `spend_cap` and the thread goes on without it; a decision with Decide off is `skipped` likewise. It waits for two things: the answer of an `llm` turn that has steps after it (`answer` fills it) and,
+cap is recorded as `spend_cap` and the thread goes on without it; a decision with Decide off is `skipped` likewise. It waits for two things: the answer of an `llm` turn that has steps after it, or of a `bot_turn` a later step reads
+(`{{brief.text}}`, or a `post_update` with no text of its own; `answer` fills it, a bot turn's under its step id) and,
 with `batch` times, the next batch time once the leading filters ran (`advance` picks it up when the time comes).
 
 Every effect (an action, a turn) gets `ctx["key"]`, the index its step record will have (`<n>.<m>` for a filter
@@ -25,6 +26,9 @@ services:
   next_batch() -> the next batch time (ISO), and now() -> now (ISO)
   checkpoint(state) -> None
 """
+import json
+import re
+
 from backend import automation_flow as F
 
 READY, WAITING, DONE, FAILED = "ready", "waiting", "done", "failed"
@@ -228,7 +232,8 @@ def _turn(flow, state, thread, step, services, who, prompt, wait):
         _record(state, thread, step, "ok", outputs)
         return
     record = _record(state, thread, step, "waiting", outputs)
-    thread.update(state=WAITING, wait={"kind": "turn", "ref": ref, "out": step["out"], "record": record})
+    thread.update(state=WAITING, wait={"kind": "turn", "ref": ref, "out": step.get("out") or step["id"],
+                                       "record": record})
 
 
 def _llm(flow, state, thread, step, services):
@@ -238,8 +243,30 @@ def _llm(flow, state, thread, step, services):
 
 
 def _bot_turn(flow, state, thread, step, services):
+    # A bot's turn is its own work and the run goes on, unless a later step reads what it wrote (a briefing to post).
     bot = step["bot"]
-    _turn(flow, state, thread, step, services, bot if bot.startswith("bot:") else "bot:" + bot, step["prompt"], False)
+    later = steps_at(flow, thread["trail"])[thread["next"]:]
+    _turn(flow, state, thread, step, services, bot if bot.startswith("bot:") else "bot:" + bot, step["prompt"],
+          _reads(later, step["id"]))
+
+
+def _reads(steps, name):
+    """Whether one of these steps (or a step on a path under them) reads step `name`'s answer: names `name.<field>`,
+    or posts an update with no text of its own, which posts what the turn before wrote."""
+    used = re.compile(r"(?<![A-Za-z0-9_.-])" + re.escape(name) + r"\.")
+    for step in steps:
+        args = step.get("args") or {}
+        if step.get("do") == "post_update" and not (args.get("text") or args.get("body")):
+            return True
+        if step.get("type") == "paths":
+            nested = [p.get("steps") or [] for p in step.get("paths") or []]
+            if any(_reads(s, name) for s in nested + [(step.get("otherwise") or {}).get("steps") or []]):
+                return True
+            step = {k: v for k, v in step.items() if k not in ("paths", "otherwise")} | {
+                "when": [p.get("when") for p in step.get("paths") or []]}
+        if used.search(json.dumps(step, default=str)):
+            return True
+    return False
 
 
 def _find(flow, state, thread, step, services):

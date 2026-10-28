@@ -130,6 +130,33 @@ def test_the_hubs_what_wakes_bots_is_adopted_not_doubled_and_outlives_a_restore(
     put(api, "settings/redesign", {"enabled": False})
 
 
+def test_the_librarians_briefing_routine_becomes_the_market_briefing_builtin_never_beside_it(api):
+    """While the routine runs, the hub's Market briefing starts paused; convert gives the built-in the routine's time
+    and words and turns it on; restore brings the routine back and pauses the built-in again."""
+    from backend import automations
+    from backend.tests.test_market import _librarian
+    _librarian(api)
+    routine = post(api, "bots/librarian/routines", {"title": "Market briefing", "text": "Brief the team.",
+                                                    "cron": "0 7 * * 1-5", "timezone": "America/New_York"})["routine"]
+    turn_on(api)
+    automations.tick(db(api))
+    built = "SELECT enabled, flow_json FROM automations WHERE id='auto_builtin_market_briefing' AND deleted_at IS NULL"
+    assert rows(api, built)[0]["enabled"] == 0
+    row = [o for o in by(migrate(api, "dry-run"), "routine") if o["id"] == routine["id"]][0]
+    assert row["becomes"]["builtin"] is True and row["becomes"]["name"] == "Market briefing"
+    migrate(api, "convert", {"accept": accept_all(api)})
+    flow = json.loads(rows(api, built)[0]["flow_json"])
+    assert rows(api, built)[0]["enabled"] == 1
+    assert flow["trigger"] == {"type": "schedule", "cron": "0 7 * * 1-5", "tz": "America/New_York"}
+    assert flow["steps"][0]["prompt"] == "Brief the team." and flow["steps"][1]["do"] == "post_update"
+    assert rows(api, "SELECT count(*) AS n FROM automations WHERE name='Market briefing' AND deleted_at IS NULL") == [
+        {"n": 1}]
+    migrate(api, "restore")
+    assert rows(api, built)[0]["enabled"] == 0
+    assert rows(api, "SELECT deleted_at FROM schedules WHERE id=?", (routine["id"],)) == [{"deleted_at": None}]
+    put(api, "settings/redesign", {"enabled": False})
+
+
 def test_convert_with_accept_in_one_call_and_restore_after_a_day_is_gone(api):
     seed(api)
     turn_on(api)

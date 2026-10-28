@@ -176,7 +176,7 @@ def plan(c, who):
 
 
 def _routines(c, done):
-    from . import event_catalog as CAT, routines, triggers
+    from . import automations, event_catalog as CAT, routines, triggers
     rows = c.execute("SELECT s.*, coalesce(sc.timezone, ?) AS timezone, coalesce(sc.enabled, 1) AS enabled "
                      "FROM schedules s LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
                      "WHERE s.deleted_at IS NULL ORDER BY s.bot, s.id", (routines.DEFAULT_ZONE,)).fetchall()
@@ -221,8 +221,15 @@ def _routines(c, done):
         flow = {"name": (row["title"] or "Routine")[:120], "owner": "bot:" + bot, "enabled": enabled,
                 "trigger": trigger, "steps": [{"id": "turn", "type": "bot_turn", "bot": "bot:" + bot, "prompt": text}],
                 "source": {"kind": "routine", "id": sid}}
+        do = "routine"
+        if automations.is_briefing_routine(row) and trigger["type"] == "schedule":
+            # The hub's Market briefing does this now: the routine becomes that built-in, on the routine's own time
+            # and words, so the two never both run.
+            flow = {**automations.briefing_flow(trigger["cron"], trigger["tz"], text), "builtin": True,
+                    "enabled": enabled, "source": flow["source"]}
+            do = "adopt_briefing"
         out.append({"kind": "routine", "id": sid, "title": row["title"], "becomes": flow, "flags": flags,
-                    "_do": ("routine", {"next_due": row["next_due"]})})
+                    "_do": (do, {"next_due": row["next_due"]})})
     return out
 
 
@@ -623,6 +630,20 @@ def _save(c, who, flow):
     return aid
 
 
+def _adopt(c, who, flow):
+    """The Librarian's briefing routine as the hub's Market briefing built-in: made if the hub has not made it yet
+    (or a restore took it away), then given the routine's time, words and on/off."""
+    from . import automations
+    aid = "auto_builtin_" + automations.BRIEFING_KEY
+    row = c.execute("SELECT * FROM automations WHERE id=?", (aid,)).fetchone()
+    if row and row["deleted_at"]:
+        c.execute("UPDATE automations SET deleted_at=NULL WHERE id=?", (aid,))
+    via = "migration" if not who.via else f"{who.via}, migration"
+    automations._save(c, who.actor, aid, automations._checked(c, flow), automations.flow_of(row) if row else None,
+                      via=via)
+    return aid
+
+
 def _mark(c, kind, ident, mid, aid):
     c.execute("INSERT OR REPLACE INTO redesign_migrated(kind, id, migration, automation) VALUES(?,?,?,?)",
               (kind, ident, mid, aid))
@@ -633,11 +654,11 @@ def _convert_one(c, who, mid, obj, group_done):
     from . import ceo_bot, team_rules, turn_budgets as TB, usage_limits
     kind, args = obj["_do"]
     now = _now()
-    if kind == "routine":
+    if kind in ("routine", "adopt_briefing"):
         live = c.execute("SELECT next_due FROM schedules WHERE id=? AND deleted_at IS NULL", (obj["id"],)).fetchone()
         if not live:
             return None
-        aid = _save(c, who, obj["becomes"])
+        aid = _save(c, who, obj["becomes"]) if kind == "routine" else _adopt(c, who, obj["becomes"])
         if obj["becomes"]["trigger"]["type"] == "schedule" and live["next_due"]:
             # The routine's own next fire: the occurrence it would have run is the automation's, once.
             c.execute("UPDATE automations SET next_due=? WHERE id=?", (live["next_due"], aid))
@@ -927,8 +948,16 @@ def restore(c, who):
     if snap.get("stale_review") and any(k == "system_job" and i == "job:stale_review" for k, i in marked):
         team_rules.save(c, who.actor, {"stale_review": True})
     for aid in sorted(made):
-        # Its runs already under way finish (above); the automation itself is gone.
-        c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=? AND deleted_at IS NULL", (now, aid))
+        # Its runs already under way finish (above).
+        if aid.startswith("auto_builtin_"):
+            # An adopted built-in is the hub's: it stays, paused, while the routine it took over runs again.
+            from . import automations
+            row = c.execute("SELECT * FROM automations WHERE id=? AND deleted_at IS NULL", (aid,)).fetchone()
+            if row and row["enabled"]:
+                before = automations.flow_of(row)
+                automations._save(c, who.actor, aid, {**before, "enabled": False}, before, via="migration restore")
+        else:
+            c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=? AND deleted_at IS NULL", (now, aid))
     c.execute("DELETE FROM redesign_migrated WHERE migration=?", (mid,))
     c.execute("UPDATE redesign_migrations SET state='restored', restored_at=?, snapshot_json=NULL WHERE id=?", (now, mid))
     from . import audit_log
