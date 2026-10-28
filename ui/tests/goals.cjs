@@ -334,6 +334,9 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     }
     await panel.locator('[data-gp-close]').click();
     await page.goto('http://tico-ui.test/#/goals');
+    // The page settles first: a render still loading would redraw over the goal the link opens.
+    await until(() => page.evaluate(() => location.hash === '#/strategy/goals'), 'goals redirect');
+    await page.locator('#goal-tree .gt-row').first().waitFor();
     // A link to one goal opens its owner's panel on it.
     await page.goto('http://tico-ui.test/#/goals/g-cmo2');
     await page.locator('#goal-panel[open] [data-goal-form="g-cmo2"] input[name=title]').waitFor();
