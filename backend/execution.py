@@ -2844,8 +2844,9 @@ class Execution:
             return None         # a job that raised is held by the claim, under the writer lock, before any answer
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
-        if row is None and auto_tasks.missing(c, self.store.settings, runner, body):
-            return None
+        if row is None and (auto_tasks.missing(c, self.store.settings, runner, body, failed, self.check_waiting)
+                            or failed):
+            return None         # a bot whose check raised is recorded under the writer lock, as above
         if row is not None and selected is not None:
             selected.append(row)
         return None if row else {"attempt": None}
@@ -3002,7 +3003,7 @@ class Execution:
         # over a dropped pick leaves backfill to the next poll: its scan under the writer lock is not repeated in a
         # busy moment.
         if (row is None and selected is None and not passed
-                and (pending := auto_tasks.missing(c, self.store.settings, runner, body))):
+                and (pending := auto_tasks.missing(c, self.store.settings, runner, body, failed, self.check_waiting))):
             auto_tasks.enqueue(c, pending)
             row = self.pick(c, who, body, runner, now, failed=failed, passed=passed)
         if not row:

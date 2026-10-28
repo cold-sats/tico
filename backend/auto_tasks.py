@@ -222,10 +222,13 @@ def refusal(c, row, config, woken=False, result=False, *, message=None):
     return None
 
 
-def missing(c, settings, runner, body):
-    """The highest ranked eligible task without an unfinished run. Reads only, including on idle claims."""
+def missing(c, settings, runner, body, failed=None, waiting=None):
+    """The highest ranked eligible task without an unfinished run. Reads only, including on idle claims. A bot whose
+    claim check raised is passed over as the claim passes it over: `failed` (the claim's ClaimFaults) records it, and
+    `waiting` says its check is still backing off."""
     from . import claim_holds
     from . import execution as E
+    from .batch_work import report, shared_check, shared_scope, storage_error
     from .shared_bots import follow
     from .store import readiness_document
     ready = readiness_document(runner['readiness_json'])
@@ -245,7 +248,21 @@ def missing(c, settings, runner, body):
         # most of an idle claim's time on an install of forty bots.
         if not c.execute("SELECT 1 FROM tasks WHERE owner=? AND status='open' LIMIT 1", ('bot:' + slug,)).fetchone():
             continue
-        why, config = E.claim_refusal(c, settings, runner, slug, bot['config_json'], bot['draining'], ready, held_bots)
+        if (failed is not None and slug in failed.bots) or (waiting is not None and waiting(slug)):
+            continue
+        try:
+            with shared_check():
+                why, config = E.claim_refusal(c, settings, runner, slug, bot['config_json'], bot['draining'], ready,
+                                              held_bots)
+        except Exception as exc:
+            # One bot's raising check must not stop the other bots' open tasks from starting.
+            if storage_error(exc) or shared_scope(exc) == "team":
+                raise
+            if failed is not None:
+                failed.bot(slug, exc)
+            else:
+                report("auto task check", slug, exc)
+            continue
         if why:
             continue
         config = follow(c, slug, config)

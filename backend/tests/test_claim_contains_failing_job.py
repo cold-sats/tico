@@ -11,8 +11,8 @@ import sqlite3
 
 import pytest
 
-from backend import (batch_work, claim_holds, execution, gateway_connection, health_monitor, providers, read_cache,
-                     read_deps, run_backoff, task_privacy as privacy, turn_budgets, wake_presets)
+from backend import (batch_work, claim_holds, execution, gateway_connection, health, health_monitor, providers,
+                     read_cache, read_deps, run_backoff, task_privacy as privacy, turn_budgets, wake_presets)
 from backend.store import H
 from backend.tests.test_api import (  # noqa: F401 (api is a fixture)
     api, assign, claim, get, headers, post, ready, runner, setup_attempt)
@@ -726,3 +726,45 @@ def test_a_batch_planned_after_a_claim_hold_was_let_go_is_not_spaced_by_that_hol
 def wake_tick(api, when):
     with api.app.state.store.transaction() as c:
         wake_presets.tick(c, when)
+
+
+def test_a_bot_check_that_raises_does_not_stop_another_bots_open_task_from_starting(api, monkeypatch):
+    """The idle claim's backfill asks each bot with an open task the same bot-wide checks: one that raises passes that
+    bot over there too, and is recorded and backed off as in the queue, so the other bot's task still starts."""
+    machine = runner(api, "ana")
+    for bot in ("ops", "cpo"):
+        assign(api, machine, bot)
+    ready(api, machine, ["ops", "cpo"])
+    tasks = {bot: post(api, "tasks", {"owner": bot, "title": f"Implement the {bot} report",
+                                      "body": "Build the requested feature."}) for bot in ("ops", "cpo")}
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET state='cancelled'")        # no notice queued: only the backfill starts them
+    calls = bot_check_raising(monkeypatch, run_backoff, "refusal", "ops")
+    turn = claim(api, machine)
+    assert (turn["bot"], turn["task"]["id"]) == ("cpo", tasks["cpo"]["id"])
+    assert calls
+    # Inside the back-off the next polls do not run ops's check again, and they answer.
+    seen = len(calls)
+    for _ in range(3):
+        assert claim(api, machine) is None
+    assert len(calls) == seen
+    with api.app.state.store.transaction() as c:
+        assert "claim_check" in {f["check_id"] for f in health_monitor.findings(c, api.app.state.store.settings)}
+
+
+@pytest.mark.parametrize("check", ["bot", "job"])
+def test_health_lists_waiting_bots_while_a_claim_check_raises(api, monkeypatch, check):
+    """Health's waiting list asks the claim's own checks; one that raises leaves that bot out of the list (Health names
+    the failing check or the held run instead) and the page still renders."""
+    machine = runner(api, "ana")
+    two_bots_with_chats(api, machine)
+    if check == "bot":
+        bot_check_raising(monkeypatch, run_backoff, "refusal", "ops")
+    else:
+        monkeypatch.setattr(execution, "job_refusal", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("unreadable")))
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("UPDATE jobs SET created=? WHERE state='queued'", (H.shift(H.now(), minutes=-30),))
+        online = {r["id"] for r in health._online_runners(c)}
+        waiting, slow, stuck = health._waiting(c, online, store.settings)
+    assert "ops" not in {r["bot"] for r in stuck}

@@ -159,10 +159,13 @@ def check_failed(c, bot, exc):
 
 
 def check_failures(c):
-    """The bots whose claim check is failing and that still have queued runs, as {bot, error, failed_at}."""
+    """The bots whose claim check is failing and that still have work it holds back, queued runs or open tasks of their
+    own (the claim's backfill asks the same check), as {bot, error, failed_at}."""
     out = []
     for row in c.execute("SELECT h.detail_json FROM service_health h WHERE h.service GLOB 'claim_check:*' "
-                         "AND EXISTS (SELECT 1 FROM jobs j WHERE j.state='queued' AND ?||j.bot=h.service) "
-                         "ORDER BY h.service", (CHECK,)):
+                         "AND (EXISTS (SELECT 1 FROM jobs j WHERE j.state='queued' AND ?||j.bot=h.service) "
+                         "OR EXISTS (SELECT 1 FROM tasks t WHERE t.status='open' "
+                         "AND t.owner='bot:'||substr(h.service,?))) "
+                         "ORDER BY h.service", (CHECK, len(CHECK) + 1)):
         out.append(json.loads(row[0] or "{}"))
     return out

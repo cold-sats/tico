@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from . import (access, billing_check, blob_s3, gateway_connection, hook_relay, hosted_updates, inbox_isolation, model_login,
                pipeline_stats, providers, releases, roadmaps, runner_versions, setup_stuck, sleep_idle, usage_limits, watchers)
-from .batch_work import shared_scope
+from .batch_work import report, storage_error
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 
 
@@ -513,14 +513,16 @@ def _fenced_queue_reason(row, refused, first, person):
 
 
 def _claimable(c, settings, runner_id, slug, limits, **kw):
-    """execution.bot_claimable, or None when a bot-wide check of the claim raised. The claim passes such a bot over and
-    Health names the check (claim_holds.check_failures), so the bot is not explained here and the page still renders."""
+    """execution.bot_claimable, or None when a check of the claim raised. The claim passes such a bot over or holds the
+    job, and Health names it (claim_holds.check_failures, the held job's item), so the bot is not explained here and
+    the page still renders. A storage error still fails the read."""
     from .execution import bot_claimable
     try:
         return bot_claimable(c, settings, runner_id, slug, limits, **kw)
     except Exception as exc:
-        if shared_scope(exc) != "bot":
+        if storage_error(exc):
             raise
+        report("health claim check", slug, exc, logger="tico.health")
         return None
 
 
