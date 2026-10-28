@@ -1,0 +1,167 @@
+"""The redesign's migration (backend/redesign_migration.py, PLAN §8): dry run, resolve, convert, restore."""
+import json
+import pytest
+
+from backend.tests.test_api import api, get, post, put  # noqa: F401
+from backend.tests.test_automation_api import turn_on
+
+
+def seed(api):
+    """An Acme install as today's routes make it: a cron routine, two custom wake rules and an hourly limit."""
+    routine = post(api, "bots/coo/routines", {"title": "Morning notes", "text": "Post yesterday's work.",
+                                              "cron": "0 9 * * *", "timezone": "Europe/London"})["routine"]
+    rules = [post(api, "rules", {"scope_kind": "bot", "scope_id": "coo", "event": event, "then": then})["rule"]
+             for event, then in (("comment", "wake"), ("step_entered", "note"))]
+    put(api, "usage/limits/coo", {"hourly_usd": 0.35})
+    return routine, rules
+
+
+def db(api):
+    return api.app.state.store
+
+
+def rows(api, sql, args=()):
+    with db(api).read() as c:
+        return [dict(r) for r in c.execute(sql, args).fetchall()]
+
+
+def migrate(api, step, body=None, token="ana-test", expected=200):
+    r = api.post("/api/v2/redesign/migration/" + step, json=body or {},
+                 headers={"Authorization": "Bearer " + token, "Idempotency-Key": f"{step}-{json.dumps(body)}"})
+    assert r.status_code == expected, r.text
+    return r.json()
+
+
+def by(report, kind):
+    return [o for o in report["objects"] if o["kind"] == kind]
+
+
+def test_hidden_while_off_and_the_owner_only(api):
+    migrate(api, "dry-run", expected=404)
+    migrate(api, "convert", expected=404)
+    turn_on(api)
+    migrate(api, "dry-run", token="ben-test", expected=403)
+    migrate(api, "convert", token="ben-test", expected=403)
+
+
+def test_dry_run_lists_every_object_and_writes_nothing(api):
+    routine, rules = seed(api)
+    turn_on(api)
+    before = rows(api, "SELECT COUNT(*) n FROM automations")[0]["n"]
+    report = migrate(api, "dry-run")
+    assert [o["id"] for o in by(report, "routine")] == [routine["id"]]
+    wakes = by(report, "wake_rule")
+    assert {o["id"] for o in wakes} == {r["id"] for r in rules}
+    flow = wakes[0]["becomes"]
+    assert flow["name"].startswith("What wakes") and flow["owner"] == "bot:coo"
+    assert [s["type"] for s in flow["steps"]] == ["filter", "filter"]          # one Filter step per rule
+    builtin = by(report, "builtin")[0]["becomes"]
+    assert builtin["name"] == "What wakes bots" and builtin["readonly"] is True
+    limit = [o for o in by(report, "spend_limit") if o["id"] == "limit:coo"][0]
+    assert limit["becomes"] == {"per_30m_usd": 0.2, "hourly_usd": None}   # 0.35 / 2 rounded up to $0.10
+    assert any(f["kind"] == "rounding" for f in limit["flags"])
+    assert rows(api, "SELECT COUNT(*) n FROM automations")[0]["n"] == before
+    assert rows(api, "SELECT deleted_at FROM schedules WHERE id=?", (routine["id"],))[0]["deleted_at"] is None
+    assert len(rows(api, "SELECT id FROM rules WHERE id IN (?,?)", (rules[0]["id"], rules[1]["id"]))) == 2
+
+
+def test_convert_waits_for_flags_then_converts_and_restore_puts_it_back(api):
+    routine, rules = seed(api)
+    turn_on(api)
+    report = migrate(api, "dry-run")
+    open_ = [f["id"] for o in report["objects"] for f in o["flags"] if not f["accepted"]]
+    assert open_ and not report["ready"]
+    refused = migrate(api, "convert", expected=409)
+    assert refused["error"]["code"] == "flags_open" and set(refused["error"]["flags"]) == set(open_)
+    migrate(api, "resolve", {"accept": ["nope#flag"]}, expected=422)
+    assert migrate(api, "resolve", {"accept": open_})["ready"] is True
+    due = rows(api, "SELECT next_due FROM schedules WHERE id=?", (routine["id"],))[0]["next_due"]
+
+    done = migrate(api, "convert")
+    assert not done["failed"] and done["snapshot"]["expires"]
+    # The routine: soft-deleted with no next run, its automation due at the very same time (no double fire).
+    old = rows(api, "SELECT deleted_at, next_due FROM schedules WHERE id=?", (routine["id"],))[0]
+    assert old["deleted_at"] and old["next_due"] is None
+    made = rows(api, "SELECT a.id, a.next_due FROM automations a JOIN redesign_migrated m ON m.automation=a.id "
+                     "WHERE m.kind='routine' AND m.id=?", (routine["id"],))
+    assert made and made[0]["next_due"] == due
+    from backend import redesign_migration
+    # Wake rules: the rows are gone, the decision still reads them from "What wakes".
+    assert not rows(api, "SELECT id FROM rules WHERE id IN (?,?)", (rules[0]["id"], rules[1]["id"]))
+    with db(api).read() as c:
+        woken = redesign_migration.wake_rows(c, "comment")
+    assert [r["id"] for r in woken] == [rules[0]["id"]] and woken[0]["scope_id"] == "coo"
+    # The limit: a 30-minute limit of half, rounded up; the hourly one cleared.
+    limit = rows(api, "SELECT hourly_usd, per_30m_usd FROM usage_limits WHERE bot='coo'")[0]
+    assert limit == {"hourly_usd": None, "per_30m_usd": 0.2}
+    # The built-in wake rules: one read-only automation nobody edits.
+    listed = get(api, "automations")["automations"]
+    builtin = [a for a in listed if a["name"] == "What wakes bots"][0]
+    assert builtin["can_edit"] is False
+    r = api.patch(f"/api/v2/automations/{builtin['id']}", json={"name": "Mine now"},
+                  headers={"Authorization": "Bearer ana-test", "Idempotency-Key": "patch-builtin"})
+    assert r.status_code == 403, r.text
+    # Converted: no second convert, and the redesign stays on until restored.
+    migrate(api, "convert", expected=409)
+    put(api, "settings/redesign", {"enabled": False}, expected=409)
+
+    back = migrate(api, "restore")
+    assert rows(api, "SELECT state FROM redesign_migrations") == [{"state": "restored"}], back
+    old = rows(api, "SELECT deleted_at, next_due FROM schedules WHERE id=?", (routine["id"],))[0]
+    assert old["deleted_at"] is None and old["next_due"] == due
+    assert len(rows(api, "SELECT id FROM rules WHERE id IN (?,?)", (rules[0]["id"], rules[1]["id"]))) == 2
+    assert rows(api, "SELECT hourly_usd, per_30m_usd FROM usage_limits WHERE bot='coo'")[0]["hourly_usd"] == 0.35
+    assert not rows(api, "SELECT id FROM automations WHERE id=? AND deleted_at IS NULL", (made[0]["id"],))
+    assert not rows(api, "SELECT * FROM redesign_migrated")
+    put(api, "settings/redesign", {"enabled": False})
+
+
+def test_convert_with_accept_in_one_call_and_restore_after_a_day_is_gone(api):
+    seed(api)
+    turn_on(api)
+    open_ = [f["id"] for o in migrate(api, "dry-run")["objects"] for f in o["flags"] if not f["accepted"]]
+    done = migrate(api, "convert", {"accept": open_})
+    assert done["converted"] and not done["failed"]
+    from backend import redesign_migration
+    with db(api).transaction() as c:
+        c.execute("UPDATE redesign_migrations SET expires=?", ("2000-01-01T00:00:00.000000Z",))
+    migrate(api, "restore", expected=410)
+    with db(api).transaction() as c:
+        redesign_migration.prune(c, "2100-01-01T00:00:00.000000Z")
+    assert rows(api, "SELECT state, snapshot_json FROM redesign_migrations") == [
+        {"state": "expired", "snapshot_json": None}]
+
+
+def test_routine_create_while_converted_returns_the_held_row(api):
+    routine, _ = seed(api)
+    turn_on(api)
+    open_ = [f["id"] for o in migrate(api, "dry-run")["objects"] for f in o["flags"] if not f["accepted"]]
+    migrate(api, "convert", {"accept": open_})
+    from backend import redesign_migration
+    with db(api).read() as c:
+        assert redesign_migration.holds(c, "routine", routine["id"])
+        assert redesign_migration.converted(c)
+
+
+def test_half_rounds_up_to_ten_cents():
+    from backend.redesign_migration import half
+    assert [half(v) for v in (3.0, 5.0, 0.25, 0.35, 0.2)] == [1.5, 2.5, 0.2, 0.2, 0.1]
+
+
+def test_hub_tool_runs_the_dry_run_for_the_owner_only(api):
+    from backend.tests.test_mcp import call
+    seed(api)
+    turn_on(api)
+    err, report = call(api, "hub_redesign_migrate", {})
+    assert not err and report["counts"]["total"] >= 3, report
+    err, refused = call(api, "hub_redesign_migrate", {"action": "convert"}, token="ben-test")
+    assert err and "owner" in str(refused), refused
+
+
+@pytest.mark.parametrize("argv,action", [(["redesign", "migrate"], None),
+                                         (["redesign", "migrate", "--restore"], "restore")])
+def test_cli_flags(argv, action):
+    from clients import hubcli
+    ns = hubcli.parser().parse_args(argv)
+    assert ns.fn == "redesign" and ns.migrate == "migrate" and ns.action == action
+

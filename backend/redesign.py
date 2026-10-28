@@ -51,4 +51,9 @@ def install(app, store, auth, mutate):
             auth.domain(who)
             if who.role != "owner":
                 raise Problem("forbidden", "Only the owner turns the redesign on or off", 403)
+            from . import redesign_migration
+            if not body.enabled and redesign_migration.converted(c):
+                # Off, the automations the convert made would stop and the rows they replaced are gone.
+                raise Problem("conflict", "The install was converted to the redesign; restore the migration "
+                                          "before turning it off", 409)
         return mutate(request, body, lambda c: set_on(c, body.enabled, request.state.identity.actor), check=permitted)

@@ -263,6 +263,12 @@ def run(args, who=None):
                                                   "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
+    if fn == "redesign" and getattr(args, "migrate", None):
+        from clients import hubtools
+        return hubtools.redesign_migrate(client, {"action": args.action or "dry_run", "accept": args.accept,
+                                                  "operation_id": os.environ.get("HUB_OPERATION_ID")})
+    if fn == "redesign" and (getattr(args, "action", None) or getattr(args, "accept", None)):
+        raise SystemExit("hub redesign: --dry-run, --resolve, --convert, --restore and --accept go with migrate")
     if fn in ("stall-triage", "redesign"):
         return via_tool(client, args)
     if fn and fn.startswith("task-manager "):

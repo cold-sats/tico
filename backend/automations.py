@@ -233,7 +233,10 @@ class Chart:
 
 def may_change(c, who, flow, chart=None):
     """The one rule for the UI, the CLI and MCP: the top of the org; the owner; anyone above the owner; the lead of the
-    automation's group (or of a group it is in) and anyone above that lead. A peer is refused. Seeing follows it."""
+    automation's group (or of a group it is in) and anyone above that lead. A peer is refused. Seeing follows it.
+    A `readonly` built-in (one the migration shows for work Tico still runs elsewhere) is changed by nobody."""
+    if flow.get("readonly"):
+        return False
     if who.role == "owner":
         return True
     if who.role not in ("human", "bot"):
@@ -247,7 +250,7 @@ def may_change(c, who, flow, chart=None):
 
 def may_see(c, who, flow):
     """Seeing follows the change rule; the Automations Bot sees every automation so it can propose changes."""
-    return who.actor == HELPER or may_change(c, who, flow)
+    return who.actor == HELPER or may_change(c, who, {**flow, "readonly": False})
 
 
 def _require(c, who, flow, what="change this automation"):
@@ -367,7 +370,9 @@ def on_event(c, type_, subject, data, actor):
     name = CAT.canonical(type_) or type_
     facts = data() if callable(data) else (data or {})
     payload = {"event": {"name": name, "subject": subject, "actor": actor, **({"data": facts} if facts else {})}}
-    fire(c, "event", payload, f"{name}:{subject}", lambda t: CAT.matches(t["name"], name) or t["name"] == name)
+    # A trigger may name an event by an alias (a converted routine's `release_published`): it hears the canonical name.
+    fire(c, "event", payload, f"{name}:{subject}",
+         lambda t: CAT.matches(t["name"], name) or (CAT.canonical(t["name"]) or t["name"]) == name)
     if name in ("task.created", "task.assigned") and isinstance(facts, dict) and facts.get("owner"):
         task = H.task(c, subject)
         if task and not H.task_private(c, task) and hub_checks(c, task):

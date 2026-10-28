@@ -575,6 +575,10 @@ def _table_decision(conn, event, actor, target, refs, conv, task_row=None):
                             "ORDER BY position, event='*', created, id", (event,)).fetchall()
     except sqlite3.OperationalError:            # a database from before the table: no rows
         rows = []
+    from . import redesign_migration
+    converted = redesign_migration.wake_rows(conn, event)   # rules the redesign moved into "What wakes" automations
+    if converted:
+        rows = sorted([*rows, *converted], key=lambda r: (r["position"], r["event"] == "*", r["created"], r["id"]))
     slug, profile = H.actor_id(target), []
     if PROFILE_RULES:
         profile = [{**r, "scope_kind": "bot", "scope_id": slug} for r in PROFILE_RULES.get(profile_of(conn, slug), ())
@@ -1183,6 +1187,9 @@ def _event_rows(conn, name):
     bare `*`, at the scopes an event without a task has, in the order they fire."""
     found = conn.execute("SELECT * FROM rules WHERE enabled=1 AND scope_kind IN ('bot','department','team') "
                          "AND (event=? OR (event LIKE '%*' AND event<>'*'))", (name,)).fetchall()
+    from . import redesign_migration
+    found += [r for r in redesign_migration.wake_rows(conn) if r["scope_kind"] in ("bot", "department", "team")
+              and (r["event"] == name or (r["event"].endswith("*") and r["event"] != "*"))]
     found = [r for r in found if CAT.matches(r["event"], name)]
     return sorted(found, key=lambda r: (EVENT_PRECEDENCE.index(r["scope_kind"]), r["position"], r["created"], r["id"]))
 
