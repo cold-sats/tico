@@ -170,7 +170,7 @@ function settingsEditBot(slug = '', inline = false) {
     <div class="bot-editor-body">
       <div class="bot-editor-grid">
         <h3 class="bot-editor-sec bot-editor-wide">Profile</h3>
-        <label class="bot-editor-wide">Name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required${ownerNamesIt ? ' readonly' : ''}>${ownerNamesIt ? '<small>Only the owner renames the CEO Bot.</small>' : ''}</label>
+        <label class="bot-editor-wide">Name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required${ownerNamesIt ? ' readonly' : ''}>${ownerNamesIt ? `<small>Only the owner renames the ${redesignOn() ? esc(ceoBotName()) : 'CEO Bot'}.</small>` : ''}</label>
         ${editing && e.name === 'goal-manager' ? settingsCeoChartLine('bot-editor-wide') : ''}
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>

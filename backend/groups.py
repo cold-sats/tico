@@ -94,8 +94,15 @@ def _set_bot(c, slug, gid):
     declared = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0] or "{}")
     if declared.get("team") and declared["team"] != gid:
         task_caps.forget(c, "bot:" + slug)      # its caps were its old group's (redesign on; CONTRACT §3)
-    declared["team"] = gid
+    was, declared["team"] = declared.get("team") or "", gid
     c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(declared), slug))
+    _follow(c, "bot:" + slug, was, gid)
+
+
+def _follow(c, owner, was, gid):
+    """Automations go with their owner to its new group (dormant until the redesign is on)."""
+    from . import automations
+    automations.follow(c, owner, was, gid)
 
 
 def _named(groups, name, parent, skip=""):
@@ -135,6 +142,7 @@ def _place(c, roster, gid, people, bots):
                 task_caps.forget(c, "human:" + person["id"])
             rosters[i] = {**person, "team": gid}
             moved.append(rosters[i])
+            _follow(c, "person:" + person["id"], person["team"], gid)
     for slug in bots:
         _set_bot(c, slug, gid)
     return rosters, moved
@@ -150,6 +158,7 @@ def _apply_members(c, settings, roster, gid, add, remove):
             task_caps.forget(c, "human:" + person["id"])
             people[i] = {**person, "team": ""}
             changed.append(people[i])
+            _follow(c, "person:" + person["id"], gid, "")
     for slug in remove.bots:
         if P.team_of(slug, configs, roster) == gid and slug in configs:
             _set_bot(c, slug, "")

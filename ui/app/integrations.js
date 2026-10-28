@@ -160,6 +160,12 @@ async function pageIntegrations() {
   $('#main').innerHTML = `<div class="int-page"><p class="muted"><a href="${INTEGRATIONS}">← Tools</a></p><div id="int-detail"><div class="empty">Loading…</div></div>
       <dialog class="bot-editor" id="int-cred-dialog" aria-label="Tool credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
+  await integrationDetail(service, load);
+}
+// One tool's page drawn into #int-detail. Library › Connections (ui/app/redesign-library.js) draws the same page under
+// its own address (`base`), with a back link in its heading (`head`) and `readOnly`: no credentials, no learning added
+// or deleted, the learnings counted in their heading.
+async function integrationDetail(service, load, {base = INTEGRATIONS, head = '', readOnly = false} = {}) {
   let page;
   try { page = await get('/v2/tools/' + encodeURIComponent(service)); }
   catch (e) {
@@ -168,35 +174,35 @@ async function pageIntegrations() {
     return;
   }
   if (load !== INT_LOAD || !$('#int-detail')) return;
-  if (page.service !== service) { location.hash = INTEGRATIONS + '/' + page.service; return; }
+  if (page.service !== service) { location.hash = base + '/' + page.service; return; }
   // A query entry carries `sql`, or `mongo` for a MongoDB database; bots run either with `hub db`.
   const queryText = q => q.sql ? q.sql.trim() : JSON.stringify(q.mongo, null, 2);
   const queryHtml = q => `<details class="int-query" data-query="${esc(q.id)}"><summary><span class="id">${esc(q.id)}</span><strong>${esc(q.title)}</strong>${q.database ? `<span class="pill">${esc(q.database)}</span>` : ''}<span class="desc">${esc(q.description || '')}</span></summary>
       <pre>${esc(queryText(q))}</pre>
       ${q.params.length ? `<div class="params mono">${q.params.map(p => esc(p.name) + (p.required ? ' *' : '')).join(' · ')}</div>` : ''}
       <div class="row" style="gap:8px"><button class="ghost" type="button" data-copy-sql>Copy</button></div></details>`;
-  const learningHtml = n => `<div class="int-learning" data-learning="${esc(n.id)}"><span class="who" title="${esc(n.created)}">${esc(n.created.slice(0, 10))} · ${esc(n.actor)}</span><span class="text">${esc(n.text)}</span>${S.me?.role === 'owner' ? '<button class="linkish danger" type="button" data-delete-learning>Delete</button>' : ''}</div>`;
+  const learningHtml = n => `<div class="int-learning" data-learning="${esc(n.id)}"><span class="who" title="${esc(n.created)}">${esc(n.created.slice(0, 10))} · ${esc(n.actor)}</span><span class="text">${esc(n.text)}</span>${S.me?.role === 'owner' && !readOnly ? '<button class="linkish danger" type="button" data-delete-learning>Delete</button>' : ''}</div>`;
   INT_ROWS = [{service: page.service, title: page.title, kind: page.kind, summary: page.summary,
                access: page.access, credentials: page.credentials, aliases: page.aliases || [],
                writes: page.writes, owner: page.owner}];
-  $('#int-detail').innerHTML = `<div class="meeting-head"><div><h1>${esc(page.title)}</h1></div>
-      <button class="int-key" type="button" data-int-cred="${esc(page.service)}" title="Credentials for ${esc(page.title)}" aria-label="Credentials for ${esc(page.title)}">key_vertical</button></div>
+  $('#int-detail').innerHTML = `<div class="meeting-head">${head}<div><h1>${esc(page.title)}</h1></div>
+      ${readOnly ? '' : `<button class="int-key" type="button" data-int-cred="${esc(page.service)}" title="Credentials for ${esc(page.title)}" aria-label="Credentials for ${esc(page.title)}">key_vertical</button>`}</div>
     <section class="card"><dl class="int-meta"><dt>Access</dt><dd>${esc(page.access)}</dd><dt>Credentials</dt><dd>${page.credentials.map(c => esc(c)).join('<br>')}</dd>
       <dt>Writes</dt><dd><span class="pill ${page.writes === 'never' ? 'ok' : page.writes === 'approval' ? 'waiting' : ''}">${esc(page.writes)}</span> · owner ${esc(page.owner)}${page.aliases?.length ? ' · also <span class="mono">' + page.aliases.map(esc).join(', ') + '</span>' : ''}</dd>
       <dt>Declared as</dt><dd><pre class="mono">${esc(page.declared_as.trim())}</pre></dd></dl></section>
     <section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>
     ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2></header>
       <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
-    <section class="card" id="int-learnings"><header><h2>Learnings</h2></header>
-      <div class="int-learn"${page.read_only ? ' hidden' : ''}><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
-      <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a human folds them into the page over time.</span></div></div>
+    <section class="card" id="int-learnings"><header><h2>Learnings${readOnly ? ` <span class="muted" data-learning-count>${page.learnings.length}</span>` : ''}</h2></header>
+      ${readOnly ? '' : `<div class="int-learn"${page.read_only ? ' hidden' : ''}><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
+      <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a human folds them into the page over time.</span></div></div>`}
       <div id="int-learning-list">${page.learnings.map(learningHtml).join('') || '<div class="empty">Nothing learned yet.</div>'}</div></section>`;
   // Relative links in a page point at files in the Tico repository; a sibling page opens here.
   for (const a of document.querySelectorAll('#int-body a[href]')) {
     const href = a.getAttribute('href');
     if (/^(https?:|mailto:|#)/i.test(href)) continue;
     const sibling = href.match(/^([a-z0-9-]+)\.md$/);
-    if (sibling) { a.setAttribute('href', INTEGRATIONS + '/' + sibling[1]); a.removeAttribute('target'); continue; }
+    if (sibling) { a.setAttribute('href', base + '/' + sibling[1]); a.removeAttribute('target'); continue; }
     try { a.setAttribute('href', new URL(href, GH + '/blob/main/integrations/').href); } catch { a.removeAttribute('href'); }
   }
   const filter = $('#int-query-filter');

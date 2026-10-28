@@ -1018,6 +1018,18 @@ class Gateway:
                 self.finish(c, event, "denied", reason=denied)
             LOG.info("Event %s denied: %s", event["event_id"], denied)
             return {"event_id": event["event_id"], "state": "denied", "reason": denied}
+        from . import automations
+        from . import redesign
+        with self.store.read() as c:
+            listening = redesign.on(c)
+        if listening:
+            # A message automation on this channel handles it (backend/automations.py); the server drains its run.
+            with self.store.transaction() as c:
+                taken = automations.on_slack(c, event, person, channel, self.settings)
+                if taken:
+                    self.finish(c, event, "recorded", actor="human:" + person["id"], reason="automation")
+            if taken:
+                return {"event_id": event["event_id"], "state": "recorded", "reason": "automation"}
         with self.store.read() as c:
             state = self.state(c, event, person, channel)
         fleet, thread = state["roster"], state["thread"]
@@ -1340,6 +1352,9 @@ class Gateway:
                 if not privacy.public_message(c, H.message(c, post["message_id"])):
                     c.execute("UPDATE slack_posts SET state='cancelled',text='',error='Task privacy prevents delivery',updated=? "
                               "WHERE message_id=? AND state IN ('ready','rate_limited')", (self.clock(), post["message_id"]))
+                    continue
+                from . import automation_actions
+                if automation_actions.slack_held(c, post):    # its inbox's send switch went off since it was queued
                     continue
                 shaped = self.rendered(c, post)
                 claimed = c.execute("UPDATE slack_posts SET state='sending',attempts=attempts+1,updated=? "

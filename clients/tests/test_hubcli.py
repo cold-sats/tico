@@ -23,9 +23,9 @@ from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "inbound", "meeting", "message", "conversation", "question", "note", "file", "doc", "chat", "assistant", "tag", "task", "replay", "goal", "kpi",
-               "proposal", "strategy", "lens", "market", "listening", "tool", "routine", "event-types", "trigger", "relay", "sleep", "notice", "settings", "release", "approval", "webhook", "pipeline", "brief", "mcp", "needs-you", "run", "team", "seat", "org", "health",
+               "proposal", "strategy", "lens", "market", "listening", "tool", "routine", "automation", "event-types", "trigger", "relay", "sleep", "notice", "settings", "release", "approval", "webhook", "pipeline", "brief", "mcp", "needs-you", "run", "team", "seat", "org", "health",
                "changelog", "update", "grokbot", "external", "calendar", "sql", "db", "classify", "gateway", "decision", "template", "bot", "repo", "skill", "agent", "human", "group", "api", "computer",
-               "credential", "slack", "support", "health-monitor", "task-manager", "stall-triage", "roadmap", "rule", "service-key"]
+               "credential", "slack", "support", "health-monitor", "task-manager", "stall-triage", "redesign", "roadmap", "rule", "service-key"]
 
 
 def run_hub(*args, env=None):
@@ -703,7 +703,7 @@ def test_botops_settings_commands_run_as_the_person_who_asked(monkeypatch):
         ["task", "types", "--name", "Legacy"],
         ["release", "schedule", "--off"], ["release", "now", "--note", "hotfix"],
         ["task-manager", "on"], ["task-manager", "schedule", "daily", "--at", "09:00"], ["task-manager", "run"],
-        ["task-manager", "bot", "off"], ["stall-triage", "--off"],
+        ["task-manager", "bot", "off"], ["stall-triage", "--off"], ["redesign", "--on"],
         ["team", "budget", "--hour", "5"],
         ["trigger", "create", "Orders"], ["trigger", "update", "orders", "--name", "Shop"], ["trigger", "rotate", "orders"],
         ["trigger", "sign", "orders", "--off"], ["trigger", "recover", "orders"], ["trigger", "replay", "orders", "d1"],

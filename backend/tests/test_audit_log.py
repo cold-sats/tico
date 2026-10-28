@@ -1,5 +1,7 @@
 """The redesign's audit trail (backend/audit_log.py): rows written with their change, read newest first, paged,
 the owner seeing all and anyone else only their own, and the route gone while the redesign is off."""
+from urllib.parse import urlencode
+
 from backend import audit_log, redesign
 from backend.tests.test_api import api, get  # noqa: F401
 
@@ -32,5 +34,18 @@ def test_pages_by_before(api):
     _write(api, *[("human:ana", f"group:{i}", None, {"i": i}) for i in range(5)])
     first = get(api, "audit?limit=2")
     assert len(first["rows"]) == 2 and first["next"]
-    rest = get(api, f"audit?limit=10&before={first['next']}")
-    assert len(rest["rows"]) == 3 and rest["next"] is None
+    rest = get(api, "audit?" + urlencode({"limit": 10, "before": first["next"]}))
+    assert len(rest["rows"]) == 4 and rest["next"] is None   # 3 groups and the hub making What wakes bots
+
+
+def test_rows_sharing_a_time_are_never_skipped(api, monkeypatch):
+    from backend import audit_log as A
+    monkeypatch.setattr(A.H, "now", lambda: "2026-10-28T00:00:00.000000Z")
+    _write(api, *[("human:ana", f"group:{i}", None, {"i": i}) for i in range(5)])
+    seen, cursor = [], None
+    while True:
+        page = get(api, "audit?" + urlencode({"limit": 2, **({"before": cursor} if cursor else {})}))
+        seen += [r["object"] for r in page["rows"]]
+        if not (cursor := page["next"]):
+            break
+    assert sorted(seen) == ["automation:auto_builtin_wakes", *(f"group:{i}" for i in range(5))]

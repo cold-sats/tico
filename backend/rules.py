@@ -575,6 +575,10 @@ def _table_decision(conn, event, actor, target, refs, conv, task_row=None):
                             "ORDER BY position, event='*', created, id", (event,)).fetchall()
     except sqlite3.OperationalError:            # a database from before the table: no rows
         rows = []
+    from . import redesign_migration
+    converted = redesign_migration.wake_rows(conn, event)   # rules the redesign moved into "What wakes" automations
+    if converted:
+        rows = sorted([*rows, *converted], key=lambda r: (r["position"], r["event"] == "*", r["created"], r["id"]))
     slug, profile = H.actor_id(target), []
     if PROFILE_RULES:
         profile = [{**r, "scope_kind": "bot", "scope_id": slug} for r in PROFILE_RULES.get(profile_of(conn, slug), ())
@@ -1009,9 +1013,10 @@ def _bot_room(conn, slug):
     return H._pair_conversation(conn, H.KEEPER, H.bot_actor(slug), "notice", allow_held=True)
 
 
-def _tell_bot(conn, rule_id, slug, text, refs, *, wake, task=None):
+def _tell_bot(conn, rule_id, slug, text, refs, *, wake, task=None, room=None):
     """The keeper's notice to a bot, decided here: it wakes the bot (`wake`) or waits quietly as a note. With a task it
-    goes in the task's room, and only to a bot that may read the task. Returns (ok, detail)."""
+    goes in the task's room, and only to a bot that may read the task; else in `room` when given (an automation's
+    note to its owner's Assistant), else the bot's own room. Returns (ok, detail)."""
     found = H.bot(conn, slug) if slug else None
     if not found:
         return False, f"No bot {slug}" if slug else "The rule names no bot"
@@ -1024,7 +1029,7 @@ def _tell_bot(conn, rule_id, slug, text, refs, *, wake, task=None):
         conv = H.conversation(conn, task["conversation_id"])
         refs = {**refs, "task": task["id"]}
     else:
-        conv = _bot_room(conn, slug)
+        conv = room or _bot_room(conn, slug)
     decided = Decision(WAKE, rule_id) if wake else Decision(NOTE, rule_id, HOLD_ROW)
     H._write_message(conn, H.KEEPER, target, text, conv, "notice", refs, None, None, decided=decided)
     return True, "woke it" if wake else "left it a note"
@@ -1183,6 +1188,9 @@ def _event_rows(conn, name):
     bare `*`, at the scopes an event without a task has, in the order they fire."""
     found = conn.execute("SELECT * FROM rules WHERE enabled=1 AND scope_kind IN ('bot','department','team') "
                          "AND (event=? OR (event LIKE '%*' AND event<>'*'))", (name,)).fetchall()
+    from . import redesign_migration
+    found += [r for r in redesign_migration.wake_rows(conn) if r["scope_kind"] in ("bot", "department", "team")
+              and (r["event"] == name or (r["event"].endswith("*") and r["event"] != "*"))]
     found = [r for r in found if CAT.matches(r["event"], name)]
     return sorted(found, key=lambda r: (EVENT_PRECEDENCE.index(r["scope_kind"]), r["position"], r["created"], r["id"]))
 

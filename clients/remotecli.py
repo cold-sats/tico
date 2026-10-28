@@ -49,6 +49,46 @@ def via_tool(client, args, **more):
     return hubtools.BY_NAME[tool_name(args.fn)]["fn"](client, fields)
 
 
+def automation(client, args):
+    """`hub automation ...`: the hub_automation_* tools, with flows read from a file or stdin."""
+    from clients import hubtools
+
+    def flow(path):
+        try:
+            data = json.loads(sys.stdin.read() if path == "-" else Path(path).read_text())
+        except ValueError as exc:
+            raise APIError("file", f"--file is not JSON ({exc})") from None
+        if not isinstance(data, dict):
+            raise APIError("file", "--file must hold a JSON object")
+        return data
+
+    run = lambda name, fields: hubtools.BY_NAME[name]["fn"](client, {**fields, "operation_id": os.environ.get("HUB_OPERATION_ID")})
+    if args.sub == "inbox":
+        return run("hub_inbox_send", {"inbox": args.inbox, **({"send": args.send == "on"} if args.send else {})})
+    fields = {"id": args.id} if hasattr(args, "id") else {}
+    if args.sub == "list":
+        fields.update({k: getattr(args, k) for k in ("owner", "limit", "cursor") if getattr(args, k) is not None})
+    elif args.sub == "create":
+        fields.update(flow(args.file))
+    elif args.sub == "update":
+        fields.update(flow(args.file) if args.file else {})
+        fields.update({k: getattr(args, k) for k in ("name", "summary") if getattr(args, k) is not None})
+        if args.enable or args.disable:
+            fields["enabled"] = bool(args.enable)
+    elif args.sub == "run":
+        try:
+            fields["input"] = json.loads(args.input) if args.input else {}
+        except ValueError:
+            raise APIError("input", "--input must be JSON") from None
+    elif args.sub == "runs":
+        fields.update({k: getattr(args, k) for k in ("limit", "before") if getattr(args, k) is not None})
+    elif args.sub == "versions" and args.pending:
+        fields["status"] = "pending"
+    elif args.sub == "restore":
+        fields["n"] = args.n
+    return run(tool_name(args.fn), fields)
+
+
 def product_repo_create(client, name, *, confirm=None, stdin=None, stderr=None):
     """Preview the exact target and require the exact org/name before writing: typed at a terminal, or given as
     `confirm` (`--confirm`, for a bot's turn, which has no terminal) and checked against the preview."""
@@ -223,7 +263,13 @@ def run(args, who=None):
                                                   "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if args.cmd in ("chat", "replay"):
         return via_tool(client, args)
-    if fn == "stall-triage":
+    if fn == "redesign" and getattr(args, "migrate", None):
+        from clients import hubtools
+        return hubtools.redesign_migrate(client, {"action": args.action or "dry_run", "accept": args.accept,
+                                                  "operation_id": os.environ.get("HUB_OPERATION_ID")})
+    if fn == "redesign" and (getattr(args, "action", None) or getattr(args, "accept", None)):
+        raise SystemExit("hub redesign: --dry-run, --resolve, --convert, --restore and --accept go with migrate")
+    if fn in ("stall-triage", "redesign"):
         return via_tool(client, args)
     if fn and fn.startswith("task-manager "):
         from clients import hubtools
@@ -723,6 +769,8 @@ def run(args, who=None):
             return via_tool(client, args, text=text, enabled=not args.disabled)
         if sub in ("delete", "run"):
             return via_tool(client, args)
+    if cmd == "automation":
+        return automation(client, args)
     if cmd == "release":
         return via_tool(client, args)
     if cmd == "approval":

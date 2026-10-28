@@ -1399,6 +1399,12 @@ class Store:
                 from .turn_budgets import ensure as ensure_turn_budgets
                 ensure_run_backoff(c)
                 ensure_turn_budgets(c)
+                # The redesign's automations (backend/automations.py).
+                # Unversioned like the trash: an older release never reads the tables.
+                from . import automations as _automations
+                _automations.ensure(c)
+                from . import redesign_migration as _migration
+                _migration.ensure(c)                    # the converter's snapshots and the 30-minute limit columns
                 # Recruiting seats (backend/lifecycle.py). Unversioned like the trash.
                 from .lifecycle import ensure as ensure_seats
                 ensure_seats(c)

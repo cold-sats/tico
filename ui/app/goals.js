@@ -348,12 +348,19 @@ function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) 
   title.focus();
 }
 function pageGoals() {
-  const open = S.route.startsWith(GOALS + '/') ? decodeURIComponent(S.route.slice(GOALS.length + 1)) : '';
+  const base = goalsBase(), open = S.route.startsWith(base + '/') ? decodeURIComponent(S.route.slice(base.length + 1)) : '';
   const was = document.getElementById('goal-panel');
   if (was) { was._state = null; if (was.open) was.close(); }
   const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, panel: null, strategy: null};
   // The tree is the page; the CEO Bot is its right rail (under the tree on a narrow window). The sidebar
-  // says where you are, so the title is for screen readers only.
+  // says where you are, so the title is for screen readers only. With the redesign on, Goals is a Strategy tab and
+  // the Strategy Bot's own panel (ui/app/redesign.js) takes the rail's place.
+  if (redesignOn()) {
+    $('#main').classList.add('strategy-layout', 'rd-goals');
+    $('#main').innerHTML = strategyHeadHtml('goals') + `<div class="goals-main"><div id="goal-body"><p class="muted">Loading…</p></div></div>`;
+    goalsLoad(state);
+    return;
+  }
   $('#main').classList.add('goals-layout');
   $('#main').innerHTML = `<div class="goals-main"><h1 class="sr-only">Goals</h1>
       <div id="goal-body"><p class="muted">Loading…</p></div></div>
@@ -375,8 +382,9 @@ const goalStrategyGet = () => v2Get('/v2/strategy').catch(() => null);
 async function goalsLoad(state) {
   let data, needs, strategy;
   try { [data, needs, strategy] = await Promise.all([get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalStrategyGet()]); }
-  catch (e) { $('#goal-body').innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
-  if (GOALS_ST !== state) return;
+  catch (e) { const body = GOALS_ST === state && $('#goal-body'); if (body) body.innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
+  // Left Goals before the tree came: opening a goal now would cover the next page and rewrite its address.
+  if (GOALS_ST !== state || !$('#goal-body')) return;
   state.strategy = Array.isArray(strategy?.bets) ? strategy : null;
   goalsApply(state, data, needs);
   state.loaded = true;
@@ -403,7 +411,7 @@ function headGoalsReload() {
   if (BOT && $('#bot-goal')) void botGoalLoad(BOT.slug);
   if (BOT && $('#bot-goals-list')) void botGoalsCardLoad(BOT.slug);
 }
-function openGoal(id) { location.hash = GOALS + '/' + encodeURIComponent(id); }
+function openGoal(id) { location.hash = goalsBase() + '/' + encodeURIComponent(id); }
 async function goalsRefresh() {
   GOAL_OPTIONS = null;
   if (GOALS_ST && $('#goal-body')) {
@@ -435,19 +443,22 @@ let GOAL_MANAGER_STOP = null;
 const GM = 'goal-manager';
 const GM_STATE = {paused: 'Paused', planned: 'Not set up', archived: 'Off', retired: 'Off', quarantined: 'Paused'};
 const GM_STARTERS = ['Set a goal', 'Fix my goals', 'Go through suggestions'];
-async function goalManagerMount(pageState) {
-  GOAL_MANAGER_STOP?.();
-  const host = $('#goal-manager-panel');
+// `rail`: the Strategy Bot's panel on the Strategy tabs (ui/app/redesign.js) mounts just the chat in its own host; it
+// lives across tabs, so its stop is its own (`rail.stop`), not GOAL_MANAGER_STOP, which every route calls.
+async function goalManagerMount(pageState, rail = null) {
+  if (!rail) GOAL_MANAGER_STOP?.();
+  const host = rail ? rail.host : $('#goal-manager-panel');
   if (!host) return;
   const bot = (S.emps || []).find(e => e.name === GM);
   const active = !!bot && !GM_STATE[bot.status];
   let stopped = false, es = null, poll = null, conversation = null, messages = [], execution = null, sending = false, lastReply, composer = null;
-  const current = () => !stopped && GOALS_ST === pageState && host.isConnected;
+  const current = () => !stopped && (rail ? true : GOALS_ST === pageState) && host.isConnected;
   // `es` is the release of this chat's live events (ui/app/live.js).
   const stopStream = () => { try { es?.(); } catch { /* released */ } es = null; clearInterval(poll); poll = null; };
-  GOAL_MANAGER_STOP = () => { stopped = true; stopStream(); if (composer) PILLS.delete(composer); };
+  const stop = () => { stopped = true; stopStream(); if (composer) PILLS.delete(composer); };
+  if (rail) rail.stop = stop; else GOAL_MANAGER_STOP = stop;
   const off = !bot ? 'Not set up' : GM_STATE[bot.status] || '';
-  host.innerHTML = `<section class="rail-sec gm-info">
+  host.innerHTML = rail ? '<section class="gm-chat" data-gm-chat></section>' : `<section class="rail-sec gm-info">
       <header class="gm-head"><h2>${esc(ceoBotName())}</h2>${off ? `<span class="pill">${esc(off)}</span>` : ''}<a href="#/bot/${GM}">Open bot</a></header>
       <p class="gm-what">Keeps KPIs current and each goal green, yellow or red. ${meCeo()
         ? 'Tell it what you want to achieve. It drafts the goal and saves it when you say yes.' : 'Humans set the goals.'}</p></section>
@@ -517,7 +528,10 @@ async function goalManagerMount(pageState) {
       draw();
       const reply = messages.filter(isReply).at(-1)?.id;
       // A new reply after the first look may come with an edited goal: draw the tree again.
-      if (lastReply !== undefined && reply !== lastReply) await goalsReload(pageState);
+      if (lastReply !== undefined && reply !== lastReply) {
+        if (!rail) await goalsReload(pageState);
+        else if (GOALS_ST && $('#goal-body')) await goalsReload(GOALS_ST);
+      }
       lastReply = reply ?? null;
     };
     const snapshot = async () => {
@@ -556,7 +570,7 @@ async function goalManagerMount(pageState) {
       } catch (e) { fail(e.message); }
       finally { sending = P.sending = false; if (current()) pillButtons(P); }
     };
-    composer = makePill({mode:'chat', files:false, label:'Message to the ' + ceoBotName(), placeholder:'Set or fix a goal…', send});
+    composer = makePill({mode:'chat', files:false, label:'Message to the ' + ceoBotName(), placeholder: rail ? 'Ask ' + ceoBotName() : 'Set or fix a goal…', send});
     pq(composer, '.p-text').maxLength = 4000;
     thread.addEventListener('click', event => {
       const starter = event.target.closest('[data-gm-starter]');
@@ -574,7 +588,7 @@ async function goalManagerMount(pageState) {
       } catch (e) { fail(e.message); }
     })();
   }
-  if (!bot) return;
+  if (!bot || rail) return;
   // The routines are the server's rows; the times are the viewer's own, with the routine's zone when it differs.
   const routinesEl = host.querySelector('[data-gm-routines]'), resultEl = host.querySelector('[data-gm-result]');
   try {

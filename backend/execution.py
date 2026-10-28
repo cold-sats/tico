@@ -4190,6 +4190,8 @@ class Execution:
         # The runner's notices (a file left out of the commit) are shown beside the reply, not as the turn's summary.
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, summary=split_runner_notices(body.text)[0][:2000],
                       usage=self.run_usage(c, row, body), usage_reason=self.no_usage_reason(body))
+        from . import automations
+        automations.turn_done(c, row, body.outcome, body.text)   # an automation that started this turn is charged it
         # The checkpoint goes on the task whose session the turn ran in: a subtask's turn runs in its session
         # root's lane (`task:<root>`, set at claim), so it checkpoints that root, never the subtask, even if
         # the subtask moved during the turn. A lane naming a task this bot does not own checkpoints nothing.

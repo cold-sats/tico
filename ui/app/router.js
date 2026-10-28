@@ -39,6 +39,7 @@ function route() {
   if (!isMarketRoute(S.route)) window.marketStop?.();
   if (!isStrategyRoute(S.route)) window.strategyStop?.();
   if (!isLensesRoute(S.route)) window.lensesStop?.();
+  if (!isAutomationsRoute(S.route)) automationsStop();
   taskChatStop(); $('#task-modal')?.close();
   if (!S.route.startsWith(DOCS)) DOC_LOAD++;
   // Leaving Mail abandons its fetches, its debounced search (which would set the hash back) and
@@ -54,7 +55,8 @@ function route() {
   if (!(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { if (UPD) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; } updcStop(); }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
-  if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
+  if (redesignOn() && redesignRoute(S.route)) { /* the redesign's pages, moves and redirects (ui/app/redesign.js) */ }
+  else if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
     // Old links land on Meetings, keeping a deep link to one meeting.
     const id = new URLSearchParams(S.route.split('?')[1] || '').get('recording');
     location.hash = MEETINGS + (id ? '?meeting=' + encodeURIComponent(id) : ''); return;
@@ -141,8 +143,10 @@ function route() {
   else if (S.route === '#/replay' || S.route.startsWith('#/replay?')) pageReplay();
   else if (/^#\/computers\/[^/?]+\/screen$/.test(S.route)) pageComputerScreen(decodeURIComponent(S.route.split('/')[2]), from);
   else if (/^#\/computers\/[^/?]+\/performance$/.test(S.route)) pageComputerPerformance(decodeURIComponent(S.route.split('/')[2]));
+  else if (isAutomationsRoute(S.route)) pageAutomations();
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
   window.syncLibrarianRail?.();
+  redesignAfterRoute();
   $('#main').scrollTop = 0;
 }
 window.addEventListener('hashchange', route);

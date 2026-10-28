@@ -91,7 +91,10 @@ window.marketStop = function marketStop() {
 // The view switch sits where the section's heading keeps its actions.
 function marketViewSwitch(view) {
   const box = $('#strat-actions');
-  if (box) box.innerHTML = `<nav class="mkt-views" aria-label="Market views">${MARKET_VIEWS.map(([key, label]) =>
+  // With the redesign on, the Briefing is the tab's first view and Listening (Settings > Listening before) its last
+  // (ui/app/redesign-market.js).
+  const views = redesignOn() ? [['briefing', 'Briefing'], ...MARKET_VIEWS, ...(settingsIsAdmin() ? [['listening', 'Listening']] : [])] : MARKET_VIEWS;
+  if (box) box.innerHTML = `<nav class="mkt-views" aria-label="Market views">${views.map(([key, label]) =>
     `<a href="${MARKET_ROUTE}/${key}" data-market-view="${key}"${key === view ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
 }
 
@@ -124,7 +127,7 @@ window.pageMarket = async function pageMarket() {
     $('#main').innerHTML = (window.strategyHeadHtml?.('market') || '') + '<div id="market-shell" class="market-shell"><p class="market-loading">Opening the market…</p></div>';
     marketViewSwitch('players');
     const shell = $('#market-shell');
-    void window.marketBriefingCard?.(shell);
+    if (!redesignOn()) void window.marketBriefingCard?.(shell);   // the redesign's Briefing view replaces the line
     try {
       const mounted = await mountMarket(shell);
       if (page !== MARKET_PAGE) { mounted.stop(); return; }   // another view or note was asked for meanwhile

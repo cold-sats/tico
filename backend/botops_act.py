@@ -160,6 +160,10 @@ DO = _routes(
     ("PUT", "repositories/settings"), ("POST", "repositories/refresh"),
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
+    # Automations (backend/automations.py): the route checks the person's place on the org chart.
+    ("POST", r"automations"), ("PATCH", rf"automations/{_S}"), ("DELETE", rf"automations/{_S}"),
+    ("POST", rf"automations/{_S}/(delete|run)"), ("POST", rf"automations/{_S}/versions/{_S}/restore"),
+    ("DELETE", rf"automations/{_S}/versions/{_S}"), ("PATCH", rf"inboxes/{_S}"),
     ("POST", rf"settings/history/{_S}/undo"),
     ("POST", rf"settings/transitions/{_S}/(apply-without-checkpoint|cancel)"),
     # Goals and KPIs: a goal's or KPI's own rules decide who may change what.
@@ -215,6 +219,8 @@ DO = _routes(
     ("PATCH", r"release-schedule"), ("POST", r"release/now"),
     ("POST", r"settings/turn-budgets"),
     ("PUT", rf"system-routines/{_S}"), ("POST", rf"system-routines/{_S}/run"), ("POST", r"task-manager/turn-(on|off)"),
+    # The redesign switch (backend/redesign.py): the owner's; the route refuses anyone else.
+    ("PUT", r"settings/redesign"),
 )
 
 # Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is

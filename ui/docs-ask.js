@@ -208,7 +208,8 @@ html.demo .dask{top:var(--demo-h)}
 
   // Desktop on Docs or Market: a rail beside the page. Anywhere else, and on a phone: a sheet over it.
   const desktop = () => matchMedia('(min-width: 761px)').matches;
-  const railPage = () => /^#\/(docs|strategy\/market)(?:[/?]|$)/.test(location.hash);
+  // With the redesign on, the Strategy tabs have the Strategy Bot's panel instead (ui/app/redesign.js).
+  const railPage = () => /^#\/(docs|strategy\/market)(?:[/?]|$)/.test(location.hash) && !(redesignOn() && location.hash.startsWith('#/strategy'));
   const asRail = () => desktop() && railPage();
   // Hidden or shown, per viewer, in this browser only; a browser that will not store it shows the rail.
   const hiddenKey = () => 'tico.librarian.collapsed.' + (S.me?.id || '');
