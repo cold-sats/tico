@@ -1383,9 +1383,10 @@ STABLE.extend([
      "MigrationReport"),
     ("/api/v2/redesign/migration/convert", "post", "Automations", "migrationConvert",
      "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag "
-     "has no yes, unless `accept` names it; 409 while an earlier convert can still be restored", "MigrationConverted"),
+     "has no yes, unless `accept` names it; 409 while another convert runs or can still be restored", "MigrationConverted"),
     ("/api/v2/redesign/migration/restore", "post", "Automations", "migrationRestore",
-     "Within a day of converting: the old objects back, the converted automations deleted. 410 once the day is over",
+     "Within a day of converting (or after a restart cut it off): what it changed back, its automations deleted; a "
+     "field changed since is left and listed in `skipped`. 410 once the day is over",
      "MigrationRestored"),
 ])
 SCHEMAS.update({
@@ -1397,13 +1398,14 @@ SCHEMAS.update({
     "MigrationReport": obj({"objects": items(ref("MigrationObject")), "counts": {"type": "object"},
                             "flags": obj({"total": "i", "open": "i"}), "ready": "b",
                             "migration": {"type": ["object", "null"], "description": "The latest convert: id, state "
-                                          "(converting, converted, restored, expired), created, expires, restorable"}},
+                                          "(converting, interrupted, converted, restored, expired), created, expires, restorable"}},
                            required=["objects", "counts", "flags", "ready"]),
     "MigrationConverted": obj({"migration": "s", "snapshot": obj({"id": "s", "expires": "s"}), "expires": "s",
                                "converted": items({"type": "object"}), "failed": items({"type": "object"}),
                                "kept": items({"type": "object"}), "counts": {"type": "object"}},
                               required=["migration", "converted", "failed"]),
-    "MigrationRestored": obj({"migration": "s", "restored": "b", "automations_removed": "i", "routines": "i", "rules": "i"}),
+    "MigrationRestored": obj({"migration": "s", "restored": "b", "automations_removed": "i", "routines": "i", "rules": "i",
+                              "skipped": items(obj({"id": "s", "why": "s"}))}),
 })
 
 # Bot profiles (backend/profiles.py).

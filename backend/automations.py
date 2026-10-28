@@ -319,6 +319,9 @@ def _checked(c, flow, settings=None, access=True):
         flow = F.check(flow)
     except F.Invalid as exc:
         raise Problem("invalid", str(exc), 422)
+    if flow.get("wakes"):   # a converted "What wakes" automation: only edits its wake rules can carry out
+        from .redesign_migration import check_wakes
+        check_wakes(flow)
     for ref in (flow["owner"], flow.get("group")):
         if ref and not _owner_known(c, ref):
             raise Problem("invalid", f"{ref} is not on the team", 422)

@@ -215,7 +215,7 @@ def _turn(flow, state, thread, step, services, who, prompt, wait):
     # effect key: a resumed run whose turn already started gets that turn back, never its own hold's refusal.
     values = values_of(state, thread)
     cap = (flow.get("spend_cap") or {}).get("per_30m")
-    started = services.start_turn(who, F.render_prompt(prompt, values), {
+    started = services.start_turn(who, F.render_prompt(prompt, values, cap=F.MAX_PROMPT), {
         "values": values, "step": step["id"], "key": str(len(state["steps"])), "cost": state["cost"],
         "cap": None if cap is None else float(cap)}, wait)
     if started is None:

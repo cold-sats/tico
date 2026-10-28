@@ -14142,7 +14142,7 @@
     },
     "/api/v2/redesign/migration/convert": {
       "post": {
-        "summary": "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag has no yes, unless `accept` names it; 409 while an earlier convert can still be restored",
+        "summary": "Snapshot (kept a day), then convert one object per transaction. 409 flags_open (with `flags`) while a flag has no yes, unless `accept` names it; 409 while another convert runs or can still be restored",
         "operationId": "migrationConvert",
         "requestBody": {
           "content": {
@@ -14342,7 +14342,7 @@
     },
     "/api/v2/redesign/migration/restore": {
       "post": {
-        "summary": "Within a day of converting: the old objects back, the converted automations deleted. 410 once the day is over",
+        "summary": "Within a day of converting (or after a restart cut it off): what it changed back, its automations deleted; a field changed since is left and listed in `skipped`. 410 once the day is over",
         "operationId": "migrationRestore",
         "requestBody": {
           "content": {
@@ -33131,7 +33131,7 @@
               "object",
               "null"
             ],
-            "description": "The latest convert: id, state (converting, converted, restored, expired), created, expires, restorable"
+            "description": "The latest convert: id, state (converting, interrupted, converted, restored, expired), created, expires, restorable"
           }
         },
         "required": [
@@ -33159,6 +33159,25 @@
           },
           "rules": {
             "type": "integer"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "why"
+              ],
+              "additionalProperties": true
+            }
           }
         },
         "required": [
@@ -33166,7 +33185,8 @@
           "migration",
           "restored",
           "routines",
-          "rules"
+          "rules",
+          "skipped"
         ],
         "additionalProperties": true
       },
