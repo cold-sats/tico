@@ -7,6 +7,11 @@ schedule with no input. All the mail is published before any automation exists, 
 invariants run over the combinations that produced a run. A combination whose route is not registered is Unmet on that
 combination only; a check with no run at all raises Unmet, and one that finds nothing to check fails.
 
+Reading the run: a failed step ends its thread, and an llm step whose turn is still held does too until the turn answers
+(automation_engine.py), so the steps after either have no record yet; a `find` runs the steps after it once per item, so
+the per-step checks count each item's records separately. The matrix never answers a held turn, so no action after an
+llm step is exercised.
+
 Limits, stated so a pass is read for what it is: a schedule has no input, so its condition is never met; the spend-cap
 outcome sets a 0.01 cap but does not spend first, so the cap is only reached if the engine spends on its own; the action
 args are empty for every action (CONTRACT names none). The sender's session is the one the task sample names (CONTRACT
@@ -233,7 +238,7 @@ def run_combo(org, n, row, mails):
         attach_judge(org, judge_for(row, outcome != "no-match"))
     made = org.api("post", "/api/v2/automations", payload, wave=W3)
     record = {"label": label_of(n, row), "saved": 200 <= made.status < 300, "groups": groups, "top": top,
-              "disabled": [off] if off else [], "run": None, "runs": 0,
+              "outcome": outcome, "disabled": [off] if off else [], "run": None, "runs": 0,
               "sender_session": SENDER_SESSION if kind == "task" else None}
     if not record["saved"]:
         record["label"] += f" (create {made.status})"
@@ -274,14 +279,40 @@ def one_path(r):
     return ""
 
 
+def stop_index(run, ids):
+    """Where the run's top-level thread stopped in `ids`: its first failed step, or an llm step whose turn is still held
+    (the steps after it run when the turn answers). None when every top-level step was reached."""
+    for i, sid in enumerate(ids):
+        for s in row_of(run, sid):
+            if s.get("status") == "failed" or (s.get("type") == "llm" and s.get("status") == "waiting"):
+                return i
+    return None
+
+
 def top_logged(r):
+    """Every top-level step the run reached is logged with a status; the steps after where it stopped are not reached
+    yet and have no record."""
     if r["run"] is None:
         return no_run(r)
-    missing = [sid for sid in r["top"] if not row_of(r["run"], sid)]
-    bad = [s.get("id") for s in r["run"].get("steps") or [] if s.get("id") in r["top"] and s.get("status") not in STATUSES]
-    if missing or bad:
-        return f"not logged {missing}, bad status {bad}"
+    ids = r["top"]
+    stop = stop_index(r["run"], ids)
+    reached = ids if stop is None else ids[:stop + 1]
+    unreached = [] if stop is None else ids[stop + 1:]
+    missing = [sid for sid in reached if not row_of(r["run"], sid)]
+    logged_after = [sid for sid in unreached if row_of(r["run"], sid)]
+    bad = [s.get("id") for s in r["run"].get("steps") or [] if s.get("id") in ids and s.get("status") not in STATUSES]
+    if missing or logged_after or bad:
+        return f"not logged {missing}, logged after the run stopped {logged_after}, bad status {bad}"
     return ""
+
+
+def failure_ends_run(r):
+    """A step-fails row makes its Decide fail, and a failed step ends the run as failed (CONTRACT §2 Runs)."""
+    if r["outcome"] != "step-fails":
+        return ""
+    if r["run"] is None:
+        return no_run(r)
+    return "" if r["run"].get("status") == "failed" else f"run status {r['run'].get('status')!r}, want 'failed'"
 
 
 def action_once(r):
@@ -423,6 +454,7 @@ def matrix_scenario(seed):
         Check("every valid combination is saved as an automation", W3, all_saved),
         Check("exactly one path runs per fork", W3, across(one_path)),
         Check("every top-level step is logged with a status", W3, across(top_logged)),
+        Check("a step that fails ends the run as failed", W3, across(failure_ends_run)),
         Check("each action runs at most once", W3, across(action_once)),
         Check("costs add up: the run's cost is the sum of its steps", W3, across(costs_add)),
         Check("a disabled step never runs", W3, across(disabled_silent)),
