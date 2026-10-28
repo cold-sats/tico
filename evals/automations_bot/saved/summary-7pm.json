@@ -1,0 +1,30 @@
+{
+  "pending": [
+    {
+      "trigger": {
+        "type": "schedule",
+        "cron": "0 19 * * 1-5"
+      },
+      "steps": [
+        {
+          "id": "summarize",
+          "type": "bot_turn",
+          "enabled": true,
+          "bot": "chief-of-staff",
+          "prompt": "Summarize what got done on Acme today in five short bullets."
+        },
+        {
+          "id": "post",
+          "type": "action",
+          "enabled": true,
+          "do": "post_update",
+          "args": {
+            "to": [
+              "updates"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

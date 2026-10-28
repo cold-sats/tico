@@ -1,0 +1,22 @@
+{
+  "pending": [
+    {
+      "trigger": {
+        "type": "webhook",
+        "id": "trg_billing"
+      },
+      "steps": [
+        {
+          "id": "task",
+          "type": "action",
+          "enabled": true,
+          "do": "create_task",
+          "args": {
+            "owner": "person:omar",
+            "title": "Call the customer: payment failed"
+          }
+        }
+      ]
+    }
+  ]
+}
