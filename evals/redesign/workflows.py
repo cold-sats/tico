@@ -1311,7 +1311,7 @@ def wf7_enabled(f):
 def wf7_notices(f):
     """A run-guard trip sends one held notice to BotOps and one to the Health monitor: hub notices from the keeper, kind
     notice, refs.held naming the bot (CONTRACT section 1)."""
-    setup(f, "budget", "seed", "loop", "notices")
+    setup(f, "budget", "seed", "notices")   # "loop" is a list of turns, read by wf9_loop; it is not a reply
     held = [r for r in body(f, "notices") if OPENAI_ID in str(r["refs_json"])]
     to_botops = [r for r in held if "botops" in str(r["to_actor"])]
     to_health = [r for r in held if "health-monitor" in str(r["to_actor"])]
