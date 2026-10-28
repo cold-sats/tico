@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 
 from .cases.strategy import canon
 from .fakes import MissingRecording, ReplayJudge, Receiver, attach_judge, deliver, hook, stripe_sig
-from .harness import (CLAUDE, CLAUDE_ID, CLAUDE_REF, DANA, DANA_ID, DANA_REF, GAP, LEAD_ID, LEAD_REF, OPENAI,
+from .harness import (CLAUDE, CLAUDE_ID, CLAUDE_REF, DANA, DANA_ID, DANA_REF, LEAD_ID, LEAD_REF, OPENAI,
                       OPENAI_ID, OPENAI_REF, PRIYA_ID, RELEASE_ID, W1, W2, W3, W4, W5, W6, Check, Reply, Scenario, Unmet,
                       body, close_task, comment, get_caps, got, inbox_read, inbox_send, mail_computer, publish_mail,
                       put_budget, put_cap, rows, send, setup, task_id_of, turn_of)
@@ -427,16 +427,6 @@ def make_slack_autos(org):
     return Reply(201, {"ids": ids}, W3)
 
 
-def slack_route(org):
-    """The gateway's Slack events route. The gateway is Socket Mode today (backend/slack_gateway.py), with no HTTP
-    events route, and the CONTRACT names none."""
-    for route in org.app.routes:
-        path = getattr(route, "path", "")
-        if "POST" in (getattr(route, "methods", None) or ()) and "slack" in path and "event" in path:
-            return path
-    raise Unmet(GAP, "no Slack events route named (CONTRACT section 6)")
-
-
 def slack_messages(found):
     msgs = []
     for stem, data in sorted(found.items()):
@@ -449,13 +439,18 @@ def slack_messages(found):
 
 
 def feed_slack(org, msgs):
-    path = slack_route(org)
-    answers = []
-    for m in msgs:
-        payload = {"type": "event_callback", "event": {"type": "message", **m}}
-        response = org.client.post(path, json=payload)
-        answers.append(response.status_code)
-    return Reply(200 if all(code < 300 for code in answers) else 400, {"statuses": answers}, W3)
+    """Each recorded message reaches the gateway as Socket Mode delivers it: one envelope to `receive`, then the
+    gateway's pass (`tick`), then the scheduler runs what the automations queued. The gateway runs in this process
+    (backend/slack_gateway.py `Gateway`) against the Slack Web API fake (fakes.FakeSlack)."""
+    from backend import slack_gateway
+    from .fakes import TEAM, FakeSlack, slack_envelope
+    gateway = slack_gateway.Gateway(org.store, FakeSlack(), judge_engine=org.app.state.judge)
+    gateway.team_id = TEAM
+    gateway.verify_app()
+    outcomes = [gateway.receive(slack_envelope(m)) for m in msgs]
+    ticked = gateway.tick()
+    org.scheduler_pass()
+    return Reply(200, {"outcomes": outcomes, "events": ticked["events"]}, W3)
 
 
 def assistant_slug(org, person, who=DANA):
