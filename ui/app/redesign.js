@@ -42,7 +42,8 @@ function redesignNav(on) {
   const automations = link('automations', RD_AUTOMATIONS, RD_NAV_ICONS.automations, 'Automations');
   const library = link('library', DOCS, RD_NAV_ICONS.library, 'Library'); library.classList.add('rd-lib-head');
   const subs = document.createElement('div'); subs.className = 'rd-lib';
-  subs.append(...[row('a[data-nav="docs"]'), pick('a[data-nav="meetings"]')].filter(Boolean));
+  const connections = link('connections', RD_CONNECTIONS, 'link', 'Connections');   // ui/app/redesign-library.js
+  subs.append(...[row('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), connections].filter(Boolean));
   RD_NAV.made = [automations, library, subs];
   if (strategyLink) { strategyLink.setAttribute('href', MARKET_ROUTE); strategyLink.querySelector('.nav-icon').textContent = RD_NAV_ICONS.strategy; }
   const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), row('a[data-nav="strategy"]'),
@@ -55,6 +56,7 @@ function redesignNav(on) {
 function redesignNavCurrent(nav) {
   const r = S.route || '';
   if (nav === 'automations') return rdUnder(r, RD_AUTOMATIONS);
+  if (nav === 'connections') return rdUnder(r, RD_CONNECTIONS);
   if (nav === 'strategy') return rdUnder(r, '#/strategy');
   return false;
 }
@@ -84,6 +86,7 @@ function redesignRoute(r) {
     else $('#main').innerHTML = '<div id="automations-root" class="rd-automations"></div>';
     return true;
   }
+  if (rdUnder(r, RD_CONNECTIONS)) { pageRdConnections(); return true; }
   if (rdUnder(r, RD_GOALS)) { pageGoals(); return true; }
   if (rdUnder(r, RD_ORG)) { pageRdOrg(); return true; }
   if (rdUnder(r, RD_BUDGET)) { pageBudget(); return true; }
@@ -95,6 +98,7 @@ function redesignRoute(r) {
 // After every route: leave Automations' state when off its page, and put the Strategy Bot beside the Strategy tabs.
 function redesignAfterRoute() {
   if (!rdUnder(S.route || '', RD_AUTOMATIONS)) window.automationsStop?.();
+  if (!rdUnder(S.route || '', RD_CONNECTIONS)) rdConnectionsStop();
   syncStrategyBot();
 }
 
