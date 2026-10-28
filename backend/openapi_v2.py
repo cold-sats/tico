@@ -1342,7 +1342,9 @@ STABLE.extend([
     ("/api/v2/automations", "get", "Automations", "listAutomations",
      "The automations you may see, newest first, each with can_edit; paged by cursor", "AutomationList"),
     ("/api/v2/automations", "post", "Automations", "createAutomation",
-     "Save a new automation as version 1; a flow that fails its checks is refused with where and why", "Automation"),
+     "Save a new automation as version 1; a flow that fails its checks is refused with where and why. The Automations "
+     "Bot saves a draft instead: for the person it is talking to, off, its first version pending until they turn it on",
+     "Automation"),
     ("/api/v2/automations/question-sets", "get", "Automations", "listQuestionSets",
      "The saved question sets a Decide step may name (`set`), each with its questions", "QuestionSets"),
     ("/api/v2/automations/{aid}", "get", "Automations", "getAutomation",
@@ -1362,9 +1364,10 @@ STABLE.extend([
     ("/api/v2/automations/{aid}/versions", "get", "Automations", "listAutomationVersions",
      "Its versions, newest first; status=pending for proposals", "AutomationVersions"),
     ("/api/v2/automations/{aid}/versions/{n}/restore", "post", "Automations", "restoreAutomationVersion",
-     "Make a version current: a pending one keeps its number, an older one is saved as a new version", "Automation"),
+     "Make a version current: a pending one keeps its number, an older one is saved as a new version; a draft's first "
+     "pending version turns it on. The Automations Bot is refused", "Automation"),
     ("/api/v2/automations/{aid}/versions/{n}", "delete", "Automations", "discardAutomationVersion",
-     "Discard a pending version (409 for any other)", "Automation"),
+     "Discard a pending version (409 for any other); the Automations Bot is refused", "Automation"),
     ("/api/v2/inboxes/{inbox}", "get", "Automations", "getInboxSend",
      "An inbox's send switch (on by default): email address, slack:dm or slack:#<channel>", "InboxSwitch"),
     ("/api/v2/inboxes/{inbox}", "patch", "Automations", "setInboxSend",

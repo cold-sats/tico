@@ -1,0 +1,17 @@
+name: automations-bot            # the slug: it matches the repository bot-automations-bot and the label owner:automations-bot
+display_name: "Automations Bot"
+labels: [owner:automations-bot]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 20
+
+# It sends nothing outside the team.
+outbound_send: false
+
+# No routines and no watchers: it works only when a person asks it in chat.
+routines: []
+
+# It needs no credential: it reads and writes automations through the hub, as the person it is talking to.
+tools: []

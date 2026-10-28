@@ -324,3 +324,39 @@ def test_the_librarian_gets_the_market_builtins_which_stand_down_for_the_teams_o
                                              "args": {"to": ["market"], "text": "Acme week"}}])
     with api.app.state.store.transaction() as c:
         assert automations.fire(c, "schedule", {"schedule": {}}, "schedule:x", only="auto_builtin_market_briefing") == []
+
+
+def test_the_automations_bot_makes_a_draft_for_the_person_it_talks_to(api, monkeypatch):
+    """A new automation from the bot is that person's draft: off, version 1 pending, checked with their rights, and it
+    runs only after Turn on (the first pending version's restore). Its chat turn is what `_asker` reads from the attempt;
+    here the person it names is given directly, and a bot with no chat turn gets no draft at all."""
+    from backend import automations
+    turn_on(api)
+    helper = as_bot(api, "automations-bot")
+    post(api, "automations", flow(), helper, expected=403)                       # no chat turn, no person
+    monkeypatch.setattr(automations, "_asker", lambda c, auth, who: auth.identity_for_actor(c, "human:ana"))
+    draft = post(api, "automations", flow(), helper)
+    aid = draft["id"]
+    assert draft["enabled"] is False and draft["owner"] == "person:ana" and draft["builtin"] is False
+    assert [(v["n"], v["status"]) for v in get(api, f"automations/{aid}/versions")["versions"]] == [(1, "pending")]
+    listed = [a for a in get(api, "automations")["automations"] if a["id"] == aid]
+    assert listed[0]["pending"] == 1
+    post(api, "automations", flow(owner="person:omar"), helper, expected=403)     # not for someone else
+    post(api, f"automations/{aid}/run", {}, helper, expected=403)
+    post(api, f"automations/{aid}/delete", {}, helper, expected=403)
+    post(api, f"automations/{aid}/versions/1/restore", {}, helper, expected=403)
+    assert api.delete(f"/api/v2/automations/{aid}/versions/1", headers=headers(helper)).status_code == 403
+    on = post(api, f"automations/{aid}/versions/1/restore", {})                 # Turn on: the draft is live
+    assert on["enabled"] is True and on["version"] == 1
+    assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
+    assert [r["actor"] for r in audit_rows(api, aid)][:1] == ["human:ana"]
+
+
+def test_the_bot_proposes_for_a_person_only_as_far_as_that_person_may(api, monkeypatch):
+    from backend import automations
+    turn_on(api)
+    aid = make(api)["id"]
+    helper = as_bot(api, "automations-bot")
+    monkeypatch.setattr(automations, "_asker", lambda c, auth, who: auth.identity_for_actor(c, "human:ben"))
+    patch(api, aid, {"trigger": EVENING, "summary": "Evenings"}, helper, expected=403)   # ben may not change ana's
+    assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []

@@ -2856,8 +2856,12 @@ _AUTO_FIELDS = {
     "spend_cap": {"type": ["object", "null"], "description": "{per_30m: dollars} for its LLM and bot turns; null = the bot's limit"},
     "batch": {"type": "object", "description": "{times: [\"08:00\", ...], tz}: filters on receipt, the rest at these times"},
     "trigger": {"type": "object", "description": "{type: message|task_received|schedule|webhook|listening|event, ...}"},
-    "steps": {"type": "array", "items": {"type": "object"}, "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action). "
-              "post_update takes {to: [updates, market], text?}: no text posts what the bot_turn before it wrote"},
+    "steps": {"type": "array", "items": {"type": "object"},
+              "description": "The whole step tree (filter, decide, llm, find, bot_turn, paths, action). An action step is "
+                             "{type: action, do, args}; args by do: draft_reply and send_reply body (or text), to, bot "
+                             "(Slack send); forward to, body, webhook; label name (or tag); create_task title, body, owner; "
+                             "assign owner, text; note text (or note), bot; wake_bot bot, text; post_update to ([updates, market]), text (none posts what the bot_turn before it wrote); "
+                             "call_webhook webhook, type, data; archive and leave_for_you take none"},
 }
 
 
@@ -2875,7 +2879,14 @@ def automation_get(api, args):
     return _as_person(api).get(f"automations/{args['id']}")
 
 
-@tool("hub_automation_create", "Save a new automation (version 1). Checked on save: a bad flow is refused with why.",
+@tool("hub_automation_question_sets", "The saved question sets a Decide step may name (`set`), each with its `id` "
+      "(name@version), `summary` and `questions`. Read-only.", {})
+def automation_question_sets(api, args):
+    return _as_person(api).get("automations/question-sets")
+
+
+@tool("hub_automation_create", "Save a new automation (version 1). Checked on save: a bad flow is refused with why. "
+      "The Automations Bot saves a draft instead: off, its first version pending, for the person it is talking to.",
       {k: v for k, v in _AUTO_FIELDS.items()}, required=("name", "owner", "trigger"), writes=True)
 def automation_create(api, args):
     body = {k: args[k] for k in _AUTO_FIELDS if k in args}
@@ -2883,7 +2894,7 @@ def automation_create(api, args):
 
 
 @tool("hub_automation_update", "Change an automation. A new trigger, steps or batch times is a new version; a bot "
-      "without edit rights gets back `pending` (a proposal a person restores).",
+      "without edit rights gets back `pending` (a proposal a person restores). Action args are named in `steps`.",
       {"id": _s("auto_..."), **_AUTO_FIELDS, "summary": _s("A few words on the change")},
       required=("id",), writes=True)
 def automation_update(api, args):
@@ -2933,12 +2944,6 @@ def automation_restore(api, args):
       required=("id", "n"), writes=True)
 def automation_discard(api, args):
     return _as_person(api).call("DELETE", f"automations/{args['id']}/versions/{int(args['n'])}", None, _key(args))
-
-
-@tool("hub_automation_question_sets", "The question sets a Decide step may name (`set`: id@version), each with its "
-      "questions in judge.py's format.", {})
-def automation_question_sets(api, args):
-    return _as_person(api).get("automations/question-sets")
 
 
 @tool("hub_inbox_send", "Read or set an inbox's send switch (on by default). Off, an automation's send_reply saves a "

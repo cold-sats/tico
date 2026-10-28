@@ -4,6 +4,7 @@ real model and never runs here.
 """
 import copy
 import importlib.util
+import json
 import re
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 EVALS = Path(__file__).resolve().parents[2] / "evals" / "automations_bot"
 sys.path.insert(0, str(EVALS))
 import checker  # noqa: E402
+from backend import automation_actions  # noqa: E402
 from backend import automation_flow as F  # noqa: E402
 
 CASES = checker.load_cases()
@@ -117,6 +119,59 @@ def test_a_refusal_fails_when_a_version_names_the_forbidden_inbox():
     observed = {"pending": [{"trigger": {"type": "message", "inbox": "priya@acme.example"}, "steps": []}]}
     assert failed(checker.check_case(BY_ID["priya-inbox-refuse"], observed)) == {"no version saved",
                                                                                  "forbidden inbox not named"}
+
+
+def _actions(node):
+    """Every action step in a flow, nested paths and otherwise-branches included."""
+    if isinstance(node, dict):
+        if node.get("type") == "action":
+            yield node
+        for value in node.values():
+            yield from _actions(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _actions(value)
+
+
+def _flows_in_evals():
+    """Every flow the evals hold: the seeds, and the live and proposed flows of each saved answer."""
+    flows = [case["seed"] for case in CASES if case.get("seed")]
+    for path in sorted((EVALS / "saved").glob("*.json")):
+        doc = json.loads(path.read_text())
+        flows += doc.get("pending", []) + ([doc["live"]] if doc.get("live") else [])
+    return flows
+
+
+def test_the_bot_knows_every_action_the_hub_runs():
+    """The flow shape the bot is given names exactly the actions the executor runs."""
+    assert set(F.ACTION_ARGS) == set(automation_actions.ACTIONS) == set(F.ACTIONS)
+
+
+def test_every_action_in_the_evals_uses_only_the_args_the_bot_is_told():
+    """A seed or saved answer that names an arg the bot is never told would teach it the wrong thing (post_update's
+    `to` was such a mismatch: the action reads `text`)."""
+    seen = 0
+    for flow in _flows_in_evals():
+        for step in _actions(flow.get("steps", [])):
+            do = step.get("do")
+            assert do in F.ACTION_ARGS, f"{do} is not an action the bot knows"
+            assert set(step.get("args") or {}) <= set(F.ACTION_ARGS[do]) | {"text"}, (do, step.get("args"))
+            seen += 1
+    assert seen >= 5, "the evals name too few actions to prove the check"
+
+
+def test_the_flow_shape_names_every_trigger_step_and_action():
+    text = F.shape_text()
+    for word in [*F.TRIGGERS, *F.STEP_TYPES, *F.ACTIONS, *F.OPS]:
+        assert word in text, word
+    for do, args in F.ACTION_ARGS.items():
+        assert do in text and all(arg in text for arg in args), do
+
+
+def test_the_helper_instructions_carry_the_flow_shape_placeholder():
+    """onboarding.render swaps `{{flow_shape}}` for the shape at read time, so the shape cannot go stale in the file."""
+    text = (Path(__file__).resolve().parents[2] / "templates" / "catalog" / "automations-bot" / "AGENT.md").read_text()
+    assert text.count("{{flow_shape}}") == 1
 
 
 def test_the_live_runner_lists_its_requests():

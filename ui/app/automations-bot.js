@@ -173,6 +173,12 @@ function auPropsDraw() {
     </div>`;
   }).join('');
 }
+// A proposal settled (On or Discarded): the list row stops counting it as pending.
+function auPendingDone(id) {
+  const row = (AU.list || []).find(x => x.id === id);
+  if (row?.pending) row.pending -= 1;
+}
+
 async function auPropAct(button) {
   const n = +button.closest('[data-n]').dataset.n, act = button.dataset.prop, a = AU.cur, state = AU;
   const p = AU.bot.props.find(x => x.n === n);
@@ -185,12 +191,14 @@ async function auPropAct(button) {
       if (AU !== state) return;
       p.state = 'on'; p.diff = false;
       AU.bot.propsKey = out.id + '@' + out.version;   // the new current version: no need to read the proposals again
+      auPendingDone(a.id);
       auAdopt(out);
       toast(`${out.name} v${out.version} is on`);
     } else if (act === 'discard') {
       await writeRequest('DELETE', `${auApi(a.id)}/versions/${n}`);
       if (AU !== state) return;
       p.state = 'discarded'; p.diff = false;
+      auPendingDone(a.id); auDrawList();
     }
     auPropsDraw();
   } catch (e) { toast(e.message, true); if (button.isConnected) button.disabled = false; }

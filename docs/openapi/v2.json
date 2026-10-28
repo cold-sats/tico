@@ -1155,7 +1155,7 @@
         ]
       },
       "post": {
-        "summary": "Save a new automation as version 1; a flow that fails its checks is refused with where and why",
+        "summary": "Save a new automation as version 1; a flow that fails its checks is refused with where and why. The Automations Bot saves a draft instead: for the person it is talking to, off, its first version pending until they turn it on",
         "operationId": "createAutomation",
         "requestBody": {
           "required": true,
@@ -1765,7 +1765,7 @@
     },
     "/api/v2/automations/{aid}/versions/{n}": {
       "delete": {
-        "summary": "Discard a pending version (409 for any other)",
+        "summary": "Discard a pending version (409 for any other); the Automations Bot is refused",
         "operationId": "discardAutomationVersion",
         "parameters": [
           {
@@ -1852,7 +1852,7 @@
     },
     "/api/v2/automations/{aid}/versions/{n}/restore": {
       "post": {
-        "summary": "Make a version current: a pending one keeps its number, an older one is saved as a new version",
+        "summary": "Make a version current: a pending one keeps its number, an older one is saved as a new version; a draft's first pending version turns it on. The Automations Bot is refused",
         "operationId": "restoreAutomationVersion",
         "parameters": [
           {

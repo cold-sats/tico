@@ -154,7 +154,7 @@ function auDrawList() {
     return `<div class="au-row${a.id === AU.id ? ' sel' : ''}${a.enabled === false ? ' off' : ''}" data-row="${esc(a.id)}">
       <a href="${auHref(a.id)}" title="${esc(name + (src ? ' · ' + src : ''))}"${a.id === AU.id ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${AU_TRIGGER_ICONS[a.trigger?.type] || 'schedule'}</span>
       <span class="au-nm">${esc(name)}${src ? ` <span class="muted">· ${esc(src)}</span>` : ''}</span></a>
-      ${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', `data-on="${esc(a.id)}"`) : a.enabled === false ? '<span class="pill">Off</span>' : ''}</div>`;
+      ${a.pending ? '<span class="pill">Pending</span>' : ''}${auMayPause(a) ? auSwitch(a.enabled !== false, name + ' on', `data-on="${esc(a.id)}"`) : a.enabled === false ? '<span class="pill">Off</span>' : ''}</div>`;
   }).join('')).join('') || `<p class="muted au-pad">${q ? 'No matches' : 'No automations'}</p>`;
 }
 

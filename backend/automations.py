@@ -310,6 +310,41 @@ def _require(c, who, flow, what="change this automation"):
         raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
 
 
+def _asker(c, auth, who):
+    """The person the Automations Bot works for: whoever wrote the message its live turn answers, with that person's own
+    rights (identity_for_actor elevates nobody). None outside such a turn, or once that person is gone. The bot's own
+    identity stays the actor on every write; this only decides what the person may have."""
+    if who.role != "bot" or who.actor != HELPER or not who.attempt_id:
+        return None
+    row = c.execute("SELECT a.state, a.lease_until, v.owner_actor FROM attempts a JOIN jobs j ON j.id=a.job_id "
+                    "JOIN messages m ON m.id=j.message_id JOIN conversations v ON v.id=m.conversation_id "
+                    "WHERE a.id=? AND m.from_actor=v.owner_actor", (who.attempt_id,)).fetchone()
+    if not row or row["state"] not in ("leased", "running") or str(row["lease_until"] or "") <= H.now():
+        return None
+    try:
+        return auth.identity_for_actor(c, row["owner_actor"])
+    except Problem:
+        return None
+
+
+def _draft(c, auth, who, body, settings):
+    """The Automations Bot's new automation: saved for the person it is talking to, checked against their rights, off,
+    with its first version pending until they turn it on (the page's Turn on restores that version)."""
+    person = _asker(c, auth, who)
+    if person is None:
+        raise Problem("forbidden", "The Automations Bot makes an automation only in a chat with a person", 403)
+    owner = "person:" + H.actor_id(person.actor)
+    if F.owner_ref(body.owner) != owner:
+        raise Problem("forbidden", "A draft is saved for the person you are talking to, not for " + body.owner, 403)
+    flow = _checked(c, {**{k: v for k, v in body.model_dump().items() if v is not None},
+                        "owner": owner, "enabled": False, "builtin": False}, settings)
+    _require(c, person, flow, "make an automation for " + owner)
+    row = _save(c, person.actor, "auto_" + H.new_id(), flow, None, via="automations-bot")
+    c.execute("UPDATE automation_versions SET status='pending' WHERE automation_id=? AND n=?",
+              (row["id"], row["version"]))
+    return view(c, row, person, detail=True)
+
+
 def _owner_known(c, owner):
     kind, _, ident = owner.partition(":")
     if kind == "person":
@@ -1450,7 +1485,10 @@ def install(app, store, auth, mutate):
             rows = c.execute("SELECT * FROM automations WHERE deleted_at IS NULL"
                              + (" AND owner=?" if owner else "") + " ORDER BY created DESC",
                              ((F.owner_ref(owner),) if owner else ())).fetchall()
-            visible = [view(c, dict(r), who) for r in rows if may_see(c, who, flow_of(r))]
+            pending = {r[0]: r[1] for r in c.execute("SELECT automation_id, COUNT(*) FROM automation_versions "
+                                                     "WHERE status='pending' GROUP BY automation_id")}
+            visible = [{**view(c, dict(r), who), "pending": pending.get(r["id"], 0)}
+                       for r in rows if may_see(c, who, flow_of(r))]
         shown, more = page(visible[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
         return {"automations": shown, "next": more}
 
@@ -1478,6 +1516,8 @@ def install(app, store, auth, mutate):
         def work(c):
             _require_on(c)
             auth.domain(who)
+            if who.actor == HELPER:
+                return _draft(c, auth, who, body, store.settings)
             flow = _checked(c, {k: v for k, v in body.model_dump().items() if v is not None}, store.settings)
             _require(c, who, flow, "make an automation for " + flow["owner"])
             if flow["builtin"]:
@@ -1522,6 +1562,8 @@ def install(app, store, auth, mutate):
                 warning = ("This is a built-in automation: the rules it shows are Tico's own and keep working while "
                            "it is paused.") if changes.get("enabled") is False else None
                 return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
+            if who.actor == HELPER and (asker := _asker(c, auth, who)) and not may_change(c, asker, before):
+                raise Problem("forbidden", "The person you are talking to may not change this automation", 403)
             if who.role == "bot" and (who.actor == HELPER or not may_change(c, who, before)):
                 if not changes or set(changes) - set(VERSIONED):
                     raise Problem("forbidden", "A bot may only propose a change to an automation's trigger, steps "
@@ -1546,6 +1588,8 @@ def install(app, store, auth, mutate):
         who = request.state.identity
 
         def work(c):
+            if who.actor == HELPER:
+                raise Problem("forbidden", "The Automations Bot does not delete an automation", 403)
             row = found(c, who, aid, "delete this automation", rule=_seen_if_builtin)
             if row["builtin"]:
                 raise Problem("builtin", "A built-in automation cannot be deleted; the top of the org may pause it", 409)
@@ -1575,6 +1619,8 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or RunNow()
 
         def work(c):
+            if who.actor == HELPER:
+                raise Problem("forbidden", "The Automations Bot does not run an automation", 403)
             row = found(c, who, aid, "run this automation",
                         rule=lambda c, who, flow: (may_see if flow.get("readonly") else may_change)(c, who, flow))
             flow = flow_of(row)
@@ -1637,15 +1683,20 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or Empty()
 
         def work(c):
+            if who.actor == HELPER:
+                raise Problem("forbidden", "The Automations Bot proposes a version; a person turns it on", 403)
             row = found(c, who, aid, "change this automation")
             old = c.execute("SELECT * FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
             if not old:
                 raise Problem("not_found", f"No version {n}", 404)
             before = flow_of(row)
-            flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"])},
-                            store.settings)
-            _require(c, who, flow, "restore this version")
             pending = old["status"] == "pending"
+            # A draft (off, with no version live yet) is turned on by its first pending version: Turn on.
+            draft = pending and not before["enabled"] and not c.execute(
+                "SELECT 1 FROM automation_versions WHERE automation_id=? AND status='active'", (aid,)).fetchone()
+            flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"]),
+                                **({"enabled": True} if draft else {})}, store.settings)
+            _require(c, who, flow, "restore this version")
             saved = _save(c, who.actor, aid, flow, before, current=n if pending else None, new_version=not pending,
                           via=_via(who))
             return view(c, saved, who, detail=True)
@@ -1657,6 +1708,8 @@ def install(app, store, auth, mutate):
         who, body = request.state.identity, body or Empty()
 
         def work(c):
+            if who.actor == HELPER:
+                raise Problem("forbidden", "The Automations Bot proposes; a person discards a proposal", 403)
             row = found(c, who, aid, "discard a proposal")
             old = c.execute("SELECT status FROM automation_versions WHERE automation_id=? AND n=?", (aid, n)).fetchone()
             if not old:

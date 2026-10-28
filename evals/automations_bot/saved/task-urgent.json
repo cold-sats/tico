@@ -49,7 +49,7 @@
                 "enabled": true,
                 "do": "note",
                 "args": {
-                  "body": "Noted for later."
+                  "text": "Noted for later."
                 }
               }
             ]

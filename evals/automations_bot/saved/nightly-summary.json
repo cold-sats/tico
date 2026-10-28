@@ -19,9 +19,7 @@
           "enabled": true,
           "do": "post_update",
           "args": {
-            "to": [
-              "updates"
-            ]
+            "text": "{{summary}}"
           }
         }
       ]

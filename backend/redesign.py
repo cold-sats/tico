@@ -71,4 +71,9 @@ def install(app, store, auth, mutate):
                 # Off, the automations the convert made would stop and the rows they replaced are gone.
                 raise Problem("conflict", "The install was converted to the redesign; restore the migration "
                                           "before turning it off", 409)
-        return mutate(request, body, lambda c: set_on(c, body.enabled, request.state.identity.actor), check=permitted)
+        def change(c):
+            out = set_on(c, body.enabled, request.state.identity.actor)
+            if body.enabled:   # the Automations Bot is made the moment the redesign is on, like the other built-ins
+                app.state.onboarding.ensure_automations_bot(c)
+            return out
+        return mutate(request, body, change, check=permitted)

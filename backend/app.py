@@ -165,6 +165,7 @@ def create_app(settings=None):
                 onboarding.ensure_librarian(c)
                 onboarding.ensure_goal_manager(c)
                 onboarding.ensure_task_manager(c)
+                onboarding.ensure_automations_bot(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
         # The Librarian gets the market posts from Listening, once (Settings > Listening).

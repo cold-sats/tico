@@ -451,3 +451,91 @@ def judge_state(values, fields):
     if obj.get("source") == "mail" or (kind == "item" and "mailbox" in obj):
         obj = mail_state(obj)
     return {field: obj.get(field) for field in fields} if fields else dict(obj)
+
+
+# ---------------------------------------------------------------------------------------------------- what the bot is told
+# The args each action reads (backend/automation_actions.py). Named once here: the hub tools, the Automations Bot's
+# instructions and CONTRACT §2 all read it, and a test keeps it equal to the executor's action names.
+ACTION_ARGS = {
+    "archive": {},
+    "leave_for_you": {},
+    "draft_reply": {"body": "the reply text (or text); required on mail and Slack",
+                    "to": "mail: the addresses to reply to (default the sender)"},
+    "send_reply": {"body": "the reply text (or text); required on mail and Slack",
+                   "to": "mail: the addresses to reply to (default the sender)",
+                   "bot": "Slack: the bot that posts (default the owner's bot)"},
+    "forward": {"to": "required on mail: the address or addresses (a list or comma-separated)",
+                "body": "text placed above the forwarded message (or text)",
+                "webhook": "a webhook id, to forward to it instead of mail"},
+    "label": {"name": "the label (or tag); a Gmail system label such as STARRED stays as it is"},
+    "create_task": {"title": "required: the task's title",
+                    "body": "the task's text",
+                    "owner": "a person id or a bot slug (default the automation's owner)"},
+    "assign": {"owner": "required: a person id or a bot slug",
+               "text": "a note on the change (or note)"},
+    "note": {"text": "the note (or note)",
+             "bot": "with no task on the run: the bot to tell"},
+    "wake_bot": {"bot": "the bot to wake (default the owner's bot)",
+                 "text": "its prompt (or prompt)"},
+    "post_update": {"text": "the update's text (or body); posted as the owner"},
+    "call_webhook": {"webhook": "required: an outgoing webhook's id",
+                     "type": "the event type (default custom.automation)",
+                     "data": "the body (default the run's ids)"},
+}
+
+# One line per trigger, step and limit, for the bot's instructions and the tool description.
+TRIGGER_WORDS = {
+    "message": "an email message, a Slack direct message or a Slack channel's message",
+    "task_received": "a task sent to a person or bot",
+    "schedule": "a time, as a five-field cron in a time zone",
+    "webhook": "an existing incoming webhook (its id, no secret)",
+    "listening": "a match at a listening destination",
+    "event": "a named event from Tico's catalog",
+}
+TRIGGER_FIELDS = {
+    "message": "inbox: an email address, `slack:dm`, or `slack:#<channel>`",
+    "task_received": "to: a person id or a bot slug",
+    "schedule": "cron: five fields, e.g. `0 9 * * 1-5`; tz: a time zone such as `Europe/Paris`",
+    "webhook": "id: the existing trigger's id",
+    "listening": "destination: the destination's key",
+    "event": "name: the event name",
+}
+STEP_WORDS = {
+    "filter": "rules: the first rule whose conditions hold runs its actions (`stop` ends the list)",
+    "decide": "a judge answers each question; its answers read as `<out>.<question id>`. Give `set` (a saved question "
+              "set, from hub_automation_question_sets) or `questions`, never both",
+    "llm": "a turn on a bot or an Assistant with the prompt; its text is `out`",
+    "find": "pulls items from a source since the last run; the steps after it run once per item. At most one, at the top",
+    "bot_turn": "a task for a bot with the prompt; the bot runs it in its own session",
+    "paths": "named paths tested in order; the first whose conditions hold runs. Nothing follows a paths step in its list",
+    "action": "one action from the list below, with its args",
+}
+
+
+def shape_text():
+    """The flow's shape as the Automations Bot reads it, from the constants above: a change to any of them changes this
+    text, so the instructions cannot drift from what a save accepts."""
+    lines = [
+        "A flow is `{\"name\", \"owner\", \"trigger\", \"steps\", \"batch\"}`. You propose `trigger`, `steps` and optionally "
+        "`batch` (`{\"times\": [\"08:00\", \"13:00\"]}`, held sends at those times); `summary` names the change in a few words.",
+        "",
+        "Triggers (`trigger.type`, each with its fields; any may carry `filters`, conditions that drop a message before a run):",
+    ]
+    lines += [f"- `{kind}` {TRIGGER_WORDS[kind]}: {TRIGGER_FIELDS[kind]}" for kind in TRIGGERS]
+    lines += ["", "Steps (each has `id`, `type` and `enabled`; ids are unique):"]
+    lines += [f"- `{kind}`: {STEP_WORDS[kind]}" for kind in STEP_TYPES]
+    lines += ["", "A condition (in `when`) is `{field, op, value, min}`: a field such as `message.from` or `d1.bucket`; "
+              f"op is one of {', '.join(OPS)}; value is text or a number; min (0 to 1) is the least confidence a choice "
+              "or a yes/no answer needs. A field reads the trigger's values and earlier steps' outputs. Limits: "
+              f"{MAX_RULES} rules per filter, {MAX_CONDS} conditions per rule or path, {MAX_PATHS} paths per fork, "
+              f"{MAX_DEPTH} levels of forks inside forks, {MAX_STEPS} steps, {MAX_PROMPT} characters per prompt.",
+              "", "Decide `level`: " + ", ".join(LEVELS) + " (default low). A `paths` path has `name`, `match` (all or any, default all), "
+              "`when` and `steps`; `otherwise` takes `steps` too. A filter rule has `when`, `match`, `then` (actions) and `stop`.",
+              "", "Actions (`{\"do\": ..., \"args\": {...}}`):"]
+    lines += [f"- `{name}`" + (": " + "; ".join(f"`{key}` {text}" for key, text in args.items()) if args else " (no args)")
+              for name, args in ACTION_ARGS.items()]
+    lines += ["", "Example, a rule that labels a message and archives it: "
+              "`{\"id\": \"sort\", \"type\": \"filter\", \"enabled\": true, \"rules\": [{\"when\": "
+              "[{\"field\": \"d1.bucket\", \"op\": \"is\", \"value\": \"archive\", \"min\": 0.85}], \"then\": "
+              "[{\"do\": \"label\", \"args\": {\"name\": \"Receipts\"}}, {\"do\": \"archive\", \"args\": {}}], \"stop\": true}]}`."]
+    return "\n".join(lines)
