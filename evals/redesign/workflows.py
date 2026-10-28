@@ -450,8 +450,29 @@ def feed_slack(org, msgs):
     gateway.verify_app()
     outcomes = [gateway.receive(slack_envelope(m)) for m in msgs]
     ticked = gateway.tick()
+    diag = slack_diag(org, gateway)
     org.scheduler_pass()
-    return Reply(200, {"outcomes": outcomes, "events": ticked["events"]}, W3)
+    return Reply(200, {"outcomes": outcomes, "events": ticked["events"], "diag": diag}, W3)
+
+
+def slack_diag(org, gateway):
+    """What the gateway's offer pass saw for each stored channel message, read after the tick (diagnostic only)."""
+    from backend import redesign
+    with org.store.read() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM slack_events ORDER BY received, ts")]
+        since = c.execute("SELECT MIN(created) FROM automations WHERE trigger_type='message' AND enabled=1 "
+                          "AND deleted_at IS NULL AND flow_json LIKE '%slack:#%'").fetchone()[0]
+        autos = [dict(r) for r in c.execute("SELECT name,trigger_type,enabled,created,deleted_at,owner FROM automations "
+                                            "WHERE flow_json LIKE '%slack:#%'")]
+        on = redesign.on(c)
+        senders = {}
+        for r in rows:
+            if r["state"] == "stored" and r["channel_kind"] == "channel":
+                person, _user, denied = gateway.verify_sender(c, r)
+                senders[r["ts"]] = {"person": (person or {}).get("id"), "denied": denied}
+    stored = [{k: r[k] for k in ("ts", "channel", "channel_kind", "author", "state", "processed", "received")}
+              for r in rows if str(r["ts"]).startswith("wf1-")]
+    return {"on": on, "since": since, "autos": autos, "stored": stored, "senders": senders}
 
 
 def assistant_slug(org, person, who=DANA):
@@ -674,7 +695,8 @@ def wf1_slack(f):
         return True, "each Slack message ran its channel's automation once"
     states = {e.get("event_id"): e.get("state") for e in (got(f, "slack").body.get("events") or [])}
     gave = {ts: states.get("Ev-" + ts) for ts in wrong}
-    return False, f"runs per automation off for {len(wrong)}: {wrong}; gateway outcome {gave}"
+    diag = got(f, "slack").body.get("diag") or {}
+    return False, f"runs per automation off for {len(wrong)}: {wrong}; gateway outcome {gave}; diag {diag}"
 
 
 # ================================================================================================ 2 task flood
