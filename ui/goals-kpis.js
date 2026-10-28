@@ -843,7 +843,7 @@ function goalPanelDialog(state) {
       const goal = st.panel?.goal;
       st.panel = null;
       // Only the address this panel set: a link followed before the event arrives names another goal and stays.
-      if (st === GOALS_ST && goal && location.hash === GOALS + '/' + encodeURIComponent(goal)) history.replaceState(null, '', GOALS);
+      if (st === GOALS_ST && goal && location.hash === goalsBase() + '/' + encodeURIComponent(goal)) history.replaceState(null, '', goalsBase());
     });
     document.body.appendChild(dlg);
   }
@@ -852,7 +852,7 @@ function goalPanelDialog(state) {
 }
 window.addEventListener('hashchange', () => {
   const dlg = document.getElementById('goal-panel');
-  if (dlg?.open && !location.hash.startsWith('#/goals')) dlg.close();
+  if (dlg?.open && !location.hash.startsWith(goalsBase())) dlg.close();
 });
 // goal: the goal to open for editing ('new' to add one). tapped: the goal on the line that was tapped. Someone with no
 // goal opens on a new one; the team line opens its goal when it has just one.
@@ -862,7 +862,7 @@ function goalPanelOpen(state, owner, {goal = '', tapped = ''} = {}) {
   if (!goal && owner === GOAL_COMPANY && live.length === 1) goal = live[0].id;
   state.panel = {owner, goal, kpiAdd: '', kpi: '', standing: false, tapped, history: false, historyKpis: null,
     historyLoading: false, historyError: false, why: '', whyFrom: '', whyDraft: null, update: '', updateDraft: null, updateError: '', updateFocus: false, updatePending: null};
-  history.replaceState(null, '', goal && goal !== 'new' ? GOALS + '/' + encodeURIComponent(goal) : GOALS);
+  history.replaceState(null, '', goal && goal !== 'new' ? goalsBase() + '/' + encodeURIComponent(goal) : goalsBase());
   const dlg = goalPanelDialog(state);
   delete dlg.dataset.kpi;
   if (!dlg.open) dlg.showModal();
@@ -950,7 +950,7 @@ function goalPanelRender(state) {
   const body = dlg.querySelector('.gp-body');
   body.scrollTop = scroll;
   const redraw = () => goalPanelRender(state), reload = () => goalsReload(state);
-  const setGoal = id => { P.goal = id; P.kpiAdd = ''; history.replaceState(null, '', id && id !== 'new' ? GOALS + '/' + encodeURIComponent(id) : GOALS); redraw(); };
+  const setGoal = id => { P.goal = id; P.kpiAdd = ''; history.replaceState(null, '', id && id !== 'new' ? goalsBase() + '/' + encodeURIComponent(id) : goalsBase()); redraw(); };
   dlg.querySelector('[data-gp-close]').onclick = () => dlg.close();
   for (const b of body.querySelectorAll('[data-gp-edit]')) b.onclick = () => setGoal(b.dataset.gpEdit);
   const form = body.querySelector('[data-goal-form]');

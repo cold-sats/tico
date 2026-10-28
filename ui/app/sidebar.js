@@ -581,8 +581,9 @@ $('#org-history').onclick = () => {
 // and a bot that reports to one hangs where it would have.
 const MESSAGE_BOTS_GROUP = '__message_bots';
 // The CEO Bot is built in but on the chart, at its top.
+// With the redesign on, the Automations Bot is a helper too (CONTRACT §2), and no helper is on the Team list at all.
 const isHelperBot = e => (isBuiltInBot(e.name) && e.name !== 'goal-manager') || !!e.helper
-  || (S.people || []).some(p => p.inbox_bot === e.name);
+  || (S.people || []).some(p => p.inbox_bot === e.name) || (redesignOn() && e.name === 'automations-bot');
 // The order here and on Goals: the Assistant, then the other built-ins, then message bots.
 const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'task-manager', 'inbox'];
 const helperRank = e => e.name === assistantBot() ? -1 : HELPER_ORDER.includes(e.name) ? HELPER_ORDER.indexOf(e.name) : 99;
@@ -598,7 +599,7 @@ function orgTreeWithHelpers(byParent) {
     else (out[lift(parent)] ||= []).push(n);
   }
   for (const [id, name, members, order] of [
-    [MESSAGE_BOTS_GROUP, 'Message bots', helpers.filter(e => !isBuiltInBot(e.name)), 1],
+    [MESSAGE_BOTS_GROUP, 'Message bots', redesignOn() ? [] : helpers.filter(e => !isBuiltInBot(e.name)), 1],
   ]) {
     if (!members.length) continue;
     (out[''] ||= []).push({kind: 'group', id, name, order, helpers: true});
@@ -835,7 +836,8 @@ function renderTree() {
       (a.dataset.nav === 'assistant' && (S.route === $('#nav-assistant')?.getAttribute('href') || S.route === LEARNED)) ||
       (a.dataset.nav === 'botops' && /^#\/bot\/botops(?:\/|$)/.test(S.route)) ||
       (a.dataset.nav === 'goals' && (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?'))) ||
-      (a.dataset.nav === 'more' && !mobilePrimary);
+      (a.dataset.nav === 'more' && !mobilePrimary) ||
+      (redesignOn() && redesignNavCurrent(a.dataset.nav));
     a.classList.toggle('cur', isCurrent);
     if (isCurrent) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });

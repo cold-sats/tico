@@ -54,7 +54,8 @@ function route() {
   if (!(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { if (UPD) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; } updcStop(); }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
-  if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
+  if (redesignOn() && redesignRoute(S.route)) { /* the redesign's pages, moves and redirects (ui/app/redesign.js) */ }
+  else if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {
     // Old links land on Meetings, keeping a deep link to one meeting.
     const id = new URLSearchParams(S.route.split('?')[1] || '').get('recording');
     location.hash = MEETINGS + (id ? '?meeting=' + encodeURIComponent(id) : ''); return;
@@ -143,6 +144,7 @@ function route() {
   else if (/^#\/computers\/[^/?]+\/performance$/.test(S.route)) pageComputerPerformance(decodeURIComponent(S.route.split('/')[2]));
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
   window.syncLibrarianRail?.();
+  redesignAfterRoute();
   $('#main').scrollTop = 0;
 }
 window.addEventListener('hashchange', route);

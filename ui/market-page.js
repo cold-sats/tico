@@ -91,7 +91,9 @@ window.marketStop = function marketStop() {
 // The view switch sits where the section's heading keeps its actions.
 function marketViewSwitch(view) {
   const box = $('#strat-actions');
-  if (box) box.innerHTML = `<nav class="mkt-views" aria-label="Market views">${MARKET_VIEWS.map(([key, label]) =>
+  // With the redesign on, Listening (Settings > Listening before) is the tab's last view (ui/app/redesign.js).
+  const views = redesignOn() && settingsIsAdmin() ? [...MARKET_VIEWS, ['listening', 'Listening']] : MARKET_VIEWS;
+  if (box) box.innerHTML = `<nav class="mkt-views" aria-label="Market views">${views.map(([key, label]) =>
     `<a href="${MARKET_ROUTE}/${key}" data-market-view="${key}"${key === view ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
 }
 
