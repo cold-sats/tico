@@ -24,6 +24,9 @@ async function ask(page, text) {
       await page.waitForFunction(() => document.querySelector('#au-root').dataset.screen === 'bot');
       assert.equal(await page.locator('.au-pane').isVisible(), false);
       assert.equal(await page.locator('.au-botp').isVisible(), true);
+      const bar = await page.locator('.au-bf').boundingBox();
+      assert.ok(bar.height < 64, 'the composer is one line');
+      assert.equal(await page.locator('.au-bf .ask').evaluate(el => getComputedStyle(el).borderTopWidth), '0px', 'one border, the pill’s');
       await ask(page, 'Archive receipts too');
       await page.waitForSelector('.au-prop[data-n="8"]');
       const sent = writes.find(w => w.path === '/api/v2/chat/automations-bot');

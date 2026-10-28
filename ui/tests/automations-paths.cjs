@@ -7,6 +7,12 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openAutomations, PHONE, DESKTOP, sideways, shot} = require('./support/automations-fake.cjs');
 
+// The path strip needs no scrolling, and no step name in it is cut (two lines at most, each word whole).
+const fits = page => page.evaluate(() => {
+  const strip = document.querySelector('.au-paths');
+  const clipped = [...strip.querySelectorAll('.au-ct')].filter(t => t.scrollHeight > t.clientHeight + 1 || t.scrollWidth > t.clientWidth + 1).map(t => t.textContent);
+  return {strip: strip.scrollWidth <= strip.clientWidth + 1, clipped};
+});
 const selectedDot = page => page.evaluate(() => [...document.querySelectorAll('.au-dots [data-dot]')].findIndex(d => d.getAttribute('aria-selected') === 'true'));
 
 (async () => {
@@ -55,7 +61,7 @@ const selectedDot = page => page.evaluate(() => [...document.querySelectorAll('.
       await page.close();
     }
 
-    // A computer: side by side, no dots; "+ Path" stops at 10.
+    // A computer: side by side, no dots, names whole with three or four columns; "+ Path" stops at 10.
     {
       const {page, errors, writes} = await openAutomations(browser, {viewport: DESKTOP, hash: '#/automations/au_inbox'});
       await page.waitForSelector('.au-paths');
@@ -71,7 +77,15 @@ const selectedDot = page => page.evaluate(() => [...document.querySelectorAll('.
       assert.equal(await page.locator('[data-op="add"][data-at="step.paths"]').count(), 1);
       await page.locator('.au-ed [data-op="close"]').click();
       assert.equal(writes.length, 0, 'closing without Save writes nothing');
+      assert.deepEqual(await fits(page), {strip: true, clipped: []}, 'three columns: every step name readable');
       await shot(page, 'desktop-paths');
+      // A third path makes four columns; they still fit without scrolling, names whole.
+      await page.locator('.au-card[data-open="p1"]').click();
+      await page.locator('[data-op="add"][data-at="step.paths"]').click();
+      await page.locator('.au-save').click();
+      await page.waitForFunction(() => document.querySelectorAll('.au-pth').length === 4);
+      assert.deepEqual(await fits(page), {strip: true, clipped: []}, 'four columns: every step name readable');
+      await shot(page, 'desktop-paths-4');
       assert.equal(await sideways(page), false);
       assert.deepEqual(errors, []);
       await page.close();

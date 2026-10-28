@@ -48,6 +48,10 @@ const groups = page => page.locator('.au-gh > span:first-child').allTextContents
       assert.equal(await page.locator('.au-rr').count(), 25);
       assert.equal(await page.locator('.au-rr .au-dot.fail').count() > 0, true);
       assert.equal(await page.locator('.au-rr .au-dot.wait').count() > 0, true);
+      for (const h of await page.locator('.au-rr').evaluateAll(rows => rows.map(r => r.getBoundingClientRect().height))) assert.ok(h < 50, 'a run is one line');
+      const outcomes = await page.locator('.au-rr .au-ro').allTextContents();
+      assert.ok(outcomes.includes('Spend cap') && outcomes.includes('LLM failed'));
+      assert.ok(outcomes.every(o => o.split(' ').length <= 3), 'outcomes are one to three words');
       const first = page.locator('.au-rr').first();
       assert.match(await first.innerText(), /Draft reply[\s\S]*\$0\.03/);
       await first.click();

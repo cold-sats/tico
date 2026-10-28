@@ -6,7 +6,11 @@
 
 const AU_RUNS_PAGE = 25;
 const AU_RUN_STATUS = {ok: 'Done', failed: 'Failed', skipped: 'Skipped', empty: 'Nothing found'};
-const AU_STEP_STATUS = {skipped: 'skipped', failed: 'failed', spend_cap: 'spend limit reached'};
+const AU_STEP_STATUS = {skipped: 'skipped', failed: 'failed', spend_cap: 'spend cap'};
+// A run's outcome in one to three words: what its last action did.
+const AU_DONE = {archive: 'Archived', leave_for_you: 'Left for you', draft_reply: 'Draft reply', send_reply: 'Replied',
+  create_task: 'Task created', label: 'Labeled', forward: 'Forwarded', wake_bot: 'Bot woken', note: 'Noted',
+  post_update: 'Update posted', call_webhook: 'Webhook called', assign: 'Assigned'};
 
 async function auRunsLoad(state, more = false) {
   const id = state.cur?.id;
@@ -51,9 +55,9 @@ function auRunOutcome(run) {
   const flow = AU.cur?.steps || [];
   const ran = (run.steps || []).filter(s => s.status === 'ok' && s.type === 'action');
   const last = ran.at(-1), step = last && auFind(flow, last.id)?.step;
-  if (last) return AU_ACTIONS[step?.do || last.outputs?.do] || 'Action done';
+  if (last) return AU_DONE[step?.do || last.outputs?.do] || 'Done';
   const bad = (run.steps || []).find(s => s.status === 'failed' || s.status === 'spend_cap');
-  if (bad) return `${AU_STEP_WORDS[bad.type] || 'Step'} ${AU_STEP_STATUS[bad.status]}`;
+  if (bad) return bad.status === 'spend_cap' ? 'Spend cap' : `${AU_STEP_WORDS[bad.type] || 'Step'} failed`;
   return AU_RUN_STATUS[run.status] || run.status || '';
 }
 // One step of a run as a short line: what it decided, matched, wrote or did.

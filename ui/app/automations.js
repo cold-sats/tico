@@ -146,7 +146,7 @@ function auDrawList() {
   box.innerHTML = auGrouped(rows).map(([label, xs]) => `<div class="au-gh"><span>${esc(label)}</span><span>${xs.length}</span></div>` + xs.map(a => {
     const {name, src} = auRowName(a);
     return `<div class="au-row${a.id === AU.id ? ' sel' : ''}${a.enabled === false ? ' off' : ''}" data-row="${esc(a.id)}">
-      <a href="${auHref(a.id)}"${a.id === AU.id ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${AU_TRIGGER_ICONS[a.trigger?.type] || 'schedule'}</span>
+      <a href="${auHref(a.id)}" title="${esc(name + (src ? ' · ' + src : ''))}"${a.id === AU.id ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${AU_TRIGGER_ICONS[a.trigger?.type] || 'schedule'}</span>
       <span class="au-nm">${esc(name)}${src ? ` <span class="muted">· ${esc(src)}</span>` : ''}</span></a>
       ${a.can_edit ? auSwitch(a.enabled !== false, name + ' on', `data-on="${esc(a.id)}"`) : a.enabled === false ? '<span class="pill">Off</span>' : ''}</div>`;
   }).join('')).join('') || `<p class="muted au-pad">${q ? 'No matches' : 'No automations'}</p>`;
