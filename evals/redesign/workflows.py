@@ -401,7 +401,7 @@ def inbox_flow():
                                        "match": "any", "then": [{"do": "archive", "args": {}}], "stop": True}]),
         step("triage", "decide", set="mail-triage@1", level="low", out="d1"),
         step("route", "paths", paths=[owner, reply, route, archive],
-             otherwise={"steps": [act("watch", "label", label="watch")]}),
+             otherwise={"steps": [act("watch", "label", tag="watch")]}),
     ]
 
 
@@ -1243,7 +1243,7 @@ HELPER = "automations-bot"
 V1 = [act("n1", "note", text="New ask for the lead.")]
 V2 = [step("route", "paths", paths=[{"name": "urgent", "match": "all",
                                      "when": [cond("task.title", "contains", "Urgent")],
-                                     "steps": [act("tag", "label", label="urgent"),
+                                     "steps": [act("tag", "label", tag="urgent"),
                                                act("n2", "note", text="Urgent ask for the lead.")]}],
            otherwise={"steps": [act("n1", "note", text="New ask for the lead.")]})]
 
