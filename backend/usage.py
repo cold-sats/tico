@@ -16,7 +16,7 @@ from fastapi import Request
 
 from . import bot_access as A
 from . import models as M
-from . import providers, redesign, task_caps, usage_limits, views
+from . import providers, redesign, usage_limits, views
 from .store import H, P, Problem
 from .usage_records import RUNS
 from .subscription_identity import usage_label
@@ -94,15 +94,20 @@ def valid(value, name):
     return round(float(value), 6)
 
 def amounts(c, body):
-    """The caps a save carries, by period. With the redesign on the 30-minute window replaces the hour: an
-    `hourly_usd` becomes the half hour at the same rate (half of it, up to the next $0.10) and the hour is cleared.
-    With it off the hour is the window, and `per_30m_usd` is refused."""
-    on = redesign.on(c)
-    if not on and getattr(body, "per_30m_usd", None) is not None:
-        raise Problem("limit", "per_30m_usd needs the redesign on; send hourly_usd", 422)
-    caps = {key: valid(getattr(body, key, None), key) for key in usage_limits.KEYS}
-    if on and caps["hourly_usd"] is not None:
-        if caps["per_30m_usd"] is not None:
+    """The caps a save changes, by period; the caller lays them over what is stored.
+
+    With the redesign on, only the fields the request sent: one left out keeps its stored value and an explicit null
+    clears it. The 30-minute window replaces the hour, so an `hourly_usd` becomes the half hour at the same rate (half
+    of it, up to the next $0.10) and the hour is cleared. With it off, as before the redesign: the hour, day, week and
+    month are each the request's (left out is none), and the 30-minute value, dormant, is never written; an amount
+    for it is refused."""
+    if not redesign.on(c):
+        if getattr(body, "per_30m_usd", None) is not None:
+            raise Problem("limit", "per_30m_usd needs the redesign on; send hourly_usd", 422)
+        return {key: valid(getattr(body, key, None), key) for key in usage_limits.KEYS if key != "per_30m_usd"}
+    caps = {key: valid(getattr(body, key, None), key) for key in usage_limits.KEYS if key in body.model_fields_set}
+    if caps.get("hourly_usd") is not None:
+        if caps.get("per_30m_usd") is not None:
             raise Problem("limit", "Send per_30m_usd or hourly_usd, not both", 422)
         caps["per_30m_usd"] = usage_limits.half(caps["hourly_usd"])
         caps["hourly_usd"] = None
@@ -111,13 +116,10 @@ def amounts(c, body):
 def led_bots(c, who):
     """The bots a group lead may set limits for, with the redesign on: every bot in a group the caller leads, nested
     groups included. Empty when the redesign is off or the caller leads no group."""
-    if not redesign.on(c):
-        return set()
-    named, _ = usage_limits.groups(c)
+    from . import groups as G
     out = set()
-    for gid, g in named.items():
-        if g.get("lead") and task_caps.actor(g["lead"]) == who.actor:
-            out |= usage_limits.members(c, "group:" + gid)
+    for gid in G.led_groups(c, who.actor):          # empty while the redesign is off; a lead who left leads nothing
+        out |= usage_limits.members(c, "group:" + gid)
     return out
 
 def parents_allow(c, gid, caps, named):
@@ -126,8 +128,8 @@ def parents_allow(c, gid, caps, named):
     while parent and parent not in seen:
         seen.add(parent)
         above = usage_limits.pool(c, "group:" + parent)
-        for key in usage_limits.KEYS:
-            if caps[key] is not None and above[key] is not None and caps[key] > above[key]:
+        for key, value in caps.items():
+            if value is not None and above[key] is not None and value > above[key]:
                 raise Problem("limit", f"Over {usage_limits.label(c, 'group:' + parent)}: its limit is ${above[key]:g}, "
                               "so a group's limit can be lower, not higher", 422)
         parent = (named.get(parent) or {}).get("parent")
@@ -157,12 +159,13 @@ def save_pool(c, auth, who, scope, body, via=None):
     named = usage_limits.groups(c, default)[0]
     if gid is not None and gid not in named:
         raise Problem("not_found", "Group not found", 404)
-    caps = amounts(c, body)
+    changed = amounts(c, body)
     if gid is not None and redesign.on(c):
-        parents_allow(c, gid, caps, named)
-    before = _caps_of(usage_limits.pool(c, scope))
-    usage_limits.save_pool(c, scope, caps, who.actor)
-    H.event(c, who.actor, "usage.pool-set", scope, caps)
+        parents_allow(c, gid, changed, named)
+    stored = usage_limits.pool(c, scope)
+    before = _caps_of(stored)
+    usage_limits.save_pool(c, scope, {**stored, **changed}, who.actor)
+    H.event(c, who.actor, "usage.pool-set", scope, changed)
     _audit(c, who, "spend:pool:" + scope, before, _caps_of(usage_limits.pool(c, scope)), via)
     return {"scope": scope, "limit": usage_limits.pool_state(c, scope, default=usage_limits.company(c))}
 
@@ -184,12 +187,13 @@ def save_limit(c, auth, who, bot, body, via=None):
         for key, value in wanted.items():
             if value is not None and default[key] is not None and value > default[key]:
                 raise Problem("limit", f"The company default is ${default[key]:g}; a bot's limit can be lower, not higher", 403)
-    before = _caps_of(usage_limits.own(c, bot))
+    stored = usage_limits.own(c, bot)
+    before, saved = _caps_of(stored), {**stored, **wanted}
     marks = ",".join("?" * len(usage_limits.KEYS))
     c.execute(f"INSERT INTO usage_limits(bot, {', '.join(usage_limits.KEYS)}, updated, updated_by) VALUES(?,{marks},?,?) "
               "ON CONFLICT(bot) DO UPDATE SET " + ", ".join(f"{key}=excluded.{key}" for key in usage_limits.KEYS) +
               ", updated=excluded.updated, updated_by=excluded.updated_by",
-              (bot, *(wanted[key] for key in usage_limits.KEYS), H.now(), who.actor))
+              (bot, *(saved[key] for key in usage_limits.KEYS), H.now(), who.actor))
     H.event(c, who.actor, "usage.limit-set", H.bot_actor(bot), wanted)
     _audit(c, who, "spend:" + bot, before, _caps_of(usage_limits.own(c, bot)), via)
     return default, allowed
@@ -287,7 +291,13 @@ def install(app, store, auth, mutate, settings):
         def work(c):
             if not auth.bot_admin(who):
                 raise Problem("forbidden", "Only the owner and administrators set the company default", 403)
-            value = {**amounts(c, body), "count_subscription": bool(body.count_subscription)}
+            stored = usage_limits.company(c)
+            # Laid over the stored default (backend/usage.py `amounts`); with the redesign on, the subscription switch
+            # left out keeps its value too.
+            counted = body.count_subscription if not redesign.on(c) or "count_subscription" in body.model_fields_set \
+                else stored["count_subscription"]
+            value = {**{key: stored[key] for key in usage_limits.KEYS}, **amounts(c, body),
+                     "count_subscription": bool(counted)}
             c.execute("INSERT INTO registry_metadata(key, value_json) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
                       (usage_limits.KEY, json.dumps(value)))
             H.event(c, who.actor, "usage.default", "company", value)

@@ -128,3 +128,25 @@ def test_spend_and_group_changes_by_hand_are_audited_only_while_the_redesign_is_
     send(api, "DELETE", f"groups/{gid}")
     created, deleted = reversed(audit(api, f"group:{gid}"))
     assert created["before"] is None and created["after"]["name"] == "Loud" and deleted["after"] is None
+
+
+def test_an_approved_move_of_a_lead_clears_the_lead_of_the_group_it_left(api):
+    eng, release = setup_org(api)
+    send(api, "PATCH", f"groups/{eng}", {"lead": "bot:ops"})
+    aid = propose(api, "org", {"bot": "bot:ops", "from": eng, "to": release})["approval"]
+    post(api, f"approvals/{aid}", {"decision": "approved"})
+    assert group(api, eng)["lead"] == ""
+    cleared = [row for row in audit(api, f"group:{eng}") if (row["before"] or {}).get("lead") == "bot:ops"
+               and row["after"]["lead"] == ""]
+    assert len(cleared) == 1 and cleared[0]["via"] == f"approval:{aid}"
+
+
+def test_an_approved_spend_limit_changes_only_what_it_names(api):
+    eng, _ = setup_org(api)
+    for payload in ({"bot": "ops", "per_30m_usd": 1.5}, {"bot": "ops", "daily_usd": 20},
+                    {"pool": f"group:{eng}", "per_30m_usd": 3}, {"pool": f"group:{eng}", "daily_usd": 40}):
+        post(api, f"approvals/{propose(api, 'spend_limit', payload)['approval']}", {"decision": "approved"})
+    limits = get(api, "usage/limits")
+    assert limits["bots"]["ops"]["per_30m_usd"] == 1.5 and limits["bots"]["ops"]["daily_usd"] == 20
+    pool = limits["pools"]["groups"][eng]
+    assert pool["per_30m_usd"] == 3 and pool["daily_usd"] == 40

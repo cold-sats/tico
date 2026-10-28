@@ -1782,11 +1782,22 @@ class Store:
             from . import groups as Groups
             Groups.migrate(c, self.settings)
 
+    @staticmethod
+    def _principal(identity):
+        return identity.actor + (":" + identity.attempt_id if identity.role == "bot" else "")
+
+    def saved(self, c, identity, operation, key):
+        """Whether this Idempotency-Key already has a saved answer here: `mutate` replays it (or refuses other content
+        under the key) without running the write again, so a check made before `mutate` must not refuse it."""
+        return bool(key) and len(key) <= 200 and c.execute(
+            "SELECT 1 FROM idempotency WHERE actor=? AND operation=? AND key=?",
+            (self._principal(identity), operation, key)).fetchone() is not None
+
     def mutate(self, identity, operation, key, body, fn, check=None):
         if not key or len(key) > 200:
             raise Problem("idempotency_key", "Provide an Idempotency-Key of 1–200 characters", 422)
         hashed = digest(encode(body))
-        principal = identity.actor + (":" + identity.attempt_id if identity.role == "bot" else "")
+        principal = self._principal(identity)
         refusal = logged = None
         with self.transaction() as c:
             # Authenticate leases again under the same write lock as the mutation.

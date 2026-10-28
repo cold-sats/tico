@@ -1948,6 +1948,8 @@ def install_views(app, store, auth, mutate, task_view):
         from . import ceo_bot
         hide_ceo = ceo_bot.hidden_for(c, who)
         chart = ceo_bot.chart_entries(c, store.settings, people, configs, archived, hidden=hide_ceo)
+        from . import redesign
+        bare = redesign.on(c)              # a bot's bare person id in reports_to is that person (backend/people.py)
 
         def icon_of(config):
             return str(config.get("icon") or "") or icons.get(str(config.get("template") or ""), "")
@@ -1969,7 +1971,7 @@ def install_views(app, store, auth, mutate, task_view):
             manager = (who.role == "owner" or (who.role == "human" and (
                 auth.bot_admin(who) or (registry and (registry["operator"] == pid
                                                       or pid in A.owner_ids(registry["bot_owners_json"])))
-                or P.manages(pid, "bot", slug, people, configs, archived))))
+                or P.manages(pid, "bot", slug, people, configs, archived, bare))))
             policy = {"can_manage": manager, "bot_owners": bot_owner_rows(c, registry, slug, people, configs, archived)}
             if manager:
                 policy["access_policy"] = A.document(registry["access_json"] if registry else None)
@@ -1984,7 +1986,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "reports_to": reports, "my_access": level, **policy,
                              "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                              "team": P.team_of(slug, configs, people),
-                             "org_parent": P.org_parent("bot", slug, people, chart, archived),
+                             "org_parent": P.org_parent("bot", slug, people, chart, archived, bare),
                              **ceo_bot.chart_hidden_row(slug, hide_ceo),
                              "report_position": places.get("bot:" + slug),
                              "operator": registry["operator"] if registry else None,
@@ -2027,7 +2029,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "task_flow": auto_tasks.counts(c, slug, who),
                          "team": P.team_of(slug, configs, people),
                          "gateway_department": gateway_tiers.department_of(departments.of("bot:" + slug)),
-                         "org_parent": P.org_parent("bot", slug, people, chart, archived),
+                         "org_parent": P.org_parent("bot", slug, people, chart, archived, bare),
                          **ceo_bot.chart_hidden_row(slug, hide_ceo),
                          "report_position": places.get("bot:" + slug),
                          "operator": registry["operator"] if registry else None,
@@ -2107,7 +2109,9 @@ def install_views(app, store, auth, mutate, task_view):
             r, configs = roster(c), entries(c)
             from . import people_photos
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            view = P.org_view(r, configs, archived)
+            from . import redesign
+            bare = redesign.on(c)          # a bot's bare person id in reports_to is that person (backend/people.py)
+            view = P.org_view(r, configs, archived, bare_people=bare)
             # The CEO Bot switch hangs the Heads' groups under it on the chart (backend/ceo_bot.py).
             from . import ceo_bot
             hide_ceo = ceo_bot.hidden_for(c, who)          # this person hid it from their chart: nothing moves
@@ -2119,7 +2123,7 @@ def install_views(app, store, auth, mutate, task_view):
             from . import lifecycle
             seats = lifecycle.chart_seats(c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])
             return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "seats": seats, "people": [{
-                **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
+                **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived, bare),
                 "report_position": places.get("human:" + p["id"]),
                 **({"photo_url": "/api/humans/" + p["id"] + "/photo"}
                    if people_photos.may_have(store.settings, p.get("email"), p.get("photo")) else {}),

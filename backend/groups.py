@@ -21,6 +21,7 @@ from . import access as Access
 from . import hubdb as H
 from . import models as M
 from . import people as P
+from . import redesign
 from . import task_caps
 from .store import Problem, encode
 
@@ -188,13 +189,14 @@ def _may_change(auth, who):
 
 def led_groups(c, who, roster=None):
     """With the redesign on, the groups `who` (an actor) leads and every group below them; empty when it is off."""
-    from . import redesign
     if not redesign.on(c):
         return set()
     roster = roster or _roster(c)
+    configs = _configs(c)
     out = set()
-    for gid, group in roster["org_groups"].items():
-        if group.get("lead") and task_caps.actor(group["lead"]) == who:
+    for gid in roster["org_groups"]:
+        lead = lead_of(gid, roster, configs)
+        if lead and task_caps.actor(lead) == who:
             out |= P.group_and_below(gid, roster)
     return out
 
@@ -216,7 +218,6 @@ def _lead_move(c, who, gid, body, roster):
 
 def _snapshot(c):
     """Every group's row, by id, for the audit; None while the redesign is off (nothing is audited then)."""
-    from . import redesign
     if not redesign.on(c):
         return None
     return {row["id"]: row for row in rows(_roster(c), _configs(c), _archived(c))}
@@ -271,20 +272,58 @@ def _lead_ref(value):
     return f"{kind}:{ident}"
 
 
-def _lead_check(c, roster, configs, gid, lead, explicit):
-    """The lead must be a teammate of the group. A lead dropped from the group is cleared unless one was asked for."""
+def is_member(ref, gid, roster, configs):
+    """Whether a teammate ref (`bot:<slug>`, `person:<id>`) is in the group `gid` itself."""
+    kind, _, ident = str(ref or "").partition(":")
+    if kind == "bot":
+        return ident in configs and P.team_of(ident, configs, roster) == gid
+    if kind in ("person", "human"):
+        return (P.person(ident, roster) or {}).get("team") == gid
+    return False
+
+
+def lead_of(gid, roster, configs):
+    """The group's lead while it is one of the group's teammates, else "": a lead who left leads nothing, whatever way
+    it left (CONTRACT §3)."""
+    lead = (roster["org_groups"].get(gid) or {}).get("lead") or ""
+    return lead if lead and is_member(lead, gid, roster, configs) else ""
+
+
+def _lead_check(c, roster, configs, gid, lead):
+    """A lead asked for must exist and be a teammate of the group."""
     if not lead:
         return
     kind, _, ident = lead.partition(":")
     exists = (kind == "bot" and ident in configs) or (kind == "person" and P.person(ident, roster))
     if not exists:
         raise Problem("not_found", "Unknown lead: " + lead, 404)
-    member = P.team_of(ident, configs, roster) == gid if kind == "bot" else (P.person(ident, roster) or {}).get("team") == gid
-    if not member:
-        if explicit:
-            raise Problem("validation", "The lead must be in the group", 422)
+    if not is_member(lead, gid, roster, configs):
+        raise Problem("validation", "The lead must be in the group", 422)
+
+
+def leads_follow(c, cause):
+    """With the redesign on, a lead who left its group (an add to another group, a remove, an approved move, its own
+    move) is cleared in the same write: one audit row per group, the hub's own change with `via` naming the change that
+    moved it, and one notice to the top of the org."""
+    if not redesign.on(c):
+        return
+    roster, configs = _roster(c), _configs(c)
+    gone = {gid: g["lead"] for gid, g in roster["org_groups"].items()
+            if g.get("lead") and not lead_of(gid, roster, configs)}
+    if not gone:
+        return
+    before = _snapshot(c)
+    for gid in gone:
         roster["org_groups"][gid]["lead"] = ""
-        _save(c, roster)
+    _save(c, roster)
+    _audit(c, H.KEEPER, before, cause)
+    from .proposals import decider
+    top = decider(c)
+    for gid, lead in sorted(gone.items()):
+        if top:
+            who = task_caps.actor(lead) or lead
+            H.say(c, H.KEEPER, top, f"{task_caps._name(c, who)} left {roster['org_groups'][gid]['name']}; "
+                                    "it has no lead now.", kind="notice", refs={"group": gid})
 
 
 def create(c, auth, settings, who, body, via=None):
@@ -301,14 +340,17 @@ def create(c, auth, settings, who, body, via=None):
     groups[gid] = {"id": gid, "name": body.name.strip(), "reports_to": "", "parent": parent, "root": "",
                    "order": _next_order(groups)}
     _set_bet(c, who, groups[gid], body.bet_id)
-    if body.lead:
+    leads = redesign.on(c)                 # off, a lead in the body is ignored, as before leads existed
+    if leads and body.lead:
         groups[gid]["lead"] = _lead_ref(body.lead)
     people, changed = _apply_members(c, settings, roster, gid, body.add, M.GroupMembers())
     roster = _finish(c, roster, people, changed)
-    _lead_check(c, roster, _configs(c), gid, groups[gid].get("lead", ""), explicit=bool(body.lead))
+    if leads:
+        _lead_check(c, roster, _configs(c), gid, groups[gid].get("lead", ""))
     H.event(c, who.actor, "group.created", gid, {"name": body.name.strip(), "parent": parent})
     _audit(c, who.actor, before, via)
-    return one(c, roster, gid)
+    leads_follow(c, via or f"group:{gid}")
+    return one(c, _roster(c), gid)
 
 
 def update(c, auth, settings, who, gid, body, via=None):
@@ -330,18 +372,21 @@ def update(c, auth, settings, who, gid, body, via=None):
     if body.name is not None:
         group["name"] = body.name.strip()
     _set_bet(c, who, group, body.bet_id)
-    if body.lead is not None:
+    leads = redesign.on(c)                 # off, a lead in the body is ignored, as before leads existed
+    if leads and body.lead is not None:
         group["lead"] = _lead_ref(body.lead)
     if _named(groups, group["name"], group["parent"], skip=gid):
         raise Problem("conflict", "There is already a group with that name there", 409)
     people, changed = _apply_members(c, settings, roster, gid, body.add, body.remove)
     roster = _finish(c, roster, people, changed)
-    _lead_check(c, roster, _configs(c), gid, group.get("lead", ""), explicit=body.lead is not None)
+    if leads and body.lead is not None:
+        _lead_check(c, roster, _configs(c), gid, group.get("lead", ""))
     H.event(c, who.actor, "group.updated", gid, {"name": body.name, "parent": body.parent, "bet_id": body.bet_id,
                                                   "added": {"people": body.add.people, "bots": body.add.bots},
                                                   "removed": {"people": body.remove.people, "bots": body.remove.bots}})
     _audit(c, who.actor, before, via)
-    return one(c, roster, gid)
+    leads_follow(c, via or f"group:{gid}")
+    return one(c, _roster(c), gid)
 
 
 def delete(c, auth, who, gid):

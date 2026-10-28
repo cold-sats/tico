@@ -94,11 +94,14 @@ def _name(c, who):
 
 
 # ---------------------------------------------------------------------------------------------------- the org chart
-def _group_manager(roster, gid):
-    """The node above a group: its lead, else its reports_to person, else the group it is nested in."""
+def _group_manager(roster, configs, gid):
+    """The node above a group: its lead (while a teammate of it), else its reports_to person, else the group it is
+    nested in."""
+    from . import groups as G
     group = (roster.get("org_groups") or {}).get(gid) or {}
-    if group.get("lead"):
-        found = actor(group["lead"])
+    lead = G.lead_of(gid, roster, configs) if gid in (roster.get("org_groups") or {}) else ""
+    if lead:
+        found = actor(lead)
         return _node(found) if found else ""
     if group.get("reports_to"):
         return "p:" + group["reports_to"]
@@ -113,15 +116,16 @@ def above(c, who):
     kind, _, ident = who.partition(":")
     seen = {("b:" if kind == "bot" else "p:") + ident}
     out = []
-    nxt = P.org_parent("bot" if kind == "bot" else "person", ident, roster, configs, archived)
+    bare = redesign.on(c)
+    nxt = P.org_parent("bot" if kind == "bot" else "person", ident, roster, configs, archived, bare)
     while nxt and nxt not in seen:
         seen.add(nxt)
         head, _, rest = nxt.partition(":")
         if head == "g":
-            nxt = _group_manager(roster, rest)
+            nxt = _group_manager(roster, configs, rest)
             continue
         out.append(("human:" if head == "p" else "bot:") + rest)
-        nxt = P.org_parent("person" if head == "p" else "bot", rest, roster, configs, archived)
+        nxt = P.org_parent("person" if head == "p" else "bot", rest, roster, configs, archived, bare)
     return out
 
 
@@ -138,7 +142,7 @@ def led(c, who, teammate):
     from . import groups as G
     from . import people as P
     roster, configs = G._roster(c), G._configs(c)
-    led_ids = {gid for gid, g in (roster.get("org_groups") or {}).items() if g.get("lead") and actor(g["lead"]) == who}
+    led_ids = {gid for gid in (roster.get("org_groups") or {}) if actor(G.lead_of(gid, roster, configs)) == who}
     team = _team(c, teammate, roster, configs)
     return bool(led_ids and team) and any(team in P.group_and_below(gid, roster) for gid in led_ids)
 
@@ -168,7 +172,7 @@ def counted(c, sender, receiver):
     receiver acted on leaves the count."""
     rows = c.execute(
         "SELECT s.task_id, s.sent_at, t.title, t.status, t.closed_at, t.closed_by, t.conversation_id "
-        "FROM task_cap_sends s LEFT JOIN tasks t ON t.id = s.task_id "
+        "FROM task_cap_log s LEFT JOIN tasks t ON t.id = s.task_id "
         "WHERE s.sender=? AND s.receiver=? AND s.sent_at>=? ORDER BY s.sent_at",
         (sender, receiver, _midnight())).fetchall()
     return [dict(row) for row in rows
@@ -176,10 +180,11 @@ def counted(c, sender, receiver):
 
 
 def record(c, task_id, sender, receiver):
-    """A send: `sender` created the task for `receiver`, or handed it to them. Kept per task, so a hand-over counts too."""
+    """A send: `sender` created the task for `receiver`, or handed it to them. Every send is kept: a later hand-over of
+    the same task adds a row and never takes an earlier send out of its sender's count."""
     if not str(sender).startswith(("bot:", "human:")) or not receiver or sender == receiver:
         return
-    c.execute("INSERT OR REPLACE INTO task_cap_sends(task_id, sender, receiver, sent_at) VALUES(?,?,?,?)",
+    c.execute("INSERT OR IGNORE INTO task_cap_log(task_id, sender, receiver, sent_at) VALUES(?,?,?,?)",
               (task_id, sender, receiver, H.now()))
 
 
@@ -303,7 +308,7 @@ def _proposals(c):
 def tally(c, sender, receiver):
     """Today's (count, closed) for a pair: the tasks that still count, and the ones the sender closed before the receiver
     acted on (they leave the count)."""
-    sent = c.execute("SELECT COUNT(*) FROM task_cap_sends WHERE sender=? AND receiver=? AND sent_at>=?",
+    sent = c.execute("SELECT COUNT(*) FROM task_cap_log WHERE sender=? AND receiver=? AND sent_at>=?",
                      (sender, receiver, _midnight())).fetchone()[0]
     count = len(counted(c, sender, receiver))
     return count, sent - count

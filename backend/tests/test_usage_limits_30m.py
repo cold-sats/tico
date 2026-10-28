@@ -62,3 +62,46 @@ def test_a_child_group_limit_may_not_exceed_its_parent_only_while_the_redesign_i
     redesign_on(api)
     put(api, "usage/pools/groups/product", {"daily_usd": 3}, expected=422)
     put(api, "usage/pools/groups/product", {"daily_usd": 0.5})
+
+
+def stored(api, table, key, value):
+    with api.app.state.store.read() as c:
+        row = c.execute(f"SELECT * FROM {table} WHERE {key}=?", (value,)).fetchone()
+        return dict(row) if row else None
+
+
+def test_with_the_redesign_on_a_save_changes_only_the_fields_it_sends(api):
+    groups(api, "eng")
+    redesign_on(api)
+    put(api, "usage/limits/ops", {"per_30m_usd": 2})
+    put(api, "usage/limits/ops", {"daily_usd": 20})                                     # the half hour stays
+    row = get(api, "usage/limits")["bots"]["ops"]
+    assert row["per_30m_usd"] == 2 and row["daily_usd"] == 20
+    put(api, "usage/limits/ops", {"per_30m_usd": None})                                 # an explicit null clears
+    row = get(api, "usage/limits")["bots"]["ops"]
+    assert row["per_30m_usd"] is None and row["daily_usd"] == 20
+    put(api, "usage/pools/groups/eng", {"per_30m_usd": 3})
+    put(api, "usage/pools/groups/eng", {"daily_usd": 40})
+    assert stored(api, "usage_pools", "scope", "group:eng")["per_30m_usd"] == 3
+    put(api, "usage/limits", {"per_30m_usd": 5})
+    put(api, "usage/limits", {"daily_usd": 50})
+    default = get(api, "usage/limits")["default"]
+    assert default["per_30m_usd"] == 5 and default["daily_usd"] == 50
+
+
+def test_with_the_redesign_off_the_dormant_half_hour_is_kept_and_never_written(api):
+    groups(api, "eng")
+    redesign_on(api)
+    put(api, "usage/limits/ops", {"per_30m_usd": 2})
+    put(api, "usage/pools/groups/eng", {"per_30m_usd": 3})
+    put(api, "usage/limits", {"per_30m_usd": 5})
+    redesign_on(api, False)
+    put(api, "usage/limits/ops", {"daily_usd": 20, "per_30m_usd": None})                # off: a null is not a write
+    put(api, "usage/pools/groups/eng", {})                                              # empty: the pool row stays
+    put(api, "usage/limits", {"daily_usd": 50})
+    assert stored(api, "usage_limits", "bot", "ops")["per_30m_usd"] == 2
+    assert stored(api, "usage_pools", "scope", "group:eng")["per_30m_usd"] == 3
+    redesign_on(api)
+    limits = get(api, "usage/limits")
+    assert limits["bots"]["ops"]["per_30m_usd"] == 2 and limits["bots"]["ops"]["daily_usd"] == 20
+    assert limits["default"]["per_30m_usd"] == 5 and limits["default"]["daily_usd"] == 50

@@ -1904,6 +1904,9 @@ def create_app(settings=None):
             row, admins, changed = Access.edit_person(c, who.actor, roster, pid, body, lists, auth.owner_email)
             if changed.get("sign_in") is False:
                 c.execute("DELETE FROM oidc_sessions WHERE human=?", (pid,))    # open browsers are signed out now
+            if changed.get("team"):
+                from . import groups
+                groups.leads_follow(c, "person:" + pid)        # a lead who left its group leads it no more
             if admins != lists["admins"]:
                 Access.save_access(c, who.actor, {"expected_revision": lists["revision"]}, H.now(),
                                    bot_admins=admins, settings=settings)
@@ -2383,7 +2386,9 @@ def create_app(settings=None):
             from . import ceo_bot
             hide_ceo = ceo_bot.hidden_for(c, who)
             chart = ceo_bot.chart_entries(c, settings, roster, configs, archived, hidden=hide_ceo)
-            view = P.org_view(roster, chart, archived, person_id=person or "", team=team or "")
+            from . import redesign
+            bare = redesign.on(c)          # a bot's bare person id in reports_to is that person (backend/people.py)
+            view = P.org_view(roster, chart, archived, person_id=person or "", team=team or "", bare_people=bare)
             view["org_groups"] = ceo_bot.chart_groups(roster, configs, chart, view["org_groups"], archived,
                                                       hidden=hide_ceo)
             for row in view["bots"]:
@@ -2425,7 +2430,7 @@ def create_app(settings=None):
             seats, every = [], lifecycle.all_seats(c)
             parents = {}
             for seat in c.execute("SELECT * FROM seats WHERE closed_at IS NULL ORDER BY created,id").fetchall():
-                parent, seen = lifecycle.org_parent(seat, roster, chart, archived, every), set()
+                parent, seen = lifecycle.org_parent(seat, roster, chart, archived, every, bare), set()
                 while parent.startswith("b:") and parent[2:] in by_id and parent not in seen and not drawn(parent[2:]):
                     seen.add(parent)
                     parent = by_id[parent[2:]]["org_parent"]
@@ -3780,19 +3785,22 @@ def create_app(settings=None):
             prs = review_gate.links(c, row)
         return review_gate.snapshot(app.state.github_app, prs) if prs else {}
 
-    def cap_before_preflight(who, owner_ref):
-        """The task cap (CONTRACT §1) before any LLM preflight: a refused send spends no judgment and writes nothing."""
+    def cap_before_preflight(request, who, owner_ref):
+        """The task cap (CONTRACT §1) before any LLM preflight: a refused send spends no judgment and writes nothing.
+        A retry whose Idempotency-Key already has a saved answer is not checked: `mutate` replays that answer."""
         if not owner_ref:
             return
         from .shared_bots import route
         with store.read() as c:
+            if store.saved(c, who, request.url.path, request.headers.get("idempotency-key")):
+                return
             original = auth.target(c, who, owner_ref, need="write")
             task_caps.check(c, who.actor, auth.target(c, who, route(c, who.actor, original), need="write"))
 
     @app.post("/api/v2/tasks")
     def create_task(request: Request, body: M.TaskCreate):
         parents = [r.task for r in body.relations if r.kind == "parent"]
-        cap_before_preflight(request.state.identity, body.owner)
+        cap_before_preflight(request, request.state.identity, body.owner)
         snapshots = review_preflight(request.state.identity, parents[0], child_title=body.title.strip()) if parents else None
         ingest = ask_ingest.preflight(store, app.state.judge, request.state.identity, body.owner, body.title, body.body)
         return mutate(request, body, lambda c: task_create(c, request.state.identity, body, review_prs=snapshots,
@@ -3900,7 +3908,8 @@ def create_app(settings=None):
                     current = auth.task(c, caller, auth.resolve_task(c, caller, tid))
                 except Problem:
                     current = None
-                if current and auth.target(c, caller, body.owner, need="write") != current["owner"]:
+                if current and auth.target(c, caller, body.owner, need="write") != current["owner"] and not \
+                        store.saved(c, caller, request.url.path, request.headers.get("idempotency-key")):
                     task_caps.check(c, caller.actor, auth.target(c, caller, body.owner, need="write"))
         snapshots = review_preflight(caller, tid, step=body.step, status=body.status, task_type=body.type)
         ingest = []

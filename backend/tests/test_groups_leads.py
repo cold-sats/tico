@@ -17,12 +17,16 @@ def redesign_on(api, on=True):
 
 
 def make_engineering(api, lead="bot:engineering-lead"):
+    """Engineering with its lead, made with the redesign on (off, a lead is ignored); the switch is left off."""
     with api.app.state.store.transaction() as c:
         add_bots(c, **{"engineering-lead": ({}, "ana"), "builder-openai": ({}, "engineering-lead")})
     body = {"name": "Engineering", "add": {"bots": ["engineering-lead", "builder-openai"]}}
     if lead:
         body["lead"] = lead
-    return send(api, "POST", "groups", body)["id"]
+    redesign_on(api)
+    gid = send(api, "POST", "groups", body)["id"]
+    redesign_on(api, False)
+    return gid
 
 
 def as_bot(api, slug, token):
@@ -50,6 +54,7 @@ def test_a_lead_is_saved_and_read_back_on_the_group(api):
 
 def test_a_lead_must_be_a_teammate_of_the_group_and_must_exist(api):
     make_engineering(api)
+    redesign_on(api)
     send(api, "POST", "groups", {"name": "Other", "lead": "bot:engineering-lead"}, expected=422)   # not in Other
     send(api, "POST", "groups", {"name": "Ghost", "lead": "bot:nobody"}, expected=404)
     send(api, "POST", "groups", {"name": "Odd", "lead": "engineering-lead"}, expected=422)        # no bot: or person: prefix
@@ -109,11 +114,75 @@ def test_a_lead_sets_the_pools_of_its_group_and_those_below_but_not_the_team_or_
 
 def test_a_person_who_leads_reads_the_pools_of_what_it_leads_only_while_the_redesign_is_on(api):
     make_engineering(api)
+    redesign_on(api)
     sales = send(api, "POST", "groups", {"name": "Sales", "add": {"people": ["cara"]}, "lead": "person:cara"})["id"]
     outbound = send(api, "POST", "groups", {"name": "Outbound", "parent": sales})["id"]
+    redesign_on(api, False)
     assert get(api, "usage/limits", token="cara-test")["pools"] is None                         # off: as before
     redesign_on(api)
     pools = get(api, "usage/limits", token="cara-test")["pools"]
     assert pools["company"] is None and set(pools["groups"]) == {sales, outbound}
     assert all(g["may_edit"] for g in pools["groups"].values())
     assert "may_edit" not in next(iter(get(api, "usage/limits")["pools"]["groups"].values()))  # the owner's rows as before
+
+
+def audit_rows(api, gid):
+    return api.get("/api/v2/audit", params={"object": f"group:{gid}"}, headers=headers()).json()["rows"]
+
+
+def lead_notices(api):
+    """The top of the org's notices that a group lost its lead."""
+    with api.app.state.store.read() as c:
+        return [r["body"] for r in c.execute("SELECT body FROM messages WHERE from_actor=? AND to_actor='human:ana' "
+                                             "AND kind='notice' AND body LIKE '%no lead now%'", (H.KEEPER,))]
+
+
+def test_a_lead_added_to_another_group_leads_its_old_one_no_more_and_the_top_hears_once(api):
+    gid = make_engineering(api)
+    sales = send(api, "POST", "groups", {"name": "Sales"})["id"]
+    redesign_on(api)
+    as_bot(api, "engineering-lead", "lead-test")
+    send(api, "PATCH", f"groups/{sales}", {"add": {"bots": ["engineering-lead"]}})
+    assert group(api, gid)["lead"] == ""
+    put(api, "usage/limits/builder-openai", {"per_30m_usd": 2}, "lead-test", expected=403)   # no authority left over
+    cleared = [row for row in audit_rows(api, gid) if (row["before"] or {}).get("lead") and row["after"]["lead"] == ""]
+    assert len(cleared) == 1 and cleared[0]["via"] == f"group:{sales}" and cleared[0]["actor"] == H.KEEPER
+    notices = lead_notices(api)
+    assert len(notices) == 1 and "Engineering" in notices[0]
+
+
+def test_a_lead_removed_or_moving_itself_out_leaves_the_group_with_no_lead(api):
+    gid = make_engineering(api)
+    platform = send(api, "POST", "groups", {"name": "Platform", "parent": gid})["id"]
+    redesign_on(api)
+    as_bot(api, "engineering-lead", "lead-test")
+    send(api, "PATCH", f"groups/{platform}", {"add": {"bots": ["engineering-lead"]}}, token="lead-test")   # its own move
+    assert group(api, gid)["lead"] == "" and len(lead_notices(api)) == 1
+    send(api, "PATCH", f"groups/{platform}", {"add": {"bots": ["builder-openai"]}}, token="lead-test", expected=403)
+    send(api, "PATCH", f"groups/{platform}", {"lead": "bot:engineering-lead"})
+    send(api, "PATCH", f"groups/{platform}", {"remove": {"bots": ["engineering-lead"]}})
+    assert group(api, platform)["lead"] == "" and len(lead_notices(api)) == 2
+
+
+def test_with_the_redesign_off_a_group_change_leaves_leads_alone(api):
+    gid = make_engineering(api)                                                                # the switch is off now
+    made = send(api, "POST", "groups", {"name": "Ghost", "lead": "bot:nobody"})               # not checked, not saved
+    with api.app.state.store.read() as c:
+        assert "lead" not in Groups._roster(c)["org_groups"][made["id"]]
+    send(api, "PATCH", f"groups/{gid}", {"lead": "nonsense"})
+    send(api, "PATCH", f"groups/{made['id']}", {"add": {"bots": ["engineering-lead"]}})        # the lead leaves, off
+    with api.app.state.store.read() as c:
+        assert Groups._roster(c)["org_groups"][gid]["lead"] == "bot:engineering-lead"          # stored state untouched
+    assert lead_notices(api) == []
+    redesign_on(api)
+    as_bot(api, "engineering-lead", "lead-test")
+    put(api, "usage/limits/builder-openai", {"per_30m_usd": 2}, "lead-test", expected=403)   # it is not in Engineering
+
+
+def test_a_bare_person_id_in_reports_to_is_that_person_only_with_the_redesign_on(api):
+    with api.app.state.store.read() as c:
+        roster = Groups._roster(c)
+    employees = {"scout": {"reports_to": "cara"}}          # a bare person id, as some writers store it
+    assert P.org_parent("bot", "scout", roster, employees, bare_people=True) == "p:cara"
+    assert P.org_parent("bot", "scout", roster, employees) == "p:" + roster["default_user"]   # off: as before
+    assert roster["default_user"] != "cara"

@@ -261,16 +261,16 @@ def reports_to_person(slug, employees):
     return reports[6:] if reports.startswith("human:") else ""
 
 
-def manages(pid, kind, ident, roster, employees, archived=()):
+def manages(pid, kind, ident, roster, employees, archived=(), bare_people=False):
     """Whether `pid` sits above this person or bot on the org chart: the one permission rule for
     editing someone else's profile, bot or place in the chart (users can
-    edit their own info, or the info of their subordinate bots/humans)."""
+    edit their own info, or the info of their subordinate bots/humans). `bare_people` as in `org_parent`."""
     pid = _clean(pid)
     if not pid:
         return False
     if kind == "person" and _clean(ident) == pid:
         return True
-    parent, seen = org_parent(kind, ident, roster, employees, archived), set()
+    parent, seen = org_parent(kind, ident, roster, employees, archived, bare_people), set()
     while parent and parent not in seen:
         seen.add(parent)
         if parent == "p:" + pid:
@@ -280,9 +280,9 @@ def manages(pid, kind, ident, roster, employees, archived=()):
             group = ((roster or {}).get("org_groups") or {}).get(rest) or {}
             parent = ("p:" + _clean(group.get("reports_to"))) if _clean(group.get("reports_to")) else ""
         elif head == "p":
-            parent = org_parent("person", rest, roster, employees, archived)
+            parent = org_parent("person", rest, roster, employees, archived, bare_people)
         elif head == "b":
-            parent = org_parent("bot", rest, roster, employees, archived)
+            parent = org_parent("bot", rest, roster, employees, archived, bare_people)
         else:
             parent = ""
     return False
@@ -357,12 +357,14 @@ def org_group_under(team, lead_id, roster):
     return None
 
 
-def org_parent(kind, ident, roster, employees, archived=()):
+def org_parent(kind, ident, roster, employees, archived=(), bare_people=False):
     """Parent key for the mixed org tree: `p:<id>`, `b:<slug>`, `g:<group>`, or '' for a root.
 
     People follow `reports_to`, except a named department under that boss becomes `g:<team>`.
     A bot follows its `reports_to` bot when that bot is still on the tree; otherwise it hangs
     under its team's department group, else the person who leads the team, else the founder.
+    `bare_people` (the redesign on, backend/redesign.py; callers pass `redesign.on(c)`): a bot's bare person id in
+    `reports_to` is that person. Off, it is a boss that is not here and the bot hangs under the owner, as it always did.
     """
     archived = set(archived or ())
     if kind == "person":
@@ -384,7 +386,8 @@ def org_parent(kind, ident, roster, employees, archived=()):
             return ""
         skipped.add(reports)
         reports = _clean(((employees or {}).get(reports) or {}).get("reports_to"))
-    if reports and not reports.startswith("human:") and reports not in (employees or {}) and person(reports, roster):
+    if bare_people and reports and not reports.startswith("human:") and reports not in (employees or {}) \
+            and person(reports, roster):
         reports = "human:" + reports      # a bare person id, the form some writers store, is that person
     if reports and not reports.startswith("human:") and reports not in archived and reports not in (employees or {}):
         # A boss that is not a bot here at all (an assistant the company chose not to have):
@@ -436,7 +439,7 @@ def profile(person_row):
             "notes": p.get("notes") or ""}
 
 
-def org_view(roster, employees, archived=(), person_id="", team=""):
+def org_view(roster, employees, archived=(), person_id="", team="", bare_people=False):
     """The mixed org chart for bots and the hub: visible people (with contact and goals),
     live bots, and the groups, each with an `org_parent` key
     (`p:<id>` / `b:<slug>` / `g:<group>` / ''). A person or bot carries its group as `team`; a group carries
@@ -451,7 +454,7 @@ def org_view(roster, employees, archived=(), person_id="", team=""):
                 and "*" not in (p.get("primary_for") or []):
             continue
         row = profile(p)
-        row["org_parent"] = org_parent("person", p["id"], roster, employees, archived)
+        row["org_parent"] = org_parent("person", p["id"], roster, employees, archived, bare_people)
         people_rows.append(row)
     bot_rows = []
     for slug, entry in employees.items():
@@ -467,7 +470,7 @@ def org_view(roster, employees, archived=(), person_id="", team=""):
             "description": _clean((entry or {}).get("description")),
             "team": bot_team or "",
             "reports_to": _clean((entry or {}).get("reports_to")),
-            "org_parent": org_parent("bot", slug, roster, employees, archived),
+            "org_parent": org_parent("bot", slug, roster, employees, archived, bare_people),
             "owners": [u["id"] for u in primary_users(slug, roster, employees)],
         })
     group_rows = []

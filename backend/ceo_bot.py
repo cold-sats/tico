@@ -235,13 +235,15 @@ def chart_entries(c, settings, roster, entries, archived=(), hidden=False):
     helpers, leads = O.helper_templates(settings), O.lead_templates(settings)
     inboxes = {p.get("inbox_bot") for p in (roster or {}).get("people") or [] if p.get("inbox_bot")}
     top = "p:" + owner["id"]
+    from . import redesign
+    bare = redesign.on(c)                  # a bot's bare person id in reports_to is that person (backend/people.py)
     out = dict(entries)
     for slug, entry in entries.items():
         if slug in archived or slug in inboxes or _outside(slug, entry, settings.assistant_bot, helpers):
             continue
         entry = entry or {}
         if (P._clean(entry.get("reports_to")) and str(entry.get("template") or "") not in leads) \
-                or P.org_parent("bot", slug, roster, entries, archived) != top:
+                or P.org_parent("bot", slug, roster, entries, archived, bare) != top:
             continue
         out[slug] = {**entry, "reports_to": SLUG}
     out[SLUG] = {**(entries[SLUG] or {}), "reports_to": "human:" + owner["id"]}
