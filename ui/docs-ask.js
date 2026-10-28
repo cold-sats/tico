@@ -114,7 +114,7 @@ html:not(.has-librarian) [data-librarian-open]{display:none}
   // and what was asked and answered, so closing it does not lose the thread.
   const sessions = {docs: {conversationId: '', turns: []}};
   const HINTS = ['How do we handle a refund?', 'Who helps new hires?', 'Where is the pricing?'];
-  const PLACEHOLDER = 'Ask about your docs…';
+  const PLACEHOLDER = 'Ask the Librarian…';
   const TURN_LIMIT = 50;
   let panel = null, opener = null, es = null, poll = null, busy = false;
   let conversations = [], nextOffset = null, historyRequest = 0, reopenRequest = 0, openingConversation = false;

@@ -345,7 +345,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await research.locator('button', {hasText: 'Close'}).click();
     await page.evaluate(() => { location.hash = '#/docs'; });
     await page.locator('.docs-heading').waitFor();
-    assert.equal(await page.locator('.dask-form textarea').getAttribute('placeholder'), 'Ask about your docs…');
+    assert.equal(await page.locator('.dask-form textarea').getAttribute('placeholder'), 'Ask the Librarian…');
 
     // A narrow desktop still reserves space for the rail and lets a doc open.
     await page.setViewportSize({width: 1024, height: 860});
