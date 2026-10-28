@@ -284,6 +284,19 @@ def test_a_send_claimed_after_the_switch_went_off_is_a_draft(api, computer):
         assert c.execute("SELECT count(*) FROM events WHERE action='automation.send_off'").fetchone()[0] == 1
 
 
+def test_a_forward_claimed_after_the_switch_went_off_is_a_draft_to_its_target(api, computer):
+    aid = automate(api, {"id": "fwd", "type": "action", "do": "forward",
+                         "args": {"to": "ap@acme.example", "body": "For payment."}})
+    computer.sync()
+    assert api.patch(f"/api/v2/inboxes/{BOX}", json={"send": False}, headers=headers()).status_code == 200
+    computer.worker.mail_action_tick()
+    draft, = computer.drafts()
+    assert computer.gmail.sent == [] and header(draft, "To") == "ap@acme.example"
+    assert header(draft, "Subject") == "Fwd: Invoice 4471"
+    step = last_run(api, aid)["steps"][0]
+    assert step["status"] == "ok" and step["outputs"]["detail"] == "send_off"
+
+
 def test_a_slack_reply_delivered_after_the_switch_went_off_is_held_as_a_draft_task(api):
     from backend import automation_actions as A
     from backend import slack_gateway as G

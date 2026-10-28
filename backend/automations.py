@@ -1083,7 +1083,8 @@ def install(app, store, auth, mutate):
     @app.post("/api/v2/automations/mail-actions/claim")
     def automation_mail_claim(request: Request, body: MailClaim):
         """A lease of up to 20 of the mailbox's queued actions for MAIL_LEASE_MINUTES. A send is read against the
-        inbox's send switch now, not when it was queued: off, it is claimed as a draft and its step shows send_off."""
+        inbox's send switch now, not when it was queued: off, a send or forward is claimed as a draft and its step
+        shows send_off."""
         who = request.state.identity
 
         def work(c):
@@ -1104,9 +1105,11 @@ def install(app, store, auth, mutate):
             sending = A.send_on(c, mailbox)
             out = []
             for r in rows:
-                action, result = r["action"], json.loads(r["result_json"] or "{}")
-                if action == "send" and not sending:
-                    action, result = "draft", {**result, "send_off": True}
+                action, result, args = r["action"], json.loads(r["result_json"] or "{}"), json.loads(r["args_json"])
+                if action in ("send", "forward") and not sending:
+                    # Both send mail out: a reply becomes a draft reply, a forward a draft to its target.
+                    action, result = "draft" if action == "send" else action, {**result, "send_off": True}
+                    args = {**args, "draft_only": True} if action == "forward" else args
                     owner = c.execute("SELECT owner FROM automations WHERE id=?", (r["automation_id"],)).fetchone()
                     H.event(c, A.actor_of(owner["owner"] if owner else ""), "automation.send_off", r["automation_id"],
                             {"run": r["run_id"], "mailbox": mailbox, "msg_id": r["msg_id"]})
@@ -1114,7 +1117,7 @@ def install(app, store, auth, mutate):
                           "attempts=attempts+1,action=?,result_json=? WHERE id=?",
                           (now, runner["id"], action, json.dumps(result) if result else None, r["id"]))
                 out.append({"id": r["id"], "mailbox": r["mailbox"], "msg_id": r["msg_id"], "action": action,
-                            "args": json.loads(r["args_json"]), "attempt": r["attempts"] + 1})
+                            "args": args, "attempt": r["attempts"] + 1})
             return {"actions": out, "lease_seconds": MAIL_LEASE_MINUTES * 60}
         return mutate(request, body, work)
 

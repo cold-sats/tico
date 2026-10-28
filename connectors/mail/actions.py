@@ -69,7 +69,7 @@ def perform(ctx, action):
         raw = compose.build(to, subject, text, from_addr=ctx.mailbox, in_reply_to=mid_header, references=refs)
         thread = original["thread_id"]
     draft_id = _draft(ctx, aid, raw, thread, to, subject)
-    if kind == "draft":
+    if kind == "draft" or args.get("draft_only"):     # draft_only: the inbox's send switch was off at claim
         return {"ok": True, "detail": "drafted", "draft": draft_id, "thread": thread}
     return _send(ctx, aid, draft_id, to, subject, thread)
 
