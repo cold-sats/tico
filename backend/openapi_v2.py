@@ -26,6 +26,7 @@ TAGS = {
     "Subscriptions": "Provider logins on Computers. Every bot runs each AI tool on its Computer's one login for it.",
     "Team chart": "Humans and bots, and who reports to whom.",
     "Bots": "The bots a person can see, and their live status.",
+    "Computers": "The computers that run bots: what each one runs at once.",
     "Conversations": "Chats with bots: send, list, and stream replies.",
     "Tasks": "Work assigned to people and bots.",
     "Updates": "Daily and weekly updates bots post to people.",
@@ -74,6 +75,10 @@ STABLE = [
     ("/api/v2/subscriptions/refresh", "post", "Subscriptions", "refreshSubscriptionWeekly", "Request a bounded weekly allowance read on its computer", "SubscriptionRefreshResult"),
     ("/api/v2/bots/{bot}/keep-tasks-going", "post", "Bots", "setKeepTasksGoing",
      "Set automatic assigned-task starts: null is unlimited, 0 is off, N caps active work; reviews have no cap", None),
+    ("/api/v2/bots/{bot}/turns-at-once", "post", "Bots", "setBotTurnsAtOnce",
+     "Set the most turns the bot runs at once on every computer: null is no limit, 1 to 256 otherwise", None),
+    ("/api/v2/computers/{rid}/turns-at-once", "post", "Computers", "setComputerTurnsAtOnce",
+     "Set the most turns a computer runs at once: null is automatic (its own capacity)", None),
     ("/api/v2/bots/{bot}/subscription", "get", "Subscriptions", "getBotSubscription", "The Computer login a bot runs on", "BotSubscription"),
     ("/api/v2/repositories", "get", "Repositories", "listRepositories", "Team repositories", "RepositoryList"),
     ("/api/v2/repositories/refresh", "post", "Repositories", "refreshRepositories", "Refresh from GitHub", "RepositoryList"),
@@ -742,13 +747,15 @@ SCHEMAS = {
     "TaskFlow": obj({"going": "i", "waiting": "i"}, required=["going", "waiting"]),
     "Bot": obj({"slug": "s", "display_name": "s", "state": "s", "online": "b", "queued": "i", "description": "s",
                 "reports_to": "n", "team": "n", "operator": "n", "owners": "a", "status": {"type": ["object", "null"]},
-                "keep_tasks_going": {"type": ["integer", "null"]}, "task_flow": ref("TaskFlow"),
+                "keep_tasks_going": {"type": ["integer", "null"]}, "turns_at_once": {"type": ["integer", "null"]},
+                "task_flow": ref("TaskFlow"),
                 "access": ref("Access"), "onboarding_state": "s", "stage": {"enum": ["onboarding", "active"], "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"}, "can_complete_onboarding": {"type": "boolean", "description": "While onboarding: whether the caller may mark its onboarding complete"}, "onboarding_ready": {"type": ["object", "null"], "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"}},
                required=["slug", "display_name", "state", "owners", "access"]),
     "BotDetail": obj({"slug": "s", "display_name": "s", "description": "s", "state": "s", "online": "b", "queued": "i",
                       "status": {"type": ["object", "null"]}, "reports_to": "n", "reports_to_name": "s",
                       "operator": "n", "operator_name": "s", "team": "n", "owners": "a", "goals": "s",
-                      "keep_tasks_going": {"type": ["integer", "null"]}, "task_flow": ref("TaskFlow"),
+                      "keep_tasks_going": {"type": ["integer", "null"]}, "turns_at_once": {"type": ["integer", "null"]},
+                      "task_flow": ref("TaskFlow"),
                       "access": ref("Access"), "onboarding_state": "s", "template": "s", "template_version": "s",
                       "stage": {"enum": ["onboarding", "active"], "description": "Onboarding (learns only: no tasks, routines or sends) until a person above it marks onboarding complete, then active"}, "can_complete_onboarding": {"type": "boolean", "description": "While onboarding: whether the caller may mark its onboarding complete"}, "onboarding_ready": {"type": ["object", "null"], "description": "While onboarding: the bot's \"I'm ready\" ({at, summary}), or null"}},
                      required=["slug", "display_name", "state", "owners", "access"]),
@@ -983,7 +990,9 @@ SCHEMAS = {
                          "Bots with queued work that is not starting, or left in setup for over a day (the caller may "
                          "read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, "
                          "slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, "
-                         "lane_held, uncertain, scoped, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, "
+                         "lane_held, uncertain, scoped, bot_limit, cooling_off, run_hold, budget, backoff, "
+                         "readiness_unknown, "
+                         "sign_in_rejected, not_isolated, "
                          "isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running "
                          "and handed-back turns on update holds), since (setup only: when the "
                          "bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller "
