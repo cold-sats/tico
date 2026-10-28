@@ -16,6 +16,7 @@ function auEdOpen(ed) {
   auMenuClose();
   AU.ed = ed;
   if (ed.kind === 'step' && ed.step.type === 'decide') auDecideQs(ed);
+  if (ed.kind === 'step' && ed.step.type === 'filter') for (const r of ed.step.rules || []) r.then = (r.then || []).map(x => typeof x === 'string' ? {do: x, args: {}} : x);
   if (ed.kind === 'spend') ed.value = AU.cur.spend_cap?.per_30m ?? '';   // before drawing: a blank field would save no limit
   auDrawPane(); auDrawSide();
   if (ed.kind === 'versions') void auVersionsLoad(ed);
@@ -98,19 +99,20 @@ function auEdHTML() {
     `<input type="number" data-b="value" min="0" step="0.10" value="${esc(ed.value ?? '')}" placeholder="Bot’s limit" inputmode="decimal">`)
     + `<button class="linkish au-plus" type="button" data-op="nocap">Use the bot’s limit</button>`, {});
   if (ed.kind === 'trigger') return auFrame('Trigger', auTriggerFields(ed.trigger), {icon: AU_TRIGGER_ICONS[ed.trigger.type]});
+  if (ed.kind === 'run') return auFrame('Test run', auFld('Sample input', auTa('text', ed.text, 9), 'au-mono'), {icon: 'play_arrow', label: 'Run'});
   const s = ed.step;
   const body = {filter: auFilterFields, decide: auDecideFields, llm: auLlmFields, find: auFindFields, bot_turn: auBotFields,
     paths: auPathsFields, action: auActionFields}[s.type]?.(s, ed) || '';
   return auFrame(auStepTitle(s), body, {tag: s.type, del: !ed.insert});
 }
-function auFrame(title, body, {tag = '', icon = '', save = true, del = false} = {}) {
+function auFrame(title, body, {tag = '', icon = '', save = true, del = false, label = 'Save'} = {}) {
   const ro = auRO();
   return `<div class="au-grab" aria-hidden="true"></div>
     <div class="au-edh">${tag ? auTag(tag) : icon ? `<span class="nav-icon" aria-hidden="true">${icon}</span>` : ''}<h3>${esc(title)}</h3>
       <span class="au-sp"></span><button class="au-x" type="button" data-op="close" aria-label="Close">✕</button></div>
     <form class="au-edb" novalidate>${body}<datalist id="au-fields">${auFieldsList().map(f => `<option value="${esc(f)}">`).join('')}</datalist></form>
     ${save && !ro ? `<div class="au-edf">${del ? '<button class="linkish au-del" type="button" data-op="del">Delete step</button>' : ''}<span class="au-sp"></span>
-      <button class="primary au-save" type="button" data-op="save">Save</button></div>` : ''}`;
+      <button class="primary au-save" type="button" data-op="save">${esc(label)}</button></div>` : ''}`;
 }
 
 function auTriggerFields(t) {
@@ -129,7 +131,7 @@ function auFilterFields(s) {
       <span class="au-sp"></span>${auX('step.rules', i, 'Remove rule')}</div>
     ${auCondRows(`step.rules.${i}.when`, r.when)}${auPlus(`step.rules.${i}.when`, 'cond', 'Condition')}
     <div class="au-then"><span class="nav-icon" aria-hidden="true">arrow_forward</span>${(r.then || []).map((x, j) =>
-      `<span class="au-ir">${auSel(`step.rules.${i}.then.${j}`, Object.entries(AU_ACTIONS), x, 'aria-label="Then"')}${(r.then || []).length > 1 ? auX(`step.rules.${i}.then`, j) : ''}</span>`).join('')}
+      `<span class="au-ir">${auSel(`step.rules.${i}.then.${j}.do`, Object.entries(AU_ACTIONS), auThenDo(x), 'aria-label="Then"')}${(r.then || []).length > 1 ? auX(`step.rules.${i}.then`, j) : ''}</span>`).join('')}
       ${auPlus(`step.rules.${i}.then`, 'then', 'Action')}</div>
     <label class="au-chk"><input type="checkbox" data-b="step.rules.${i}.stop"${r.stop !== false ? ' checked' : ''}${auDis()}>Stop here</label></div>`).join('')
     + auPlus('step.rules', 'rule', 'Rule'));
@@ -234,8 +236,8 @@ function auEdWire(box) {
     if (op === 'rm') list.splice(+m.dataset.i, 1);
     if (op === 'add') {
       if (!auPathGet(ed, at)) auPathSet(ed, at, list);
-      list.push({cond: {field: '', op: 'is', value: ''}, then: 'archive', q: {id: 'question', type: 'noul', opts: ''},
-        rule: {when: [{field: '', op: 'is', value: ''}], match: 'all', then: ['archive'], stop: true},
+      list.push({cond: {field: '', op: 'is', value: ''}, then: {do: 'archive', args: {}}, q: {id: 'question', type: 'noul', opts: ''},
+        rule: {when: [{field: '', op: 'is', value: ''}], match: 'all', then: [{do: 'archive', args: {}}], stop: true},
         path: {name: 'Path ' + (list.length + 1), when: [], steps: []}}[m.dataset.tpl]);
     }
     if (at === 'qs') ed.custom = true;
@@ -249,6 +251,7 @@ async function auEdSave(button) {
   const ed = AU.ed, a = AU.cur;
   if (!ed || auRO()) return;
   if (ed.kind === 'spend') { const v = String(ed.value ?? '').trim(); await auSpendSave(v === '' ? null : Number(v)); return; }
+  if (ed.kind === 'run') { await auRunNow(ed, button); return; }
   if (button) button.disabled = true;
   let body;
   if (ed.kind === 'trigger') body = {trigger: ed.trigger};
@@ -315,4 +318,27 @@ async function auRestore(n) {
     if (AU.ed === ed && ed?.kind === 'versions') { ed.rows = null; auDrawSide(); void auVersionsLoad(ed); }
     return out;
   } catch (e) { toast(e.message, true); return null; }
+}
+
+// Test run: the trigger's output as JSON (CONTRACT §2 Feeding input), or nothing. A sample the trigger's filters drop
+// makes no run; a run opens expanded in Runs.
+function auSample(t = {}) {
+  const sample = {message: {message: {from: 'sam@acme.example', subject: '', body: ''}}, task_received: {task: {title: '', body: ''}},
+    listening: {item: {title: '', source: ''}}, event: {event: {name: t.name || ''}}, webhook: {body: {}}}[t.type];
+  return sample ? JSON.stringify(sample, null, 2) : '';
+}
+async function auRunNow(ed, button) {
+  let input;
+  try { input = String(ed.text || '').trim() ? JSON.parse(ed.text) : undefined; }
+  catch { toast('Sample input isn’t valid JSON', true); return; }
+  const a = AU.cur, state = AU;
+  if (button) button.disabled = true;
+  try {
+    const out = await post(auApi(a.id) + '/run', input ? {input} : {});
+    if (AU !== state) return;
+    if (out.dropped) { toast('Dropped by the trigger’s filters'); if (button?.isConnected) button.disabled = false; return; }
+    AU.ed = null; AU.runs = null; AU.openRun = out.run?.id || null;
+    toast('Ran · ' + (out.run ? auRunOutcome(out.run) : 'queued'));
+    if (AU.view === 'runs') { auDrawSide(); void auRunsLoad(AU); } else location.hash = auHref(a.id, 'runs');
+  } catch (e) { toast(e.message, true); if (button?.isConnected) button.disabled = false; }
 }

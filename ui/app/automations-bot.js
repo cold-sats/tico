@@ -127,7 +127,7 @@ function auFlowLines(flow) {
   for (const c of t.filters || []) out.push('  filter ' + auCondText(c));
   const walk = (steps, pad) => (steps || []).forEach(s => {
     const off = s.enabled === false ? ' (off)' : '';
-    if (s.type === 'filter') (s.rules || []).forEach(r => out.push(`${pad}filter ${auCondsText(r.when, r.match)} → ${(r.then || []).map(x => AU_ACTIONS[x] || x).join(', ')}${off}`));
+    if (s.type === 'filter') (s.rules || []).forEach(r => out.push(`${pad}filter ${auCondsText(r.when, r.match)} → ${auThenWords(r.then).join(', ')}${off}`));
     else if (s.type === 'decide') {
       out.push(`${pad}decide ${s.set ? auSetWords(s.set) : 'custom'} · ${s.level || 'medium'}${off}`);
       if (!s.set) Object.entries(s.questions || {}).forEach(([q, d]) => out.push(`${pad}  question ${q} · ${(AU_QTYPES.find(([k]) => k === d.type) || [, d.type])[1]}`));

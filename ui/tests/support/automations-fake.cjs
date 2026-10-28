@@ -33,8 +33,10 @@ function inboxRuns(now = Date.now()) {
 }
 
 // One page on the fake hub. viewer: the person signed in (any but the fixture's owner sees nothing editable).
-async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana'} = {}) {
+// tweak(fx) changes the fixture copy before the page reads it.
+async function openAutomations(browser, {viewport = PHONE, hash = '#/automations', redesign = true, viewer = 'dana', tweak = null} = {}) {
   const fx = clone(JSON.parse(fs.readFileSync(FIXTURE, 'utf8')));
+  tweak?.(fx);
   const owner = viewer === fx.me.id;
   const me = owner ? fx.me : {id: viewer, name: fx.people.find(p => p.id === viewer)?.name || viewer, email: viewer + '@acme.example',
     role: 'member', company_role: 'member', cloud: true};

@@ -25,6 +25,7 @@ async function auRunsLoad(state, more = false) {
     r.rows = more ? r.rows.concat(page.runs || []) : page.runs || [];
     r.next = page.next || null;
     if (!more) state.lastRun = r.rows[0] || null;
+    if (state.openRun) { r.open.add(state.openRun); state.openRun = null; }
   } catch (e) { r.error = e.message; }
   r.loading = false;
   if (AU === state && state.view === 'runs') auDrawPane();
@@ -68,7 +69,7 @@ function auRunStepText(rs) {
   if (rs.type === 'filter') {
     if (o.rule == null) return 'no match';
     const rule = step?.rules?.[o.rule];
-    return rule ? `${auCondsText(rule.when, rule.match) || 'rule ' + (o.rule + 1)} → ${(rule.then || []).map(x => AU_ACTIONS[x] || x).join(', ')}` : 'rule ' + (Number(o.rule) + 1);
+    return rule ? `${auCondsText(rule.when, rule.match) || 'rule ' + (o.rule + 1)} → ${auThenWords(rule.then).join(', ')}` : 'rule ' + (Number(o.rule) + 1);
   }
   if (rs.type === 'decide') return Object.entries(o).filter(([, v]) => v && typeof v === 'object').map(([q, v]) => auAnswer(q, v).text).join(' · ');
   if (rs.type === 'llm') return [auActorName(step?.as), o.text ? String(o.text).split('\n')[0].slice(0, 80) : ''].filter(Boolean).join(' · ');

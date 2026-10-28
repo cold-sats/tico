@@ -24552,6 +24552,9 @@
           "can_edit": {
             "type": "boolean"
           },
+          "can_pause": {
+            "type": "boolean"
+          },
           "spend_cap": {
             "type": [
               "object",

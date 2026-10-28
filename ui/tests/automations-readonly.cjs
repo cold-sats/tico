@@ -59,6 +59,22 @@ async function readOnly(page, writes) {
       assert.deepEqual(errors, []);
       await page.close();
     }
+    // A read-only built-in (can_edit false) the top of the org may pause (can_pause true): its switch shows, nothing else.
+    {
+      const tweak = fx => Object.assign(fx.automations.find(a => a.id === 'au_tasks'), {can_edit: false, can_pause: true, readonly: true});
+      const {page, errors, writes} = await openAutomations(browser, {viewport: PHONE, tweak});
+      await page.waitForSelector('.au-row[data-row="au_tasks"]');
+      assert.equal(await page.locator('.au-row[data-row="au_tasks"] .au-sw').count(), 1, 'the list shows its switch');
+      await page.locator('.au-row[data-row="au_tasks"] a').click();
+      await page.waitForSelector('.au-hd [data-on-cur]', {state: 'attached'});
+      assert.equal(await page.locator('.au-add').count(), 0, 'no "+"');
+      assert.equal(await page.locator('.au-card .au-sw').count(), 0, 'no step switches');
+      await page.locator('[data-more]').click();
+      assert.deepEqual(await page.locator('.au-menu [data-mi]').evaluateAll(b => b.map(x => x.dataset.mi)), ['versions'], 'no Test run');
+      assert.deepEqual(writes, []);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
     // Dormant: with redesign off the address is unknown, so it lands on Updates; nothing of the page is drawn.
     for (const viewport of [PHONE, DESKTOP]) {
       const {page, errors} = await openAutomations(browser, {viewport, redesign: false, hash: '#/automations/au_inbox'});
