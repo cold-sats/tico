@@ -650,7 +650,7 @@ def _guard(c, row):
     person = owner_person(c, before["owner"]) or (lead[6:] if lead.startswith("human:") else "")
     if person:
         H.task_create(c, H.KEEPER, f"Automation {before['name']} paused: too many runs"[:300], words,
-                      "human:" + person, lint=False, deduplicate=False, capped=False)
+                      "human:" + person, lint=False, deduplicate=False)
     from . import health_monitor
     if health_monitor.active(c):   # the optional Health Monitor, when it is on
         H.notice(c, H.KEEPER, "bot:" + health_monitor.SLUG, words, refs=refs)

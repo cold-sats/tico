@@ -26574,9 +26574,6 @@
               "additionalProperties": true
             }
           },
-          "daily_cap": {
-            "type": "integer"
-          },
           "asked_today": {
             "type": "object",
             "additionalProperties": {
@@ -26589,7 +26586,6 @@
           }
         },
         "required": [
-          "daily_cap",
           "level",
           "levels",
           "name",

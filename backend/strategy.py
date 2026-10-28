@@ -797,7 +797,7 @@ def file_card(c, owner, proposal):
     requester = G.AUTO_ACTOR if GA.manager_ready(c) else H.KEEPER
     title, body = GA._ask({"kind": "proposal", "proposal": proposal})
     # A realign card is urgent (goal_asks.urgent): past the daily cap, so publishing never rolls back on it.
-    made = H.task_create(c, requester, title, body, owner, lint=False, lane="company", capped=False)
+    made = H.task_create(c, requester, title, body, owner, lint=False, lane="company")
     c.execute("INSERT INTO goal_asks (kind, ref, owner, task_id, created) VALUES ('proposal',?,?,?,?)",
               (proposal["id"], owner, made["id"], H.now()))
     return made

@@ -233,6 +233,7 @@ async function listAndTabs(browser) {
   assert.deepEqual(tabs, [['foryou', 'Needs you', String(NEEDS_YOU), 'false'], ['list', 'Open', String(OPEN_COUNT), 'true'], ['board', 'Board', null, 'false'],
     ['done', 'Done', null, 'false'], ['closed', 'Closed', null, 'false']]);
   assert.equal(await page.locator('#task-view [data-view="foryou"]').getAttribute('aria-label'), `Needs you, ${NEEDS_YOU}`);
+  assert.equal(await page.locator('#task-view [data-view="routines"], #task-view [data-view="recurring"]').count(), 0, 'no Routines tab: routines are Automations');
   assert.equal(await page.locator('#task-view').getAttribute('role'), 'tablist');
   // "Needs you", then one "Needs <Name>" per other person a task waits on, "Needs someone", then Waiting and Doing.
   assert.deepEqual((await groupNames(page)).map(s => s.toLowerCase()), ['needs you', 'needs sam', 'needs someone', 'waiting', 'doing']);

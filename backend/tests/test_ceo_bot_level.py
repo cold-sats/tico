@@ -51,7 +51,7 @@ def test_every_install_starts_at_passive_and_says_what_each_level_does(api):
         [(1, "Passive", True), (2, "Suggests actions", True), (3, "Acts on its own", True)]
     assert "regular checks" in shown["levels"][0]["sentence"] and "changes nothing" in shown["levels"][0]["sentence"]
     assert "decides on its own" in shown["levels"][2]["sentence"] and "Not yet" not in str(shown["levels"])
-    assert shown["daily_cap"] == 5 and get(api, "ceo-bot", token="cara-test")["level"] == 1    # everyone reads it
+    assert get(api, "ceo-bot", token="cara-test")["level"] == 1    # everyone reads it
 
 
 def test_only_the_owner_changes_the_level_and_each_change_is_logged(api):
@@ -149,32 +149,21 @@ def test_why_proposals_reach_the_owner_as_one_item(api):
         assert c.execute("SELECT count(*) FROM tasks WHERE title=?", (why["title"],)).fetchone()[0] == 1
 
 
-def test_at_most_five_a_day_in_one_persons_needs_you_most_important_first(api):
-    """Spec test 14 above Passive: whatever it has to ask, the CEO Bot puts at most 5 items a day in one person's Needs
-    you, the vision first; the rest wait for the next day's room. The server refuses a sixth it files itself, for that
-    person only."""
+def test_no_daily_limit_in_one_persons_needs_you_most_important_first(api):
+    """Above Passive the CEO Bot puts everything it has to ask in the person's Needs you at once, the vision first, and
+    counts what it asked today per person."""
     ceo = with_ceo_bot(api, level=2)
     for n in range(7):
         post(api, "kpis", {"name": f"Measure {n}", "owner": "me", "cadence": "weekly"})
     sync(api)
     mine = asks(api, OWNER)
-    assert len(mine) == 5 and mine[0]["kind"] == "vision"
-    assert get(api, "ceo-bot")["asked_today"] == {OWNER: 5}
-    shown = get(api, "goals/needs-you")["items"]                             # what waits for tomorrow is not shown
-    assert len(shown) == 5 and all(i.get("task") for i in shown) and shown[0]["kind"] == "vision"
-    post(api, "tasks", {"title": "One more question", "body": "Why?", "owner": OWNER}, token=ceo, expected=422)
+    assert len(mine) == 8 and mine[0]["kind"] == "vision"
+    shown = get(api, "goals/needs-you")["items"]
+    assert len(shown) == 8 and all(i.get("task") for i in shown) and shown[0]["kind"] == "vision"
+    post(api, "tasks", {"title": "One more question", "body": "Why?", "owner": OWNER}, token=ceo)
     post(api, "tasks", {"title": "A question for Ben", "body": "Why?", "owner": "human:ben"}, token=ceo)
-    sync(api)
-    assert len(asks(api, OWNER)) == 5                                        # still 5 today
-    # Tomorrow there is room again: the asks kept for then are filed (as if the five were filed yesterday).
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE tasks SET created=? WHERE requester='bot:goal-manager' AND owner=?",
-                  (H.shift(H.now(), days=-1), OWNER))
-    sync(api)
-    assert len(asks(api, OWNER)) == 8 and ceo_bot.room_today
-    assert len(get(api, "goals/needs-you")["items"]) == 8
-    assert get(api, "ceo-bot")["asked_today"] == {OWNER: 3, "human:ben": 1}
-    assert get(api, "ceo-bot", token=ceo)["asked_today"] == {OWNER: 3, "human:ben": 1}
+    assert get(api, "ceo-bot")["asked_today"] == {OWNER: 9, "human:ben": 1}
+    assert get(api, "ceo-bot", token=ceo)["asked_today"] == {OWNER: 9, "human:ben": 1}
     assert get(api, "ceo-bot", token="cara-test")["asked_today"] == {}                 # a member: only their own
 
 

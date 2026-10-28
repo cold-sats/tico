@@ -15,7 +15,6 @@ function route() {
     SETTINGS_TAB = 'bots'; location.replace(SETTINGS); return;
   }
   overviewStop();
-  GOAL_MANAGER_STOP?.();
   $('#main').classList.remove('overview-layout');
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;

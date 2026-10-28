@@ -639,8 +639,7 @@ def _tell_owner(c, who, mid):
                 lines.append(f"- and {len(listed) - 100} more")
     title = (f"{len(kept)} routine{'s' if len(kept) != 1 else ''} or rule{'s' if len(kept) != 1 else ''} did not move "
              "to Automations") if kept else "Check what moved to Automations"
-    task = H.task_create(c, H.KEEPER, title[:300], "\n".join(lines), "human:" + person, lint=False, deduplicate=False,
-                         capped=False)
+    task = H.task_create(c, H.KEEPER, title[:300], "\n".join(lines), "human:" + person, lint=False, deduplicate=False)
     return task["id"]
 
 

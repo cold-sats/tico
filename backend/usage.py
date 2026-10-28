@@ -16,7 +16,7 @@ from fastapi import Request
 
 from . import bot_access as A
 from . import models as M
-from . import providers, redesign, usage_limits, views
+from . import providers, usage_limits, views
 from .store import H, P, Problem
 from .usage_records import RUNS
 from .subscription_identity import usage_label
@@ -96,15 +96,9 @@ def valid(value, name):
 def amounts(c, body):
     """The caps a save changes, by period; the caller lays them over what is stored.
 
-    With the redesign on, only the fields the request sent: one left out keeps its stored value and an explicit null
-    clears it. The 30-minute window replaces the hour, so an `hourly_usd` becomes the half hour at the same rate (half
-    of it, up to the next $0.10) and the hour is cleared. With it off, as before the redesign: the hour, day, week and
-    month are each the request's (left out is none), and the 30-minute value, dormant, is never written; an amount
-    for it is refused."""
-    if not redesign.on(c):
-        if getattr(body, "per_30m_usd", None) is not None:
-            raise Problem("limit", "per_30m_usd needs the redesign on; send hourly_usd", 422)
-        return {key: valid(getattr(body, key, None), key) for key in usage_limits.KEYS if key != "per_30m_usd"}
+    Only the fields the request sent: one left out keeps its stored value and an explicit null clears it. The
+    30-minute window replaces the hour, so an `hourly_usd` becomes the half hour at the same rate (half of it, up to
+    the next $0.10) and the hour is cleared."""
     caps = {key: valid(getattr(body, key, None), key) for key in usage_limits.KEYS if key in body.model_fields_set}
     if caps.get("hourly_usd") is not None:
         if caps.get("per_30m_usd") is not None:
@@ -114,16 +108,16 @@ def amounts(c, body):
     return caps
 
 def led_bots(c, who):
-    """The bots a group lead may set limits for, with the redesign on: every bot in a group the caller leads, nested
-    groups included. Empty when the redesign is off or the caller leads no group."""
+    """The bots a group lead may set limits for: every bot in a group the caller leads, nested groups included. Empty
+    when the caller leads no group."""
     from . import groups as G
     out = set()
-    for gid in G.led_groups(c, who.actor):          # empty while the redesign is off; a lead who left leads nothing
+    for gid in G.led_groups(c, who.actor):          # a lead who left leads nothing
         out |= usage_limits.members(c, "group:" + gid)
     return out
 
 def parents_allow(c, gid, caps, named):
-    """With the redesign on, a group's limit may not exceed its parent group's, nor the one above that."""
+    """A group's limit may not exceed its parent group's, nor the one above that."""
     seen, parent = {gid}, (named.get(gid) or {}).get("parent")
     while parent and parent not in seen:
         seen.add(parent)
@@ -136,8 +130,8 @@ def parents_allow(c, gid, caps, named):
 
 
 def _audit(c, who, obj, before, after, via):
-    """A spend change as one audit row (CONTRACT §5, object `spend:<bot>` or `spend:pool:<scope>`), redesign on only."""
-    if redesign.on(c) and before != after:
+    """A spend change as one audit row (CONTRACT §5, object `spend:<bot>` or `spend:pool:<scope>`)."""
+    if before != after:
         from . import audit_log
         audit_log.write(c, who.actor, obj, before, after, via)
 
@@ -149,7 +143,7 @@ def _caps_of(row):
 
 def save_pool(c, auth, who, scope, body, via=None):
     """A limit on the combined spend of the whole team or a group; empty removes it. The owner and bot administrators;
-    with the redesign on, also the lead of the group or of one above it."""
+    also the lead of the group or of one above it."""
     gid = scope.split(":", 1)[1] if scope != usage_limits.COMPANY else None
     if not auth.bot_admin(who):
         from . import groups as G
@@ -160,7 +154,7 @@ def save_pool(c, auth, who, scope, body, via=None):
     if gid is not None and gid not in named:
         raise Problem("not_found", "Group not found", 404)
     changed = amounts(c, body)
-    if gid is not None and redesign.on(c):
+    if gid is not None:
         parents_allow(c, gid, changed, named)
     stored = usage_limits.pool(c, scope)
     before = _caps_of(stored)
@@ -171,8 +165,8 @@ def save_pool(c, auth, who, scope, body, via=None):
 
 
 def save_limit(c, auth, who, bot, body, via=None):
-    """A bot's own limits; empty follows the company default. Its owners and administrators, and with the redesign on
-    the lead of a group it is in. Returns (the saved caps, who may edit)."""
+    """A bot's own limits; empty follows the company default. Its owners and administrators, and the lead of a group it
+    is in. Returns (the saved caps, who may edit)."""
     led = led_bots(c, who)
     if who.role not in ("owner", "human") and not led:
         raise Problem("forbidden", "Usage is for people", 403)
@@ -247,14 +241,14 @@ def install(app, store, auth, mutate, settings):
         if found["blocked_by"] and found["blocked_by"]["scope"] != "bot" and not auth.bot_admin(who):
             found["blocked_by"] = {k: v for k, v in found["blocked_by"].items() if k not in ("spent", "limit")}
         mine = usage_limits.own(c, bot)
-        # With the redesign on, the capped pools it counts against, nearest group first: they follow its home group.
-        pools = {"pools": usage_limits.scopes_of(c, bot, default)} if redesign.on(c) else {}
+        # The capped pools it counts against, nearest group first: they follow its home group.
+        pools = {"pools": usage_limits.scopes_of(c, bot, default)}
         return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed, **pools,
                 "spent": usage_limits.spent_now(c, bot=bot, default=default)}
 
     def pool_views(c, default, led=None):
         """Every group with what it and the whole team are capped at and have spent (the owner and administrators).
-        With `led` (a lead who is not an administrator, the redesign on), only those groups, each `may_edit`, and no
+        With `led` (a lead who is not an administrator), only those groups, each `may_edit`, and no
         company pool."""
         named, _ = usage_limits.groups(c, default)
         groups = {gid: {"name": g.get("name") or gid, "parent": g.get("parent") or None,
@@ -282,7 +276,7 @@ def install(app, store, auth, mutate, settings):
             default = usage_limits.company(c)
             admin = bool(auth.bot_admin(who))
             from . import groups as G
-            led = None if admin else G.led_groups(c, who.actor)          # empty while the redesign is off
+            led = None if admin else G.led_groups(c, who.actor)
             allowed = own_bots(c, auth, who) | ((led_bots(c, who) & {row["slug"] for row in H.bots(c)}) if led else set())
             usage_limits.prime_own(c, allowed)
             pools = pool_views(c, default) if admin else pool_views(c, default, led) if led else None
@@ -299,10 +293,9 @@ def install(app, store, auth, mutate, settings):
             if not auth.bot_admin(who):
                 raise Problem("forbidden", "Only the owner and administrators set the company default", 403)
             stored = usage_limits.company(c)
-            # Laid over the stored default (backend/usage.py `amounts`); with the redesign on, the subscription switch
-            # left out keeps its value too.
-            counted = body.count_subscription if not redesign.on(c) or "count_subscription" in body.model_fields_set \
-                else stored["count_subscription"]
+            # Laid over the stored default (backend/usage.py `amounts`); the subscription switch left out keeps its
+            # value too.
+            counted = body.count_subscription if "count_subscription" in body.model_fields_set else stored["count_subscription"]
             value = {**{key: stored[key] for key in usage_limits.KEYS}, **amounts(c, body),
                      "count_subscription": bool(counted)}
             c.execute("INSERT INTO registry_metadata(key, value_json) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
@@ -329,9 +322,9 @@ def install(app, store, auth, mutate, settings):
 
     @app.put("/api/v2/usage/limits/{bot}")
     def set_limit(request: Request, bot: str, body: M.UsageLimit):
-        """A bot's own 30-minute (or hourly, redesign off), daily, weekly and monthly limit in estimated USD; empty follows the
-        company default. A person who runs the bot but is not an administrator may not go above the company default. With
-        the redesign on, a group's lead may set it for every bot in the group."""
+        """A bot's own 30-minute, daily, weekly and monthly limit in estimated USD; empty follows the company default. A
+        person who runs the bot but is not an administrator may not go above the company default. A group's lead may set
+        it for every bot in the group."""
         who = request.state.identity
         auth.domain(who)
 

@@ -471,25 +471,15 @@ function pageGoals() {
   if (was) { was._state = null; if (was.open) was.close(); }
   const sheet = document.getElementById('goal-sheet'); if (sheet?.open) sheet.close();
   const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, groups: [], loaded: false, open, panel: null, strategy: null};
-  // The tree is the page; the CEO Bot is its right rail (under the tree on a narrow window). The sidebar
-  // says where you are, so the title is for screen readers only. With the redesign on, Goals is a Strategy tab, the
-  // Strategy Bot's own panel (ui/app/redesign.js) takes the rail's place and "+ Goal" heads it.
-  if (redesignOn()) {
-    $('#main').classList.add('strategy-layout', 'rd-goals');
-    $('#main').innerHTML = strategyHeadHtml('goals') + `<div class="goals-main"><div id="goal-body"><p class="muted">Loading…</p></div></div>`;
-    const actions = $('#strat-actions');
-    if (actions && (mePerson() || S.me?.role === 'owner')) {
-      actions.innerHTML = '<button class="primary" type="button" id="goal-new">+ Goal</button>';
-      actions.querySelector('#goal-new').onclick = () => { if (state.loaded) goalSheetOpen(state); };
-    }
-    goalsLoad(state);
-    return;
+  // Goals is a Strategy tab: the tree is the page, the Strategy Bot's panel (ui/app/redesign.js) is beside it and
+  // "+ Goal" heads it.
+  $('#main').classList.add('strategy-layout', 'rd-goals');
+  $('#main').innerHTML = strategyHeadHtml('goals') + `<div class="goals-main"><div id="goal-body"><p class="muted">Loading…</p></div></div>`;
+  const actions = $('#strat-actions');
+  if (actions && (mePerson() || S.me?.role === 'owner')) {
+    actions.innerHTML = '<button class="primary" type="button" id="goal-new">+ Goal</button>';
+    actions.querySelector('#goal-new').onclick = () => { if (state.loaded) goalSheetOpen(state); };
   }
-  $('#main').classList.add('goals-layout');
-  $('#main').innerHTML = `<div class="goals-main"><h1 class="sr-only">Goals</h1>
-      <div id="goal-body"><p class="muted">Loading…</p></div></div>
-    <aside class="gm gm-rail" id="goal-manager-panel" aria-label="${esc(ceoBotName())}"></aside>`;
-  goalManagerMount(state);
   goalsLoad(state);
 }
 function goalsApply(state, data, needs) {
@@ -547,54 +537,42 @@ async function goalsRefresh() {
   headGoalsReload();
 }
 
-// The CEO Bot can be renamed while Goals is open (the owner, in another tab; `refresh` calls this): the rail's names
+// The CEO Bot can be renamed while Goals is open (the owner, in another tab; `refresh` calls this): the panel's names
 // follow and the tree is drawn again, keeping the composer's draft, the chat's stream and a field being typed in.
 function goalsFollowRoster() {
-  const state = GOALS_ST, host = $('#goal-manager-panel');
+  const state = GOALS_ST, host = document.querySelector('#sbot .sbot-body');
   if (!state || !host?.isConnected) return;
   const name = ceoBotName();
-  host.setAttribute('aria-label', name);
-  const title = host.querySelector('.gm-head h2'); if (title) title.textContent = name;
   host.querySelector('[data-gm-thread]')?.setAttribute('aria-label', name + ' conversation');
   host.querySelector('.gm-form .p-text')?.setAttribute('aria-label', 'Message to the ' + name);
   host._gmDraw?.();
   const body = $('#goal-body'), typing = document.activeElement?.matches?.('input, textarea, select') && body?.contains(document.activeElement);
   if (state.loaded && !typing && state.shape !== goalTreeKey()) goalsRender(state);
 }
-// The CEO Bot in the right rail of Goals (docs/goals-and-kpis.md): what it does, its routines from the server (when
-// each next runs), its last run, and the viewer's chat with it: the room its bot page shows, loaded with the page. A reply
-// redraws the tree, since the CEO Bot may have just edited a goal. Leaving the page stops its stream.
-let GOAL_MANAGER_STOP = null;
+// The Strategy Bot's chat in its panel beside the Strategy tabs (ui/app/redesign.js): the viewer's chat with it, the
+// room its bot page shows. A reply redraws the Goals tree, since it may have just edited a goal.
 const GM = 'goal-manager';
 const GM_STATE = {paused: 'Paused', planned: 'Not set up', archived: 'Off', retired: 'Off', quarantined: 'Paused'};
 const GM_STARTERS = ['Set a goal', 'Fix my goals', 'Go through suggestions'];
 // On the Org tab the starters ask for org changes: it suggests them in words, and makes one when the owner says so.
 const GM_ORG_STARTERS = ['Suggest org changes', 'Who should lead each group?', 'Fix reporting lines'];
 const gmStarters = () => /^#\/strategy\/org(?:$|[/?])/.test(location.hash) ? GM_ORG_STARTERS : GM_STARTERS;
-// `rail`: the Strategy Bot's panel on the Strategy tabs (ui/app/redesign.js) mounts just the chat in its own host; it
-// lives across tabs, so its stop is its own (`rail.stop`), not GOAL_MANAGER_STOP, which every route calls.
-async function goalManagerMount(pageState, rail = null) {
-  if (!rail) GOAL_MANAGER_STOP?.();
-  const host = rail ? rail.host : $('#goal-manager-panel');
+// `rail`: the panel's host; it lives across tabs, so its stop is its own (`rail.stop`).
+async function goalManagerMount(rail) {
+  rail.stop?.();
+  const host = rail.host;
   if (!host) return;
   const bot = (S.emps || []).find(e => e.name === GM);
   const active = !!bot && !GM_STATE[bot.status];
   let stopped = false, es = null, poll = null, conversation = null, messages = [], execution = null, sending = false, lastReply, composer = null;
-  const current = () => !stopped && (rail ? true : GOALS_ST === pageState) && host.isConnected;
+  const current = () => !stopped && host.isConnected;
   // `es` is the release of this chat's live events (ui/app/live.js).
   const stopStream = () => { try { es?.(); } catch { /* released */ } es = null; clearInterval(poll); poll = null; };
   const onHash = () => host._gmDraw?.();                  // the rail stays across tabs; its starters follow the tab
   const stop = () => { stopped = true; stopStream(); if (composer) PILLS.delete(composer); removeEventListener('hashchange', onHash); };
-  if (rail) addEventListener('hashchange', onHash);
-  if (rail) rail.stop = stop; else GOAL_MANAGER_STOP = stop;
-  const off = !bot ? 'Not set up' : GM_STATE[bot.status] || '';
-  host.innerHTML = rail ? '<section class="gm-chat" data-gm-chat></section>' : `<section class="rail-sec gm-info">
-      <header class="gm-head"><h2>${esc(ceoBotName())}</h2>${off ? `<span class="pill">${esc(off)}</span>` : ''}<a href="#/bot/${GM}">Open bot</a></header>
-      <p class="gm-what">Keeps KPIs current and each goal green, yellow or red. ${meCeo()
-        ? 'Tell it what you want to achieve. It drafts the goal and saves it when you say yes.' : 'Humans set the goals.'}</p></section>
-    ${bot ? `<section class="rail-sec" aria-labelledby="gm-routines-h"><h3 class="rail-h" id="gm-routines-h">Routines</h3>
-      <ul class="gm-routines" data-gm-routines><li class="muted">Loading…</li></ul><p class="gm-last" data-gm-result></p></section>` : ''}
-    <section class="rail-sec gm-chat" data-gm-chat aria-labelledby="gm-chat-h"><h3 class="rail-h" id="gm-chat-h">Chat</h3></section>`;
+  addEventListener('hashchange', onHash);
+  rail.stop = stop;
+  host.innerHTML = '<section class="gm-chat" data-gm-chat></section>';
   const chat = host.querySelector('[data-gm-chat]');
   if (!active) {
     chat.innerHTML = '<h3 class="rail-h" id="gm-chat-h">Chat</h3>' + (S.me?.role === 'owner'
@@ -608,7 +586,7 @@ async function goalManagerMount(pageState, rail = null) {
       try {
         const result = await post('/v2/goal-manager/turn-on', {});
         if (!current()) return;
-        if (result.state === 'active') { await refresh(true); if (current()) goalManagerMount(pageState); return; }
+        if (result.state === 'active') { await refresh(true); if (current()) goalManagerMount(rail); return; }
         status.textContent = 'Needs a computer with a model. See Settings.';
       } catch (e) { if (current()) status.textContent = e.message; }
       if (current()) on.disabled = false;
@@ -658,10 +636,7 @@ async function goalManagerMount(pageState, rail = null) {
       draw();
       const reply = messages.filter(isReply).at(-1)?.id;
       // A new reply after the first look may come with an edited goal: draw the tree again.
-      if (lastReply !== undefined && reply !== lastReply) {
-        if (!rail) await goalsReload(pageState);
-        else if (GOALS_ST && $('#goal-body')) await goalsReload(GOALS_ST);
-      }
+      if (lastReply !== undefined && reply !== lastReply && GOALS_ST && $('#goal-body')) await goalsReload(GOALS_ST);
       lastReply = reply ?? null;
     };
     const snapshot = async () => {
@@ -700,7 +675,7 @@ async function goalManagerMount(pageState, rail = null) {
       } catch (e) { fail(e.message); }
       finally { sending = P.sending = false; if (current()) pillButtons(P); }
     };
-    composer = makePill({mode:'chat', files:false, label:'Message to the ' + ceoBotName(), placeholder: rail ? 'Ask ' + ceoBotName() : 'Set or fix a goal…', send});
+    composer = makePill({mode:'chat', files:false, label:'Message to the ' + ceoBotName(), placeholder: 'Ask ' + ceoBotName(), send});
     pq(composer, '.p-text').maxLength = 4000;
     thread.addEventListener('click', event => {
       const starter = event.target.closest('[data-gm-starter]');
@@ -717,28 +692,5 @@ async function goalManagerMount(pageState, rail = null) {
         else draw();
       } catch (e) { fail(e.message); }
     })();
-  }
-  if (!bot || rail) return;
-  // The routines are the server's rows; the times are the viewer's own, with the routine's zone when it differs.
-  const routinesEl = host.querySelector('[data-gm-routines]'), resultEl = host.querySelector('[data-gm-result]');
-  try {
-    const rows = (await get(`/v2/bots/${GM}/routines`)).routines || [];
-    const runs = await Promise.all(rows.map(r => get(`/v2/routines/${encodeURIComponent(r.id)}/occurrences`).then(o => o.occurrences?.[0] || null, () => null)));
-    if (!current()) return;
-    routinesEl.innerHTML = rows.length ? rows.map(r => {
-      const when = r.enabled === false || !r.active ? 'paused' : r.on ? '' : r.next ? 'next ' + fmt(r.next) : '';
-      return `<li><span class="nav-icon" aria-hidden="true">schedule</span><span><b>${esc(r.title)}</b> · ${esc(cadenceZoned(r))}${when ? ' · ' + esc(when) : ''}</span></li>`;
-    }).join('') : '<li class="muted">No routines.</li>';
-    // The last run: what the bot last reported, else the newest routine firing.
-    const status = v2StatusOf(GM);
-    const fired = runs.filter(Boolean).map(o => ({at: o.started || o.occurrence, what: o.outcome || o.status || ''}))
-      .concat(rows.filter(r => r.last_fired).map(r => ({at: r.last_fired, what: ''})))
-      .sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
-    const at = status?.last_turn_at || fired?.at, said = String(status?.last_result || fired?.what || '').split('\n')[0].slice(0, 240);
-    resultEl.textContent = at ? `Last run ${fmt(at) || at}${said ? ' · ' + said : ''}` : 'Not run yet.';
-  } catch (e) {
-    if (!current()) return;
-    routinesEl.innerHTML = `<li class="err">Routines did not load. ${esc(e.message || '')}</li>`;
-    resultEl.textContent = '';
   }
 }

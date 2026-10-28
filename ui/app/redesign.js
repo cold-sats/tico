@@ -64,7 +64,7 @@ function redesignRoute(r) {
   if (rdUnder(r, GOALS)) { location.replace(RD_GOALS + r.slice(GOALS.length)); return true; }
   if (r === '#/settings/listening') { location.replace(RD_LISTENING); return true; }
   if (r === '#/library') { location.replace(DOCS); return true; }
-  if (r.split('?')[0] === '#/recurring') { location.replace(RD_AUTOMATIONS); return true; }   // the Tasks page's Routines view
+  if (['#/recurring', '#/tasks/routines'].includes(r.split('?')[0])) { location.replace(RD_AUTOMATIONS); return true; }   // the Tasks page's Routines view
   if (rdUnder(r, RD_AUTOMATIONS)) {
     // The Automations page is its own files (ui/app/automations*.js); until they load, an empty mount point.
     if (typeof window.pageAutomations === 'function') window.pageAutomations();
@@ -127,5 +127,5 @@ function syncStrategyBot() {
   SBOT = {el, fab, rail};
   fab.onclick = () => { el.classList.add('open'); el.querySelector('.p-text')?.focus(); };
   el.querySelector('.sbot-close').onclick = () => el.classList.remove('open');
-  void goalManagerMount(null, rail);
+  void goalManagerMount(rail);
 }

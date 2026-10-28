@@ -1117,10 +1117,10 @@ SCHEMAS = {
                        "level_changed_by": "s", "level_changed_by_name": "s", "level_changed_at": "s",
                        "level_history": items(obj({"level": "i", "was": "i", "by": "s", "by_name": "s", "at": "s"},
                                                   required=["level", "was", "by", "at"])),
-                       "daily_cap": "i", "asked_today": {"type": "object", "additionalProperties": {"type": "integer"},
+                       "asked_today": {"type": "object", "additionalProperties": {"type": "integer"},
                                                          "description": "{person actor: items the CEO Bot put in their Needs you today (UTC)}"},
                        "level3_offer": ref("CeoBotLevel3Offer")},
-                      required=["name", "regular_checks", "level", "levels", "daily_cap"]),
+                      required=["name", "regular_checks", "level", "levels"]),
     "CeoBotLogEntry": obj({"id": "s", "created": "s", "kind": {"type": "string", "enum": [
                                "decision", "cost", "publish", "send", "bots", "target", "vision", "instructions",
                                "person_task"]},
