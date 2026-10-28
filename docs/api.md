@@ -31,6 +31,7 @@ The operation groups below are generated from the committed spec's tags. After r
 | Subscriptions | Provider logins on Computers. Every bot runs each AI tool on its Computer's one login for it. |
 | Team chart | Humans and bots, and who reports to whom. |
 | Bots | The bots a person can see, and their live status. |
+| Computers | The computers that run bots: what each one runs at once. |
 | Conversations | Chats with bots: send, list, and stream replies. |
 | Tasks | Work assigned to people and bots. |
 | Updates | Daily and weekly updates bots post to people. |
