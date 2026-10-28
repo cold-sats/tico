@@ -14,7 +14,7 @@ import pytest
 
 from backend import redesign_migration as M
 from backend.store import H, Store
-from backend.tests.test_api import api_settings
+from backend.tests.test_api import api, api_settings, get  # noqa: F401  (api: the fixture)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -213,3 +213,27 @@ def test_the_container_refuses_before_anything_writes_and_starts_once_opted_in(t
     allowed, _ = prepare(tmp_path, TICO_BACKUP="off", **{M.OPT_IN: "1"})
     assert allowed.returncode == 0, allowed.stderr
     assert files(database) != before          # the install's id is written; the cutover itself runs in the server
+
+
+GONE_ROUTES = (("GET", "settings/redesign"), ("PUT", "settings/redesign"), ("GET", "routines"),
+               ("GET", "bots/coo/routines"), ("POST", "bots/coo/routines"), ("POST", "routines/sch_1"),
+               ("POST", "routines/sch_1/delete"), ("POST", "routines/sch_1/run"), ("GET", "routines/sch_1/occurrences"),
+               ("GET", "rules"), ("POST", "rules"), ("GET", "rules/r1"), ("POST", "rules/r1"), ("POST", "rules/r1/delete"),
+               ("GET", "rules/suggestions"), ("POST", "rules/suggestions/s1/apply"),
+               ("POST", "rules/suggestions/s1/dismiss"), ("POST", "redesign/migration/dry-run"),
+               ("POST", "redesign/migration/resolve"), ("POST", "redesign/migration/convert"),
+               ("POST", "redesign/migration/restore"))
+GONE_TOOLS = ("hub_routine_list", "hub_routine_set", "hub_routine_update", "hub_routine_delete", "hub_routine_run",
+              "hub_rule_list", "hub_rule_set", "hub_rule_update", "hub_rule_delete", "hub_rule_suggestions",
+              "hub_rule_apply", "hub_rule_dismiss", "hub_redesign", "hub_redesign_migrate")
+
+
+def test_the_old_systems_routes_and_tools_are_gone(api):
+    from backend.tests.test_api import headers
+    from clients import hubtools
+    for method, path in GONE_ROUTES:
+        r = api.request(method, "/api/v2/" + path, json={} if method != "GET" else None, headers=headers())
+        assert r.status_code in (404, 405), (method, path, r.status_code)
+    assert get(api, "automations")["automations"] is not None              # the one design answers
+    names = {t["name"] for t in hubtools.TOOLS}
+    assert "hub_automation_list" in names and not names.intersection(GONE_TOOLS)

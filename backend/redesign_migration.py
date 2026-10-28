@@ -303,9 +303,9 @@ def _builtins(c, done, me):
     from . import system_routines as SR
     out = []
     if ("builtin", "wake-builtins") not in done and me:
-        made = c.execute("SELECT 1 FROM automations WHERE id=? AND deleted_at IS NULL", (WAKES_BUILTIN,)).fetchone()
+        # Always the hub's own `What wakes bots` (made here when the hub has not made it yet), never a second one.
         out.append({"kind": "builtin", "id": "wake-builtins", "title": "Built-in wake rules", "becomes": wakes_builtin(me),
-                    "flags": [], "_do": ("adopt", {}) if made else ("mirror", {})})
+                    "flags": [], "_do": ("adopt", {})})
     if _table(c, "task_rules"):
         for row in c.execute("SELECT * FROM task_rules ORDER BY created, id").fetchall():
             if ("task_rule", row["id"]) in done or not me:
@@ -522,9 +522,11 @@ def _convert_one(c, who, mid, obj, group_done):
             _mark(c, "wake_rule", rid, mid, aid)
         group_done[key] = aid
         return aid
-    if kind == "adopt":   # the hub's own built-in: recorded, never removed by a restore
-        _mark(c, "builtin", obj["id"], mid, None)
-        return None
+    if kind == "adopt":   # the hub's own built-in, made under its own id if the hub has not made it yet
+        from . import automations
+        automations.ensure_builtins(c, [{**obj["becomes"], "key": WAKES_BUILTIN[len("auto_builtin_"):]}])
+        _mark(c, "builtin", obj["id"], mid, WAKES_BUILTIN)
+        return WAKES_BUILTIN
     if kind == "mirror":
         aid = _save(c, who, obj["becomes"])
         _mark(c, {"builtin": "builtin", "task_rule": "task_rule", "system_job": "system_job",

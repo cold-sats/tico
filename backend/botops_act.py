@@ -56,7 +56,7 @@ def own_run(c, auth, attempt_id):
         return msg["from_actor"] == H.KEEPER and msg["kind"] == "notice" and refs.get("wake") == "update"
     task = H.task(c, task_id)
     if refs.get("automation"):
-        return _owners_automation_task(c, auth, task, refs["automation"])
+        return _owners_automation_task(c, auth, task, refs)
     return _owners_routine_task(c, auth, task)
 
 
@@ -80,18 +80,24 @@ def _owners_routine_task(c, auth, task):
     return _untouched(c, task, keeper)
 
 
-def _owners_automation_task(c, auth, task, automation_id):
+def _owners_automation_task(c, auth, task, refs):
     """A task one of BotOps' timed automations opened, whose every version and change only the owner (or the product)
     wrote, not through the Assistant or a token. A converted routine counts only when the routine itself was the
     owner's (`_owners_routine`): one from a bot.yaml, or one BotOps set while it worked for someone, never does."""
     from .store import H
     botops = "bot:" + H.FLEET_MAINTAINER
+    automation_id = str(refs.get("automation") or "")
     if not task or task["owner"] != botops or task["requester"] not in (H.KEEPER, botops):
         return False
     row = c.execute("SELECT owner, flow_json, trigger_type FROM automations WHERE id=? AND deleted_at IS NULL",
                     (automation_id,)).fetchone()
     if not row or row["owner"] != botops or row["trigger_type"] != "schedule" \
-            or (task.get("trigger_source") or "") != "automation:" + automation_id:
+            or refs.get("trigger_source") != "automation:" + automation_id:
+        return False
+    # The run that opened this task is that automation's own, from its schedule or a Run now, not a chained event.
+    run = c.execute("SELECT 1 FROM automation_runs WHERE id=? AND automation_id=?",
+                    (str(refs.get("automation_run") or ""), automation_id)).fetchone()
+    if not run or refs.get("automation_chain"):
         return False
     source = (H._json(row["flow_json"], {}) or {}).get("source")
     if isinstance(source, dict) and source.get("kind") == "routine":
