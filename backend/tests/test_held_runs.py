@@ -372,6 +372,27 @@ def test_queued_work_behind_a_held_run_joins_its_resumed_turn(api, monkeypatch, 
                          (turn['id'],)).fetchone()[0] == 1
 
 
+def test_a_resumed_turn_takes_an_input_its_held_run_read_after_the_history_sweep_indexed_that_run(api):
+    """Moving the input marks what read the held run as changed twice in one write (the move's event, then the input's
+    own row). With the sweep's index of that run in place, a claim that fails here fails every time, and no bot on
+    the computer starts a turn."""
+    from backend import read_deps
+    machine, attempt, task_id, _ = task_held(api)
+    with api.app.state.store.transaction() as c:
+        verdict = c.execute("SELECT m.id FROM jobs j JOIN messages m ON m.id=j.message_id WHERE j.bot='ops' "
+                            "AND j.state='queued' AND m.body LIKE 'VERDICT:%'").fetchone()[0]
+        c.execute("INSERT INTO attempt_inputs VALUES(?,?,?)", (attempt['id'], verdict, H.now()))
+    with api.app.state.store.read() as conn:
+        read_deps.sweep(conn)
+    ready(api, machine, ['ops'])
+    post(api, f"jobs/{attempt['job_id']}/reconcile", {'attempt_id': attempt['id'], 'decision': 'resume',
+         'note': 'Nothing was pushed yet; carry on from the build.', 'acknowledge_uncertain_effects': True})
+    turn = claim(api, machine)
+    assert 'VERDICT: changes PR #12' in turn['message']['body']
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT attempt_id FROM attempt_inputs WHERE message_id=?", (verdict,)).fetchone()[0] == turn['id']
+
+
 def test_a_folded_input_another_run_already_read_keeps_that_runs_task(api):
     """A message the held run read before it stopped moves to the resumed turn; the held run must still close when
     the task later turns private, as it does when inputs() moves a deferred input."""

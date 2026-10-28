@@ -58,3 +58,21 @@ def test_the_hold_budget_still_settles_a_whole_batch_in_one_write_when_it_is_qui
         read_deps.sweep(c, gate=gate)
         assert c.execute("SELECT count(*) FROM read_dirty").fetchone()[0] == 0
     assert before <= read_deps.BATCH and gate.admitted == 1
+
+
+def test_no_upsert_writes_a_table_whose_triggers_mark_history_reads(api):
+    """SQLite runs the triggers of an upsert's update under the upsert's own conflict rule, not their INSERT OR IGNORE:
+    a row already marked fails the whole write. One such upsert in the claim fails every claim that moves an input, and
+    no bot starts, so a table these triggers watch is written with an update and an INSERT OR IGNORE instead."""
+    import re
+    from pathlib import Path
+    with api.app.state.store.read() as c:
+        watched = {r[0] for r in c.execute("SELECT tbl_name FROM sqlite_master WHERE type='trigger' AND sql LIKE "
+                                           "'%read_dirty%'")}
+    assert {"attempt_inputs", "messages", "attempts", "jobs"} <= watched
+    upsert = re.compile(r"INTO\s+(\w+)\b[^;]{0,600}?ON CONFLICT\s*(?:\([^)]*\))?\s*DO UPDATE", re.S)
+    found = []
+    for path in sorted((Path(read_deps.__file__).parent).glob("*.py")):
+        source = re.sub(r'"\s*\n\s*(?:f|rf|fr)?"', "", path.read_text())   # join SQL split across lines
+        found += [f"{path.name}: {m.group(1)}" for m in upsert.finditer(source) if m.group(1) in watched]
+    assert found == []

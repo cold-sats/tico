@@ -3547,8 +3547,10 @@ class Execution:
             if prior and prior["attempt_id"] != aid:
                 # As in inputs(): the run that already read this message keeps its tasks for privacy.
                 privacy.record_moved_input(c, prior["attempt_id"], aid, queued)
-            c.execute("INSERT INTO attempt_inputs VALUES(?,?,?) ON CONFLICT(message_id) DO UPDATE SET "
-                      "attempt_id=excluded.attempt_id,acked_at=excluded.acked_at", (aid, queued["id"], H.now()))
+            # An update then an insert, never an upsert: SQLite runs an upsert's triggers under its own conflict rule,
+            # so the read index's INSERT OR IGNORE fails on a row the move's event just marked, and every claim does.
+            c.execute("UPDATE attempt_inputs SET attempt_id=?,acked_at=? WHERE message_id=?", (aid, H.now(), queued["id"]))
+            c.execute("INSERT OR IGNORE INTO attempt_inputs VALUES(?,?,?)", (aid, queued["id"], H.now()))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, queued["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE id=?", (aid, queued["job_id"]))
             H.mark_delivered(c, H.KEEPER, queued["id"])
@@ -3712,9 +3714,10 @@ class Execution:
                 # The earlier run did read this message, so it keeps the message's tasks for
                 # privacy (attempt_tasks reads this event) once the row is no longer its own.
                 privacy.record_moved_input(c, prior["attempt_id"], aid, row)
-            c.execute("INSERT INTO attempt_inputs VALUES(?,?,NULL) ON CONFLICT(message_id) DO UPDATE SET "
-                      "acked_at=CASE WHEN attempt_id=excluded.attempt_id THEN acked_at END,"
-                      "attempt_id=excluded.attempt_id", (aid, row["id"]))
+            # Not an upsert, as in fold_behind: its triggers would fail on the read index row the move just marked.
+            c.execute("UPDATE attempt_inputs SET acked_at=CASE WHEN attempt_id=? THEN acked_at END,attempt_id=? "
+                      "WHERE message_id=?", (aid, aid, row["id"]))
+            c.execute("INSERT OR IGNORE INTO attempt_inputs VALUES(?,?,NULL)", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))
             c.execute("UPDATE jobs SET state='input',attempt_id=? WHERE message_id=?", (aid, row["id"]))
             taken += 1
