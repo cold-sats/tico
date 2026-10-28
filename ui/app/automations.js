@@ -113,6 +113,7 @@ function auShell() {
       <aside class="au-side"><div class="au-ed" hidden></div><div class="au-botp"></div></aside>
       <div class="au-scrim" hidden></div>
     </div>
+    <a class="sbot-fab au-botbtn" href="${auHref('', 'bot')}"><span class="nav-icon" aria-hidden="true">smart_toy</span><span>BotOps</span></a>
   </div>`;
   const root = AU.root = $('#au-root');
   root.querySelector('.au-q').addEventListener('input', e => { AU.q = e.target.value.trim().toLowerCase(); auDrawList(); });
@@ -190,7 +191,6 @@ function auDrawHead() {
       <div class="au-seg" role="tablist" aria-label="View">${seg}</div>
     </div>
     <button class="au-chip au-ver" type="button" data-versions aria-label="Versions, v${a.version}">v${esc(a.version)}</button>
-    <a class="au-icon au-botbtn" href="${auHref(a.id, 'bot')}" aria-label="BotOps"><span class="nav-icon" aria-hidden="true">smart_toy</span></a>
     <button class="au-icon au-more" type="button" aria-label="Options" aria-haspopup="menu" data-more><span class="nav-icon" aria-hidden="true">more_horiz</span></button>` : ''}`;
 }
 
