@@ -23,7 +23,8 @@ run('redesign-e2e-tools', ['org', 'toured', 'redesign_on', 'connection'], async 
 
   await row.click();
   await page.waitForFunction(() => location.hash.split('?')[0] === '#/library/tools/acme-billing', null, {timeout: t(5000)});
-  await page.locator('#int-detail h1').waitFor();
+  // On a computer another tool is open beside the list first: wait for this one's page.
+  await page.locator('#int-detail h1').filter({hasText: /acme.billing/i}).waitFor({timeout: t(5000)});
   const access = page.locator('.lc-access .lc-who-row');
   await access.first().waitFor();
   assert.match(await access.first().innerText(), /engineering.lead/i, `${tag}: who has it`);
