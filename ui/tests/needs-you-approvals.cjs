@@ -172,7 +172,13 @@ async function phoneRedesignKinds(browser) {
     assert.deepEqual(await card.locator('.approval-facts dt').allTextContents(), labels, id + ': its facts');
     assert.match(await card.locator('.approval-facts').textContent(), /Writer|Engineer/, id + ': names, not ids');
     assert.equal(await card.locator('details.approval-raw').evaluate(d => d.open), false, id + ': the payload folded');
-    assert.equal(await card.evaluate(el => el.getBoundingClientRect().right <= innerWidth && el.scrollWidth <= el.clientWidth + 1), true, id + ': fits');
+    // Measured once the opened card has settled; a miss names what sticks out.
+    const fits = el => el.getBoundingClientRect().right <= innerWidth && el.scrollWidth <= el.clientWidth + 1;
+    let settled = false;
+    for (let n = 0; n < 30 && !(settled = await card.evaluate(fits)); n++) await page.waitForTimeout(100);
+    assert.equal(settled, true, id + ': fits; wide: ' + await card.evaluate(el => [...el.querySelectorAll('*')]
+      .filter(n => n.getBoundingClientRect().right > Math.min(innerWidth, el.getBoundingClientRect().right) + 1)
+      .map(n => `${n.tagName}.${n.className} ${Math.round(n.getBoundingClientRect().right)}/${innerWidth}`).slice(0, 4).join(', ')));
     await card.locator('> summary').click();
   }
   assert.deepEqual(errors, []);
