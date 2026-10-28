@@ -129,9 +129,12 @@ def bot_proposal(world):
 
 @seed("groups")
 def groups(world):
-    """Two groups on the org chart, as Dana makes them: Engineering (its lead and the two builders) and Release."""
-    from .harness import make_group
-    make_group(world, "Engineering", bots=["engineering-lead", "builder-claude", "builder-openai"])
+    """Two groups on the org chart, as Dana makes them: Engineering (Omar leads it: the Engineering Lead bot, the two
+    builders and Omar) and Release. Omar moves teammates inside Engineering; a move to Release is Dana's to approve."""
+    from .harness import DANA, OMAR_ID, OMAR_REF, make_group
+    _ok(world.api("post", "/api/v2/groups", {
+        "name": "Engineering", "lead": OMAR_REF,
+        "add": {"bots": ["engineering-lead", "builder-claude", "builder-openai"], "people": [OMAR_ID]}}, who=DANA), "Engineering")
     make_group(world, "Release", bots=["release-manager"])
 
 

@@ -101,6 +101,11 @@ function auBotMount(host) {
   composer = makePill({mode: 'chat', files: false, label: 'Message to BotOps', placeholder: 'Ask BotOps', send});
   pq(composer, '.p-text').maxLength = 4000;
   host.querySelector('.au-bf').append(composer.el);
+  // New without waiting on BotOps (it may not reply): a blank automation, off, opened in the editor.
+  const blank = document.createElement('button');
+  Object.assign(blank, {type: 'button', className: 'linkish au-blank', textContent: 'Blank', hidden: !!AU.id});
+  blank.onclick = () => void auBlank(blank);
+  host.querySelector('.au-bf').append(blank);
   props.addEventListener('click', e => {
     const b = e.target.closest('[data-prop],[data-made-on]');
     if (b) void (b.dataset.madeOn ? auMadeOn(b) : auPropAct(b));
@@ -120,7 +125,24 @@ function auBotSync() {
   if (!AU?.bot) return;
   const back = AU.root.querySelector('[data-bot-back]');
   if (back) back.href = AU.id ? auHref(AU.id) : AUTOMATIONS;
+  const blank = AU.root.querySelector('.au-blank');
+  if (blank) blank.hidden = !!AU.id;
   void auBotProposals();
+}
+// The viewer's own, off, weekdays at 9 in their zone, no steps: POST /v2/automations, then open it.
+async function auBlank(button) {
+  const state = AU;
+  button.disabled = true;
+  try {
+    let tz = 'UTC';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* UTC */ }
+    const out = auNormal(await post('/v2/automations', {name: 'New automation', owner: 'person:' + S.me.id, enabled: false,
+      builtin: false, trigger: {type: 'schedule', cron: '0 9 * * 1-5', tz}, steps: []}));
+    if (AU !== state) return;
+    await auLoadList(state);
+    if (AU === state) location.hash = auHref(out.id);
+  } catch (e) { toast(e.message, true); }
+  finally { if (button.isConnected) button.disabled = false; }
 }
 async function auBotProposals() {
   const B = AU?.bot, a = AU?.cur, state = AU;

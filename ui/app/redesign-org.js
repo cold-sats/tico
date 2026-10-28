@@ -179,9 +179,11 @@ async function pageRdOrg() {
   rdoWire($('#rdo-pane'));
   window.removeEventListener('resize', rdoFitHeight); window.addEventListener('resize', rdoFitHeight);
   rdoDraw();
-  const groups = await get('/v2/groups').catch(() => null);
+  // The groups, and Needs you read fresh: a move proposed since the last read shows on open.
+  const [groups] = await Promise.all([get('/v2/groups').catch(() => null), v2NeedsRead().catch(() => null)]);
   if (seq !== RDO_SEQ || !$('#rdo-cv')) return;
-  if (groups) { RDO.groups = Array.isArray(groups) ? groups : groups.groups || []; rdoDraw(); }
+  if (groups) RDO.groups = Array.isArray(groups) ? groups : groups.groups || [];
+  rdoDraw();
 }
 // After a move or a decision: the roster (homes), the groups (leads) and Needs you (proposals) again.
 async function rdoReload() {

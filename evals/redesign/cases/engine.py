@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from ..fakes import ReplayJudge, attach_judge, hook, stripe_sig
 from ..harness import (DANA, DANA_REF, CLAUDE_ID, CLAUDE_REF, LEAD, LEAD_REF, OPENAI_REF, W3, Check, Reply,
                        Scenario, Unmet, auto_id, automation, body, builtin_rows, edit_auto, got, hook_post,
-                       mail_message, publish_mail, replied, rows, run_now, setup, today_counts, turn_of, untestable)
+                       mail_message, publish_mail, replied, rows, run_now, setup, today_counts, turn_of)
 
 INBOX = "dana@acme.example"
 SCHEDULE = {"type": "schedule", "cron": "0 9 * * *", "tz": "UTC"}
@@ -216,7 +216,9 @@ def s23_steps(org, f):
     org.step(f, "run", run_now, org, f, "auto")
     org.step(f, "runs", runs_of, org, f)
     org.step(f, "task", lambda: org.api("get", f"/api/v2/tasks/{turn_task(f)}", wave=W3))
-    org.step(f, "turn1", org.turn, CLAUDE_ID)
+    # During the turn the bot calls the hub with the turn's own token, as its tools do.
+    org.step(f, "turn1", org.turn, CLAUDE_ID,
+             act=lambda token, attempt: f.__setitem__("me", org.api("get", "/api/v2/me", who=token, wave=W3)))
     org.step(f, "turn2", org.turn, CLAUDE_ID)
 
 
@@ -261,6 +263,18 @@ def turn_claimed(f):
     setup(f, "run")
     turn = got(f, "turn1")
     return bool(turn), "one turn claimed on builder-claude" if turn else "no turn claimed for the run"
+
+
+def turn_tools(f):
+    """A turn's tools are its bot's (the hub's tools plus its bot.yaml's): they act as the token the turn was handed. The
+    turn's hub calls are builder-claude's own, from this attempt, not the automation owner's."""
+    setup(f, "run")
+    if not got(f, "turn1"):
+        return False, "no turn claimed"
+    me = f.get("me")
+    body = me.body if me is not None and isinstance(me.body, dict) else {}
+    ok = body.get("actor") == "bot:" + CLAUDE_ID and body.get("attempt_id") == got(f, "turn1")
+    return ok, f"the turn's calls act as {body.get('actor')} (attempt {body.get('attempt_id')})"
 
 
 def second_held(f):
@@ -738,8 +752,7 @@ SCENARIOS = [
         Check("the turn's task carries the step's prompt", W3, turn_prompt),
         Check("the run's turn is claimed on builder-claude", W3, turn_claimed),
         Check("a second claim for the same run gets nothing", W3, second_held),
-        Check("the turn gets builder-claude's tools", W3,
-              untestable("CONTRACT names no read of the tools a bot_turn's turn is given")),
+        Check("the turn gets builder-claude's tools: its calls act as builder-claude", W3, turn_tools),
     ]),
     Scenario(24, "engine-step-off", "Steps switched off: skipped and logged; their model is never called", s24_steps, [
         Check("the switched-off Decide is logged skipped, with no outputs", W3, off_logged),

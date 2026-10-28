@@ -6717,7 +6717,12 @@ def create_app(settings=None):
 
     @app.post("/api/v2/attempts/{aid}/started")
     def started(request: Request, aid: str, body: M.Started):
-        return mutate(request, body, lambda c: execution.started(c, request.state.identity, aid, body))
+        from . import automations   # the turn's start acts for the turn (automations.for_attempt)
+
+        def begin(c):
+            with automations.for_attempt(c, aid):
+                return execution.started(c, request.state.identity, aid, body)
+        return mutate(request, body, begin)
 
     @app.post("/api/v2/attempts/{aid}/thread")
     def attempt_thread(request: Request, aid: str, body: M.AttemptThread):
@@ -6779,7 +6784,12 @@ def create_app(settings=None):
     @app.post("/api/v2/attempts/{aid}/complete")
     def complete(request: Request, aid: str, body: M.Completion):
         body = scrub_attempt(aid, body)
-        return mutate(request, body, lambda c: execution.complete(c, request.state.identity, aid, body))
+        from . import automations   # the turn's end acts for the turn (automations.for_attempt)
+
+        def finish(c):
+            with automations.for_attempt(c, aid):
+                return execution.complete(c, request.state.identity, aid, body)
+        return mutate(request, body, finish)
 
     @app.get("/api/v2/bots/{bot}/execution-review")
     def execution_review(request: Request, bot: str):
