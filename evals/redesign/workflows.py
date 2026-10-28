@@ -1606,10 +1606,11 @@ def publish_release(org, tag):
     once (a repeat delivery is ignored there) and the first recording runs release_flow.published, which tells the
     routines and the automations. Calling `published` directly would skip that dedupe."""
     from backend import github
-    payload = {"action": "published", "repository": {"full_name": "acme/tico"},
-               "release": {"tag_name": tag, "draft": False, "html_url": f"https://github.com/acme/tico/releases/tag/{tag}"}}
+    repo = org.store.settings.release_repo   # the server's release repository: the webhook's repository must match it
+    payload = {"action": "published", "repository": {"full_name": repo},
+               "release": {"tag_name": tag, "draft": False, "html_url": f"https://github.com/{repo}/releases/tag/{tag}"}}
     with org.store.transaction() as c:
-        return github.release(c, payload, release_repo=org.store.settings.release_repo)
+        return github.release(c, payload, release_repo=repo)
 
 
 def fake_day(org, f, phase, receiver):
