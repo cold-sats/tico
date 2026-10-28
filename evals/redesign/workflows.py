@@ -369,7 +369,8 @@ WAVES1 = {"a": (6, 8, [f"0{n}" for n in range(1, 6)], range(1, 5)),          # (
 BATCHES1 = {8: 5, 13: 4, 17: 5}   # Decide calls each batch time should make (the 14 not filtered, by wave)
 SLACK_AUTOS = {"dm": "slack:dm", "release": "slack:#release", "platform": "slack:#platform",
                "general": "slack:#general", "product": "slack:#product"}
-CHANNEL = {"D-dana": "dm", "D-priya": "dm", "C-release": "release", "C-platform": "platform",
+# A DM hears only its owner's automations (backend/automations.py may_read_inbox): Priya's DM to Tico is no one's.
+CHANNEL = {"D-dana": "dm", "C-release": "release", "C-platform": "platform",
            "C-general": "general", "C-product": "product"}
 RANDOM1 = ["Lunch order closes at noon.", "Anyone seen the blue umbrella?", "Friday demo moved to 3pm.",
            "Coffee machine is fixed.", "Photos from the offsite are up.", "Parking lot repaint on Monday.",
