@@ -48,7 +48,8 @@ ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 # Bots cannot set ready; a task is closed through its separate requester action.
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status not in ("ready", "closed"))
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
+# task_cap, spend_limit, group and org: the redesign's proposals (backend/proposals.py), refused while it is off.
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
 PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
@@ -4423,7 +4424,10 @@ def redesign_migrate(api, args):
       {"kind": {"type": "string", "enum": list(APPROVAL_KINDS)},
        "payload": {"type": "object", "description": "The exact action, as the approvals policy describes. "
                    "kind=send is to/cc/subject/body_sha256/mailbox. Skip this tool when the owner "
-                   "already said send; use mail send --approve <their-message-id>."},
+                   "already said send; use mail send --approve <their-message-id>. With the redesign on, a "
+                   "proposal the hub applies on approval: task_cap {sender, receiver, per_day}, spend_limit "
+                   "{bot | pool: company|group:<id>, per_30m_usd, daily_usd, weekly_usd, monthly_usd}, group "
+                   "{id?, name?, parent?, lead?, add?, remove?}, org {bot, from, to}."},
        "task_id": _s("The task this action belongs to"),
        "supersedes_approval": _s("Your older undecided approval this replaces (a re-cut, a redraft); it is withdrawn. "
                                  "One on the same task for the same url, recipient and subject, PR or spend is replaced anyway")},

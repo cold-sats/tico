@@ -183,7 +183,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            to 60 s and prints the run with its summary; --draft: the owner's draft
     hub lens show <run-id>                 one run: answers, result, changes
     hub lens runs [--lens ID]              runs, newest first, with their summaries
-    hub approval request --kind send|spend|publish|merge|support --payload-file f.json [--task ID] [--supersedes ID]
+    hub approval request --kind send|spend|publish|merge|support|task_cap|spend_limit|group|org --payload-file f.json [--task ID] [--supersedes ID]
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
     hub approval show <id>
@@ -478,7 +478,8 @@ if __package__ in (None, ""):                          # run as a script: python
 # before a request is made. The server is the authority when they disagree.
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status != "closed")
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support")
+# task_cap, spend_limit, group and org: the redesign's proposals (backend/proposals.py), refused while it is off.
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # set by hand; gray is only ever automatic
 # The Assistant, acting on a task the person asked it to in their own Assistant chat (backend/assistant.py `instruction`).
 ASKED = ("Assistant: the person asked for exactly this in their own Assistant chat: `turn` (their message that started "

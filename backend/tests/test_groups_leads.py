@@ -73,3 +73,35 @@ def test_a_parent_group_lead_reaches_the_bots_of_the_groups_nested_under_it(api)
     as_bot(api, "engineering-lead", "lead-test")
     put(api, "usage/limits/ops", {"per_30m_usd": 1.5}, "lead-test")
     assert get(api, "usage/limits")["bots"]["ops"]["per_30m_usd"] == 1.5
+
+
+def test_a_lead_moves_teammates_inside_what_it_leads_and_nothing_else(api):
+    gid = make_engineering(api)
+    platform = send(api, "POST", "groups", {"name": "Platform", "parent": gid})["id"]
+    other = send(api, "POST", "groups", {"name": "Sales", "add": {"bots": ["ops"]}})["id"]
+    as_bot(api, "engineering-lead", "lead-test")
+    move = {"add": {"bots": ["builder-openai"]}}
+    send(api, "PATCH", f"groups/{platform}", move, token="lead-test", expected=403)       # the redesign is off
+    redesign_on(api)
+    send(api, "PATCH", f"groups/{platform}", move, token="lead-test")
+    assert group(api, platform)["bots"] == ["builder-openai"]
+    moved = api.get("/api/v2/audit", params={"object": f"group:{gid}"}, headers=headers()).json()["rows"][0]
+    assert moved["actor"] == "bot:engineering-lead" and "builder-openai" in moved["before"]["bots"]
+    send(api, "PATCH", f"groups/{other}", {"add": {"bots": ["builder-openai"]}}, token="lead-test", expected=403)
+    send(api, "PATCH", f"groups/{gid}", {"add": {"bots": ["ops"]}}, token="lead-test", expected=403)   # ops is Sales's
+    send(api, "PATCH", f"groups/{platform}", {"name": "Infra"}, token="lead-test", expected=403)
+    send(api, "PATCH", f"groups/{platform}", {"remove": {"bots": ["builder-openai"]}}, token="lead-test", expected=403)
+
+
+def test_a_lead_sets_the_pools_of_its_group_and_those_below_but_not_the_team_or_others(api):
+    gid = make_engineering(api)
+    platform = send(api, "POST", "groups", {"name": "Platform", "parent": gid})["id"]
+    other = send(api, "POST", "groups", {"name": "Sales"})["id"]
+    redesign_on(api)
+    as_bot(api, "engineering-lead", "lead-test")
+    put(api, f"usage/pools/groups/{gid}", {"daily_usd": 20}, "lead-test")
+    put(api, f"usage/pools/groups/{platform}", {"daily_usd": 10}, "lead-test")
+    put(api, f"usage/pools/groups/{platform}", {"daily_usd": 30}, "lead-test", expected=422)   # over its parent's
+    put(api, f"usage/pools/groups/{other}", {"daily_usd": 10}, "lead-test", expected=403)
+    put(api, "usage/pools/company", {"daily_usd": 10}, "lead-test", expected=403)
+    put(api, "usage/pools/groups/nowhere", {"daily_usd": 10}, "lead-test", expected=403)       # no hint it exists
