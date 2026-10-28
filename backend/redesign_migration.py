@@ -19,6 +19,7 @@ turned off, deleted, its event or outcome changed) is what wakes the bot. Old ta
 import json
 import logging
 import math
+import sys
 
 from . import automation_flow as F
 from .store import H, Problem
@@ -716,6 +717,12 @@ def totals(c, mid):
     return out
 
 
+def _printed_to_stderr():
+    """Whether a log warning already reaches stderr (the report CLI's basicConfig, or Python's last-resort handler)."""
+    handlers = [h for logger in (log, logging.getLogger()) for h in logger.handlers]
+    return not handlers or any(getattr(h, "stream", None) is sys.stderr for h in handlers)
+
+
 def _finish(c, who, mid, waiting):
     """Record a pass, log it and tell the owner once. With nobody to tell yet, `owner_wait` keeps it for `catch_up`."""
     told = _tell_owner(c, who, mid)
@@ -727,9 +734,13 @@ def _finish(c, who, mid, waiting):
     c.execute("UPDATE redesign_migrations SET state='converted', finished=?, result_json=? WHERE id=?",
               (_now(), json.dumps({**total, "waiting": waiting}, sort_keys=True), mid))
     _set_meta(c, CUTOVER, json.dumps(record, sort_keys=True))
-    log.warning("redesign cutover %s: %d moved to automations, %d kept as they were, %d failed, %d wait for an owner; "
-                "owner told: %s", mid, total["converted"], total["kept"], total["failed"], waiting,
-                told or ("no one yet" if record["owner_wait"] else "nothing new"))
+    line = (f"redesign cutover {mid}: {total['converted']} moved to automations, {total['kept']} kept as they were, "
+            f"{total['failed']} failed, {waiting} wait for an owner; owner told: "
+            f"{told or ('no one yet' if record['owner_wait'] else 'nothing new')}")
+    log.warning("%s", line)
+    # The server's log handler is the in-app ring (diagnostics.py), so the operator's container log gets it from here.
+    if not _printed_to_stderr():
+        print("tico: " + line, file=sys.stderr, flush=True)
     if told:
         from . import audit_log
         audit_log.write(c, who.actor, "redesign_migration:" + mid, None, total, "cutover")
