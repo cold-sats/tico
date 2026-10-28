@@ -1,0 +1,73 @@
+"""Turns an automation starts (backend/automations.py, backend/automation_actions.py): in the bot's own room, never the
+sender's; an llm step waits for the real turn and goes on with its text; the turn's priced cost is charged to the run,
+so the spend cap counts it; `assistant:<person>` makes the person's Assistant room on first use."""
+import json
+
+from backend.tests.test_api import api, assign, claim, get, post, ready, runner  # noqa: F401
+from backend.tests.test_automation_api import turn_on
+
+USAGE = {"input_tokens": 400_000, "cached_tokens": 0, "output_tokens": 10_000, "model": "claude-opus-5-5",
+         "runtime": "claude", "billing": "api"}
+
+
+def finish(api, r, text="A draft"):
+    attempt = claim(api, r)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, token=r["token"])
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "text": text, "last_seq": 0,
+                                                     "usage": USAGE}, token=r["token"])
+    return attempt
+
+
+def draft_then_tell(**extra):
+    return {"name": "Draft", "owner": "bot:ops", "trigger": {"type": "event", "name": "x.y"}, **extra, "steps": [
+        {"id": "draft", "type": "llm", "as": "bot:ops", "prompt": "Draft a reply", "out": "reply"},
+        {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "coo", "text": "{{reply.text}}"}}]}
+
+
+def test_an_llm_step_waits_for_the_bots_turn_in_its_own_room_and_goes_on(api):
+    turn_on(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    aid = post(api, "automations", draft_then_tell())["id"]
+    run = post(api, f"automations/{aid}/run", {})["run"]
+    assert run["status"] == "waiting"
+    turn = run["steps"][0]["outputs"]["turn"]
+    assert turn["bot"] == "ops" and turn["task"] is None
+    with api.app.state.store.read() as c:
+        room = c.execute("SELECT room_key, scope FROM conversations WHERE id=?", (turn["session"],)).fetchone()
+    assert room is not None
+    finish(api, r)
+    done = get(api, f"automations/{aid}/runs")["runs"][0]
+    assert done["status"] == "ok" and [s["status"] for s in done["steps"]] == ["ok", "ok"]
+    assert done["steps"][0]["outputs"]["text"] == "A draft" and done["cost"] > 0
+    assert done["steps"][0]["cost"] == done["cost"]
+    with api.app.state.store.read() as c:
+        told = c.execute("SELECT body, refs_json FROM messages WHERE to_actor='bot:coo' ORDER BY created DESC").fetchone()
+    assert told["body"] == "A draft" and json.loads(told["refs_json"])["automation_run"] == run["id"]
+
+
+def test_a_turns_cost_counts_toward_the_spend_cap(api):
+    turn_on(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    aid = post(api, "automations", draft_then_tell(spend_cap={"per_30m": 0.01}))["id"]
+    post(api, f"automations/{aid}/run", {})
+    finish(api, r)
+    capped = post(api, f"automations/{aid}/run", {})["run"]
+    assert [(s["id"], s["status"]) for s in capped["steps"]] == [("draft", "spend_cap"), ("tell", "ok")]
+    assert claim(api, r) is None                                     # no turn started
+    assert capped["summary"] == "1 stopped by the spend cap"
+
+
+def test_an_assistant_step_makes_the_persons_assistant_room_on_first_use(api):
+    turn_on(api)
+    assert get(api, "people/ben/assistant") == {"bot": None}
+    flow = {"name": "Brief", "owner": "person:ben", "trigger": {"type": "event", "name": "x.y"},
+            "steps": [{"id": "brief", "type": "llm", "as": "assistant:ben", "prompt": "Brief me", "out": "b"}]}
+    aid = post(api, "automations", flow)["id"]
+    run = post(api, f"automations/{aid}/run", {})["run"]
+    bot = get(api, "people/ben/assistant")["bot"]
+    assert bot and run["steps"][0]["outputs"]["turn"]["bot"] == bot
+    get(api, "people/nobody/assistant", expected=404)

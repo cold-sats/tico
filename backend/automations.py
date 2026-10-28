@@ -220,7 +220,7 @@ class Chart:
         return [lead for g in P.group_chain(gid, self.roster) for lead in [self.lead(g)] if lead]
 
 
-def may_change(c, who, flow):
+def may_change(c, who, flow, chart=None):
     """The one rule for the UI, the CLI and MCP: the top of the org; the owner; anyone above the owner; the lead of the
     automation's group (or of a group it is in) and anyone above that lead. A peer is refused. Seeing follows it."""
     if who.role == "owner":
@@ -228,7 +228,7 @@ def may_change(c, who, flow):
     if who.role not in ("human", "bot"):
         return False
     me = _key("person:" + H.actor_id(who.actor) if who.role == "human" else who.actor)
-    chart, owner = Chart(c), _key(flow["owner"])
+    chart, owner = chart or Chart(c), _key(flow["owner"])
     gid = (flow.get("group") or "").partition(":")[2] or (owner[2:] if owner.startswith("g:") else "")
     heads = ([] if owner.startswith("g:") else [owner]) + (chart.leads(gid) if gid else [])
     return any(me == head or me in chart.above(head) for head in heads)
