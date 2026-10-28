@@ -160,6 +160,10 @@ DO = _routes(
     ("PUT", "repositories/settings"), ("POST", "repositories/refresh"),
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"), ("DELETE", rf"github/repos/{_S}/{_S}"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
+    # Automations (backend/automations.py): the route checks the person's place on the org chart.
+    ("POST", r"automations"), ("PATCH", rf"automations/{_S}"), ("DELETE", rf"automations/{_S}"),
+    ("POST", rf"automations/{_S}/(delete|run)"), ("POST", rf"automations/{_S}/versions/{_S}/restore"),
+    ("DELETE", rf"automations/{_S}/versions/{_S}"), ("PATCH", rf"inboxes/{_S}"),
     ("POST", rf"settings/history/{_S}/undo"),
     ("POST", rf"settings/transitions/{_S}/(apply-without-checkpoint|cancel)"),
     # Goals and KPIs: a goal's or KPI's own rules decide who may change what.

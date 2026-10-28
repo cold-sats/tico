@@ -495,6 +495,8 @@ def route(conn, row, scored, dests):
                            "VALUES (?,?,?,?, 'new', ?)", (intake_id, name, row["id"], scored["id"], H.now()))
         if cur.rowcount:
             opened.append(intake_row(conn, intake_id))
+            from . import automations
+            automations.on_listening(conn, opened[-1], row)
     return opened
 
 

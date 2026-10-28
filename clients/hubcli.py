@@ -227,6 +227,18 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--timezone Z] [--enable|--disable] [--bot X]
                                            --enable / --disable turn it on or off; another bot's, as the requester (BotOps)
     hub routine delete <id>
+    hub automation list [--owner O]        automations you may see (redesign on), each with can_edit
+    hub automation show <id>               trigger, steps, version, today's counts, next run
+    hub automation create --file F         a new one from a JSON flow ({name, owner, trigger, steps}); - reads stdin
+    hub automation update <id> [--file F] [--name N] [--enable|--disable] [--summary S]
+                                           new trigger/steps/batch = a new version; a bot without rights proposes one
+    hub automation delete <id>
+    hub automation run <id> [--input JSON] run now with a sample trigger output; prints the run
+    hub automation runs <id> [--limit N] [--before RUN]
+    hub automation versions <id> [--pending]
+    hub automation restore <id> <n>        make version n current (a pending one keeps its number)
+    hub automation inbox <inbox> [--send on|off]
+                                           an inbox's send switch (email, slack:dm, slack:#chan); off = drafts only
     hub trigger list                       webhooks people and bots made; a routine runs --on webhook.<id>
     hub trigger create <name> [--id X]     make one; the address (with its secret) is shown once
     hub trigger show <id>                  address, settings, 24-hour counts, routines
@@ -1813,6 +1825,52 @@ def parser():
     s = routine.add_parser("run", help="run a scheduled routine now")
     s.add_argument("id")
     s.set_defaults(fn="routine run")
+
+    auto = sub.add_parser("automation", help="automations: a trigger and steps (the redesign)").add_subparsers(dest="sub")
+    s = auto.add_parser("list")
+    s.add_argument("--owner", help="person:<id>, bot:<slug> or group:<id>")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--cursor", type=int, help="`next` from the page before")
+    s.set_defaults(fn="automation list")
+    s = auto.add_parser("show")
+    s.add_argument("id")
+    s.set_defaults(fn="automation get")
+    s = auto.add_parser("create", help="save a new automation from a JSON flow")
+    s.add_argument("--file", required=True, help="a JSON object {name, owner, trigger, steps, ...}; - reads stdin")
+    s.set_defaults(fn="automation create")
+    s = auto.add_parser("update", help="change one; a new trigger, steps or batch is a new version")
+    s.add_argument("id")
+    s.add_argument("--file", help="a JSON object with the fields to change; - reads stdin")
+    s.add_argument("--name")
+    s.add_argument("--summary", help="a few words on the change")
+    switch = s.add_mutually_exclusive_group()
+    switch.add_argument("--enable", action="store_true")
+    switch.add_argument("--disable", action="store_true")
+    s.set_defaults(fn="automation update")
+    s = auto.add_parser("delete")
+    s.add_argument("id")
+    s.set_defaults(fn="automation delete")
+    s = auto.add_parser("run", help="run it now and print the run")
+    s.add_argument("id")
+    s.add_argument("--input", help="a JSON object standing in for the trigger's output")
+    s.set_defaults(fn="automation run")
+    s = auto.add_parser("runs")
+    s.add_argument("id")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--before", help="`next` from the page before")
+    s.set_defaults(fn="automation runs")
+    s = auto.add_parser("versions")
+    s.add_argument("id")
+    s.add_argument("--pending", action="store_true", help="proposals only")
+    s.set_defaults(fn="automation versions")
+    s = auto.add_parser("restore")
+    s.add_argument("id")
+    s.add_argument("n", type=int)
+    s.set_defaults(fn="automation restore")
+    s = auto.add_parser("inbox", help="read or set an inbox's send switch")
+    s.add_argument("inbox", help="an email address, slack:dm or slack:#<channel>")
+    s.add_argument("--send", choices=["on", "off"], help="leave out to read it")
+    s.set_defaults(fn="automation inbox")
 
     s = sub.add_parser("event-types", help="every event Tico names, with a one-line description and an example payload")
     s.add_argument("--group", help="only this group: task, approval, needs_you, bot, release, meeting, strategy, market, "

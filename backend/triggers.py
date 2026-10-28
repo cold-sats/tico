@@ -483,7 +483,7 @@ def _judge(c, ctx, event=RECEIVED):
 
 
 def _route(c, found, delivery, type_, via, body, headers, auth):
-    """Start what listens: routines, then rules. Returns (task ids, rule results, content)."""
+    """Start what listens: routines, then rules, then automations. Returns (task ids, rule and automation results)."""
     trigger_id = found["id"]
     content = content_of(body, headers.get("content-type"))
     cut = len(_text_of(body, headers.get("content-type"))) > MAX_CONTENT
@@ -498,6 +498,8 @@ def _route(c, found, delivery, type_, via, body, headers, auth):
         return fired, tico_notices.arrived(c, found, delivery, type_, via, body, _payload_of(body), content, _judge)
     results = _judge(c, {"trigger": trigger_id, "trigger_name": found["name"], "type": type_, "delivery": delivery,
                          "via": via, "payload": _payload_of(body), "content": content, "cut": cut})
+    from . import automations
+    results = results + automations.on_webhook(c, trigger_id, found["name"], type_, delivery, payload, shown)
     return fired, results
 
 

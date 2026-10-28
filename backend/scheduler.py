@@ -483,6 +483,11 @@ class Scheduler:
         except Exception as exc:
             failures.append({"market_watch": type(exc).__name__})
         try:
+            from . import automations
+            automations.tick(self.store, at)                   # schedules, batch times, answered turns, the queue
+        except Exception as exc:
+            failures.append({"automations": type(exc).__name__})
+        try:
             from . import webhook_delivery
             webhook_delivery.ensure()                          # a delivery worker that died comes back on the next tick
         except Exception as exc:
@@ -501,6 +506,8 @@ class Scheduler:
                     rules.prune_events(c)                      # the webhook rules' repeat ledger keeps 30 days
                     from . import webhook_delivery
                     webhook_delivery.prune(c, stamp(at))       # outgoing webhooks: events and finished sends keep a month
+                    from . import automations
+                    automations.prune(c, stamp(at))            # automation runs: step detail keeps 30 days
                     from . import webhooks
                     webhooks.auto_disable(c, stamp(at))        # an endpoint that failed every attempt for five days is turned off
                 sweep_idempotency(self.store, stamp(at))
