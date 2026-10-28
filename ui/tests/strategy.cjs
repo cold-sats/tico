@@ -321,13 +321,13 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       assert.deepEqual(errors, []);
       await page.close();
     }
-    // Goals: one Strategy line at the top; the goal editor's Bet picker saves bet_id; the bet's chip opens it on Strategy.
+    // Goals: no Strategy line at the top (Strategy is the tab beside it); the goal editor's Bet picker saves bet_id; the
+    // bet's chip opens it on Strategy.
     {
       const {page, errors, sent} = await open(browser, {route: '#/goals'});
       await page.locator('#goal-tree .gt-row').first().waitFor();
-      assert.match(await page.locator('#goal-strategy').innerText(), /^Strategy v1\s*·?\s*Acme cleans homes/);
-      assert.equal(await page.locator('#goal-strategy').getAttribute('href'), '#/strategy');
-      await page.locator('#goal-tree .gt-row[data-owner="bot:cmo"]').first().click();
+      assert.equal(await page.locator('#goal-strategy').count(), 0);
+      await page.locator('#goal-tree .gt-row[data-owner="bot:cmo"]:not(.gt-cont) .gt-name').click();
       const panel = page.locator('#goal-panel[open]');
       await panel.locator('[data-gp-edit="g-cmo"]').click();
       const picker = panel.locator('select[name="bet"]');
@@ -466,7 +466,7 @@ const sectionTitles = page => page.locator('[data-section] .strat-sec-head .stra
       const old = {id: 'g-old', title: 'Win the office park', owner: 'bot:cmo', parent_id: null, status: 'green', status_source: 'auto', rank: 1, kpis: [], why: '', bet_id: 'b-gone'};
       const {page, errors, sent} = await open(browser, {route: '#/goals', more: [old]});
       await page.locator('#goal-tree .gt-row').first().waitFor();
-      await page.locator('#goal-tree .gt-row', {hasText: 'Win the office park'}).click();
+      await page.locator('#goal-tree .gt-row[data-owner="bot:cmo"]:not(.gt-cont) .gt-name').click();
       const panel = page.locator('#goal-panel[open]');
       await panel.locator('[data-gp-edit="g-old"]').click();
       const picker = panel.locator('select[name="bet"]');

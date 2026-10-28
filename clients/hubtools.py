@@ -48,8 +48,8 @@ ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 # Bots cannot set ready; a task is closed through its separate requester action.
 TASK_UPDATE_STATUSES = tuple(status for status in TASK_STATUSES if status not in ("ready", "closed"))
-# task_cap, spend_limit, group and org: proposals (backend/proposals.py).
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
+# task_cap and spend_limit: proposals (backend/proposals.py).
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit")
 GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
 GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
 PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag", "goal_why", "recovery",
@@ -3120,28 +3120,56 @@ def group_list(api, args):
     return api.get("groups")
 
 
-@tool("hub_group_update", "Create, rename, move or fill a group, as the person who asked you (an owner or an admin). "
-      "Leave `group` out to create one from `name`. `parent` nests it under another group (an empty one moves it to the "
-      "top). Adding a teammate to a group takes it out of the one it was in; built-in bots stay outside groups. Answers "
-      "with the group.",
+@tool("hub_group_update", "Create, rename, move, lead or fill a group, as the person who asked you (the owner or an "
+      "admin; a group's lead within the groups it leads). Leave `group` out to create one from `name`. `parent` nests it "
+      "under another group (an empty one moves it to the top). Adding a teammate to a group takes it out of the one it "
+      "was in; built-in bots stay outside groups. Answers with the group.",
       {"group": _s("The group's id; leave out to create a new one"), "name": _s("Its name"),
        "parent": _s("The id of the group it is in; empty for the top"),
        "add_humans": {"type": "array", "items": {"type": "string"}, "description": "Human ids to put in the group"},
        "add_bots": {"type": "array", "items": {"type": "string"}, "description": "Bot slugs to put in the group"},
        "remove_humans": {"type": "array", "items": {"type": "string"}, "description": "Human ids to take out of it"},
-       "remove_bots": {"type": "array", "items": {"type": "string"}, "description": "Bot slugs to take out of it"}},
+       "remove_bots": {"type": "array", "items": {"type": "string"}, "description": "Bot slugs to take out of it"},
+       "lead": _s("Its lead: bot:<slug> or person:<id>; empty for none"), "on_behalf_of": ASKED},
       writes=True)
 def group_update(api, args):
-    who = _as_person(api)
+    who = _asked(api, args) if args.get("on_behalf_of") else _as_person(api)
     add = {"people": list(args.get("add_humans") or []), "bots": list(args.get("add_bots") or [])}
     remove = {"people": list(args.get("remove_humans") or []), "bots": list(args.get("remove_bots") or [])}
     if not args.get("group"):
         if not args.get("name"):
             raise ValueError("Name the new group, or say which group to change: hub group update <group> ...")
-        body = {"name": args["name"], "add": add, **({"parent": args["parent"]} if args.get("parent") else {})}
+        body = {"name": args["name"], "add": add, **{k: args[k] for k in ("parent", "lead") if args.get(k)}}
         return who.post("groups", body, key=_key(args))
-    body = {"add": add, "remove": remove, **{k: args[k] for k in ("name", "parent") if args.get(k) is not None}}
+    body = {"add": add, "remove": remove, **{k: args[k] for k in ("name", "parent", "lead") if args.get(k) is not None}}
     return who.patch(f"groups/{args['group']}", body, key=_key(args))
+
+
+@tool("hub_group_delete", "Delete a group, as the person who asked you (the owner or an admin). Its teammates and the "
+      "groups in it move up to its parent group.",
+      {"group": _s("The group's id"), "on_behalf_of": ASKED}, required=("group",), writes=True)
+def group_delete(api, args):
+    who = _asked(api, args) if args.get("on_behalf_of") else _as_person(api)
+    return who.call("DELETE", f"groups/{quote(str(args['group']), safe='')}", None, _key(args))
+
+
+@tool("hub_org_reports_to", "Change who a teammate reports to on the org chart, as the person who asked you: a bot "
+      "reports to a bot or a person, a person to a person. Answers with the change.",
+      {"teammate": _s("bot:<slug> or human:<id>"), "reports_to": _s("A bot's slug or human:<id> (a person: their id)"),
+       "on_behalf_of": ASKED}, required=("teammate", "reports_to"), writes=True)
+def org_reports_to(api, args):
+    who = _asked(api, args) if args.get("on_behalf_of") else _as_person(api)
+    kind, _, ref = str(args["teammate"]).strip().partition(":")
+    boss = str(args["reports_to"]).strip()
+    if kind == "human" and ref:
+        return who.post(f"humans/{quote(ref, safe='')}", {"reports_to": boss.removeprefix("human:")}, key=_key(args))
+    if kind != "bot" or not ref:
+        raise ValueError("Name the teammate as bot:<slug> or human:<id>")
+    row = next((b for b in api.get("bots") if (b.get("slug") or b.get("name")) == ref), None)
+    if not row:
+        raise ValueError("No bot " + ref)
+    return who.post(f"bots/{quote(ref, safe='')}/definition",
+                    {"reports_to": boss, "expected_revision": row.get("revision")}, key=_key(args))
 
 
 @tool("hub_org_order", "A manager's direct reports, humans and bots, in the order the team chart shows them (placed ones "
@@ -4062,8 +4090,7 @@ def audit(api, args):
                    "kind=send is to/cc/subject/body_sha256/mailbox. Skip this tool when the owner "
                    "already said send; use mail send --approve <their-message-id>. A "
                    "proposal the hub applies on approval: task_cap {sender, receiver, per_day}, spend_limit "
-                   "{bot | pool: company|group:<id>, per_30m_usd, daily_usd, weekly_usd, monthly_usd}, group "
-                   "{id?, name?, parent?, lead?, add?, remove?}, org {bot, from, to}."},
+                   "{bot | pool: company|group:<id>, per_30m_usd, daily_usd, weekly_usd, monthly_usd}."},
        "task_id": _s("The task this action belongs to"),
        "supersedes_approval": _s("Your older undecided approval this replaces (a re-cut, a redraft); it is withdrawn. "
                                  "One on the same task for the same url, recipient and subject, PR or spend is replaced anyway")},
@@ -5143,6 +5170,8 @@ AUDIENCE = {
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
+    # Org changes: the Strategy Bot's owner chat makes one the person asked for, citing their words (`on_behalf_of`).
+    **{name: REQUESTER + ("assistant",) for name in ("hub_group_update", "hub_group_delete", "hub_org_reports_to")},
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
     "hub_repo_review": ("bot", "botops"),
@@ -5150,7 +5179,7 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_stall_triage", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
-                                    "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
+                                    "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_credential_list", "hub_health_check")},

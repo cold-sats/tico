@@ -150,16 +150,15 @@ TITLE_LINT = os.environ.get("TICO_TITLE_LINT", "warn")     # warn | refuse | off
 # the write accepted, refused only when TICO_STYLE_LINT=refuse. Bots lost whole runs rewriting
 # for them. A missing title or approval field is structural and always refused.
 STYLE_LINT = os.environ.get("TICO_STYLE_LINT", "warn")     # warn | refuse | off
-APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit", "group", "org")
+APPROVAL_KINDS = ("send", "spend", "publish", "merge", "support", "task_cap", "spend_limit")
 APPROVAL_FIELDS = {"send": ("to", "cc", "subject", "body_sha256", "mailbox"),
                    "spend": ("amount", "account", "what"),
                    "publish": ("url", "content_sha256"),
                    "merge": ("repo", "pr"),
                    # A bot's own task cap (backend/task_caps.py): the pair; per_day null asks to remove the cap.
                    "task_cap": ("sender", "receiver"),
-                   # The redesign's other proposals (backend/proposals.py checks their whole shape): a spend limit, a
-                   # group change, a teammate's move to another group.
-                   "spend_limit": (), "group": (), "org": ("bot",),
+                   # The redesign's other proposal (backend/proposals.py checks its whole shape): a spend limit.
+                   "spend_limit": (),
                    # A report to the Tico team (backend/support.py `file_approved`): the message, its hash, and whether
                    # the version and install ID go with it. Nothing else may: no email, no diagnostics bundle.
                    "support": ("message", "content_sha256")}

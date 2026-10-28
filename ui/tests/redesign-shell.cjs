@@ -1,8 +1,8 @@
 // The redesign's shell (ui/app/redesign.js, ui/app/strategy-budget.js) against fixtures shaped per the redesign CONTRACT
 // (fixtures/redesign-*.json, the Acme example): the sidebar's order, helpers off the Team list, old addresses
 // redirected, Settings with its System tab and no design switch, the Strategy tabs with the
-// Strategy Bot beside them (a rail on a desktop, a sheet on a phone), the Budget tab's edits sending the CONTRACT's
-// requests, a task cap's 409 read as its message, and no "CEO Bot" anywhere. Phone first (390×844), then desktop.
+// Strategy Bot beside them (a rail on a desktop, a sheet on a phone), the Budget tab drawing (its tree and edits are
+// strategy-budget.cjs), a task cap's 409 read as its message, and no "CEO Bot" anywhere. Phone first (390×844), then desktop.
 // TICO_SCREENSHOT_DIR=<dir> saves review screenshots.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -28,7 +28,7 @@ const shownRail = page => page.$$eval('#side .side-scroll a.nav-link, #side .sid
     return c.textContent.replace(/\s+/g, ' ').trim();
   }));
 
-async function open(browser, {route = '#/updates', viewport = PHONE, capsStatus = 200, goalsDelay = 0} = {}) {
+async function open(browser, {route = '#/updates', viewport = PHONE, goalsDelay = 0} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [], sent = [], goals = {asked: 0};
   page.on('pageerror', e => errors.push(e.message));
@@ -67,7 +67,7 @@ async function open(browser, {route = '#/updates', viewport = PHONE, capsStatus 
     if (p === '/api/v2/listening/destinations') return json({destinations: [{key: 'leads', category: 'leads', threshold: 0.75, receiver: 'bot:release', source: 'settings'}],
       categories: [{id: 'leads', label: 'Leads'}], receivers: [{actor: 'bot:release', name: 'Release Manager'}]});
     if (p === '/api/v2/usage/limits') return json(fixture('redesign-usage-limits.json'));
-    if (p === '/api/v2/task-caps') return method === 'GET' ? json(fixture('redesign-task-caps.json'), capsStatus) : json({ok: true});
+    if (p === '/api/v2/task-caps') return method === 'GET' ? json(fixture('redesign-task-caps.json')) : json({ok: true});
     if (p.startsWith('/api/v2/usage/')) return json({ok: true});
     if (p === '/api/v2/tasks' && method === 'POST') return json(CAP_409, 409);
     if (p === '/api/v2/market/graph') return json({entities: [], edges: []});
@@ -133,20 +133,9 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await shot(page, 'phone-strategy-bot');
       await page.locator('.sbot-close').click();
       await page.evaluate(() => { location.hash = '#/strategy/budget'; });
-      await page.locator('[data-bd-cap]').first().waitFor();
+      await page.locator('[data-bt-open="bot:builder"]').waitFor();
       assert.ok(await noSideScroll(page), tag + ': no sideways scroll');
       await shot(page, 'phone-budget');
-      await page.locator('[data-bd-cap="1"]').click();
-      assert.ok(await page.locator('dialog.rd-sheet[open]').isVisible(), tag + ': the cap editor is a sheet');
-      await shot(page, 'phone-cap-sheet');
-      await page.locator('dialog.rd-sheet [data-close]').first().click();
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      await page.locator('[data-bd-spend="bot:builder"]').click();
-      await page.locator('dialog.rd-sheet[open] .bd-window').first().waitFor();
-      assert.ok(await page.locator('dialog.rd-sheet[open] .bd-window').evaluateAll(rows => rows.every(r => r.scrollWidth <= r.clientWidth)), tag + ': the spend sheet\'s rows fit a phone');
-      await shot(page, 'phone-spend-sheet');
-      await page.locator('dialog.rd-sheet [data-close]').first().click();
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
       await page.evaluate(() => { location.hash = '#/strategy/goals'; });
       await page.locator('#goal-body').waitFor();
       assert.equal(await page.locator('#goal-manager-panel').count(), 0, tag + ': Goals has no rail of its own');
@@ -158,12 +147,12 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.close();
     }
 
-    // Desktop: the rail reads as the mock, the Strategy Bot sits beside every tab, Budget's edits send the CONTRACT's
-    // requests, and a task cap's 409 reads as its message.
+    // Desktop: the rail reads as the mock, the Strategy Bot sits beside every tab, and a task cap's 409 reads as its
+    // message.
     {
       const tag = 'desktop';
-      const {page, errors, sent} = await open(browser, {viewport: DESKTOP, route: '#/strategy/budget'});
-      await page.locator('[data-bd-cap]').first().waitFor();
+      const {page, errors} = await open(browser, {viewport: DESKTOP, route: '#/strategy/budget'});
+      await page.locator('[data-bt-open="bot:builder"]').waitFor();
       const shown = await shownRail(page);
       assert.deepEqual(shown, ['Overview', 'Strategy', 'Updates', 'Tasks', 'Automations', 'Library', 'Docs', 'Meetings', 'Connections', 'BotOps'], tag + ': the rail, with no Strategy Bot entry');
       assert.equal(await page.locator('#tree [data-org="b:goal-manager"]').count(), 1, tag + ': the Strategy Bot stays on the Team list');
@@ -174,72 +163,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.equal(await page.locator('#sbot-fab').isVisible(), false, tag + ': no button on a desktop');
       const main = await page.locator('#main').boundingBox(), rail = await page.locator('#sbot').boundingBox();
       assert.ok(main.x + main.width <= rail.x + 1, tag + ': the page gives the rail its room');
-      assert.deepEqual(await page.locator('.bd-cap').allInnerTexts(), ['10/10 · 3 rejected', '2/5 · 1 closed', '0 · blocked'], tag + ': cap counts');
-      const amount = sel => page.locator(sel + ' .bd-amt').innerText();
-      assert.equal(await amount('[data-bd-spend="bot:builder"]'), '$5.70 / $6 · 30m', tag + ': spend per bot, by the window that binds');
-      assert.equal(await amount('[data-bd-spend="bot:goal-manager"]'), '$14 / $20 · day', tag + ': a day window binding says day');
-      assert.equal(await amount('[data-bd-spend="company"]'), '$27.38 / $80 · 30m', tag + ': cents only when there are any');
-      assert.equal(await amount('[data-bd-spend="bot:eng-lead"]'), '$2.50 / $3 · hour', tag + ': an hour limit not yet migrated still shows and binds');
-      assert.deepEqual(await page.locator('.bd-amt').first().evaluate(el => [getComputedStyle(el).fontVariantNumeric, getComputedStyle(el).fontFamily === getComputedStyle(document.body).fontFamily]),
-        ['tabular-nums', true], tag + ': tabular numerals in the body font');
-      assert.ok((await page.locator('[data-bd-spend="group:eng"]').innerText()).includes('Engineering pool'), tag + ': group spend');
-      assert.ok((await page.locator('[data-bd-spend="bot:release"]').innerText()).includes('Paused'), tag + ': a held bot says Paused');
       await shot(page, 'desktop-budget');
-
-      // Edit a cap.
-      await page.locator('[data-bd-cap="1"]').click();
-      await page.fill('dialog[open] input[name="per_day"]', '7');
-      await shot(page, 'desktop-cap-editor');
-      await page.click('dialog[open] [type=submit]');
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      // No cap.
-      await page.locator('[data-bd-cap="2"]').click();
-      await page.check('dialog[open] input[name="nocap"]');
-      assert.equal(await page.locator('dialog[open] input[name="per_day"]').isDisabled(), true, tag + ': No cap turns the number off');
-      await page.click('dialog[open] [type=submit]');
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      // Add one: the manager choices are the ones above the sender.
-      await page.click('[data-bd-add]');
-      await page.selectOption('dialog[open] select[name="sender"]', 'bot:builder');
-      assert.deepEqual(await page.locator('dialog[open] select[name="receiver"] option').evaluateAll(o => o.map(x => x.value)), ['bot:eng-lead', 'person:ana'], tag + ': managers above');
-      await page.selectOption('dialog[open] select[name="receiver"]', 'bot:eng-lead');
-      await page.fill('dialog[open] input[name="per_day"]', '4');
-      await page.click('dialog[open] [type=submit]');
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      // A bot's spend, then a group pool; a bad amount is refused in the editor.
-      await page.locator('[data-bd-spend="bot:builder"]').click();
-      assert.equal(await page.inputValue('dialog[open] input[name="per_30m_usd"]'), '6', tag + ': the editor reads the bot\'s own limit');
-      assert.equal(await page.locator('dialog[open] .bd-window').count(), 4, tag + ': four windows');
-      assert.equal(await page.locator('dialog[open] .bd-nolimit input[role="switch"]').count(), 4, tag + ': each with No limit');
-      await shot(page, 'desktop-spend-editor');
-      await page.fill('dialog[open] input[name="per_30m_usd"]', 'lots');
-      await page.click('dialog[open] [type=submit]');
-      assert.match(await page.locator('dialog[open] [data-error]').innerText(), /Per 30 min/, tag + ': a bad amount says which');
-      await page.fill('dialog[open] input[name="per_30m_usd"]', '7.5');
-      await page.check('dialog[open] input[name="monthly_usd_none"]');
-      assert.equal(await page.locator('dialog[open] input[name="monthly_usd"]').isDisabled(), true, tag + ': No limit turns the amount off');
-      await page.click('dialog[open] [type=submit]');
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      // An hour limit not yet migrated is its own row and goes back as it was.
-      await page.locator('[data-bd-spend="bot:eng-lead"]').click();
-      assert.deepEqual(await page.locator('dialog[open] .bd-window > span:first-child').allInnerTexts(),
-        ['Per 30 min', 'Per hour', 'Per day', 'Per week', 'Per month'], tag + ': the hour row');
-      assert.equal(await page.inputValue('dialog[open] input[name="hourly_usd"]'), '3', tag + ': with its amount');
-      await page.fill('dialog[open] input[name="daily_usd"]', '45');
-      await page.click('dialog[open] [type=submit]');
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      await page.locator('[data-bd-spend="group:eng"]').click();
-      await page.fill('dialog[open] input[name="daily_usd"]', '250');
-      await page.click('dialog[open] [type=submit]');
-      await page.locator('dialog[open]').waitFor({state: 'detached'});
-      assert.deepEqual(sent.filter(([m, p]) => p.startsWith('/api/v2/task-caps') || p.startsWith('/api/v2/usage/')), [
-        ['PUT', '/api/v2/task-caps', {sender: 'bot:release', receiver: 'person:ana', per_day: 7}],
-        ['DELETE', '/api/v2/task-caps?sender=bot%3Abuilder&receiver=person%3Aana', {}],
-        ['PUT', '/api/v2/task-caps', {sender: 'bot:builder', receiver: 'bot:eng-lead', per_day: 4}],
-        ['PUT', '/api/v2/usage/limits/builder', {per_30m_usd: 7.5, daily_usd: 30, weekly_usd: 120, monthly_usd: null}],
-        ['PUT', '/api/v2/usage/limits/eng-lead', {per_30m_usd: 8, hourly_usd: 3, daily_usd: 45, weekly_usd: 180, monthly_usd: 600}],
-        ['PUT', '/api/v2/usage/pools/groups/eng', {per_30m_usd: 40, daily_usd: 250, weekly_usd: 800, monthly_usd: 2500}],
-      ], tag + ': the requests');
 
       // A task cap's 409: the message is what a person reads, in a toast's words and in the bot's chat.
       const said = await page.evaluate(() => post('/v2/tasks', {title: 'Check the Acme release'}).then(() => '', e => e.message));
@@ -280,14 +204,6 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.close();
     }
 
-    // Caps not built on the server yet (404): Budget still draws spend and says so for caps.
-    {
-      const {page, errors} = await open(browser, {viewport: DESKTOP, route: '#/strategy/budget', capsStatus: 404});
-      await page.locator('[data-bd-spend="bot:builder"]').waitFor();
-      assert.equal(await page.locator('[data-bd-cap]').count(), 0, '404: no caps listed');
-      assert.deepEqual(errors, [], '404: no page errors');
-      await page.close();
-    }
   } finally {
     await browser.close();
   }

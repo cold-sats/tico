@@ -621,14 +621,13 @@ async function kpiAddBind(form, goal, done) {
 // ---------------------------------------------------------------- the page: one tree
 // The team, then every human and every bot that is not archived, nested the way the team chart nests them,
 // whether or not they have a goal. One line each: the owner, their first goal (cut short, the whole of it in the
-// tooltip) and its KPIs as small chips; more goals follow on lines of their own. Helper bots stay off the chart (as on
-// the Org tab); one with goals still shows at the end. Tapping any line opens that owner's panel.
+// tooltip) and its KPIs as small chips; more goals follow on lines of their own. Helpers stay off it, as on the Org
+// tab. Tapping a goal opens it (goalSheetOpen); tapping anything else on a line opens that owner's panel.
 function goalTreeShape() {
   const people = (S.people || []).filter(p => !p.hidden);
   const bots = (S.emps || []).filter(e => !['archived', 'retired'].includes(e.status));
   // The sidebar's own rule: built-in and message bots stay outside the chart.
-  const helper = isHelperBot;
-  const placed = bots.filter(e => !helper(e));
+  const placed = bots.filter(e => !isHelperBot(e));
   const keys = new Set([...(S.orgGroups || []).map(g => 'g:' + g.id), ...people.map(p => 'p:' + p.id), ...placed.map(e => 'b:' + e.name)]);
   const byParent = {}, groupOf = orgGroupOf(people, placed);
   const put = (parent, node) => (byParent[keys.has(parent) ? parent : ''] ||= []).push(node);
@@ -675,8 +674,10 @@ function goalTreeRows(actor, depth, goals, loose, standing = '') {
   const av = actor === GOAL_COMPANY ? `<span class="av gt-co-av" aria-hidden="true">${esc(String(info.name || 'C').trim()[0] || 'C').toUpperCase()}</span>` : info.avatar;
   const bet = g => { const st = GOALS_ST?.strategy, c = g.bet_id && (st?.bets || []).find(x => x.id === g.bet_id); return c ? ` · ${st.label_one || 'Bet'}: ${c.statement}` : ''; };
   const goalCell = g => `<span class="gt-goal" title="${esc(g.title + (g.why || !bet(g) ? ' · Why: ' + (g.why || GOAL_NOT_TIED) : '') + bet(g))}">${gdot(g.status, goalStatusNote(g))}<span class="gt-title">${esc(g.title)}</span></span>`;
+  // "+" adds a goal for this owner (a pointer's hover; a long press on a phone; the header's "+ Goal" for a keyboard).
+  const add = goalMayEdit({owner: actor}, GOALS_ST?.goals || []) ? `<span class="gt-add" data-goal-add="${esc(actor)}" aria-hidden="true" title="Add goal">+</span>` : '';
   const row = (cls, goal, inner) => `<li class="gt-row${cls}" data-owner="${esc(actor)}"${goal ? ` data-goal="${esc(goal.id)}"` : ''} style="--d:${depth}" tabindex="0" role="button">`
-    + `<span class="gt-ind" aria-hidden="true"></span>${inner}</li>`;
+    + `<span class="gt-ind" aria-hidden="true"></span>${inner}${cls.includes('gt-cont') ? '' : add}</li>`;
   const first = goals[0], words = String(standing || '').trim();
   const lead = first ? goalCell(first) + `<span class="gt-kpis">${goalChips(first.kpis)}</span>`
     : (words ? `<span class="gt-goal gt-standing" title="${esc(words)}"><span class="gt-title">${esc(words)}</span></span>` : '')
@@ -685,16 +686,6 @@ function goalTreeRows(actor, depth, goals, loose, standing = '') {
     + goals.slice(1).map(g => row(' gt-cont', g, goalCell(g) + `<span class="gt-kpis">${goalChips(g.kpis)}</span>`)).join('');
 }
 // ---------------------------------------------------------------- the strategy
-// The top of Goals is one line: the published strategy's version and summary, linked to the Strategy page
-// (ui/strategy-page.js), where the summary, the vision and the bets goals serve are written.
-function goalStrategyHtml(state) {
-  const st = state.strategy;
-  if (!st) return '';
-  const v = st.current, cut = text => text.length > 140 ? text.slice(0, 139).trimEnd() + '…' : text;
-  if (v) return `<a class="gst" id="goal-strategy" href="${STRATEGY}"><span class="gst-k">Strategy v${esc(v.n)}</span>${String(v.summary || '').trim() ? `<span class="gst-sum">${esc(cut(String(v.summary).trim()))}</span>` : ''}</a>`;
-  if (S.me?.role !== 'owner') return '';
-  return `<a class="gst" id="goal-strategy" href="${STRATEGY}"><span class="gst-k">No strategy yet</span><span class="gst-sum gst-go">Write it</span></a>`;
-}
 // The bet a goal serves, as a short chip ("Bet 2") linked to it on Strategy, with its statement beside it.
 function goalBetLineHtml(state, g) {
   const st = state.strategy, bets = st?.bets || [], c = g.bet_id && bets.find(x => x.id === g.bet_id);
@@ -786,17 +777,35 @@ function goalsRender(state) {
     const key = n.kind === 'group' ? 'g:' + n.id : n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name;
     if (path.has(key)) return '';
     const below = walk(key, depth + 1, new Set([...path, key]));
-    if (n.kind === 'group') return below ? `<li class="gt-group" style="--d:${depth}"><span class="gt-ind" aria-hidden="true"></span><span class="gt-name"><span>${esc(n.name)}</span></span></li>${below}` : '';
+    if (n.kind === 'group') {
+      const add = goalGroupOwner(n.id) ? `<span class="gt-add" data-goal-add-group="${esc(n.id)}" aria-hidden="true" title="Add goal">+</span>` : '';
+      return below ? `<li class="gt-group" data-group="${esc(n.id)}" style="--d:${depth}"><span class="gt-ind" aria-hidden="true"></span><span class="gt-name"><span>${esc(n.name)}</span></span>${add}</li>${below}` : '';
+    }
     return rows(n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, depth, n.kind === 'person' ? n.person.goals : '') + below;
   }).join('');
   const tree = goalTreeRows(GOAL_COMPANY, 0, owned[GOAL_COMPANY] || [], loose[GOAL_COMPANY] || []) + walk('', 0, new Set());
-  // Anyone else with goals (someone gone from the roster) still shows, at the end.
+  // Helpers are off the chart here (as on the Org tab); one with goals still shows below, with anyone else who has
+  // goals (someone gone from the roster), at the end.
   const rest = Object.keys(owned).filter(a => !seen.has(a)).map(a => rows(a, 0)).join('');
-  body.innerHTML = goalStrategyHtml(state) + goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}</ul>`;
+  body.innerHTML = goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}</ul>`;
+  // Tapping a goal opens it on its own (goalSheetOpen); the name, a line with no goal, or Enter opens the owner's panel.
   for (const li of body.querySelectorAll('.gt-row')) {
     const open = () => goalPanelOpen(state, li.dataset.owner, {tapped: li.dataset.goal || ''});
-    li.onclick = open;
+    li.onclick = ev => {
+      if (goalPressed(li)) return;
+      if (ev.target.closest('[data-goal-add]')) goalSheetOpen(state, {owner: li.dataset.owner});
+      else if (li.dataset.goal && ev.target.closest('.gt-goal')) goalSheetOpen(state, {goal: li.dataset.goal});
+      else open();
+    };
     li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } };
+    if (li.querySelector('[data-goal-add]')) goalLongPress(li, () => goalSheetOpen(state, {owner: li.dataset.owner}));
+  }
+  for (const li of body.querySelectorAll('.gt-group')) {
+    const plus = li.querySelector('[data-goal-add-group]');
+    if (!plus) continue;
+    const add = () => goalSheetOpen(state, {owner: goalGroupOwner(li.dataset.group)});
+    plus.onclick = add;
+    goalLongPress(li, add);
   }
   const needs = body.querySelector('#goal-needs');
   if (needs) {

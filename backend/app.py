@@ -683,6 +683,9 @@ def create_app(settings=None):
                     # A direct setting from the catalogue the person asked for runs on their words the same way.
                     setting = (not approves and request.state.identity.via == "assistant"
                                and assistant_mod.instructed_setting(request.method, request.url.path, raw))
+                    # An org change they asked for (the Strategy Bot's suggestion they said to make) runs the same way.
+                    org = (not approves and request.state.identity.via == "assistant"
+                           and assistant_mod.instructed_org(request.method, request.url.path, raw))
                     # The owner's yes to a goal read-back in their CEO Bot chat (backend/goal_read_back.py): the goal,
                     # measure and suggestion routes save exactly what it read back, or nothing (`not_agreed`).
                     goal_yes = (not approves and goal_read_back.ceo_turn(request.state.identity)
@@ -691,12 +694,12 @@ def create_app(settings=None):
                         raise goal_read_back.not_agreed("A goal change is saved only on the owner's yes to its "
                                                         "read-back, citing it (`--on-behalf-of turn`)")
                     if not goal_yes and not (asked and request.state.identity.via == "assistant" and assistant_direct()
-                            and (setting or assistant_instructed(request.method, request.url.path, raw,
+                            and (setting or org or assistant_instructed(request.method, request.url.path, raw,
                                                                  decides=bool(approves)))):
                         raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
                                       "own. A task change, comment or link, declining an approval, answering a bot's "
-                                      "question or a direct setting (`hub settings set`) that the person clearly asked "
-                                      "for in this chat runs when you cite their "
+                                      "question, a direct setting (`hub settings set`) or an org change (groups, leads, "
+                                      "reports to) that the person clearly asked for in this chat runs when you cite their "
                                       "message (`--on-behalf-of turn`). Otherwise propose it with `hub assistant propose` "
                                       "(or POST /api/v2/assistant/actions), several actions on one card (path "
                                       "/api/v2/assistant/batch); approving is a card unless the person lets you "
