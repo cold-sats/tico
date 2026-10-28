@@ -20,6 +20,7 @@ wakes the bot.
 Dormant: every route answers 404 while the `redesign` setting is off.
 """
 import json
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +28,7 @@ from . import automation_flow as F, redesign
 from .models import Contract
 from .store import H, Problem
 
+log = logging.getLogger("tico.redesign_migration")
 KEEP_HOURS = 24
 WAKES_PREFIX = "auto_wakes_"                  # custom "What wakes" automations: rules.py reads its rows from these
 GUARD = {"turns_per_hour": 300, "turns_per_day": 2500}   # CONTRACT §1 run guard defaults
@@ -683,6 +685,9 @@ def convert(store, who, accept=None):
             converted.append({"kind": obj["kind"], "id": obj["id"], **({"automation": aid} if aid else {})})
         except Problem as exc:
             failed.append({"kind": obj["kind"], "id": obj["id"], "detail": exc.detail})
+        except Exception as exc:   # one object's surprise must not leave the rest half-converted
+            log.exception("redesign migration: %s %s did not convert", obj["kind"], obj["id"])
+            failed.append({"kind": obj["kind"], "id": obj["id"], "detail": type(exc).__name__})
     kept = [{"kind": o["kind"], "id": o["id"]} for o in objects if o["_do"] and o not in work]
     result = {"converted": len(converted), "failed": failed, "kept": kept}
     with store.transaction() as c:

@@ -165,3 +165,39 @@ def test_cli_flags(argv, action):
     ns = hubcli.parser().parse_args(argv)
     assert ns.fn == "redesign" and ns.migrate == "migrate" and ns.action == action
 
+
+
+def accept_all(api):
+    return [f["id"] for o in migrate(api, "dry-run")["objects"] for f in o["flags"]]
+
+
+def test_rehearsal_cases_team_rules_paused_bots_and_long_inbox_instructions(api):
+    """What the real-data rehearsal found that the scenario fixture lacks: wake rules scoped to a department, not a
+    bot; a routine on a paused bot; an Inbox Manager whose instructions are longer than a step's text."""
+    dept = post(api, "rules", {"scope_kind": "department", "scope_id": "operations", "event": "comment",
+                               "then": "wake"})["rule"]
+    post(api, "bots/ops/routines", {"title": "Weekly ops check", "text": "Check the queue.", "cron": "0 8 * * 1",
+                                    "timezone": "UTC"})
+    with db(api).transaction() as c:
+        c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
+    post(api, "access/people/cara", {"inbox_bot": "inbox", "mailbox": "cara@acme.example"})
+    with db(api).transaction() as c:
+        c.execute("INSERT OR REPLACE INTO mail_agent_instructions(bot, content, runner_id, updated) VALUES(?,?,?,?)",
+                  ("inbox", "Sort Acme mail. " * 600, "", "2026-10-28T00:00:00Z"))
+    turn_on(api)
+    report = migrate(api, "dry-run")
+    kinds = {f["kind"] for o in report["objects"] for f in o["flags"]}
+    assert {"scope", "bot_not_active", "too_long"} <= kinds, kinds
+    rule = [o for o in by(report, "wake_rule") if o["id"] == dept["id"]][0]
+    assert rule["becomes"]["owner"] == "person:ana" and rule["becomes"]["wakes"]["scope_kind"] == "department"
+    inbox = [o for o in by(report, "inbox") if o["id"] == "inbox:cara@acme.example"][0]
+    assert [f.get("keeps") for f in inbox["flags"]] == [True]
+
+    done = migrate(api, "convert", {"accept": accept_all(api)})
+    assert not done["failed"] and {"kind": "inbox", "id": "inbox:cara@acme.example"} in done["kept"]
+    with db(api).read() as c:
+        from backend import redesign_migration
+        assert [r["id"] for r in redesign_migration.wake_rows(c, "comment")] == [dept["id"]]
+        assert c.execute("SELECT state FROM bots WHERE slug='inbox'").fetchone()[0] == "active"   # kept: not retired
+    paused = [a for a in get(api, "automations")["automations"] if a["name"] == "Weekly ops check"]
+    assert paused and paused[0]["enabled"] is False
