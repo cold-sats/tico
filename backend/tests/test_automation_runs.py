@@ -393,3 +393,30 @@ def test_a_converted_cron_routine_absorbs_an_occurrence_while_its_last_task_is_o
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE tasks SET status='closed' WHERE id=?", (turn_tasks[0]["id"],))
     assert queued(api, aid)
+
+
+def test_one_slack_message_starts_one_run_of_an_automation(api):
+    """A channel message offered once may come back as an `@Tico` event: the second offer starts nothing."""
+    turn_on(api)
+    aid = make(api, [{"id": "note", "type": "action", "do": "note", "args": {"text": "Seen"}}])
+    with api.app.state.store.transaction() as c:
+        row = dict(c.execute("SELECT * FROM automations WHERE id=?", (aid,)).fetchone())
+        assert automations.queue(c, row, {}, "slack:C1:1.0")
+        assert automations.queue(c, row, {}, "slack:C1:1.0") is None
+        assert automations.queue(c, row, {}, "slack:C1:2.0")
+
+
+def test_a_turn_has_a_day_to_answer_from_when_its_run_began_waiting(api):
+    turn_on(api)
+    rid = queued(api, make(api, []))
+    old, recent = H.shift(H.now(), days=-3), H.shift(H.now(), hours=-1)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE automation_runs SET status='waiting',wake_at=NULL,started=?,state_json=? WHERE id=?",
+                  (old, json.dumps({"threads": [], "waiting_since": recent}), rid))
+    automations.tick(api.app.state.store)
+    assert run_row(api, rid)["status"] == "waiting"
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE automation_runs SET state_json=? WHERE id=?",
+                  (json.dumps({"threads": [], "waiting_since": old}), rid))
+    automations.tick(api.app.state.store)
+    assert run_row(api, rid)["status"] == "failed"

@@ -45,6 +45,7 @@ def put(api, path, body, token="ana-test", expected=200):
 
 def test_a_lead_is_saved_and_read_back_on_the_group(api):
     gid = make_engineering(api)
+    redesign_on(api)                            # a group read shows `lead` only with the redesign on
     assert group(api, gid)["lead"] == "bot:engineering-lead"
     with api.app.state.store.read() as c:
         roster, configs = Groups._roster(c), Groups._configs(c)
@@ -186,3 +187,21 @@ def test_a_bare_person_id_in_reports_to_is_that_person_only_with_the_redesign_on
     assert P.org_parent("bot", "scout", roster, employees, bare_people=True) == "p:cara"
     assert P.org_parent("bot", "scout", roster, employees) == "p:" + roster["default_user"]   # off: as before
     assert roster["default_user"] != "cara"
+
+
+def test_a_group_read_has_no_lead_while_the_redesign_is_off(api):
+    gid = make_engineering(api)
+    assert "lead" not in group(api, gid)
+    redesign_on(api)
+    assert group(api, gid)["lead"] == "bot:engineering-lead"
+
+
+def test_deleting_a_group_takes_its_peoples_automations_to_the_group_above(api):
+    redesign_on(api)
+    outer = send(api, "POST", "groups", {"name": "Product"})["id"]
+    inner = send(api, "POST", "groups", {"name": "Web", "parent": outer, "add": {"people": ["ana"]}})["id"]
+    aid = post(api, "automations", {"name": "Acme digest", "owner": "person:ana", "group": "group:" + inner,
+                                    "trigger": {"type": "event", "name": "x.y"}, "steps": []})["id"]
+    send(api, "DELETE", "groups/" + inner)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT grp FROM automations WHERE id=?", (aid,)).fetchone()[0] == "group:" + outer

@@ -61,7 +61,7 @@ def outside(settings, slug, config, helpers=None):
     return str((config or {}).get("template") or "") in helpers
 
 
-def rows(roster, employees, archived=(), can_see=None):
+def rows(roster, employees, archived=(), can_see=None, leads=False):
     """Every group in roster order: id, name, parent, and its `people` (ids) and `bots` (slugs)."""
     people, bots = {}, {}
     for person in P.visible_people(roster):
@@ -73,7 +73,8 @@ def rows(roster, employees, archived=(), can_see=None):
         team = P.team_of(slug, employees, roster)
         if team:
             bots.setdefault(team, []).append(slug)
-    return [{"id": gid, "name": g["name"], "parent": g["parent"], "lead": g.get("lead") or "",
+    # `lead` only with the redesign on (`leads`), so a group read is as before while it is off.
+    return [{"id": gid, "name": g["name"], "parent": g["parent"], **({"lead": g.get("lead") or ""} if leads else {}),
              "people": people.get(gid, []), "bots": sorted(bots.get(gid, [])), "order": g.get("order", i),
              "bet_id": g.get("bet_id")}
             for i, (gid, g) in sorted(enumerate(roster["org_groups"].items()), key=lambda row: row[1][1].get("order", row[0]))]
@@ -179,7 +180,7 @@ def _finish(c, roster, people, changed):
 
 def one(c, roster, gid, can_see=None):
     configs = _configs(c)
-    return next(row for row in rows(roster, configs, _archived(c), can_see) if row["id"] == gid)
+    return next(row for row in rows(roster, configs, _archived(c), can_see, redesign.on(c)) if row["id"] == gid)
 
 
 def _may_change(auth, who):
@@ -220,7 +221,7 @@ def _snapshot(c):
     """Every group's row, by id, for the audit; None while the redesign is off (nothing is audited then)."""
     if not redesign.on(c):
         return None
-    return {row["id"]: row for row in rows(_roster(c), _configs(c), _archived(c))}
+    return {row["id"]: row for row in rows(_roster(c), _configs(c), _archived(c), leads=True)}
 
 
 def _audit(c, actor, before, via=None):
@@ -409,6 +410,7 @@ def delete(c, auth, who, gid):
     for person in roster["people"]:
         if person["team"] == gid:
             task_caps.forget(c, "human:" + person["id"])
+            _follow(c, "person:" + person["id"], gid, up)
             person = {**person, "team": up}
             changed.append(person)
         people.append(person)
@@ -583,7 +585,8 @@ def install(app, store, auth, mutate, settings):
         auth.domain(who)
         with store.read() as c:
             access = auth.bot_accesses(c, who)
-            return rows(_roster(c), _configs(c), _archived(c), lambda slug: access.get(slug, auth.FULL)["see"])
+            return rows(_roster(c), _configs(c), _archived(c), lambda slug: access.get(slug, auth.FULL)["see"],
+                        redesign.on(c))
 
     @app.post("/api/v2/groups")
     def group_create(request: Request, body: M.GroupCreate):

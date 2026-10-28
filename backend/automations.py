@@ -699,6 +699,11 @@ def queue(c, row, payload, ref="", *, manual=False, chain=()):
         return None
     if not manual and _absorbed(c, row):
         return None
+    if str(ref).startswith("slack:") and c.execute(
+            "SELECT 1 FROM automation_runs WHERE automation_id=? AND trigger_ref=? LIMIT 1",
+            (row["id"], str(ref)[:200])).fetchone():
+        # One Slack message, one run: a channel message offered once may come back as an `@Tico` event.
+        return None
     if _guard(c, row):
         return None
     rid = "run_" + H.new_id()
@@ -1247,6 +1252,8 @@ class Hub:
                 _cancel_mail(c, rid, state)
             _found_done(c, run["automation_id"], state, ended=status not in ("waiting", "queued"))
             waits = [t["wait"]["until"] for t in state.get("threads", []) if (t.get("wait") or {}).get("kind") == "batch"]
+            if status == "waiting":
+                state["waiting_since"] = H.now()    # a turn's day to answer runs from here, not from the run's start
             c.execute("UPDATE automation_runs SET status=?,cost=?,state_json=?,finished=?,wake_at=?,claimed_at=NULL "
                       "WHERE id=?", (status, state.get("cost", 0), json.dumps(state, default=str),
                                      None if status in ("waiting", "queued") else H.now(),
@@ -1388,9 +1395,12 @@ def tick(store, at=None):
                 c.execute("UPDATE automation_runs SET status='queued',claimed_at=NULL,state_json=? WHERE id=?",
                           (json.dumps(state, default=str), run["id"]))
         # A turn (or a mail computer) that never answered would hold the run waiting for ever.
-        for run in c.execute("SELECT id, state_json FROM automation_runs WHERE status='waiting' AND wake_at IS NULL "
-                             "AND started<?", (H.shift(now, days=-TURN_WAIT_DAYS),)).fetchall():
-            _fail(c, run["id"], json.loads(run["state_json"] or "{}"), now, "nothing answered for a day")
+        cutoff = H.shift(now, days=-TURN_WAIT_DAYS)
+        for run in c.execute("SELECT id, started, state_json FROM automation_runs WHERE status='waiting' "
+                             "AND wake_at IS NULL AND started<?", (cutoff,)).fetchall():
+            state = json.loads(run["state_json"] or "{}")
+            if (state.get("waiting_since") or run["started"]) < cutoff:
+                _fail(c, run["id"], state, now, "nothing answered for a day")
         # A hold whose turn never ended (its job lost) stops counting after a day; the sweep is on record.
         for hold in c.execute("SELECT * FROM automation_holds WHERE at<?",
                               (H.shift(now, hours=-HOLD_STALE_HOURS),)).fetchall():
