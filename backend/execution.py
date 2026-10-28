@@ -3202,7 +3202,9 @@ class Execution:
         """A running attempt the server let lapse comes back when its runner reports in within
         STALL_MAX, as long as nothing else touched the job: it is still uncertain and on this
         attempt, no review decided it, and no other attempt runs in its lane. The turn on the
-        Mac never stopped, so its result is worth more than a review of a phantom interruption."""
+        Mac never stopped, so its result is worth more than a review of a phantom interruption. Neither the computer's
+        capacity nor the bot's Turns at once is checked: refusing would not stop the turn on the Mac, only discard
+        its result, so a turn claimed while this one lapsed briefly runs beside it."""
         now = H.now()
         job = c.execute("SELECT state,message_id FROM jobs WHERE id=? AND attempt_id=?", (row["job_id"], row["id"])).fetchone()
         if (not row["finished"] or row["finished"] <= H.shift(now, seconds=-STALL_MAX)
