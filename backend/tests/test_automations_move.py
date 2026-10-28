@@ -237,3 +237,7 @@ def test_the_old_systems_routes_and_tools_are_gone(api):
     assert get(api, "automations")["automations"] is not None              # the one design answers
     names = {t["name"] for t in hubtools.TOOLS}
     assert "hub_automation_list" in names and not names.intersection(GONE_TOOLS)
+    # A bot whose instructions still name an old tool is told the automation tool that does it now.
+    assert hubtools.renamed_to("hub_routine_set") == "hub_automation_create"
+    assert hubtools.renamed_to("hub_rule_update") == "hub_automation_update"
+    assert all(new in hubtools.BY_NAME for new in hubtools.RENAMED_TOOLS.values())

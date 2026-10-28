@@ -5480,6 +5480,13 @@ RENAMED_TOOLS = {
     "hub_updates": "hub_update_list", "hub_integrations": "hub_tool_list", "hub_integration": "hub_tool_show",
     "hub_queries": "hub_tool_query_search", "hub_learn": "hub_tool_learn", "hub_decisions": "hub_decision_ask",
     "hub_judge": "hub_decision_ask", "hub_listen_judge": "hub_listening_decide",
+    # 0.5: routines and wake rules are automations (a bot's wake rules are its "What wakes" automation).
+    "hub_routine_list": "hub_automation_list", "hub_routine_set": "hub_automation_create",
+    "hub_routine_update": "hub_automation_update", "hub_routine_on": "hub_automation_update",
+    "hub_routine_off": "hub_automation_update", "hub_routine_delete": "hub_automation_delete",
+    "hub_routine_run": "hub_automation_run", "hub_rule_list": "hub_automation_list",
+    "hub_rule_set": "hub_automation_update", "hub_rule_update": "hub_automation_update",
+    "hub_rule_delete": "hub_automation_update",
 }
 RENAMED_PREFIXES = (("hub_docs_", "hub_doc_"), ("hub_files_", "hub_file_"), ("hub_meetings_", "hub_meeting_"),
                     ("hub_status_", "hub_bot_status_"), ("hub_people_", "hub_human_"), ("hub_person_", "hub_human_"),
