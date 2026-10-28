@@ -118,7 +118,8 @@ def _apply_cap(c, auth, settings, who, aid, change):
 
 def _apply_spend(c, auth, settings, who, aid, change):
     from . import usage
-    limits = M.UsageLimit(**change.model_dump(include=set(M.UsageLimit.model_fields)))
+    # Only the fields the proposal names: one it leaves out keeps its stored value (backend/usage.py `amounts`).
+    limits = M.UsageLimit(**change.model_dump(include=set(M.UsageLimit.model_fields), exclude_unset=True))
     if change.bot:
         usage.save_limit(c, auth, who, change.bot, limits, via=f"approval:{aid}")
         return f"Spend limit changed for {_name(c, 'bot:' + change.bot)}."

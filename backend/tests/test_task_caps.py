@@ -127,3 +127,45 @@ def test_a_cap_names_a_manager_above_the_sender_and_a_stranger_is_not_found(api)
     put_cap(api, {"sender": "bot:ops", "receiver": "bot:ops", "per_day": 1}, expected=422)     # no cap on one's own work
     put_cap(api, {"sender": "bot:ops", "receiver": "bot:cpo", "per_day": 1}, expected=422)     # a peer, not a manager
     put_cap(api, {"sender": "bot:ops", "receiver": "person:nobody", "per_day": 1}, expected=404)
+
+
+def test_a_hand_over_adds_a_send_and_never_takes_the_first_one_out_of_the_count(api):
+    org(api)
+    put_cap(api, {"sender": "bot:ops", "receiver": "person:ana", "per_day": 1})
+    first = task(api, "ops-test", "First", owner="ana")
+    shown = api.get(f"/api/v2/tasks/{first['id']}", headers=headers()).json()
+    r = api.post(f"/api/v2/tasks/{first['id']}", json={"version": (shown.get("task") or shown)["version"], "owner": "coo"},
+                 headers=headers())                                                     # Ana hands it to coo
+    assert r.status_code == 200, r.text
+    with api.app.state.store.read() as c:
+        senders = [row[0] for row in c.execute("SELECT sender FROM task_cap_log WHERE task_id=? ORDER BY sent_at",
+                                                 (first["id"],))]
+    assert senders == ["bot:ops", "human:ana"]                                         # both sends kept
+    assert rows(api)[("bot:ops", "person:ana")]["count"] == 1
+    task(api, "ops-test", "Second", owner="ana", expected=409)
+
+
+def test_a_retry_with_a_saved_idempotency_key_replays_instead_of_hitting_the_cap(api):
+    org(api)
+    put_cap(api, {"sender": "bot:ops", "receiver": "person:ana", "per_day": 1})
+    body = {"title": "Once", "body": "Scenario task.", "owner": "ana"}
+    first = api.post("/api/v2/tasks", json=body, headers=headers("ops-test", "retry-1"))
+    again = api.post("/api/v2/tasks", json=body, headers=headers("ops-test", "retry-1"))
+    assert first.status_code == again.status_code == 200, again.text
+    assert again.json() == first.json()
+    task(api, "ops-test", "Twice", owner="ana", expected=409)                         # a new key is a new send
+
+
+def test_the_upgrade_keeps_the_sends_already_counted(tmp_path):
+    conn = H.connect(tmp_path / "hub.db")
+    try:
+        conn.execute("DROP TABLE task_cap_log")
+        conn.execute("INSERT INTO task_cap_sends(task_id, sender, receiver, sent_at) VALUES('t1','bot:ops','human:ana',?)",
+                     (H.now(),))
+        conn.execute(f"PRAGMA user_version={H.MIGRATIONS.index(H.TASK_CAP_LOG_SCHEMA)}")
+        H.migrate(conn)
+        assert [tuple(r) for r in conn.execute("SELECT task_id, sender, receiver FROM task_cap_log")] == \
+            [("t1", "bot:ops", "human:ana")]
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == len(H.MIGRATIONS)
+    finally:
+        conn.close()

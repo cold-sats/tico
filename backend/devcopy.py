@@ -78,7 +78,7 @@ EMPTY = (
     "automations", "automation_versions", "automation_runs", "automation_mail_actions", "automation_daily",
     "automation_inboxes", "automation_effects", "automation_holds", "automation_turn_answers", "redesign_migrations",
     # Task cap counts are today's sends; the caps themselves are kept.
-    "task_cap_sends",
+    "task_cap_sends", "task_cap_log",
 )
 # Definitions `--keep-automations` keeps (out of EMPTY, or unclassified): never their queues, deliveries or secrets.
 AUTOMATIONS = ("schedules", "schedule_config", "task_rules", "triggers", "webhooks", "automations",

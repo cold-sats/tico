@@ -832,6 +832,17 @@ CREATE TABLE IF NOT EXISTS task_cap_sends(task_id TEXT PRIMARY KEY, sender TEXT,
 CREATE INDEX IF NOT EXISTS task_cap_sends_pair ON task_cap_sends(sender, receiver, sent_at);
 """
 
+# Every task cap send is kept (backend/task_caps.py): one row per task, sender, receiver and time, so a hand-over adds a
+# send and never replaces the one before it. `task_cap_sends` (one row per task) is copied in and no longer written.
+TASK_CAP_LOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_cap_log(task_id TEXT NOT NULL, sender TEXT NOT NULL, receiver TEXT NOT NULL,
+  sent_at TEXT NOT NULL, PRIMARY KEY(task_id, sender, receiver, sent_at));
+CREATE INDEX IF NOT EXISTS task_cap_log_pair ON task_cap_log(sender, receiver, sent_at);
+INSERT OR IGNORE INTO task_cap_log(task_id, sender, receiver, sent_at)
+  SELECT task_id, sender, receiver, sent_at FROM task_cap_sends
+  WHERE task_id IS NOT NULL AND sender IS NOT NULL AND receiver IS NOT NULL AND sent_at IS NOT NULL;
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
@@ -849,7 +860,7 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               WEBHOOKS_SCHEMA, SLEEP_IDLE_SCHEMA,
               TICO_NOTICES_SCHEMA, WEBHOOKS_V2_SCHEMA, WEBHOOKS_V3_SCHEMA,
               WEBHOOKS_V4_SCHEMA, WEBHOOKS_V5_SCHEMA, WEBHOOKS_V6_SCHEMA, RUN_SESSION_SCHEMA,
-              TASK_CAPS_SCHEMA]
+              TASK_CAPS_SCHEMA, TASK_CAP_LOG_SCHEMA]
 
 
 class Refused(Exception):

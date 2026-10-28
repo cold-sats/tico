@@ -241,6 +241,8 @@ class Chart:
         self.roster, self.employees = views.roster(c), views.entries(c)
         self.archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
         self.groups = self.roster.get("org_groups") or {}
+        from . import redesign
+        self.bare = redesign.on(c)                 # a bare person id in reports_to (backend/people.py org_parent)
 
     def up(self, key):
         head, _, rest = key.partition(":")
@@ -249,7 +251,7 @@ class Chart:
             lead = self.lead(rest)
             return lead or ("p:" + group["reports_to"] if group.get("reports_to") else "")
         kind = {"p": "person", "b": "bot"}.get(head)
-        return P.org_parent(kind, rest, self.roster, self.employees, self.archived) if kind else ""
+        return P.org_parent(kind, rest, self.roster, self.employees, self.archived, self.bare) if kind else ""
 
     def above(self, key):
         """Every key above this one, nearest first."""
@@ -261,9 +263,11 @@ class Chart:
 
     def lead(self, gid):
         """The group's lead (CONTRACT §3 `lead`), else the person it reports to."""
+        from . import groups as G
         group = self.groups.get(gid) or {}
-        if group.get("lead"):
-            lead = F.owner_ref(group["lead"])
+        lead = G.lead_of(gid, self.roster, self.employees) if group else ""      # a lead who left leads nothing
+        if lead:
+            lead = F.owner_ref(lead)
             return _key(lead if ":" in lead else "person:" + lead)
         return "p:" + group["reports_to"] if group.get("reports_to") else ""
 
