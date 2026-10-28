@@ -2913,7 +2913,9 @@ class Execution:
         if (task and task['owner'] == 'bot:' + row['bot']
                 and not auto_tasks.refusal(c, task, followed, woken=True, message=msg)
                 and not (msg.get("refs") or {}).get("run_now")):
-            task = auto_tasks.started(c, task, message=msg)
+            from . import automations   # the claim starts the turn: its task's change acts for the turn
+            with automations.acting_for((msg.get("refs") or {}).get("automation_chain") or ()):
+                task = auto_tasks.started(c, task, message=msg)
         roots, lanes = roots_on(runner), lanes_on(runner)
         # A turn in a task's own session runs on the bot's task model when it has one, or on its own model when that
         # cannot run here; a check keeps its check model (backend/task_models.py).
@@ -4209,6 +4211,8 @@ class Execution:
         # The runner's notices (a file left out of the commit) are shown beside the reply, not as the turn's summary.
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, summary=split_runner_notices(body.text)[0][:2000],
                       usage=self.run_usage(c, row, body), usage_reason=self.no_usage_reason(body))
+        from . import automations
+        automations.turn_done(c, row, body.outcome, body.text)   # an automation that started this turn is charged it
         # The checkpoint goes on the task whose session the turn ran in: a subtask's turn runs in its session
         # root's lane (`task:<root>`, set at claim), so it checkpoints that root, never the subtask, even if
         # the subtask moved during the turn. A lane naming a task this bot does not own checkpoints nothing.

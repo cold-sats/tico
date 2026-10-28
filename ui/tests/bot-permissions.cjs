@@ -201,7 +201,7 @@ async function access(browser) {
   await page.locator('#bot-tasks .rail-head').waitFor({state: 'attached'});
   assert.equal(await page.locator('#bot-tasks-board, #bot-sidebar-edit').count(), 0, 'no board or edit icon without read access');
   assert.equal(await page.locator('#bot-goal').count(), 0, 'no goal, no activity');
-  assert.equal(await page.locator('#bot-files, #bot-recurring, #bot-history, #bot-routines, #sess-card, #bot-updates-card').count(), 0);
+  assert.equal(await page.locator('#bot-files, #bot-history, #sess-card, #bot-updates-card').count(), 0);
   assert.match(await page.locator('.bot-request-head').innerText(), /Send a request/);
   await page.locator('#chat-composer .p-text').waitFor();
   await page.evaluate(() => { location.hash = '#/bot/intake/more'; });

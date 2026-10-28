@@ -23,9 +23,9 @@ from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "inbound", "meeting", "message", "conversation", "question", "note", "file", "doc", "chat", "assistant", "tag", "task", "replay", "goal", "kpi",
-               "proposal", "strategy", "lens", "market", "listening", "tool", "routine", "event-types", "trigger", "relay", "sleep", "notice", "settings", "release", "approval", "webhook", "pipeline", "brief", "mcp", "needs-you", "run", "team", "seat", "org", "health",
+               "proposal", "strategy", "lens", "market", "listening", "tool", "automation", "audit", "event-types", "trigger", "relay", "sleep", "notice", "settings", "release", "approval", "webhook", "pipeline", "brief", "mcp", "needs-you", "run", "team", "seat", "org", "health",
                "changelog", "update", "grokbot", "external", "calendar", "sql", "db", "classify", "gateway", "decision", "template", "bot", "repo", "skill", "agent", "human", "group", "api", "computer",
-               "credential", "slack", "support", "health-monitor", "task-manager", "stall-triage", "roadmap", "rule", "service-key"]
+               "credential", "slack", "support", "health-monitor", "task-manager", "stall-triage", "roadmap", "service-key"]
 
 
 def run_hub(*args, env=None):
@@ -438,12 +438,14 @@ class BotSetup(unittest.TestCase):
                 if self.github:
                     raise self.github
                 return {"repository": "Acme/bot-" + body["slug"], "empty": True}
-            return {"routine": {"id": path.split("/")[1] + ":" + body["key"]}}
+            return {"id": "auto_" + body["name"]}
 
         def get(self, path, **query):
             self.seen.append(path)
             if path == "config":
                 return dict(NAMES)
+            if path == "me":            # BotOps; a person's turn seeds the template's automations as that person
+                return {"actor": "bot:botops", "kind": "botops"}
             if path == "setup":
                 return json.loads(json.dumps(self.record))
             if path == "templates" and self.cards is not None:
@@ -634,11 +636,6 @@ WEBHOOK_LEAVES = [  # every leaf of the command table in docs/webhooks.md, with 
     ["trigger", "replay", "orders", "d1"], ["trigger", "recover", "orders", "--since", "6"],
     ["trigger", "relay", "create", "orders"], ["trigger", "relay", "rotate", "orders"], ["trigger", "relay", "delete", "orders"],
     ["relay", "status"], ["relay", "set", "orders", "--wake", "off"],
-    ["rule", "list", "--scope-kind", "team"],
-    ["rule", "set", "--scope-kind", "team", "--event", "webhook.received", "--then", "wake",
-     "--params", '{"bot":"ops","text":"x"}'],
-    ["rule", "update", "rul_1", "--then", "note", "--expected-revision", "2"], ["rule", "delete", "rul_1"],
-    ["rule", "suggestions"], ["rule", "apply", "sug_1"], ["rule", "dismiss", "sug_1"],
     ["webhook", "list"], ["webhook", "create", "--name", "A", "--url", "https://hooks.example.com/x"],
     ["webhook", "show", "a"], ["webhook", "update", "a", "--name", "B"], ["webhook", "rotate", "a"],
     ["webhook", "pause", "a"], ["webhook", "resume", "a"], ["webhook", "delete", "a"],

@@ -117,7 +117,7 @@ def install(app, store, auth, mutate, settings):
         if who.role not in ("human", "bot"):
             return False
         roster, entries, archived = org_shape(c)
-        return who.actor in G.above(owner, roster, entries, archived)
+        return who.actor in G.above(owner, roster, entries, archived, True)
 
     def parent_owner(c, row):
         parent = G.goal(c, row["parent_id"]) if row.get("parent_id") else None

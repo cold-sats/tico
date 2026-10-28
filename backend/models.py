@@ -867,7 +867,8 @@ class MarketPage(Contract):
 
 
 class ApprovalCreate(Contract):
-    kind: Literal["send", "spend", "publish", "merge", "support"]
+    # task_cap and spend_limit are the redesign's proposals (backend/proposals.py), refused while it is off.
+    kind: Literal["send", "spend", "publish", "merge", "support", "task_cap", "spend_limit"]
     payload: dict
     task_id: ID | None = None
     supersedes_approval: ID | None = None
@@ -1545,6 +1546,7 @@ class GroupCreate(Contract):
     parent: ID | None = None
     add: GroupMembers = Field(default_factory=GroupMembers)
     bet_id: ID | None = None               # the strategy bet the group serves (owner only)
+    lead: str | None = Field(default=None, max_length=200)   # `bot:<slug>` or `person:<id>`, a teammate of the group
 
 
 class GroupUpdate(Contract):
@@ -1555,6 +1557,7 @@ class GroupUpdate(Contract):
     add: GroupMembers = Field(default_factory=GroupMembers)
     remove: GroupMembers = Field(default_factory=GroupMembers)
     bet_id: str | None = Field(default=None, max_length=200)      # "" unlinks it from its bet (owner only)
+    lead: str | None = Field(default=None, max_length=200)        # `bot:<slug>` or `person:<id>`; "" = no lead
 
 
 class ReportOrder(Contract):
@@ -2250,6 +2253,7 @@ class RunUsage(RunUsagePart):
 
 
 class UsageLimit(Contract):
+    per_30m_usd: float | None = None
     hourly_usd: float | None = None
     daily_usd: float | None = None
     weekly_usd: float | None = None
@@ -2356,28 +2360,10 @@ class BotPlace(Contract):
     computer: str = Field(default="", max_length=200)
 
 
-# The `routines` of a go-live (`hub bot go-live --routines-file`): the bot's live Routines as they must be before it is
-# turned on. Each names an existing Routine by its id; nothing is created. Shown in help and in a refusal of a bad file.
-ROUTINES_SHAPE = ('a JSON array of objects, one per live Routine: [{"id": "<bot>:<routine>", "title": "Weekday review", '
-                  '"cron": "0 9 * * 1-5", "timezone": "America/Los_Angeles", "enabled": true}]. id, title and timezone '
-                  'are required; cron (default "") and on (an event name, default "") say when it runs; enabled defaults '
-                  'to true; no other fields')
-
-
-class RoutineExpectation(Contract):
-    id: ID
-    title: str
-    cron: str = ""
-    timezone: str
-    enabled: bool = True
-    on: str = ""
-
-
 class BotGoLive(Contract):
     """Place it if it has no computer, activate it, and start its setup with the person."""
     computer: str = Field(default="", max_length=200)
     setup: bool = True
-    routines: list[RoutineExpectation] | None = None
 
 
 class TaskSnooze(Contract):
