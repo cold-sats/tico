@@ -73,9 +73,9 @@ EMPTY = (
     # Which history rows are settled for SQL reads: the copy's own sweep settles its pruned history again.
     "read_index", "read_deps", "read_dirty",
     # The redesign's automations act on a timer or a trigger (--keep-automations keeps the definitions); their runs,
-    # mail actions, daily counts and inbox send switches never; nor a migration snapshot (restoring it would act).
+    # mail actions, effect keys, spend holds, held turn answers, daily counts and inbox send switches never; nor a migration snapshot (restoring it would act).
     "automations", "automation_versions", "automation_runs", "automation_mail_actions", "automation_daily",
-    "automation_inboxes", "redesign_migrations",
+    "automation_inboxes", "automation_effects", "automation_holds", "automation_turn_answers", "redesign_migrations",
 )
 # Definitions `--keep-automations` keeps (out of EMPTY, or unclassified): never their queues, deliveries or secrets.
 AUTOMATIONS = ("schedules", "schedule_config", "task_rules", "triggers", "webhooks", "automations",
