@@ -3569,8 +3569,9 @@ def bot_profile(api, args):
     return who.post(path, {**body, "profile": args["profile"], "expected_revision": current["revision"]}, key=_key(args))
 
 
-@tool("hub_bot_release", "Release a bot Tico stopped, as the person who asked you: after five failed runs in a row, or "
-      "for starting too many runs. Check its last runs first. Its queued work, kept while it was held, starts again.",
+@tool("hub_bot_release", "Release a bot Tico stopped, as the person who asked you: after five failed runs in a row, "
+      "for starting too many runs, or for queued runs it could not start. Check its last runs first. Its queued work, "
+      "kept while it was held, starts again.",
       {"bot": _s("Bot slug")}, ("bot",), writes=True)
 def bot_release(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/release", {}, key=_key(args))
