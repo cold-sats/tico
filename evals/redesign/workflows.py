@@ -1022,19 +1022,29 @@ def post_hook(org, url, payload, secret):
     return reply
 
 
+def billing_sending(org):
+    """Dana, who manages Billing, turns its sending on. A bot's webhook to an outside address needs that switch, and a
+    bot may not set it itself (backend/mail_settings.py: only a person who manages the bot)."""
+    reply = org.api("post", f"/api/v2/bots/{BILLING}/mail-settings", {"outbound_send": True}, wave=W3)
+    if reply.status >= 300:
+        raise Unmet(W3, f"sending: {reply.status} {reply.excerpt()}")
+    return reply
+
+
 def wf5_steps(org, f):
     receiver = Receiver()
     f["seen"] = []
     do(org, f, "trigger", W3, wf5_trigger, org)
     do(org, f, "endpoint", W3, endpoint, org, "Payments desk", "https://hooks.acme.example/payments",
        ["custom.payment_failed"])
+    do(org, f, "sending", W3, billing_sending, org)
     do(org, f, "auto", W3, lambda: make_auto(
         org, "Failed payment", "bot:" + BILLING, {"type": "webhook", "id": "stripe-payments"},
         [act("ticket", "create_task", owner="bot:" + BILLING,
-             title="Payment failed for {{body.data.object.customer}}", body="Stripe event {{body.id}}"),
+             title="Payment failed for {{webhook.data.data.object.customer}}", body="Stripe event {{webhook.data.id}}"),
          step("work", "bot_turn", bot=BILLING, prompt="Retry the payment and write to the customer."),
-         act("tell", "call_webhook", webhook=endpoint_id(f, "endpoint"), event="custom.payment_failed",
-             body={"customer": "{{body.data.object.customer}}", "event": "{{body.id}}"})]))
+         act("tell", "call_webhook", webhook=endpoint_id(f, "endpoint"), type="custom.payment_failed",
+             data={"customer": "{{webhook.data.data.object.customer}}", "event": "{{webhook.data.id}}"})]))
     url = (body(f, "trigger").get("trigger") or {}).get("url") if not isinstance(f["trigger"], Unmet) else None
     if not url:
         f["forged"] = f["signed"] = f["retry"] = Unmet(W3, "the trigger has no address")
@@ -1088,7 +1098,7 @@ def wf5_turn(f):
 
 def wf5_receiver(f):
     """The payments desk gets one request carrying the event and the customer."""
-    setup(f, "auto", "signed", "endpoint")
+    setup(f, "auto", "signed", "endpoint", "sending")
     hits = [text for _, text in f["seen"] if "cus_acme_042" in text and "custom.payment_failed" in text]
     return len(hits) == 1 and len(f["seen"]) == 1, f"{len(f['seen'])} requests; with the event: {len(hits)}"
 
