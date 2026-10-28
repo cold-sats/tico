@@ -31,6 +31,10 @@
       "description": "The bots a person can see, and their live status."
     },
     {
+      "name": "Computers",
+      "description": "The computers that run bots: what each one runs at once."
+    },
+    {
       "name": "Conversations",
       "description": "Chats with bots: send, list, and stream replies."
     },
@@ -3479,6 +3483,75 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/turns-at-once": {
+      "post": {
+        "summary": "Set the most turns the bot runs at once on every computer: null is no limit, 1 to 256 otherwise",
+        "operationId": "setBotTurnsAtOnce",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotTurnsAtOnce"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/updates": {
       "get": {
         "summary": "A bot's daily and weekly update settings",
@@ -4478,6 +4551,75 @@
         },
         "tags": [
           "Goals"
+        ]
+      }
+    },
+    "/api/v2/computers/{rid}/turns-at-once": {
+      "post": {
+        "summary": "Set the most turns a computer runs at once: null is automatic (its own capacity)",
+        "operationId": "setComputerTurnsAtOnce",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunnerTurnsAtOnce"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Computers"
         ]
       }
     },
@@ -24979,6 +25121,12 @@
               "null"
             ]
           },
+          "turns_at_once": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "task_flow": {
             "$ref": "#/components/schemas/TaskFlow"
           },
@@ -25247,6 +25395,12 @@
             "type": "string"
           },
           "keep_tasks_going": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "turns_at_once": {
             "type": [
               "integer",
               "null"
@@ -26095,6 +26249,35 @@
           "tools"
         ],
         "additionalProperties": true
+      },
+      "BotTurnsAtOnce": {
+        "properties": {
+          "turns_at_once": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 256.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns At Once",
+            "description": "Most turns this bot runs at once across all computers. Null is no limit."
+          },
+          "expected_revision": {
+            "type": "integer",
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "turns_at_once",
+          "expected_revision"
+        ],
+        "title": "BotTurnsAtOnce"
       },
       "BotUsageLimit": {
         "type": "object",
@@ -30432,7 +30615,7 @@
             "items": {
               "type": "object"
             },
-            "description": "Bots with queued work that is not starting, or left in setup for over a day (the caller may read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, lane_held, uncertain, scoped, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running and handed-back turns on update holds), since (setup only: when the bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"
+            "description": "Bots with queued work that is not starting, or left in setup for over a day (the caller may read them): bot, name, queued, oldest, computer, reason (not_ready, computer_offline, no_computer, slow, limit, updating, restarting, setup, or a reason the claim holds the work: draining, maintaining, lane_held, uncertain, scoped, bot_limit, cooling_off, run_hold, budget, backoff, readiness_unknown, sign_in_rejected, not_isolated, isolation_unknown, profile, config, check_model, unreadable), why, drain_progress (counts of running and handed-back turns on update holds), since (setup only: when the bot was added), and fix (label plus href/tab, login, move or finish; null unless the caller administers bots, or for setup may manage the bot: finish is POST /api/v2/bots/{bot}/onboarded)"
           },
           "on_fallback": {
             "type": "array",
@@ -35052,6 +35235,30 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RunNow"
+      },
+      "RunnerTurnsAtOnce": {
+        "properties": {
+          "turns_at_once": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 256.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns At Once",
+            "description": "Most turns this computer runs at once. Null is automatic: its own capacity."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "turns_at_once"
+        ],
+        "title": "RunnerTurnsAtOnce"
       },
       "Seat": {
         "type": "object",

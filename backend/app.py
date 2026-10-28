@@ -28,6 +28,7 @@ from . import repo_waits
 from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
+from . import start_places
 from . import ask_ingest, ceo_bot, invites, owner_link
 from . import login_holds
 from . import step_age
@@ -2164,6 +2165,7 @@ def create_app(settings=None):
                         # What its tasks run on: a model (empty: its own), effort and context length; null is all the same.
                         "task_model": task_models.stored(declared),
                         "keep_tasks_going": auto_tasks.of(json.loads(config["config_json"]) or {}),
+                        "turns_at_once": start_places.bot_limit(json.loads(config["config_json"]) or {}),
                         # Plain words for a cheaper task model on a high-stakes bot, against its model now ("" else).
                         "task_model_warning": task_models.warning(c, settings, bot["slug"], declared,
                                                                   task_models.of(declared)),
@@ -5906,6 +5908,7 @@ def create_app(settings=None):
             rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online,
                          "platform": r["platform"] or "", "operator": r["operator"],
                          "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots,
+                         "turns_at_once": r["turns_at_once"], "turn_limit": start_places.turn_limit(r),
                          **screen_listing(r), **performance_listing(r), **views.computer_details(c, r, who, auth),
                          **load_status(c, r["id"]), **turns})
         return rows
@@ -6108,6 +6111,25 @@ def create_app(settings=None):
         if isinstance(result, dict) and result.get("state") == "waiting_for_repository":
             return JSONResponse(result, status_code=202)
         return result
+
+    @app.post("/api/v2/runners/{rid}/turns-at-once")
+    def runner_turns_at_once(request: Request, rid: str, body: M.RunnerTurnsAtOnce):
+        """How many turns a computer runs at once; null is automatic, its own capacity. A computer that cannot take a
+        raised number (no turns_at_once_v1) runs at most the capacity it reports. Owners and admins."""
+        who = request.state.identity
+        def work(c):
+            admin_only(who, "sets how many turns a computer runs at once")
+            row = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
+            if not row:
+                raise Problem("not_found", "Computer not found", 404)
+            c.execute("UPDATE runners SET turns_at_once=? WHERE id=?", (body.turns_at_once, rid))
+            # The computer's next heartbeat reads the new limit (runner-rs events.rs: a "capacity" change).
+            c.execute("INSERT INTO changes(topic,kind,subject_id,at) VALUES('runner','capacity',?,?)", (rid, H.now()))
+            H.event(c, who.actor, "runner.turns_at_once", rid,
+                    {"before": row["turns_at_once"], "after": body.turns_at_once})
+            return {"turns_at_once": body.turns_at_once,
+                    "turn_limit": start_places.turn_limit({**dict(row), "turns_at_once": body.turns_at_once})}
+        return mutate(request, body, work)
 
     @app.post("/api/v2/runners/{rid}/member-bots")
     def runner_member_bots(request: Request, rid: str, body: M.RunnerMemberBots):
@@ -6428,6 +6450,12 @@ def create_app(settings=None):
     @app.post("/api/v2/bots/{bot}/keep-tasks-going")
     def bot_keep_tasks_going(request: Request, bot: str, body: M.BotKeepTasksGoing):
         return mutate(request, body, lambda c: settings_admin.set_keep_tasks_going(
+            c, request.state.identity, bot, body))
+
+    @app.post("/api/v2/bots/{bot}/turns-at-once")
+    def bot_turns_at_once(request: Request, bot: str, body: M.BotTurnsAtOnce):
+        """How many turns the bot runs at once across every computer; null is no limit (start_places.bot_limit)."""
+        return mutate(request, body, lambda c: settings_admin.set_turns_at_once(
             c, request.state.identity, bot, body))
 
     @app.post("/api/v2/bots/{bot}/task-model")

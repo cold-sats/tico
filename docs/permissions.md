@@ -235,6 +235,8 @@ created by a member has Instructions the Team has not reviewed, so it does not g
   bot on any computer. Placing a member's bot never hands it to the computer's owner: it stays theirs.
 - Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its owner's
   or takes members' bots.
+- **Turns at once** on a computer is set by owners and admins only. A member who manages a bot sets that bot's **Turns
+  at once** in its editor, like its other settings.
 
 A computer still hosts its owner's bots and the team owner's; taking members' bots adds members' bots, it does not move anyone else's.
 
@@ -481,6 +483,7 @@ The commands (with MCP tools of the same names):
 | `hub automation update <id> --enable\|--disable` | an automation (a routine) on or off |
 | `hub computer list [--computer C [--section S --offset N]]`, `hub health check` | the computers a bot may go on, one short row each (one computer in full with `--computer`, large sections paged); what is wrong with the bots, most urgent first, each with its fix |
 | `hub computer performance <computer> [--hours 24]` | the computer's CPU and memory over the window, its overloads and what ran in them, and its busiest processes |
+| `hub computer turns-at-once <computer> <N\|automatic>` | turns at once, 1 to 256 or `automatic`; owners and admins |
 | `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
 | `hub credential grant <name> --to <bot>`, `hub credential revoke <name> --from <bot>` | give a bot a stored credential, or take it away; at once for a credential administrator, the person who stored it (for a bot they own or manage), or a holder delegating to a bot they own or run; revoke the delegation to take it away |
 | `hub credential import <VAR> --from-bot <bot>` | move one variable from that bot's own secrets file into Credentials, granted to that bot; the computer sends the value itself and nobody sees it |

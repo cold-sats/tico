@@ -2400,6 +2400,11 @@ def parser():
     s.add_argument("bot")
     s.add_argument("limit", nargs="?", type=lambda v: None if v == 'unlimited' else 0 if v == 'off' else int(v), default=argparse.SUPPRESS)
     s.set_defaults(fn="bot keep-tasks-going")
+    s = bot.add_parser("turns-at-once",
+                       help="read or set the most turns the bot runs at once across all computers: N or unlimited")
+    s.add_argument("bot")
+    s.add_argument("limit", nargs="?", type=lambda v: None if v == 'unlimited' else int(v), default=argparse.SUPPRESS)
+    s.set_defaults(fn="bot turns-at-once")
     s = bot.add_parser("budget", help="read or set a bot's runs per hour and per day, or release it from a hold")
     s.add_argument("bot")
     s.add_argument("action", nargs="?", choices=["release"], help="release the bot from a hold instead of changing a budget")
@@ -2574,6 +2579,11 @@ def parser():
     s.add_argument("computer", help="the computer's label or id")
     s.add_argument("--hours", type=int, default=24)
     s.set_defaults(fn="computer performance")
+    s = comp.add_parser("turns-at-once",
+                        help="set how many turns a computer runs at once: N, or automatic for its own capacity")
+    s.add_argument("computer", help="the computer's id")
+    s.add_argument("limit", type=lambda v: None if v == "automatic" else int(v), help="N (1 to 256), or automatic")
+    s.set_defaults(fn="computer turns-at-once")
     cred = sub.add_parser("credential", help="ask for a credential in the chat, store one, list them").add_subparsers(dest="sub")
     s = cred.add_parser("request", help="open a card in the chat for the person to type the credential into")
     s.add_argument("env", help="the variable's name, like JIRA_BASIC_AUTH")

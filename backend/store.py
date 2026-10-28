@@ -1340,6 +1340,8 @@ class Store:
                 # When readiness was last reported (last_seen is any contact): the app waits for a report newer than a
                 # sign-out or switch before it stops looking.
                 H.add_column(c, "runners", "readiness_at", "TEXT")
+                # The owner's "Turns at once" for a computer (NULL: automatic, its own capacity).
+                H.add_column(c, "runners", "turns_at_once", "INTEGER")
                 # Clear key: a computer that missed its job (offline) clears its key copy at its next key fetch.
                 H.add_column(c, "model_login_cleared", "clear_key", "INTEGER NOT NULL DEFAULT 0")
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=55").fetchone():

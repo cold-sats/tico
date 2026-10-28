@@ -159,6 +159,10 @@ Only a Doer starts its open tasks by itself; a Reviewer starts only its review a
 Monitor starts a task when it is handed to them ([Profiles](how-it-works.md#profiles)). A Responder is given no task at all,
 and a Reviewer is given only a review or QA subtask: filing any other task for it is refused with the reason.
 
+`hub bot turns-at-once <bot> 2` caps how many of the bot's turns run at once across every computer; `unlimited` lifts
+it. The bot editor and `POST /api/v2/bots/{bot}/turns-at-once` (MCP tool `hub_bot_turns_at_once`) set the same value. At
+the limit its queued work waits and says so, on every computer.
+
 `hub bot keep-tasks-going <bot> 3` sets a cap; `off` turns it off and `unlimited` restores the default.
 Omit the value to read it. The matching MCP tool and `POST /api/v2/bots/{bot}/keep-tasks-going` use
 the same permissions and revision check. **Settings → System** lists **Start assigned tasks** using

@@ -3427,6 +3427,29 @@ def agent_pair_decline(api, args):
     return _as_person(api).post("agents/pairings/decline", {"code": args["code"]}, key=_key(args))
 
 
+@tool("hub_bot_turns_at_once", "Read or set the most turns a bot you manage runs at once across all computers. "
+      "Default no limit (null); N caps its turns on every computer together. Work over the limit waits and says so.",
+      {"bot": _s("Bot slug"), "limit": {"type": ["integer", "null"], "minimum": 1, "maximum": 256,
+       "description": "Omit to read, null for no limit, N for a cap"}}, ("bot",), writes=True)
+def bot_turns_at_once(api, args):
+    who = api.on_behalf_of_requester()
+    bot = who.get(f"bots/{args['bot']}")
+    if 'limit' not in args:
+        return {"bot": args['bot'], "turns_at_once": bot.get('turns_at_once')}
+    return who.post(f"bots/{args['bot']}/turns-at-once", {
+        "turns_at_once": args['limit'], "expected_revision": bot['revision']}, key=_key(args))
+
+
+@tool("hub_computer_turns_at_once", "Set how many turns a computer you administer runs at once. Null is automatic "
+      "(its own capacity); N is 1 to 256. A computer that cannot take a raised number runs at most the capacity it "
+      "reports.",
+      {"computer": _s("Computer id"), "limit": {"type": ["integer", "null"], "minimum": 1, "maximum": 256,
+       "description": "Null for automatic, N for a count of turns at once"}}, ("computer", "limit"), writes=True)
+def computer_turns_at_once(api, args):
+    who = api.on_behalf_of_requester()
+    return who.post(f"computers/{args['computer']}/turns-at-once", {"turns_at_once": args['limit']}, key=_key(args))
+
+
 @tool("hub_bot_keep_tasks_going", "Read or set automatic assigned-task starts for a bot you manage. "
       "Default unlimited; 0 turns it off, N caps active work. Waiting work frees a place; review subtasks have no cap.",
       {"bot": _s("Bot slug"), "limit": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000,
@@ -5365,7 +5388,11 @@ AUDIENCE = {
     "hub_repo_review": ("bot", "botops"),
     "hub_repo_product_create": ("owner", "bot", "botops"),   # a bot needs Create product repositories (server)
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_keep_tasks_going", "hub_stall_triage", "hub_bot_budget", "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_bot_turns_at_once",
+                                    "hub_computer_turns_at_once", "hub_agent_pair_show", "hub_agent_pair_approve",
+                                    "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model",
+                                    "hub_bot_keep_tasks_going", "hub_stall_triage", "hub_bot_budget",
+                                    "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
