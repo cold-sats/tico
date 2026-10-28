@@ -105,6 +105,12 @@ async function saved(page, writes, n) {
       await page.locator('.au-ed [data-op="close"]').click();
       assert.equal(await page.locator('.au-botp').isVisible(), true);
 
+      // Opened and saved untouched, the spend editor keeps the limit (it once drew blank and saved none).
+      await page.locator('[data-spend]').click();
+      assert.equal(await page.locator('[data-b="value"]').inputValue(), '5');
+      await page.locator('.au-save').click();
+      await page.waitForFunction(() => document.querySelector('.au-ed').hidden);
+      assert.deepEqual(writes.at(-1).body, {spend_cap: {per_30m: 5}});
       await page.locator('[data-spend]').click();
       await page.fill('[data-b="value"]', '3.5');
       await page.locator('.au-save').click();

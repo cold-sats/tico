@@ -16,9 +16,9 @@ function auEdOpen(ed) {
   auMenuClose();
   AU.ed = ed;
   if (ed.kind === 'step' && ed.step.type === 'decide') auDecideQs(ed);
+  if (ed.kind === 'spend') ed.value = AU.cur.spend_cap?.per_30m ?? '';   // before drawing: a blank field would save no limit
   auDrawPane(); auDrawSide();
   if (ed.kind === 'versions') void auVersionsLoad(ed);
-  if (ed.kind === 'spend') ed.value = AU.cur.spend_cap?.per_30m ?? '';
   if (ed.kind === 'step' && ed.step.type === 'decide') void auLastRun(ed);
   if (ed.kind === 'step' && ed.step.type === 'decide' && AU.sets === null) void auSetsLoad(ed);
   // A phone would open its keyboard over the sheet; a computer starts in the first field.
