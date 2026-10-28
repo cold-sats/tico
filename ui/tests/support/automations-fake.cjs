@@ -167,6 +167,7 @@ async function shot(page, name) {
   const dir = process.env.TICO_UI_SHOTS;
   if (!dir) return;
   fs.mkdirSync(dir, {recursive: true});
+  await page.evaluate(() => Promise.all(document.getAnimations().map(a => a.finished.catch(() => {}))));   // the route's fade
   await page.screenshot({path: path.join(dir, name + '.png')});
 }
 
