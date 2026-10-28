@@ -15,8 +15,9 @@ bot is free again. So the actions after a held llm step run and are checked.
 
 Limits, stated so a pass is read for what it is: a schedule has no input, so its condition is never met; the spend-cap
 outcome sets a 0.01 cap but does not spend first, so the cap is only reached if the engine spends on its own; the action
-args are empty for every action (CONTRACT names none). The sender's session is the one the task sample names (CONTRACT
-names no field for it): builder-claude's live session, which a warm-up turn opens before any automation exists."""
+args are empty except post-update's text (an action refused for want of its args is the action's, not a turn's). The
+sender's session is the one the task sample names (CONTRACT names no field for it): builder-claude's live
+session, which a warm-up turn opens before any automation exists."""
 import random
 from datetime import timedelta
 
@@ -39,6 +40,7 @@ TURN_ROUNDS = 10   # answer passes per run: a turn that starts after an answer i
 # The usage a completed turn reports: small, so the run cost is real and the spend limits stay out of the way.
 TURN_USAGE = {"input_tokens": 2_000, "cached_tokens": 0, "output_tokens": 200, "model": "claude-opus-5-5",
               "runtime": "claude", "billing": "api"}
+ARGS = {"post-update": {"text": "Matrix update"}}   # what an action cannot run without (post_update needs text)
 ACTION = {"archive": "archive", "leave-for-you": "leave_for_you", "draft-reply": "draft_reply",
           "send-reply": "send_reply", "create-task": "create_task", "label": "label", "forward": "forward",
           "wake-bot": "wake_bot", "note": "note", "post-update": "post_update", "call-webhook": "call_webhook",
@@ -89,7 +91,7 @@ def branch_steps(row, prefix):
     steps = []
     if row["worker"] != "none":
         steps.append(worker_node(row["worker"], f"w{prefix}"))
-    steps.append(node(f"act{prefix}", "action", do=ACTION[row["action"]], args={}))
+    steps.append(node(f"act{prefix}", "action", do=ACTION[row["action"]], args=ARGS.get(row["action"], {})))
     return steps
 
 
