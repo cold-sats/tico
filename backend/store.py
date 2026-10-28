@@ -813,6 +813,8 @@ class Store:
             c.executescript(_system_routines.SCHEMA)
             from . import task_rules as _task_rules
             c.executescript(_task_rules.SCHEMA)
+            from . import audit_log as _audit_log
+            c.executescript(_audit_log.SCHEMA)
             from . import rules as _rules
             c.executescript(_rules.SCHEMA)
             _rules.ensure_schema(c)

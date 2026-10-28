@@ -6850,6 +6850,8 @@ def create_app(settings=None):
     rule_suggestions.install(app, store, auth, mutate)      # before the rules' `/{rule_id}`
     wake_rules_api.install(app, store, auth, mutate)
     turn_budgets.install(app, store, auth, mutate, settings_admin)
+    from . import audit_log
+    audit_log.install(app, store, auth)
     profiles.install(app, store, auth, mutate, settings_admin)
     from . import release_flow
     release_flow.install(app, store, auth, mutate)
