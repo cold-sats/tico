@@ -220,3 +220,62 @@ def test_the_watermark_moves_only_once_an_item_is_finished(api, monkeypatch):
     with pytest.raises(Stop):   # cut off right after the find
         hub(api).drain()
     assert sql(api, "SELECT found_since FROM automations WHERE id=?", (aid,))[0]["found_since"] == before
+
+
+# ---------------------------------------------------------------------------------------------- review 2
+def test_a_resumed_run_gets_back_the_turn_it_started_and_its_own_hold_never_caps_it(api, monkeypatch):
+    turn_on(api)
+    aid = make(api, [{"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"},
+                     {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "coo", "text": "Done"}}],
+               spend_cap={"per_30m": 0.2})
+    rid = queued(api, aid)
+    save = automations.HubServices.checkpoint
+
+    def stop(self, state):
+        raise Stop()
+    monkeypatch.setattr(automations.HubServices, "checkpoint", stop)
+    with pytest.raises(Stop):   # cut off after the turn started, before the save
+        hub(api).drain()
+    monkeypatch.setattr(automations.HubServices, "checkpoint", save)
+    automations.tick(api.app.state.store, datetime.now(timezone.utc) + timedelta(minutes=20))
+    done = run_row(api, rid)
+    assert [(s["id"], s["status"]) for s in done["state"]["steps"]] == [("look", "ok"), ("tell", "ok")]
+    assert len(sql(api, "SELECT id FROM tasks WHERE title='Automation Test: look'")) == 1
+
+
+def test_a_hold_counts_until_its_turn_is_priced_and_a_lost_one_is_swept_after_a_day(api):
+    turn_on(api)
+    turn = {"id": "look", "type": "bot_turn", "bot": "ops", "prompt": "Look"}
+    aid = make(api, [turn], spend_cap={"per_30m": 0.2})
+    with api.app.state.store.transaction() as c:   # a turn started two hours ago and still going
+        c.execute("INSERT INTO automation_holds(ref,automation_id,run_id,amount,at) VALUES('t_old',?,'run_old',0.25,?)",
+                  (aid, H.shift(H.now(), hours=-2)))
+    assert post(api, f"automations/{aid}/run", {})["run"]["steps"][0]["status"] == "spend_cap"
+    automations.tick(api.app.state.store, datetime.now(timezone.utc) + timedelta(hours=25))
+    assert sql(api, "SELECT ref FROM automation_holds WHERE ref='t_old'") == []
+    swept = sql(api, "SELECT detail_json AS detail FROM events WHERE action='automation.hold_swept' AND target=?", (aid,))
+    assert len(swept) == 1 and json.loads(swept[0]["detail"])["turn"] == "t_old"
+
+
+def test_a_failed_item_is_tried_again_once_then_passed_over_and_counted(api):
+    turn_on(api)
+    bad = {"id": "gate", "type": "filter", "rules": [
+        {"when": [{"field": "item.title", "op": "contains", "value": "bad"}], "then": [{"do": "note"}]}]}
+    aid = make(api, [{**FIND, "limit": 10}, bad])
+    ids = [post(api, "tasks", {"owner": "ops", "title": f"Acme batch {word}", "body": "x"})["id"]
+           for word in ("bad", "good")]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET created=? WHERE id IN (?,?)", (H.now(), *ids))
+    counts = [post(api, f"automations/{aid}/run", {})["run"]["steps"][0]["outputs"]["count"] for _ in range(3)]
+    assert counts == [2, 1, 0]   # the good one once; the bad one twice, then passed over
+    assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
+
+
+def test_an_automation_that_finds_runs_one_at_a_time(api):
+    turn_on(api)
+    aid = make(api, [FIND])
+    first = queued(api, aid)
+    assert first and queued(api, aid) is None   # the next occurrence while the first is unfinished
+    assert get(api, f"automations/{aid}/runs")["daily"][0]["dropped"] == 1
+    hub(api).drain()
+    assert queued(api, aid)

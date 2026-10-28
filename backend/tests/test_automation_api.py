@@ -197,8 +197,8 @@ def test_run_now_runs_the_flow_and_records_each_step(api):
 
 def test_a_run_that_fails_says_which_step(api):
     turn_on(api)
-    aid = make(api, steps=[{"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "nobody"}}])["id"]
-    run = post(api, f"automations/{aid}/run", {})["run"]
+    aid = make(api, steps=[{"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "{{who}}"}}])["id"]
+    run = post(api, f"automations/{aid}/run", {"input": {"who": "nobody"}})["run"]
     assert run["status"] == "failed" and run["steps"][0]["status"] == "failed"
     assert "nobody" in run["steps"][0]["outputs"]["detail"]
 

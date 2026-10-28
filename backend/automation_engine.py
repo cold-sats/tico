@@ -20,8 +20,8 @@ services:
   question_set(ref) -> questions, and state_fields(ref) -> the set's `state` fields
   act(do, args, ctx) -> {"ok": bool, "detail": str, ...}
   start_turn(who, prompt, ctx, wait) -> {"ref": str, "turn": {bot, task, session}}, or None when the spend cap stops it
+    (checked after the effect key, so a turn already started is returned, never refused)
   find(source, query, limit) -> [item, ...]
-  spent_30m() -> dollars this automation's other runs spent (or hold for turns not priced yet) in the last 30 minutes
   next_batch() -> the next batch time (ISO), and now() -> now (ISO)
   checkpoint(state) -> None
 """
@@ -136,11 +136,6 @@ def _record(state, thread, step, status, outputs=None, cost=0.0):
     return len(state["steps"]) - 1
 
 
-def _capped(flow, state, services):
-    cap = (flow.get("spend_cap") or {}).get("per_30m")
-    return cap is not None and services.spent_30m() + state["cost"] >= float(cap)
-
-
 def _step(flow, state, thread, services):
     """Run the thread's next step, or end it at the end of its list."""
     steps = steps_at(flow, thread["trail"])
@@ -184,8 +179,17 @@ def _filter(flow, state, thread, step, services):
     _record(state, thread, step, "ok", {"rule": None, "actions": []})
 
 
+# A notice's text reaches a bot as words to act on: what arrived (mail, a webhook) goes in as quoted data, as in a
+# turn's prompt. A note on a task (not to a bot) is for the task's people and stays plain.
+NOTICE_TEXT = {"wake_bot": ("text", "prompt"), "note": ("text", "note")}
+
+
 def _act(services, do, args, values, step, key):
-    result = services.act(do, F.render_args(args, values), {"values": values, "step": step["id"], "key": key})
+    to_bot = do == "wake_bot" or (do == "note" and args.get("bot") and not values.get("task"))
+    quoted = NOTICE_TEXT[do] if to_bot else ()
+    rendered = F.render_args({k: v for k, v in args.items() if k not in quoted}, values)
+    rendered.update({k: F.render_prompt(args[k], values) for k in quoted if isinstance(args.get(k), str)})
+    result = services.act(do, rendered, {"values": values, "step": step["id"], "key": key})
     return {"do": do, **result}
 
 
@@ -207,15 +211,15 @@ def _decide(flow, state, thread, step, services):
 
 
 def _turn(flow, state, thread, step, services, who, prompt, wait):
-    if _capped(flow, state, services):
-        # The cap stops spending, not the run: later filters, decisions and actions still go.
-        _record(state, thread, step, "spend_cap")
-        return
+    # The service checks the cap (`ctx["cap"]` against what was spent, `ctx["cost"]` of it this run's) after its
+    # effect key: a resumed run whose turn already started gets that turn back, never its own hold's refusal.
     values = values_of(state, thread)
-    started = services.start_turn(who, F.render_prompt(prompt, values), {"values": values, "step": step["id"],
-                                                                         "key": str(len(state["steps"])),
-                                                                         "cost": state["cost"]}, wait)
+    cap = (flow.get("spend_cap") or {}).get("per_30m")
+    started = services.start_turn(who, F.render_prompt(prompt, values), {
+        "values": values, "step": step["id"], "key": str(len(state["steps"])), "cost": state["cost"],
+        "cap": None if cap is None else float(cap)}, wait)
     if started is None:
+        # The cap stops spending, not the run: later filters, decisions and actions still go.
         _record(state, thread, step, "spend_cap")
         return
     ref = started["ref"]

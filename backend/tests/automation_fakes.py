@@ -49,6 +49,8 @@ class Services:
     def start_turn(self, who, prompt, ctx, wait):
         if "turn" in self.fail:
             raise RuntimeError("no such bot")
+        if ctx.get("cap") is not None and self.spent_30m() + ctx["cost"] >= ctx["cap"]:
+            return None
         self.turns.append({"who": who, "prompt": prompt, "wait": wait})
         return {"ref": f"msg_{len(self.turns)}"}
 

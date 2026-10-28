@@ -240,23 +240,40 @@ def _label(c, auto, run_id, args, values):
     return _on_task("label")(c, auto, run_id, args, values)
 
 
+def _told(c, auto, bot):
+    """Where a notice to `bot` goes, when the automation may tell it (backend/automations.py `may_tell`, checked on
+    save and again here): the owner's own Assistant room for the Assistant, else the bot's own room (None)."""
+    from .automations import may_tell
+    owner, assistant_bot = auto["flow"]["owner"], auto.get("assistant_bot")
+    if not may_tell(c, owner, bot, assistant_bot):
+        raise ValueError(f"{owner} may not tell {bot}: only its own bots, a group it leads or its own Assistant")
+    if bot == assistant_bot and owner.startswith("person:"):
+        from . import assistant
+        return assistant.ensure_room(c, "human:" + owner.partition(":")[2], assistant_bot)
+    return None
+
+
 def _note(c, auto, run_id, args, values):
     if values.get("task"):
         return _on_task("note")(c, auto, run_id, args, values)
     bot = R._slug(args.get("bot"))
     if not bot:
         return _fail("note needs a task or a bot")
+    room = _told(c, auto, bot)
     ok, detail = R._tell_bot(c, "automation:" + auto["id"], bot, _text(args, "text", "note") or "A note.",
-                             {"automation": auto["id"], "automation_run": run_id, **_chain_refs(auto)}, wake=False)
+                             {"automation": auto["id"], "automation_run": run_id, **_chain_refs(auto)}, wake=False,
+                             room=room)
     return {"ok": ok, "detail": detail}
 
 
 def _wake_bot(c, auto, run_id, args, values):
     bot = R._slug(args.get("bot")) or _owner_bot(c, auto)
     text = _text(args, "text", "prompt") or f"Automation {auto['flow'].get('name')}: take a look."
+    task = task_of(c, auto, values)
+    room = _told(c, auto, bot)
     ok, detail = R._tell_bot(c, "automation:" + auto["id"], bot, text,
                              {"automation": auto["id"], "automation_run": run_id, **_chain_refs(auto)}, wake=True,
-                             task=task_of(c, auto, values))
+                             task=task, room=room)
     return {"ok": ok, "detail": detail}
 
 

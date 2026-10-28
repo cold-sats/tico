@@ -83,6 +83,8 @@ MAX_CHAIN = 3            # automations started by automations: at most this deep
 RUN_GUARD, RUN_GUARD_MINUTES = 60, 10   # more runs queued than this in that time: the automation is paused
 TURN_COST = 0.25         # what a turn holds against the spend cap when its bot has no priced turns
 TURN_COST_SAMPLE = 20    # its bot's recent priced turns averaged for the hold
+HOLD_STALE_HOURS = 24    # a hold whose turn never ended (its job lost) is swept then, and the sweep recorded
+ITEM_TRIES = 2           # a found item whose run fails is tried again once, then passed over (counted as dropped)
 LIST_BYTES = 262_144
 RUN_BYTES = 524_288
 VALUES_BYTES = 60_000    # what a judge call is shown of a run's values
@@ -315,7 +317,59 @@ def _checked(c, flow, settings=None, access=True):
         for person in _assistants(flow["steps"]):
             if flow["owner"] != "person:" + person:
                 raise Problem("forbidden", f"Only {person}'s own automation runs a turn on their Assistant", 403)
+        assistant_bot = getattr(settings, "assistant_bot", None)
+        for do, args in _actions(flow["steps"]):
+            bot = str((args or {}).get("bot") or "")
+            if do in ("wake_bot", "note") and bot and "{{" not in bot and not may_tell(c, flow["owner"], bot,
+                                                                                      assistant_bot):
+                raise Problem("forbidden", f"{flow['owner']} may not {do.replace('_', ' ')} {bot}: an automation "
+                              "tells only its owner's own bots, bots in a group its owner leads, or the owner's "
+                              "own Assistant", 403)
     return flow
+
+
+def _actions(steps):
+    """(do, args) of every action in the steps: action steps and filter rules', nested paths included."""
+    for step in steps or []:
+        if step.get("type") == "action":
+            yield step.get("do"), step.get("args") or {}
+        for rule in step.get("rules") or []:
+            for action in rule.get("then") or []:
+                yield action.get("do"), action.get("args") or {}
+        for path in step.get("paths") or []:
+            yield from _actions(path.get("steps"))
+        yield from _actions((step.get("otherwise") or {}).get("steps"))
+
+
+def _finds(steps):
+    """Whether the steps hold a `find` anywhere."""
+    return any(step.get("type") == "find" or any(_finds(p.get("steps")) for p in step.get("paths") or [])
+               or _finds((step.get("otherwise") or {}).get("steps")) for step in steps or [])
+
+
+def may_tell(c, owner, bot, assistant_bot=None):
+    """Whether an automation of `owner` may wake or leave a note for `bot`: a bot its owner's person operates (and the
+    owner itself), a bot in a group the owner leads or one nested under it, or (a person's own) the Assistant."""
+    from . import automation_actions as AA
+    bot = AA.R._slug(bot)
+    found = H.bot(c, bot) if bot else None
+    if not found:
+        return False
+    kind, _, ident = F.owner_ref(owner).partition(":")
+    if kind == "bot" and ident == bot:
+        return True
+    if bot == assistant_bot and kind == "person":
+        return bool(H.human(c, ident))
+    person = owner_person(c, owner)
+    row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    if person and row and row["operator"] == person:
+        return True
+    chart, key = Chart(c), _key(F.owner_ref(owner))
+    led = [gid for gid in chart.groups if chart.lead(gid) == key]
+    if not led:
+        return False
+    team = P.team_of(bot, chart.employees, chart.roster)
+    return any(team in P.group_and_below(gid, chart.roster) for gid in led)
 
 
 def _assistants(steps):
@@ -438,7 +492,13 @@ def _guard(c, row):
 
 
 def queue(c, row, payload, ref="", *, manual=False, chain=()):
-    """A queued run of this automation's current version, or None when the run guard paused it instead."""
+    """A queued run of this automation's current version, or None: an automation with a `find` runs one at a time (an
+    occurrence while one is unfinished is passed over, counted as dropped), and the run guard may pause it."""
+    if (not manual and _finds(flow_of(row)["steps"]) and c.execute(
+            "SELECT 1 FROM automation_runs WHERE automation_id=? AND status IN ('queued','running','waiting') LIMIT 1",
+            (row["id"],)).fetchone()):
+        _count(c, row["id"], "dropped")
+        return None
     if _guard(c, row):
         return None
     rid = "run_" + H.new_id()
@@ -654,12 +714,12 @@ def _cut(node, limit):
 
 
 def _spent(c, aid, rid):
-    """What the automation's other runs spent in the last 30 minutes, and what its turns not priced yet hold."""
+    """What the automation's other runs spent in the last 30 minutes, and what its turns not priced yet hold: a hold
+    counts until its turn is priced or ends, however long that takes (the tick sweeps one lost for a day)."""
     since = H.shift(H.now(), minutes=-30)
     ran = c.execute("SELECT coalesce(sum(cost),0) FROM automation_runs WHERE automation_id=? AND id<>? AND started>=?",
                     (aid, rid, since)).fetchone()[0]
-    held = c.execute("SELECT coalesce(sum(amount),0) FROM automation_holds WHERE automation_id=? AND at>=?",
-                     (aid, since)).fetchone()[0]
+    held = c.execute("SELECT coalesce(sum(amount),0) FROM automation_holds WHERE automation_id=?", (aid,)).fetchone()[0]
     return float(ran or 0) + float(held or 0)
 
 
@@ -670,29 +730,65 @@ def _usual_cost(c, bot):
     return round(sum(rows) / len(rows), 6) if rows else TURN_COST
 
 
-def _cursor(value):
-    """The `find` watermark: (time, id) of the last item done. An older row holds the time alone."""
+def _mark(value):
+    """The `find` watermark: the (time, id) cursor of the last item finished in order, the items finished past it
+    (`done`, while an earlier one waits for its retry) and how often each item past it failed (`tried`). Older rows
+    hold [time, id] or the time alone."""
     try:
-        at, ident = json.loads(value)
-        return str(at), str(ident)
+        mark = json.loads(value)
     except (TypeError, ValueError):
-        return (str(value or ""), "")
+        mark = [value or "", ""]
+    if isinstance(mark, list):
+        mark = {"at": mark[0] if mark else "", "id": mark[1] if len(mark) > 1 else ""}
+    if not isinstance(mark, dict):
+        mark = {"at": str(value or ""), "id": ""}
+    return {"at": str(mark.get("at") or ""), "id": str(mark.get("id") or ""),
+            "done": [tuple(map(str, p)) for p in mark.get("done") or []], "tried": dict(mark.get("tried") or {})}
 
 
-def _found_done(c, aid, state):
-    """Move the automation's `find` watermark past the items this run has finished, in order: an item still being
-    worked (and every one after it) is found again by the next run if this one stops."""
-    last = None
-    for thread in sorted((t for t in state.get("threads") or [] if t.get("item") is not None), key=lambda t: t["item"]):
-        if thread["state"] not in (E.DONE, E.FAILED):
-            break
-        value = thread.get("value") if isinstance(thread.get("value"), dict) else {}
-        last = (str(value.get("at") or ""), str(value.get("id") or ""))
-    if not last:
-        return
+def _cursor(value):
+    mark = _mark(value)
+    return mark["at"], mark["id"]
+
+
+def _found_done(c, aid, state, ended=False):
+    """Move the automation's `find` watermark past the items finished in order. An item still being worked stops it
+    (the next run finds it again if this one stops). An item whose thread failed, or that a run ended without
+    finishing (`ended`), stops it too and is found again by the next run, once: failing again it is passed over and
+    counted as dropped. Items finished past a stop are kept in `done`, so the retry never repeats them."""
     found = c.execute("SELECT found_since FROM automations WHERE id=?", (aid,)).fetchone()
-    if not found or _cursor(found[0]) < last:
-        c.execute("UPDATE automations SET found_since=? WHERE id=?", (json.dumps(list(last)), aid))
+    mark = _mark(found[0] if found else "")
+    finished = {p: True for p in mark["done"]}
+    for thread in (t for t in state.get("threads") or [] if t.get("item") is not None):
+        value = thread.get("value") if isinstance(thread.get("value"), dict) else {}
+        place, ident = (str(value.get("at") or ""), str(value.get("id") or "")), str(value.get("id") or "")
+        if thread["state"] == E.DONE:
+            mark["tried"].pop(ident, None)
+            finished[place] = True
+        elif thread["state"] == E.FAILED or ended:
+            if not thread.get("counted"):   # once per thread, however often the run is saved
+                thread["counted"] = True
+                tries = int(mark["tried"].get(ident) or 0) + 1
+                if tries >= ITEM_TRIES:
+                    mark["tried"].pop(ident, None)
+                    thread["passed_over"] = True
+                    _count(c, aid, "dropped")
+                else:
+                    mark["tried"][ident] = tries
+            finished[place] = bool(thread.get("passed_over"))
+        else:
+            finished.setdefault(place, False)
+    cursor = (mark["at"], mark["id"])
+    for place in sorted(finished):
+        if place <= cursor:
+            continue
+        if not finished[place]:
+            break
+        cursor = place
+    after = {"at": cursor[0], "id": cursor[1], "done": [list(p) for p in sorted(finished) if p > cursor and finished[p]],
+             "tried": mark["tried"]}
+    if not found or _mark(found[0]) != _mark(json.dumps(after)):
+        c.execute("UPDATE automations SET found_since=? WHERE id=?", (json.dumps(after), aid))
 
 
 def _held(c, aid, rid):
@@ -800,9 +896,10 @@ class HubServices:
         self.dirty = True
         with self.hub.store.read() as c:
             found = c.execute("SELECT found_since FROM automations WHERE id=?", (self.row["id"],)).fetchone()
-            return A.find(c, self.auto, source, query, limit, _cursor(found[0] if found else ""),
+            mark = _mark(found[0] if found else "")
+            return A.find(c, self.auto, source, query, limit, (mark["at"], mark["id"]),
                           mailboxes=owner_mailboxes(c, self.flow["owner"]) if source == "mail" else (),
-                          skip=_held(c, self.row["id"], self.run_id))
+                          skip=_held(c, self.row["id"], self.run_id) | {ident for _, ident in mark["done"]})
 
     def checkpoint(self, state):
         """Save the run after a step that did something, before the next one starts."""
@@ -811,9 +908,9 @@ class HubServices:
         self.dirty = False
 
         def work(c):
+            _found_done(c, self.row["id"], state)
             c.execute("UPDATE automation_runs SET state_json=?,cost=?,claimed_at=? WHERE id=? AND status='running'",
                       (json.dumps(state, default=str), state.get("cost", 0), H.now(), self.run_id))
-            _found_done(c, self.row["id"], state)
         self._write(work)
 
 
@@ -886,12 +983,14 @@ class Hub:
             status = state["status"]
             if any(t.get("state") == E.READY for t in state.get("threads") or []) and status not in ("failed",):
                 status = state["status"] = "queued"
+            if status == "failed":
+                _cancel_mail(c, rid, state)
+            _found_done(c, run["automation_id"], state, ended=status not in ("waiting", "queued"))
             waits = [t["wait"]["until"] for t in state.get("threads", []) if (t.get("wait") or {}).get("kind") == "batch"]
             c.execute("UPDATE automation_runs SET status=?,cost=?,state_json=?,finished=?,wake_at=?,claimed_at=NULL "
                       "WHERE id=?", (status, state.get("cost", 0), json.dumps(state, default=str),
                                      None if status in ("waiting", "queued") else H.now(),
                                      min(waits) if waits and status == "waiting" else None, rid))
-            _found_done(c, run["automation_id"], state)
             if status == "queued":
                 _ring(c)
 
@@ -924,6 +1023,7 @@ def settle_mail(c, state):
             result = json.loads((row and row["result_json"]) or "{}")
             entry["ok"] = now == "done"
             entry["detail"] = ("send_off" if entry["ok"] and result.get("send_off")
+                               else "cancelled: the run failed" if now == "cancelled"
                                else str(result.get("detail") or ("done" if entry["ok"] else "no such mail action")))
             entry.update({k: result[k] for k in ("message", "draft", "thread", "send_off") if result.get(k)})
         record["status"] = ("waiting" if any(a["queued"] for a in mail)
@@ -936,6 +1036,23 @@ def settle_mail(c, state):
     return state.get("status")
 
 
+def _cancel_mail(c, run_id, state=None):
+    """A run that ended failed (or was dropped) sends no mail later: its actions not yet claimed are cancelled, and
+    one out on a lease is cancelled when the lease runs out or its computer asks to retry."""
+    n = c.execute("UPDATE automation_mail_actions SET state='cancelled' WHERE run_id=? AND state='queued'",
+                  (run_id,)).rowcount
+    if n and state is not None:
+        settle_mail(c, state)
+    return n
+
+
+def _requeue(c, row):
+    """Where a mail action goes when its lease runs out or its computer asks to retry: back in the queue, unless
+    its run has ended failed meanwhile."""
+    run = c.execute("SELECT status FROM automation_runs WHERE id=?", (row["run_id"],)).fetchone() if row["run_id"] else None
+    return "cancelled" if run and run["status"] in ("failed", "skipped") else "queued"
+
+
 def _settle_run(c, run_id):
     """A mail action's result reached its run. A run being advanced settles as it is saved (Hub.go)."""
     run = c.execute("SELECT status, state_json, finished FROM automation_runs WHERE id=?", (run_id,)).fetchone()
@@ -944,6 +1061,8 @@ def _settle_run(c, run_id):
     state = json.loads(run["state_json"])
     status = settle_mail(c, state)
     status = "failed" if run["status"] == "failed" else status   # the tick gave up on it: it stays failed
+    if status == "failed":
+        _cancel_mail(c, run_id, state)
     c.execute("UPDATE automation_runs SET status=?, state_json=?, finished=? WHERE id=?",
               (status, json.dumps(state, default=str),
                run["finished"] or (None if status == "waiting" else H.now()), run_id))
@@ -1004,15 +1123,34 @@ def tick(store, at=None):
             state = json.loads(run["state_json"] or "{}")
             state["resumes"] = int(state.get("resumes") or 0) + 1
             if not state.get("threads") or state["resumes"] > MAX_RESUMES:
-                c.execute("UPDATE automation_runs SET status='failed',finished=?,claimed_at=NULL WHERE id=?",
-                          (now, run["id"]))
+                _fail(c, run["id"], state, now, "it was cut off more than %d times" % MAX_RESUMES)
             else:
                 c.execute("UPDATE automation_runs SET status='queued',claimed_at=NULL,state_json=? WHERE id=?",
                           (json.dumps(state, default=str), run["id"]))
-        # A turn that never answered (its bot gone, its job cancelled) would hold the run waiting for ever.
-        c.execute("UPDATE automation_runs SET status='failed',finished=? WHERE status='waiting' AND wake_at IS NULL "
-                  "AND started<?", (now, H.shift(now, days=-TURN_WAIT_DAYS)))
+        # A turn (or a mail computer) that never answered would hold the run waiting for ever.
+        for run in c.execute("SELECT id, state_json FROM automation_runs WHERE status='waiting' AND wake_at IS NULL "
+                             "AND started<?", (H.shift(now, days=-TURN_WAIT_DAYS),)).fetchall():
+            _fail(c, run["id"], json.loads(run["state_json"] or "{}"), now, "nothing answered for a day")
+        # A hold whose turn never ended (its job lost) stops counting after a day; the sweep is on record.
+        for hold in c.execute("SELECT * FROM automation_holds WHERE at<?",
+                              (H.shift(now, hours=-HOLD_STALE_HOURS),)).fetchall():
+            c.execute("DELETE FROM automation_holds WHERE ref=?", (hold["ref"],))
+            H.event(c, H.KEEPER, "automation.hold_swept", hold["automation_id"],
+                    {"run": hold["run_id"], "turn": hold["ref"], "amount": hold["amount"], "held_since": hold["at"]})
     return hub.drain() if hub else 0
+
+
+def _fail(c, rid, state, now, why):
+    """The tick gives up on a run: failed, its unclaimed mail cancelled, its unfinished items left for a retry."""
+    run = c.execute("SELECT automation_id FROM automation_runs WHERE id=?", (rid,)).fetchone()
+    if state:
+        state.update(status="failed", error=why)
+        _cancel_mail(c, rid, state)
+        _found_done(c, run["automation_id"], state, ended=True)
+    else:
+        _cancel_mail(c, rid)
+    c.execute("UPDATE automation_runs SET status='failed',finished=?,claimed_at=NULL,state_json=coalesce(?,state_json) "
+              "WHERE id=?", (now, json.dumps(state, default=str) if state else None, rid))
 
 
 def _due(trigger, at):
@@ -1031,7 +1169,6 @@ def prune(c, now):
     c.execute("UPDATE automation_runs SET state_json=NULL WHERE state_json IS NOT NULL AND finished IS NOT NULL "
               "AND finished<?", (old,))
     c.execute("DELETE FROM automation_effects WHERE at<?", (old,))
-    c.execute("DELETE FROM automation_holds WHERE at<?", (H.shift(now, days=-1),))
     c.execute("DELETE FROM automation_turn_answers WHERE at<?", (old,))
 
 
@@ -1253,6 +1390,9 @@ def install(app, store, auth, mutate):
             if row["builtin"]:
                 raise Problem("builtin", "A built-in automation cannot be deleted; the top of the org may pause it", 409)
             c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (H.now(), aid))
+            for dropped in c.execute("SELECT id FROM automation_runs WHERE automation_id=? AND status IN "
+                                     "('queued','waiting')", (aid,)).fetchall():
+                _cancel_mail(c, dropped["id"])
             c.execute("UPDATE automation_runs SET status='skipped',finished=? WHERE automation_id=? "
                       "AND status IN ('queued','waiting')", (H.now(), aid))
             audit_log.write(c, who.actor, "automation:" + aid, flow_of(row), None, _via(who))
@@ -1409,7 +1549,9 @@ def install(app, store, auth, mutate):
         if not runner or runner["operator"] not in (store.settings.processing_operators or (auth.owner_id(c),)):
             raise Problem("forbidden", "This machine is not assigned the private app-connector capability", 403)
         box = c.execute("SELECT runner_id FROM mail_mailboxes WHERE address=?", (mailbox,)).fetchone()
-        if not human_of(c, mailbox) or (box and box["runner_id"] and box["runner_id"] != runner["id"]):
+        if not box:   # not published yet: no computer has shown it reads this mailbox
+            raise Problem("forbidden", "No computer has published this mailbox yet", 403)
+        if not human_of(c, mailbox) or (box["runner_id"] and box["runner_id"] != runner["id"]):
             raise Problem("forbidden", "Another computer reads this mailbox", 403)
         return runner
 
@@ -1431,7 +1573,7 @@ def install(app, store, auth, mutate):
                     _mail_report(c, row, "failed", {**json.loads(row["result_json"] or "{}"), "ok": False,
                                                     "detail": f"no result after {MAIL_TRIES} tries"})
                 else:
-                    c.execute("UPDATE automation_mail_actions SET state='queued' WHERE id=?", (row["id"],))
+                    c.execute("UPDATE automation_mail_actions SET state=? WHERE id=?", (_requeue(c, row), row["id"]))
             rows = [dict(r) for r in c.execute(
                 "SELECT * FROM automation_mail_actions WHERE state='queued' AND mailbox=? ORDER BY created LIMIT 20",
                 (mailbox,))]
@@ -1467,9 +1609,9 @@ def install(app, store, auth, mutate):
             if not row:
                 raise Problem("not_found", "No such mail action", 404)
             mail_computer(c, who, row["mailbox"])
-            if row["state"] in ("done", "failed"):
+            if row["state"] in ("done", "failed", "cancelled"):
                 return {"id": mid, "state": row["state"]}
-            state = ("done" if body.ok else "queued" if body.retry and row["attempts"] < MAIL_TRIES else "failed")
+            state = ("done" if body.ok else _requeue(c, row) if body.retry and row["attempts"] < MAIL_TRIES else "failed")
             result = {**json.loads(row["result_json"] or "{}"), "ok": body.ok, "detail": body.detail,
                       **{k: v for k, v in (("message", body.message), ("draft", body.draft), ("thread", body.thread))
                          if v}}

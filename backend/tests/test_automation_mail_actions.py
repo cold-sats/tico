@@ -326,3 +326,43 @@ def test_a_slack_reply_delivered_after_the_switch_went_off_is_held_as_a_draft_ta
 
 
 NOTE = {"id": "tell", "type": "action", "do": "wake_bot", "args": {"bot": "ops", "text": "Look"}}
+
+
+# ---------------------------------------------------------------------------------------------- review 2
+def test_a_run_that_fails_cancels_its_unclaimed_mail_and_a_late_result_changes_nothing(api, computer):
+    aid = automate(api, SEND)
+    computer.sync()
+    with api.app.state.store.read() as c:
+        mid = c.execute("SELECT id FROM automation_mail_actions").fetchone()[0]
+    from backend import automations
+    # The mail computer is off for a day: the tick gives up on the run.
+    automations.tick(api.app.state.store, datetime.now(timezone.utc) + timedelta(days=1, hours=1))
+    run = last_run(api, aid)
+    assert run["status"] == "failed" and run["steps"][0]["outputs"]["detail"] == "cancelled: the run failed"
+    assert claim(api, computer.token)["actions"] == []           # back online: nothing to send
+    assert computer.worker.mail_action_tick() == 0 and computer.gmail.sent == []
+    late = post(api, f"automations/mail-actions/{mid}/result", {"ok": True, "detail": "sent"}, computer.token)
+    assert late["state"] == "cancelled"
+
+
+def test_a_lease_that_runs_out_after_its_run_failed_is_cancelled_not_queued(api, computer):
+    automate(api, SEND)
+    computer.sync()
+    action, = claim(api, computer.token)["actions"]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE automation_runs SET status='failed'")
+    with later(6):
+        assert claim(api, computer.token)["actions"] == []
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM automation_mail_actions WHERE id=?", (action["id"],)).fetchone()[0] == \
+            "cancelled"
+
+
+def test_no_computer_claims_or_reports_for_a_mailbox_not_published_yet(api, computer):
+    claim(api, computer.token, expected=403)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO automation_mail_actions(id,automation_id,mailbox,msg_id,action,args_json,state,created) "
+                  "VALUES('ma_1','auto_1',?,'m1','send','{}','queued',?)", (BOX, "2026-10-28T09:00:00Z"))
+    post(api, "automations/mail-actions/ma_1/result", {"ok": True, "detail": "sent"}, computer.token, expected=403)
+    computer.sync()                                          # published: now it is this computer's
+    assert len(claim(api, computer.token)["actions"]) == 1
