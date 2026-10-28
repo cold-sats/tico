@@ -1476,9 +1476,10 @@ ALLOWED = {
     "first morning": "the install never asked for the day before day one, so day one's Updates job asks for it (`Time "
                      "for your daily update (<day before>)`), and day two's yesterday was asked on day one: that one "
                      "reminder is left out of day one's wakes",
-    "turn title": "a converted routine's task is its automation's turn, titled `Automation <name>: <step> (<run>)` "
-                  "(CONTRACT section 2); a legacy release task is headed `<name>: <tag>`. Both compare by the routine's "
-                  "name (masked)",
+    "turn title": "a converted routine's turn is titled exactly its automation's name, and a find item's turn appends "
+                  "` · <item title>` (the turn-titles rule); a legacy release task is headed `<name>: <tag>`. Both "
+                  "compare by the name (masked). Until turn-titles lands the converted title still carries step and run, "
+                  "so this check can be red",
     "briefing webhook": "market.briefing is one event per ISO week (backend/market_briefing.py `post`: a replacement "
                         "with the same bets sends none). Day one and day two fall in one week, so day one's briefing "
                         "sends it and day two's replacement sends none; wf10_same checks that count, then the rest",
@@ -1503,9 +1504,10 @@ def handler(org, f, actor):
 
 
 def masked(title):
-    """A task title as the two days compare it (ALLOWED, 'turn title'): dates and the release tag masked, and a converted
-    routine's automation turn (`Automation <name>: <step> (<run>)`, CONTRACT section 2) compared by its routine's name."""
-    title = re.sub(r"^Automation (.+): [\w ]+ \(run_[0-9a-f-]+\)$", r"\1", title or "")
+    """A task title as the two days compare it (ALLOWED, 'turn title'): a converted routine's turn is titled exactly its
+    automation's name, and a find item's turn appends ` · <item title>`, which is dropped. A legacy release task's
+    heading ends with its tag. Dates and tags are masked."""
+    title = (title or "").split(" · ", 1)[0]
     title = re.sub(r": v1\.5\.\d+$", "", title)     # a legacy release task's heading ends with its tag
     title = re.sub(r"v1\.5\.\d+", "v1.5.N", title)
     return re.sub(r"\d{4}-\d{2}-\d{2}", "<date>", title)
