@@ -180,7 +180,8 @@ function renderLibrarians() {
     const el = document.getElementById(id);
     if (!el) continue;
     el.href = href;
-    el.hidden = !(S.emps || []).some(e => e.name === slug);
+    // With the redesign on, the owner's Strategy Bot is talked to beside the Strategy tabs, not from the rail.
+    el.hidden = !(S.emps || []).some(e => e.name === slug) || (id === 'nav-assistant' && slug === 'goal-manager' && redesignOn());
   }
   const label = document.querySelector('#nav-assistant [data-nav-name]');
   if (label && label.textContent !== myChatName()) label.textContent = myChatName();

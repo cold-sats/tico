@@ -382,8 +382,9 @@ const goalStrategyGet = () => v2Get('/v2/strategy').catch(() => null);
 async function goalsLoad(state) {
   let data, needs, strategy;
   try { [data, needs, strategy] = await Promise.all([get('/v2/goals/tree'), v2Get('/v2/goals/needs-you'), goalStrategyGet()]); }
-  catch (e) { $('#goal-body').innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
-  if (GOALS_ST !== state) return;
+  catch (e) { const body = GOALS_ST === state && $('#goal-body'); if (body) body.innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
+  // Left Goals before the tree came: opening a goal now would cover the next page and rewrite its address.
+  if (GOALS_ST !== state || !$('#goal-body')) return;
   state.strategy = Array.isArray(strategy?.bets) ? strategy : null;
   goalsApply(state, data, needs);
   state.loaded = true;

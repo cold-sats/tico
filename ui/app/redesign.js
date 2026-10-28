@@ -169,7 +169,7 @@ function syncStrategyBot() {
 // ----------------------------------------------------------------- Settings > General
 // The owner's switch. A reload draws the whole app again in the chosen design.
 function redesignSettingHtml() {
-  return `<div class="rd-setting-row"><label class="rd-switch"><input type="checkbox" role="switch" id="redesign-switch"${redesignOn() ? ' checked' : ''}>
+  return `<div class="rd-setting-row"><label class="rd-switch"><input type="checkbox" role="switch" class="people-switch" id="redesign-switch"${redesignOn() ? ' checked' : ''}>
     <span>New design</span></label>${helpBubble('Strategy tabs, Budget, Automations and the new sidebar. Off keeps today’s app.')}
     <span class="err" id="redesign-switch-err" role="alert" hidden></span></div>`;
 }

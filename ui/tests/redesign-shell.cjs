@@ -31,7 +31,7 @@ const shownRail = page => page.$$eval('#side .side-scroll a.nav-link, #side .sid
     return c.textContent.replace(/\s+/g, ' ').trim();
   }));
 
-async function open(browser, {redesign = false, route = '#/updates', viewport = PHONE, capsStatus = 200} = {}) {
+async function open(browser, {redesign = false, route = '#/updates', viewport = PHONE, capsStatus = 200, goalsDelay = 0} = {}) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block'});
   const errors = [], sent = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -51,7 +51,7 @@ async function open(browser, {redesign = false, route = '#/updates', viewport = 
     if (p === '/api/humans') return json(roster.humans);
     if (p === '/api/status') return json({active: [], employees: []});
     if (p === '/api/v2/status') return json({bots: []});
-    if (p === '/api/v2/goals/tree') return json({goals: [{id: 'g-1', title: 'Ship the Acme portal', owner: 'company', parent_id: null, status: 'green', rank: 0, kpis: []}], owners: {}, other_kpis: [], proposals: []});
+    if (p === '/api/v2/goals/tree') return new Promise(done => setTimeout(done, goalsDelay)).then(() => json({goals: [{id: 'g-1', title: 'Ship the Acme portal', owner: 'company', parent_id: null, status: 'green', rank: 0, kpis: []}], owners: {}, other_kpis: [], proposals: []}));
     if (p === '/api/v2/goals/needs-you') return json({items: []});
     if (p === '/api/v2/strategy') return json({current: null, bets: [], may_edit: true});
     if (p === '/api/v2/conversations') return json({conversations: []});
@@ -107,7 +107,8 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
     // On, phone first: the new rail, old addresses redirected, the Strategy tabs and the Strategy Bot as a sheet.
     {
       const tag = 'on phone';
-      const {page, errors} = await open(browser, {redesign: true});
+      // The goals tree answers slowly: #/goals/g-1 is left before it arrives, as a person tapping on would.
+      const {page, errors} = await open(browser, {redesign: true, goalsDelay: 400});
       await page.locator('#tree li').first().waitFor();
       assert.deepEqual(await railKeys(page), ['side-update', 'overview', 'welcome', 'strategy', 'updates', 'tasks', 'assistant', 'automations',
         'library', 'rd-lib', 'botops', 'goals', 'nav-pins', 'side-section', 'nav-inboxes-section'], tag + ': the new order');
@@ -122,6 +123,9 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
         assert.ok(await hashSoon(page, to), `${tag}: ${from} lands on ${to}`);
       }
       await page.locator('[data-listen-dest="leads"]').waitFor();
+      await page.waitForTimeout(600);       // past the slow tree: the goal left behind must not open over Listening
+      assert.equal(await page.evaluate(() => location.hash), '#/strategy/market/listening', tag + ': a goal left before it loaded keeps off the address');
+      assert.equal(await page.locator('#goal-panel[open]').count(), 0, tag + ': and does not open');
       assert.equal(await page.locator('.mkt-views [data-market-view="listening"][aria-current="page"]').count(), 1, tag + ': Listening is a Market view');
       await page.evaluate(() => { location.hash = '#/automations'; });
       await page.locator('#automations-root').waitFor({state: 'attached'});
@@ -137,6 +141,12 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.locator('#sbot-fab').click();
       await page.waitForFunction(() => Math.abs(document.querySelector('#sbot').getBoundingClientRect().bottom - innerHeight) < 2);
       assert.equal(await page.locator('#sbot h2').innerText(), 'Strategy Bot', tag + ': named Strategy Bot');
+      await page.locator('#sbot .gm-form .p-text').waitFor();
+      assert.deepEqual(await page.locator('#sbot .gm-form').evaluate(form => {
+        const ask = form.querySelector('.ask'), pill = form.querySelector('.p-pill').getBoundingClientRect();
+        const send = form.querySelector('.p-send').getBoundingClientRect();
+        return [getComputedStyle(ask).borderTopWidth, pill.height <= 46, send.right <= pill.right && send.left > pill.left + pill.width / 2];
+      }), ['0px', true, true], tag + ': the composer is one line, send inside on the right, no outer box');
       await shot(page, 'phone-strategy-bot');
       await page.locator('.sbot-close').click();
       await page.evaluate(() => { location.hash = '#/strategy/budget'; });
@@ -147,6 +157,13 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       assert.ok(await page.locator('dialog.rd-sheet[open]').isVisible(), tag + ': the cap editor is a sheet');
       await shot(page, 'phone-cap-sheet');
       await page.locator('dialog.rd-sheet [data-close]').first().click();
+      await page.locator('dialog[open]').waitFor({state: 'detached'});
+      await page.locator('[data-bd-spend="bot:builder"]').click();
+      await page.locator('dialog.rd-sheet[open] .bd-window').first().waitFor();
+      assert.ok(await page.locator('dialog.rd-sheet[open] .bd-window').evaluateAll(rows => rows.every(r => r.scrollWidth <= r.clientWidth)), tag + ': the spend sheet\'s rows fit a phone');
+      await shot(page, 'phone-spend-sheet');
+      await page.locator('dialog.rd-sheet [data-close]').first().click();
+      await page.locator('dialog[open]').waitFor({state: 'detached'});
       await page.evaluate(() => { location.hash = '#/strategy/goals'; });
       await page.locator('#goal-body').waitFor();
       assert.equal(await page.locator('#goal-manager-panel').count(), 0, tag + ': Goals has no rail of its own');
@@ -164,7 +181,8 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       const {page, errors, sent} = await open(browser, {redesign: true, viewport: DESKTOP, route: '#/strategy/budget'});
       await page.locator('[data-bd-cap]').first().waitFor();
       const shown = await shownRail(page);
-      assert.deepEqual(shown.filter(t => !['Strategy Bot'].includes(t)), ['Overview', 'Strategy', 'Updates', 'Tasks', 'Automations', 'Library', 'Docs', 'Meetings', 'BotOps'], tag + ': the rail');
+      assert.deepEqual(shown, ['Overview', 'Strategy', 'Updates', 'Tasks', 'Automations', 'Library', 'Docs', 'Meetings', 'BotOps'], tag + ': the rail, with no Strategy Bot entry');
+      assert.equal(await page.locator('#tree [data-org="b:goal-manager"]').count(), 1, tag + ': the Strategy Bot stays on the Team list');
       assert.ok(!shown.includes('Goals'), tag + ': Goals left the rail');
       assert.equal(await page.locator('#nav-inboxes-section').isVisible(), false, tag + ': Message bots hidden');
       assert.equal(await page.locator('#side a[data-nav="strategy"].cur').count(), 1, tag + ': Strategy is current');
@@ -173,7 +191,12 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       const main = await page.locator('#main').boundingBox(), rail = await page.locator('#sbot').boundingBox();
       assert.ok(main.x + main.width <= rail.x + 1, tag + ': the page gives the rail its room');
       assert.deepEqual(await page.locator('.bd-cap').allInnerTexts(), ['10/10 · 3 rejected', '2/5 · 1 closed', '0 · blocked'], tag + ': cap counts');
-      assert.ok((await page.locator('[data-bd-spend="bot:builder"]').innerText()).includes('$ 5.70 / $ 6.00'), tag + ': spend per bot');
+      const amount = sel => page.locator(sel + ' .bd-amt').innerText();
+      assert.equal(await amount('[data-bd-spend="bot:builder"]'), '$5.70 / $6 · 30m', tag + ': spend per bot, by the window that binds');
+      assert.equal(await amount('[data-bd-spend="bot:goal-manager"]'), '$14 / $20 · day', tag + ': a day window binding says day');
+      assert.equal(await amount('[data-bd-spend="company"]'), '$27.38 / $80 · 30m', tag + ': cents only when there are any');
+      assert.deepEqual(await page.locator('.bd-amt').first().evaluate(el => [getComputedStyle(el).fontVariantNumeric, getComputedStyle(el).fontFamily === getComputedStyle(document.body).fontFamily]),
+        ['tabular-nums', true], tag + ': tabular numerals in the body font');
       assert.ok((await page.locator('[data-bd-spend="group:eng"]').innerText()).includes('Engineering pool'), tag + ': group spend');
       assert.ok((await page.locator('[data-bd-spend="bot:release"]').innerText()).includes('Paused'), tag + ': a held bot says Paused');
       await shot(page, 'desktop-budget');
@@ -200,12 +223,16 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
       await page.locator('dialog[open]').waitFor({state: 'detached'});
       // A bot's spend, then a group pool; a bad amount is refused in the editor.
       await page.locator('[data-bd-spend="bot:builder"]').click();
-      assert.equal(await page.inputValue('dialog[open] input[name="per_30m_usd"]'), '6.00', tag + ': the editor reads the bot\'s own limit');
+      assert.equal(await page.inputValue('dialog[open] input[name="per_30m_usd"]'), '6', tag + ': the editor reads the bot\'s own limit');
+      assert.equal(await page.locator('dialog[open] .bd-window').count(), 4, tag + ': four windows');
+      assert.equal(await page.locator('dialog[open] .bd-nolimit input[role="switch"]').count(), 4, tag + ': each with No limit');
+      await shot(page, 'desktop-spend-editor');
       await page.fill('dialog[open] input[name="per_30m_usd"]', 'lots');
       await page.click('dialog[open] [type=submit]');
       assert.match(await page.locator('dialog[open] [data-error]').innerText(), /Per 30 min/, tag + ': a bad amount says which');
       await page.fill('dialog[open] input[name="per_30m_usd"]', '7.5');
-      await page.fill('dialog[open] input[name="monthly_usd"]', '');
+      await page.check('dialog[open] input[name="monthly_usd_none"]');
+      assert.equal(await page.locator('dialog[open] input[name="monthly_usd"]').isDisabled(), true, tag + ': No limit turns the amount off');
       await page.click('dialog[open] [type=submit]');
       await page.locator('dialog[open]').waitFor({state: 'detached'});
       await page.locator('[data-bd-spend="group:eng"]').click();
@@ -236,6 +263,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
         await page.waitForFunction(t => document.querySelector('.strat-tabs a.cur')?.textContent === t, tab);
         assert.ok(await page.locator('#sbot').isVisible(), `${tag}: the Strategy Bot beside ${hash}`);
         if (hash === '#/strategy/goals') await shot(page, 'desktop-goals');
+        if (hash === '#/strategy') await shot(page, 'desktop-strategy-bot');
         if (hash === '#/strategy/org') await shot(page, 'desktop-org');
         if (hash === '#/strategy/market/listening') await shot(page, 'desktop-listening');
       }

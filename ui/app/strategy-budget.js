@@ -7,8 +7,24 @@
 'use strict';
 
 let BUDGET = null;          // the open tab: {load, mode, limits, caps, capsError}
-const BUDGET_PERIODS = [['per_30m_usd', 'Per 30 min'], ['daily_usd', 'Per day'], ['weekly_usd', 'Per week'], ['monthly_usd', 'Per month']];
-const budgetMoney = n => '$ ' + Number(n || 0).toFixed(2);
+// [limit field, label, spent field, short window name] (CONTRACT §1 Spend names).
+const BUDGET_PERIODS = [['per_30m_usd', 'Per 30 min', '30m_spent', '30m'], ['daily_usd', 'Per day', 'day_spent', 'day'],
+  ['weekly_usd', 'Per week', 'week_spent', 'week'], ['monthly_usd', 'Per month', 'month_spent', 'month']];
+// "$27.38", "$80", "$5,000": cents only when there are any.
+const budgetMoney = n => {
+  const v = Math.round(Number(n || 0) * 100) / 100;
+  return '$' + v.toLocaleString('en-US', {minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2});
+};
+const budgetPlain = n => { const v = Math.round(Number(n) * 100) / 100; return Number.isInteger(v) ? String(v) : v.toFixed(2); };
+// The window that binds: the one the bot is held by, else the set one nearest its limit (the shorter on a tie).
+function budgetBinding(row) {
+  const set = BUDGET_PERIODS.filter(([k]) => row?.[k] != null);
+  if (!set.length) return null;
+  const held = set.find(p => p[3] === row.blocked || p[3] === row.blocked_by?.period);
+  if (held) return held;
+  const ratio = ([k, , spent]) => row[k] > 0 ? (row[spent] || 0) / row[k] : Infinity;
+  return set.reduce((best, p) => ratio(p) > ratio(best) ? p : best);
+}
 // Teammate refs (CONTRACT): bot:<slug>, person:<id>.
 const budgetName = ref => {
   const [kind, ...rest] = String(ref || '').split(':'), id = rest.join(':');
@@ -73,11 +89,12 @@ function budgetRender(state) {
   };
 }
 
-// A row: the name, "$ spent / $ limit" for the 30-minute window, a bar, and Paused when the bot is held.
+// A row: the name, "$spent / $limit · window" for the window that binds, a bar, and Paused when the bot is held.
 function budgetSpendRow(key, name, row, {pool = false} = {}) {
-  const cap = row?.per_30m_usd, spent = row?.['30m_spent'] || 0, pct = cap ? Math.min(100, Math.round(spent / cap * 100)) : 0;
-  const tone = row?.blocked ? 'bad' : cap && pct >= 90 ? 'warn' : '';
-  const amount = cap != null ? `${budgetMoney(spent)} / ${budgetMoney(cap)}` : 'No limit';
+  const bind = budgetBinding(row), cap = bind ? row[bind[0]] : null, spent = bind ? row[bind[2]] || 0 : 0;
+  const pct = cap ? Math.min(100, Math.round(spent / cap * 100)) : cap === 0 ? 100 : 0;
+  const tone = row?.blocked ? 'bad' : bind && pct >= 90 ? 'warn' : '';
+  const amount = bind ? `${budgetMoney(spent)} / ${budgetMoney(cap)} · ${bind[3]}` : 'No limit';
   const may = pool ? !!BUDGET.limits?.may_edit_default : row?.may_edit !== false;
   const inner = `<span class="bd-name">${esc(name)}</span><span class="bd-amt">${amount}</span>
     <span class="bd-bar" aria-hidden="true"><i style="width:${pct}%"></i></span>${row?.blocked ? '<span class="bd-paused">Paused</span>' : ''}`;
@@ -103,25 +120,35 @@ function budgetSpendHtml(state) {
   return html || '<p class="muted bd-none">No bots</p>';
 }
 
-// The money editor: four windows; an empty one is no limit.
+// The money editor: the four windows, each an amount or No limit.
 function budgetSpendEdit(key, name) {
   const limits = BUDGET?.limits || {};
   const row = key === 'company' ? limits.pools?.company : key.startsWith('group:') ? limits.pools?.groups?.[key.slice(6)] : limits.bots?.[key.slice(4)];
   const own = k => row?.['own_' + k] !== undefined ? row['own_' + k] : row?.[k];
-  const body = `<div class="bd-fields">${BUDGET_PERIODS.map(([k, label]) => `<label class="bd-field"><span>${label}</span>
-      <span class="bd-money">$<input name="${k}" inputmode="decimal" autocomplete="off" value="${own(k) != null ? Number(own(k)).toFixed(2) : ''}" aria-label="${label}"></span></label>`).join('')}</div>`;
+  const body = `<div class="bd-fields">${BUDGET_PERIODS.map(([k, label]) => {
+    const v = own(k), none = v == null;
+    return `<div class="bd-field bd-window"><span>${label}</span>
+      <span class="bd-money">$<input name="${k}" inputmode="decimal" autocomplete="off" value="${none ? '' : budgetPlain(v)}"${none ? ' disabled' : ''} aria-label="${label}"></span>
+      <label class="bd-nolimit"><input type="checkbox" role="switch" class="people-switch" name="${k}_none"${none ? ' checked' : ''}><span>No limit</span></label></div>`;
+  }).join('')}</div>`;
   const path = key === 'company' ? '/v2/usage/pools/company' : key.startsWith('group:') ? '/v2/usage/pools/groups/' + encodeURIComponent(key.slice(6))
     : '/v2/usage/limits/' + encodeURIComponent(key.slice(4));
   const dlg = useDialog(name, body, async form => {
     const amounts = {};
     for (const [k, label] of BUDGET_PERIODS) {
+      if (form[k + '_none'].checked) { amounts[k] = null; continue; }
       const t = String(form[k].value).trim().replace(/^\$\s*/, '');
-      if (t !== '' && !/^\d+(\.\d{1,2})?$/.test(t)) throw new Error(`${label}: a dollar amount, like 4.00`);
-      amounts[k] = t === '' ? null : Number(t);
+      if (!/^\d+(\.\d{1,2})?$/.test(t)) throw new Error(`${label}: a dollar amount, like 4.00, or No limit`);
+      amounts[k] = Number(t);
     }
     await put(path, amounts);
   }, budgetReload);
   dlg.classList.add('rd-sheet');
+  const form = dlg.querySelector('form');
+  for (const [k] of BUDGET_PERIODS) form[k + '_none'].onchange = () => {
+    form[k].disabled = form[k + '_none'].checked;
+    if (!form[k].disabled) form[k].focus();
+  };
 }
 
 // Who may be a cap's receiver: a manager above the sender on the chart (the hub refuses anyone else).
@@ -145,7 +172,7 @@ function budgetCapEdit(cap) {
   const none = cap ? cap.per_day == null : false;
   const body = `${pick}<label class="bd-field"><span>Tasks per day ${helpBubble('0 = go through the manager in between.')}</span>
       <input name="per_day" inputmode="numeric" autocomplete="off" value="${cap?.per_day ?? (cap ? '' : 5)}"${none ? ' disabled' : ''} aria-label="Tasks per day"></label>
-    ${cap ? `<label class="bd-field bd-switch"><span>No cap</span><input type="checkbox" role="switch" name="nocap"${none ? ' checked' : ''}></label>` : ''}`;
+    ${cap ? `<label class="bd-field bd-switch"><span>No cap</span><input type="checkbox" role="switch" class="people-switch" name="nocap"${none ? ' checked' : ''}></label>` : ''}`;
   const title = cap ? `${budgetName(cap.sender)} → ${budgetName(cap.receiver)}` : 'Add cap';
   const dlg = useDialog(title, body, async form => {
     const sender = cap ? cap.sender : form.sender.value, receiver = cap ? cap.receiver : form.receiver.value;
