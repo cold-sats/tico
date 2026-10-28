@@ -249,7 +249,8 @@ def install(app, store, auth, mutate, settings):
         mine = usage_limits.own(c, bot)
         # With the redesign on, the capped pools it counts against, nearest group first: they follow its home group.
         pools = {"pools": usage_limits.scopes_of(c, bot, default)} if redesign.on(c) else {}
-        return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed, **pools}
+        return {**found, **{"own_" + key: mine[key] for key in usage_limits.KEYS}, "may_edit": bot in allowed, **pools,
+                "spent": usage_limits.spent_now(c, bot=bot, default=default)}
 
     def pool_views(c, default, led=None):
         """Every group with what it and the whole team are capped at and have spent (the owner and administrators).
@@ -258,28 +259,34 @@ def install(app, store, auth, mutate, settings):
         named, _ = usage_limits.groups(c, default)
         groups = {gid: {"name": g.get("name") or gid, "parent": g.get("parent") or None,
                         **usage_limits.pool_state(c, "group:" + gid, default=default),
+                        "spent": usage_limits.spent_now(c, scope="group:" + gid, default=default),
                         **({"may_edit": True} if led is not None else {})}
                   for gid, g in named.items() if led is None or gid in led}
         if led is not None:
             return {"company": None, "groups": groups}
-        return {"company": usage_limits.pool_state(c, usage_limits.COMPANY, default=default), "groups": groups}
+        return {"company": {**usage_limits.pool_state(c, usage_limits.COMPANY, default=default),
+                            "spent": usage_limits.spent_now(c, scope=usage_limits.COMPANY, default=default)},
+                "groups": groups}
 
     @app.get("/api/v2/usage/limits")
     def limits(request: Request):
-        """The company default, the limits of every bot the caller may see usage for and, for the owner and
-        administrators, the team's and each group's combined limits."""
+        """The company default, the limits of every bot the caller may see usage for (a lead's: also the bots in the
+        groups it leads) and, for the owner and administrators, the team's and each group's combined limits; a lead gets
+        the pools of what it leads, listed in `leads`. Each bot and pool row carries `spent`, what it has spent so far in
+        each window whether capped or not, which Strategy › Budget adds up the org chart: one read for the whole tree."""
         who = request.state.identity
         auth.domain(who)
         if who.role not in ("owner", "human"):
             raise Problem("forbidden", "Usage is for people", 403)
-        with store.read() as c:
+        with store.read_transaction() as c:         # one snapshot, so each bot's rows are read once (read_cache)
             default = usage_limits.company(c)
-            allowed = own_bots(c, auth, who)
             admin = bool(auth.bot_admin(who))
             from . import groups as G
             led = None if admin else G.led_groups(c, who.actor)          # empty while the redesign is off
+            allowed = own_bots(c, auth, who) | ((led_bots(c, who) & {row["slug"] for row in H.bots(c)}) if led else set())
+            usage_limits.prime_own(c, allowed)
             pools = pool_views(c, default) if admin else pool_views(c, default, led) if led else None
-            return {"default": default, "may_edit_default": admin, "pools": pools,
+            return {"default": default, "may_edit_default": admin, "pools": pools, "leads": sorted(led or ()),
                     "bots": {bot: limit_view(c, who, bot, default, allowed) for bot in sorted(allowed)}}
 
     @app.put("/api/v2/usage/limits")

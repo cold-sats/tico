@@ -111,6 +111,13 @@ def own(c, bot):
     return _caps(one(c, OWN_SQL, (bot,)))
 
 
+def prime_own(c, bots):
+    """Every bot's own limits read in one statement, for a page that asks for many bots in one snapshot."""
+    from .read_cache import prime
+    found = {row["bot"]: row for row in c.execute("SELECT * FROM usage_limits")}
+    prime(c, OWN_SQL, {(bot,): found.get(bot) for bot in bots})
+
+
 def effective(c, bot, default=None):
     """Each period's cap in USD or None, and where each came from: `bot`, `company` or None."""
     default = default if default is not None else company(c)
@@ -215,12 +222,14 @@ def scopes_of(c, bot, default=None):
 
 
 def members(c, scope, default=None):
-    """The bots a pool covers."""
-    _, chains = groups(c, default)
-    if scope == COMPANY:
-        return set(chains)
-    gid = scope.split(":", 1)[1]
-    return {bot for bot, chain in chains.items() if gid in chain}
+    """The bots a pool covers. Kept for the pass when `default` carries a memo: a page of 200 bots asks once a pool."""
+    memo = default.memo if isinstance(default, Default) else {}
+    key = ("members", scope)
+    if key not in memo:
+        _, chains = groups(c, default)
+        gid = scope.split(":", 1)[1] if scope != COMPANY else None
+        memo[key] = frozenset(chains) if gid is None else frozenset(bot for bot, chain in chains.items() if gid in chain)
+    return memo[key]
 
 
 def label(c, scope, default=None):
@@ -279,8 +288,20 @@ def pool_spent(c, scope, start, end, subscription, default=None):
 
 
 def pool_state(c, scope, at=None, default=None):
-    """A pool's caps, what its bots have spent in each period with a cap, and `blocked` (the period) when one is met."""
+    """A pool's caps, what its bots have spent in each period with a cap, and `blocked` (the period) when one is met.
+    Read now (`at` None), it is kept for the pass: every bot in the pool asks for it."""
     default = default if default is not None else company(c)
+    memo = default.memo if at is None and isinstance(default, Default) else None
+    key = ("pool_state", scope)
+    if memo is not None and key in memo:
+        return dict(memo[key])
+    result = _pool_state(c, scope, at, default)
+    if memo is not None:
+        memo[key] = dict(result)
+    return result
+
+
+def _pool_state(c, scope, at, default):
     caps = shown(c, pools(c, default).get(scope) or pool(c, scope))
     when = bounds(at)
     result = {**caps, "percent": 0, "blocked": None}
@@ -296,6 +317,20 @@ def pool_state(c, scope, at=None, default=None):
         if amount >= cap and not result["blocked"]:
             result["blocked"] = name
     return result
+
+
+def spent_now(c, bot=None, scope=None, at=None, default=None):
+    """What a bot, or a pool's bots together, has spent so far in each window in force, capped or not:
+    {"30m": usd, "hour": usd, "day": usd, ...}. Budget adds these up the org chart."""
+    default = default if default is not None else company(c)
+    when, subscription = bounds(at), default["count_subscription"]
+    out = {}
+    for name, label_ in periods(c):
+        _, start, end = when[name]
+        amount = pool_spent(c, scope, start, end, subscription, default) if scope else \
+            spent(c, bot, start, end, subscription, default)
+        out[label_] = round(amount, 6)
+    return out
 
 
 def state(c, bot, at=None, default=None):
