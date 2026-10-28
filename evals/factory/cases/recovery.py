@@ -10,6 +10,7 @@ OUTAGE_AT, OUTAGE_FOR = at(2, 0), at(0, 15)        # the server stops at 2:00 an
 BACK_AT = OUTAGE_AT + OUTAGE_FOR
 SETTLE = at(0, 2)                                   # a computer's claims wait this long once its contact resumes
 RESTART_AT = at(2, 0)                               # the runner restarts at 2:00, under its running turns
+STALE_ROUNDS = 3                                    # claim rounds after the restart that still name one bot busy
 POISON_AT = at(0, 30)                               # the poisoned message is posted at 0:30
 POISON = "Poisoned message: its claim check raises every time it is reached."
 
@@ -50,6 +51,11 @@ def runner_restarts(when):
             return
         run.restarted = True
         run.running_at_restart = [b.slug for b in team.all if b.running]
+        if run.running_at_restart:
+            # The runner's list still names the first bot it was running as busy for its first rounds, though that
+            # bot's turn is lost with the restart.
+            run.stale_busy = {"bot": run.running_at_restart[0], "rounds": STALE_ROUNDS, "sent": 0,
+                              "corrected_at": None}
         for bot in team.all:
             if bot.running:
                 edit = {"tool": "Edit", "summary": "edited a file", "item_id": "restart-edit"}
@@ -118,6 +124,22 @@ def leases_extended(run):
                                      f"{OUTAGE_FOR.total_seconds():.0f} s against a {lease} s lease")
 
 
+def stale_bot_starts(run):
+    """The restart's runner named one bot busy for its first claim rounds, though that bot had no turn running. From the
+    first round its list was right, the bot starts: it has an attempt from then on."""
+    stale = getattr(run, "stale_busy", None)
+    if not stale or not stale["sent"] or stale["corrected_at"] is None:
+        return False, "the runner's claims named no bot busy after the restart, so nothing was tested"
+    since = stamp(stale["corrected_at"] - START)
+    first = run.w.sql("SELECT started FROM attempts WHERE bot=? AND started>=? ORDER BY started LIMIT 1",
+                      (stale["bot"], since))
+    if not first:
+        return False, (f"{stale['bot']} was named busy for {stale['sent']} rounds after the restart and did not start "
+                       f"once its list was right, from {since}")
+    return True, (f"{stale['bot']} was named busy for {stale['sent']} rounds after the restart; its list was right from "
+                  f"{since}, and it started at {first[0]['started']}")
+
+
 def runner_rerun(run):
     """Each turn the runner's restart interrupted ran again to completion: a later attempt on its job completed."""
     rows = run.w.sql("SELECT a.bot, (SELECT count(*) FROM attempts b WHERE b.job_id=a.job_id AND b.state='completed' "
@@ -144,10 +166,12 @@ SCENARIOS = [
                      ("no run is left uncertain", None, no_uncertain_runs)]),
     Scenario("recover_runner_restart",
              "The computer's runner restarts at 2:00 under its running turns, each of which had edited a file: it files each "
-             "one interrupted, and the server resumes each one on its next sweep, so each runs again.",
+             "one interrupted, and the server resumes each one on its next sweep, so each runs again. Its first claims after "
+             "the restart still name one bot it no longer runs as busy; once the list is right, that bot starts.",
              setup=lambda run, w, team: tickets(run, w, 8), during=runner_restarts(RESTART_AT), claim="runner", hours=6,
              checks=[*BASE,
                      ("each turn the restart interrupted ran again", None, runner_rerun),
+                     ("the bot named busy by a stale list starts once the list is right", None, stale_bot_starts),
                      ("the board keeps moving after the restart", None, board_keeps_moving(RESTART_AT)),
                      ("no run is left uncertain", None, no_uncertain_runs)]),
     Scenario("contain_poison_job",

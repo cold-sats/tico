@@ -55,6 +55,7 @@ class Run:
         self.back_check = None     # set by the scenario when a computer comes back: its readiness is read on that tick
         self.back_lines = []       # what the server held for the returning computer's bot on its first round back
         self.traces = []           # claim traces of short rounds: the server's candidate gates for one queued bot
+        self.stale_busy = None     # a bot a scenario keeps naming busy for its first rounds (see runner_body)
 
     def team(self, w):
         styles = self.scenario.styles
@@ -155,7 +156,7 @@ class Run:
         already running. The work the board could hand out is counted from the queue before the claims (`queued`), not
         from the claim's own pick, so a claim that passes over work it could take shows in `marks`. The bots the
         scenario paused are left out of that count: their work waits on their owner."""
-        body = self.runner_body(team)
+        body = self.runner_body(team, w.now())
         free = w.capacity - sum(1 for b in team.all if b.running)
         idle = {b.slug for b in team.all} - set(body["busy_bots"]) - self.paused
         if self.back_check:
@@ -340,10 +341,19 @@ class Run:
                     out.append(f"{slug}: diagnostic error {error!r}")
         return out
 
-    def runner_body(self, team):
+    def runner_body(self, team, now=None):
         """What a runner claims with: no bot named, and the bots it is running (or whose computer is off) as busy. The
-        sim advertises no lanes, so a busy bot is held on its one lane."""
+        sim advertises no lanes, so a busy bot is held on its one lane. `stale_busy` (a scenario's) names one more bot
+        busy for its first rounds, as a runner does that has not rebuilt its list after a restart; the first round
+        after those is when the list is right again, and `now` is that round's time."""
         busy = [b.slug for b in team.all if b.running or not b.available]
+        stale = self.stale_busy
+        if stale and stale["rounds"] > 0:
+            stale["rounds"] -= 1
+            stale["sent"] += 1
+            busy = sorted(set(busy) | {stale["bot"]})
+        elif stale and stale["sent"] and stale["corrected_at"] is None:
+            stale["corrected_at"] = now
         return {"next_run": True, "busy_bots": busy, "busy_lanes": [f"{slug}|main" for slug in busy],
                 "start_places": True}
 
