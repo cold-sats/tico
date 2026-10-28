@@ -679,9 +679,10 @@ def _absorbed(c, row):
     """A schedule keeps the routine's one-open-run rule (CONTRACT section 4, Overlap), converted or made new: an
     occurrence while the task its last run opened is unfinished starts no run, so hours missed while its bot was held
     arrive as one turn, not one each. It counts as dropped and its owner bot is told, as the routine told it
-    (backend/scheduler.py), so the open task is never left in silence."""
+    (backend/scheduler.py), so the open task is never left in silence. A schedule that finds works on the tasks it
+    found, not one of its own, and runs one at a time instead (`queue`)."""
     flow = flow_of(row)
-    if (flow.get("trigger") or {}).get("type") != "schedule":
+    if (flow.get("trigger") or {}).get("type") != "schedule" or _finds(flow["steps"]):
         return False
     last = c.execute("SELECT json_extract(refs_json,'$.task') AS task FROM messages "
                      "WHERE json_extract(refs_json,'$.automation')=? ORDER BY created DESC LIMIT 1", (row["id"],)).fetchone()
