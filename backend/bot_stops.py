@@ -6,9 +6,10 @@
 - `claim_holds`: one queued run whose claim raised while preparing it is held by itself; the bot's other runs go on.
 
 A hold keeps the bot's queued work and starts none of it until a person releases the bot (one action, all three
-holds) or, for a failed-runs hold, until Tico's own try completes. A claim hold keeps only its run. A person's chat message does not bypass a failed-runs hold (it
-goes with the next try); it does bypass a budget hold, which only stops work nobody asked for. This module is the one
-place the pages read: the status row (`overlay`), the warning beside a message or a task sent to a held bot
+holds) or, for a failed-runs hold, until Tico's own try completes. A claim hold keeps only its run. A person's chat
+message does not bypass a failed-runs hold (it goes with the next try); it does bypass a budget hold, which only
+stops work nobody asked for. This module is the one place the pages read: the status row (`overlay`), the warning
+beside a message or a task sent to a held bot
 (`warning`), the "Saved - waiting" label (`queued_reason`), Health's reason (`reason`), and the Needs-you item both
 holds file for the bot's operator (`raise_item`, `close_item`).
 """

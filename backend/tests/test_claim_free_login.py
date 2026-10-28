@@ -1,5 +1,6 @@
 """Where queued_reasons (Health) says a queued job is handed out, the claim must hand it out: a bot whose own login and
-codex are held while claude is free on this computer, and a queued keeper notice that is obsolete ahead of a real one."""
+codex are held while claude is free on this computer, and a queued keeper notice that is obsolete ahead of a
+real one."""
 from backend import login_holds
 from backend import wake_presets as W
 from backend.execution import queued_reasons

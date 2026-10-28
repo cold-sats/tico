@@ -65,14 +65,15 @@ def _note(c, task_id, bot, job_id):
 
 
 def release(c, actor, bot):
-    """Queue the bot's held jobs again and close their Needs-you item. Answers how many jobs were released."""
+    """Queue the bot's held jobs again and close their Needs-you item. A held job another path cancelled meanwhile is
+    freed too, so its item closes with it. Answers how many jobs were freed."""
     from . import bot_stops
-    rows = c.execute("SELECT id,hold_task_id FROM jobs WHERE bot=? AND held=1 AND hold_reason=? AND state='queued'",
+    rows = c.execute("SELECT id,hold_task_id FROM jobs WHERE bot=? AND held=1 AND hold_reason=?",
                      (bot, REASON)).fetchall()
     if not rows:
         return 0
-    c.execute("UPDATE jobs SET held=0,hold_reason=NULL,hold_task_id=NULL "
-              "WHERE bot=? AND held=1 AND hold_reason=? AND state='queued'", (bot, REASON))
+    c.execute("UPDATE jobs SET held=0,hold_reason=NULL,hold_task_id=NULL WHERE bot=? AND held=1 AND hold_reason=?",
+              (bot, REASON))
     for task_id in sorted({row["hold_task_id"] for row in rows if row["hold_task_id"]}):
         bot_stops.close_item(c, task_id, "Released.")
     H.event(c, actor, "job.claim_released", bot, {"jobs": [row["id"] for row in rows]})

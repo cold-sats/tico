@@ -444,7 +444,15 @@ fails after more than a minute changes nothing. **Release** (Settings → Bots, 
 `POST /api/v2/bots/{bot}/release`, MCP `hub_bot_release`) lifts the hold and its Needs-you item at once; `GET /api/v2/bots/{bot}/budget`
 shows the hold's `next_try`.
 
-**A queued run Tico cannot start is held by itself.** Each claim checks the queued jobs it considers and prepares the one it hands out. If an error happens for one job there, the claim rolls back only that job's writes, logs its traceback on the server, and holds the job. The held job reads *Couldn't start: an error while preparing this run* on its task, its bot's Needs-you item asks for a release, and Health shows `claim_failed`. The claim goes on to the bot's next job in the same call, and no later claim tries the held run again; the bot's other work is not held. A full disk or a locked database is not one job's error: the claim answers with a retryable error and holds nothing. **Release** (Health, `hub bot release <bot>`, `POST /api/v2/bots/{bot}/release`) queues the held runs again, and one that fails again is held again.
+**A queued run Tico cannot start is held by itself.** Each claim checks the queued jobs it considers and prepares
+the one it hands out. If an error happens for one job there, the claim rolls back only that job's writes, logs its
+traceback on the server, and holds the job. The held job reads *Couldn't start: an error while preparing this run* on
+its task, its bot's Needs-you item asks for a release, and Health shows `claim_failed`. The claim goes on to the bot's
+next job in the same call, and no later claim tries the held run again; the bot's other work is not held. A full disk
+or a locked database is not one job's error: the claim answers with a retryable error and holds nothing.
+A team- or bot-wide check that raises (a budget, a back-off, a login hold) fails the claim the same way, and holds
+nothing either. **Release** (Health, `hub bot release <bot>`, `POST /api/v2/bots/{bot}/release`) queues the held runs
+again, and one that fails again is held again; a held run whose task finished meanwhile is cancelled on the next claim.
 
 **Run budgets.** Each bot has `turns_per_hour` (default 300) and `turns_per_day` (default 2500); the owner and administrators set the
 team defaults (`GET/POST /api/v2/settings/turn-budgets`, `hub team budget [--hour N] [--day N]`), and a bot's owner, operator or BotOps

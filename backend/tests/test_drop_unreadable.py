@@ -147,7 +147,7 @@ def test_the_claim_that_finds_its_pick_unreadable_says_why_it_let_it_go(api, mon
         assert suppressed(c, job["id"]) == [{"reason": "unreadable"}]
 
 
-def test_a_stale_prepared_pick_waits_without_scanning_for_automatic_work(api, monkeypatch):
+def test_a_stale_prepared_pick_leaves_the_backfill_to_the_next_poll(api, monkeypatch):
     from backend import auto_tasks
 
     machine = task_bot(api, lanes=True)

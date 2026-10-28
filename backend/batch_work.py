@@ -22,6 +22,25 @@ def storage_error(exc):
     return (getattr(exc, "sqlite_errorcode", 0) & 0xff) in STORAGE_CODES
 
 
+SHARED_ATTR = "shared_check"
+
+
+@contextmanager
+def shared_check():
+    """Marks an error a team- or bot-wide check raises (a budget, a back-off, a login hold). It belongs to no one job,
+    so the claim fails on it instead of holding the job it was checking. The error itself is unchanged."""
+    try:
+        yield
+    except Exception as exc:
+        setattr(exc, SHARED_ATTR, True)
+        raise
+
+
+def is_shared(exc):
+    """Whether `exc` came out of a shared_check."""
+    return bool(getattr(exc, SHARED_ATTR, False))
+
+
 def report(kind, row_id, exc, logger="tico.scheduler"):
     """Log one row's failure: with its traceback the first time, then at most once an hour for the same row."""
     key, now = (kind, str(row_id)), _clock()

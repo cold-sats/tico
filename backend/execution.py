@@ -16,7 +16,7 @@ from . import auto_tasks, start_places, org_turns, app_delivery, check_models, l
 from . import task_privacy as privacy
 from . import claim_holds, quarantine_stops, run_backoff, turn_budgets
 from .auth import Identity
-from .batch_work import isolated, report, storage_error
+from .batch_work import isolated, is_shared, report, shared_check, storage_error
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .verdict_moves import HANDOFF_FIRST_SQL
@@ -1665,8 +1665,10 @@ def job_refusal(c, job, followed, ready, busy, lanes, roots, live=frozenset()):
     message = H.message(c, job["message_id"])
     if not privacy.message_readable(c, "bot:" + job["bot"], message):
         return "unreadable"
-    if why := turn_budgets.refusal(c, job["bot"], message) or run_backoff.job_refusal(c, job["bot"], message):
-        return why                  # over its run budget or waiting out failed runs: except for a person's message
+    # The bot's budget and back-off are the bot's state, not this job's: an error reading them is shared_check's.
+    with shared_check():
+        if why := turn_budgets.refusal(c, job["bot"], message) or run_backoff.job_refusal(c, job["bot"], message):
+            return why              # over its run budget or waiting out failed runs: except for a person's message
     conversation = H.conversation(c, message["conversation_id"])
     if wake_rule_engine.notice_only(message):
         notice_task = H.task(c, H.message_task_id(message, conversation) or "")
@@ -1711,9 +1713,11 @@ def obsolete_notices_sql():
     idle claim asks the same question: when it counted notices the claim keeps, every claim from that computer went
     on to the write lock for nothing. It goes from this computer's bots to their queued jobs (jobs_queue): left to
     itself SQLite starts from every keeper notice ever sent, tens of milliseconds on each of a runner's claims."""
+    # A held job (its claim's hold or a wake preset's) waits for its release, and the pass takes it once it is free: its
+    # item is still open until then, and a cancelled job would leave that item with nothing to release.
     return ("FROM assignments x CROSS JOIN jobs j CROSS JOIN messages m "
             f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-            "WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND m.id=j.message_id "
+            f"WHERE x.runner_id=? AND j.bot=x.bot AND j.state='queued' AND {H.unheld_sql()} AND m.id=j.message_id "
             "AND m.from_actor=? AND (m.kind='say' AND json_extract(m.refs_json,'$.review_gate') IS NOT NULL "
             "AND EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=t.id AND e.ts>m.created AND e.field='step') "
             "OR m.kind='notice' "
@@ -2637,20 +2641,38 @@ class Execution:
                 part = candidates[i:i + PRIME_QUEUED]
                 privacy.prime_queued(c, H.prime_messages(c, [job["message_id"] for job in part]).values())
             try:
-                if source_continuation(c, row["id"]) and SOURCE_CONTINUE not in _capability_set(runner["capabilities_json"]):
+                if source_continuation(c, row["id"]) and (
+                        SOURCE_CONTINUE not in _capability_set(runner["capabilities_json"])):
                     continue        # old strict-primary runners cannot route a saved fallback
                 if not continues and continuation_thread(c, row["id"]):
                     continue        # left queued for a runner that continues its thread: this one would start it afresh
-                if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None and not login_refusal(
-                        c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]], row["id"], subscription_context):
-                    return row
+                if job_refusal(c, row, followed[row["bot"]], ready, busy, lanes, roots, live) is None:
+                    # A login hold is the bot's login's state, shared with the bots on it (shared_check).
+                    with shared_check():
+                        waiting = login_refusal(c, self.store.settings, runner["id"], row["bot"], followed[row["bot"]],
+                                                row["id"], subscription_context)
+                    if not waiting:
+                        return row
             except Exception as exc:
                 # This job's checks raised. Its error is logged once, and the claim holds the job, so no other claim
-                # evaluates it again. Storage errors are not this job's, and they stop the claim.
-                if failed is None or storage_error(exc):
+                # evaluates it again. Storage errors and shared checks' errors are not this job's: they stop the claim.
+                if failed is None or storage_error(exc) or is_shared(exc):
                     raise
                 report("claim", row["id"], exc)
                 failed.append((row["id"], type(exc).__name__))
+        return None
+
+    def pick(self, c, who, body, runner, now, *, people_only=False, failed, passed):
+        """The next candidate a claim may hand out, or None. A job whose checks raise is held, and an obsolete notice
+        (obsolete_notice) is passed over, as the claim's own selection passes it over. A backfill or a retry after a
+        failed start picks this way too, so it never hands out what the selection would drop. At most CLAIM_PICKS
+        are passed over, then none, as the selection loop bounds it."""
+        for _ in range(CLAIM_PICKS):
+            row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed, skip=passed)
+            self.hold_failed(c, failed)
+            if row is None or not self.obsolete_notice(c, who, row["id"], now):
+                return row
+            passed.append(row["id"])
         return None
 
     @staticmethod
@@ -2901,24 +2923,24 @@ class Execution:
             selected, prepared = None, False
         if row is None and people_only:
             return self.held_answer(c, who.runner_id)
-        # Backfill a free turn after queued conversations and awaited results keep their place. A claim that passed over
-        # a dropped pick leaves backfill to the next poll: its scan under the writer lock is not repeated in a busy moment.
+        # Backfill a free turn after queued conversations and awaited results keep their place. A claim that passed
+        # over a dropped pick leaves backfill to the next poll: its scan under the writer lock is not repeated in a
+        # busy moment.
         if (row is None and selected is None and not passed
                 and (pending := auto_tasks.missing(c, self.store.settings, runner, body))):
             auto_tasks.enqueue(c, pending)
-            row = self.candidate(c, who, body, runner, failed=failed, skip=passed)
-            self.hold_failed(c, failed)
+            row = self.pick(c, who, body, runner, now, failed=failed, passed=passed)
         if not row:
             return {"attempt": None}
         # The job's preparation runs in a savepoint of its own. An error rolls back its writes and holds the job, and
-        # the claim takes the next candidate (at most CLAIM_STARTS jobs a claim).
+        # the claim takes the next candidate (at most CLAIM_STARTS jobs a claim). A shared check's error is no job's.
         starts = 0
         while True:
             c.execute("SAVEPOINT claim_start")
             try:
                 answer = self.start_claimed(c, who, body, runner, row)
             except Exception as exc:
-                if not c.in_transaction or storage_error(exc):
+                if not c.in_transaction or storage_error(exc) or is_shared(exc):
                     raise
                 c.execute("ROLLBACK TO claim_start")
                 c.execute("RELEASE claim_start")
@@ -2928,8 +2950,7 @@ class Execution:
                 starts += 1
                 if starts == CLAIM_STARTS:
                     return {"attempt": None}
-                row = self.candidate(c, who, body, runner, people_only=people_only, failed=failed, skip=passed)
-                self.hold_failed(c, failed)
+                row = self.pick(c, who, body, runner, now, people_only=people_only, failed=failed, passed=passed)
                 if not row:
                     return {"attempt": None}
                 continue
@@ -2944,10 +2965,11 @@ class Execution:
             c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (row["id"],))
             H.event(c, H.KEEPER, "job.suppress", row["id"], {"reason": "unreadable"})
             return {"attempt": None}
-        if turn_budgets.enforce(c, self.store.settings, row, msg):
-            return {"attempt": None}        # the bot is over its run budget: held now, its queue kept
-        if run_backoff.probe(c, row["bot"]):
-            return {"attempt": None}        # held for failed runs and its next try is not due, or another took it
+        with shared_check():            # the bot's budget and back-off: an error in them stops the claim, holds nothing
+            if turn_budgets.enforce(c, self.store.settings, row, msg):
+                return {"attempt": None}    # the bot is over its run budget: held now, its queue kept
+            if run_backoff.probe(c, row["bot"]):
+                return {"attempt": None}    # held for failed runs and its next try is not due, or another took it
         live_ref = (msg.get("refs") or {}).get("live_meeting")
         if (isinstance(live_ref, dict) and msg.get("from_actor") == H.KEEPER
                 and msg.get("to_actor") == "bot:" + row["bot"]):
@@ -3219,7 +3241,8 @@ class Execution:
 
     @staticmethod
     def obsolete_notice(c, who, job_id, now):
-        """Whether a queued job is an obsolete keeper notice (obsolete_notices_sql), which a claim cancels, never hands out."""
+        """Whether a queued job is an obsolete keeper notice (obsolete_notices_sql), which a claim cancels and never
+        hands out."""
         return c.execute("SELECT 1 FROM (SELECT j.id AS id " + obsolete_notices_sql() + ") o WHERE o.id=? LIMIT 1",
                          (who.runner_id, H.KEEPER, now, job_id)).fetchone() is not None
 

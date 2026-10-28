@@ -601,12 +601,14 @@ def _stop_checks(c):
         bot = hold["bot"]
         name = (H.bot(c, bot) or {}).get("display_name") or bot
         out.append(_finding(f"claim_failed:{bot}", "claim_failed", SETUP,
-                            f"Tico could not start {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} for {name}",
+                            f"Tico could not start {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} "
+                            f"for {name}",
                             f"{name} has {hold['jobs']} queued run{'s' if hold['jobs'] != 1 else ''} held since "
                             f"{str(hold['since'])[:16]} UTC: an error happened while Tico prepared each one to start, "
                             "so each is held and no claim tries it again. The server log has the traceback.",
                             f"BotOps: read the server log for the traceback, fix its cause, then release {name} "
-                            f"(hub bot release {bot}). Its held runs queue again, and one that fails again is held again.",
+                            f"(hub bot release {bot}). Its held runs queue again, and one that fails again is held "
+                            "again.",
                             severity=BAD))
     return out
 

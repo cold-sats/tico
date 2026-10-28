@@ -224,6 +224,7 @@ def refusal(c, row, config, woken=False, result=False, *, message=None):
 
 def missing(c, settings, runner, body):
     """The highest ranked eligible task without an unfinished run. Reads only, including on idle claims."""
+    from . import claim_holds
     from . import execution as E
     from .shared_bots import follow
     from .store import readiness_document
@@ -261,14 +262,15 @@ def missing(c, settings, runner, body):
                               H.conversation(c, row['conversation_id']), E.lanes_on(runner), E.roots_on(runner))
             if (slug, lane) in busy:
                 continue
-            # Failed/uncertain work belongs to explicit recovery, never an automatic retry.
+            # Failed/uncertain work belongs to explicit recovery, never an automatic retry. A job its claim holds is
+            # still the task's run, waiting for its bot's release: no second one is filed beside it.
             if c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id "
                          "JOIN conversations cv ON cv.id=m.conversation_id "
                          "LEFT JOIN jobs carrier ON carrier.id=j.wake_carrier "
                          f"WHERE j.bot=? AND {H.MESSAGE_TASK_SQL}=? AND (j.state NOT IN ('completed','cancelled') "
-                         f"AND {H.unheld_sql()} OR carrier.state NOT IN ('completed','cancelled') "
+                         f"AND ({H.unheld_sql()} OR j.hold_reason=?) OR carrier.state NOT IN ('completed','cancelled') "
                          f"AND {H.unheld_sql('carrier')}) LIMIT 1",
-                         (slug, row['id'])).fetchone():
+                         (slug, row['id'], claim_holds.REASON)).fetchone():
                 continue
             return row
     return None
