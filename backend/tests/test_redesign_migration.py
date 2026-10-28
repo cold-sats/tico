@@ -167,13 +167,16 @@ def test_cli_flags(argv, action):
 
 
 
+LONG = "Sort Acme mail by sender and urgency. " * 300                   # about 11,000 characters
+
+
 def accept_all(api):
     return [f["id"] for o in migrate(api, "dry-run")["objects"] for f in o["flags"]]
 
 
 def test_rehearsal_cases_team_rules_paused_bots_and_long_inbox_instructions(api):
     """What the real-data rehearsal found that the scenario fixture lacks: wake rules scoped to a department, not a
-    bot; a routine on a paused bot; an Inbox Manager whose instructions are longer than a step's text."""
+    bot; a routine on a paused bot; an Inbox Manager whose instructions run past 8,000 characters (they convert)."""
     dept = post(api, "rules", {"scope_kind": "department", "scope_id": "operations", "event": "comment",
                                "then": "wake"})["rule"]
     post(api, "bots/ops/routines", {"title": "Weekly ops check", "text": "Check the queue.", "cron": "0 8 * * 1",
@@ -183,21 +186,27 @@ def test_rehearsal_cases_team_rules_paused_bots_and_long_inbox_instructions(api)
     post(api, "access/people/cara", {"inbox_bot": "inbox", "mailbox": "cara@acme.example"})
     with db(api).transaction() as c:
         c.execute("INSERT OR REPLACE INTO mail_agent_instructions(bot, content, runner_id, updated) VALUES(?,?,?,?)",
-                  ("inbox", "Sort Acme mail. " * 600, "", "2026-10-28T00:00:00Z"))
+                  ("inbox", LONG, "", "2026-10-28T00:00:00Z"))
     turn_on(api)
     report = migrate(api, "dry-run")
     kinds = {f["kind"] for o in report["objects"] for f in o["flags"]}
-    assert {"scope", "bot_not_active", "too_long"} <= kinds, kinds
+    assert {"scope", "bot_not_active"} <= kinds and "too_long" not in kinds, kinds
     rule = [o for o in by(report, "wake_rule") if o["id"] == dept["id"]][0]
     assert rule["becomes"]["owner"] == "person:ana" and rule["becomes"]["wakes"]["scope_kind"] == "department"
     inbox = [o for o in by(report, "inbox") if o["id"] == "inbox:cara@acme.example"][0]
-    assert [f.get("keeps") for f in inbox["flags"]] == [True]
+    assert not inbox["flags"] and inbox["becomes"]["steps"][0]["prompt"] == LONG
 
     done = migrate(api, "convert", {"accept": accept_all(api)})
-    assert not done["failed"] and {"kind": "inbox", "id": "inbox:cara@acme.example"} in done["kept"]
+    assert not done["failed"] and not done["kept"]
+    assert {"kind": "inbox", "id": "inbox:cara@acme.example"} in [{k: c[k] for k in ("kind", "id")}
+                                                                   for c in done["converted"]]
     with db(api).read() as c:
         from backend import redesign_migration
         assert [r["id"] for r in redesign_migration.wake_rows(c, "comment")] == [dept["id"]]
-        assert c.execute("SELECT state FROM bots WHERE slug='inbox'").fetchone()[0] == "active"   # kept: not retired
+        assert c.execute("SELECT state FROM bots WHERE slug='inbox'").fetchone()[0] == "paused"   # retired by the convert
+        made = c.execute("SELECT a.flow_json FROM automations a JOIN redesign_migrated m ON m.automation=a.id "
+                         "WHERE m.kind='inbox'").fetchone()
+    step = json.loads(made[0])["steps"][0]
+    assert step["type"] == "llm" and step["prompt"] == LONG                # the full instructions, not cut at 8,000
     paused = [a for a in get(api, "automations")["automations"] if a["name"] == "Weekly ops check"]
     assert paused and paused[0]["enabled"] is False

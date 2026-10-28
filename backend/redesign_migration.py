@@ -206,8 +206,8 @@ def _routines(c, done):
             enabled = False
             flags.append(_flag(sid, "inbox_bot", f"{_bot_name(c, bot)} reads an inbox and retires with it: this "
                                                  "routine starts off"))
-        if len(text) > F.MAX_TEXT:
-            flags.append(_flag(sid, "too_long", f"Its text is longer than {F.MAX_TEXT:,} characters; it stays a "
+        if len(text) > F.MAX_PROMPT:
+            flags.append(_flag(sid, "too_long", f"Its text is longer than {F.MAX_PROMPT:,} characters; it stays a "
                                                 "routine until it is shorter", keeps=True))
         if "{{" in text:
             flags.append(_flag(sid, "placeholders", "Its text has {{placeholders}}: a Bot turn fills them from the "
@@ -348,14 +348,14 @@ def _inboxes(c, done):
             if _table(c, "mail_agent_instructions") else None
         prompt = (found["content"] if found and (found["content"] or "").strip() else DEFAULT_PROMPT.format(name=name))
         flags = []
-        if len(prompt) > F.MAX_TEXT:
-            flags.append(_flag(oid, "too_long", f"The Inbox Manager's instructions are longer than {F.MAX_TEXT:,} "
+        if len(prompt) > F.MAX_PROMPT:
+            flags.append(_flag(oid, "too_long", f"The Inbox Manager's instructions are longer than {F.MAX_PROMPT:,} "
                                                 "characters; the inbox stays with its bot until they are shorter",
                                keeps=True))
         bot = H.bot(c, box["bot"]) or {}
         flow = {"name": f"{name}'s inbox"[:120], "owner": "person:" + box["person_id"], "enabled": True,
                 "trigger": {"type": "message", "inbox": box["address"]},
-                "steps": [{"id": "read", "type": "llm", "as": "assistant:" + box["person_id"], "prompt": prompt[:F.MAX_TEXT],
+                "steps": [{"id": "read", "type": "llm", "as": "assistant:" + box["person_id"], "prompt": prompt[:F.MAX_PROMPT],
                            "out": "triage"}],
                 "source": [{"kind": "inbox", "id": box["address"]}, {"kind": "bot", "id": box["bot"]}]}
         out.append({"kind": "inbox", "id": oid, "title": f"{name}'s inbox ({_bot_name(c, box['bot'])})",
