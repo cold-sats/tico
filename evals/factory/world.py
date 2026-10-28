@@ -61,6 +61,8 @@ class World:
         self.server_errors = []             # (when, route, status, body) for each call the server answered with a 5xx
         self.input_reads = []               # (when, bot, attempt, message ids): the inputs a turn read as it started
         self.attempt_posts = []             # (when, path, sent with the runner's token) for each renew or events post
+        self.down = False                   # the server is stopped (go_down): nothing reaches it until restart()
+        self.patches = []                   # (module, name, original) for each patch(), put back on __exit__
 
     # ------------------------------------------------------------------ lifecycle
     def __enter__(self):
@@ -86,6 +88,7 @@ class World:
                             test_identities={"ana-test": Identity("human:ana", "owner", "ana@acme.example"),
                                              # The Release Manager ships between its turns, outside the sim's queue.
                                              "release-test": Identity("bot:release-manager", "bot", agent="hermes")})
+        self.settings = settings
         self.app = create_app(settings)
         self.client = TestClient(self.app)
         self.client.__enter__()
@@ -131,9 +134,38 @@ class World:
                 "text": "Look over the board for stuck tickets and get each one moving."})
 
     def __exit__(self, *exc):
-        self.client.__exit__(*exc)
+        for module, name, original in reversed(self.patches):
+            setattr(module, name, original)
+        if not self.down:
+            self.client.__exit__(*exc)
         self.travel.stop()
         uuid.uuid4 = self._uuid4
+
+    def go_down(self):
+        """The server stops: its API answers nothing until restart(). The database stays on disk, as a deploy or a crash
+        leaves it, and the runner's calls are held back by the run for as long as the server is down."""
+        self.client.__exit__(None, None, None)
+        self.down = True
+
+    def restart(self):
+        """The server starts again on the same database: a new app on the same settings, so its startup runs again
+        (lifespan: grace_leases), then one scheduler pass before the runner's next call."""
+        from fastapi.testclient import TestClient
+        from backend.app import create_app
+        from backend.scheduler import Scheduler
+        self.app = create_app(self.settings)
+        self.client = TestClient(self.app)
+        self.client.__enter__()
+        self.store = self.app.state.store
+        self.scheduler = Scheduler(self.store, self.app.state.execution)
+        self.down = False
+        self.scheduler_pass()
+
+    def patch(self, module, name, wrap):
+        """Replace module.name with wrap(original) for this run only: __exit__ puts the original back."""
+        original = getattr(module, name)
+        setattr(module, name, wrap(original))
+        self.patches.append((module, name, original))
 
     # ------------------------------------------------------------------ time
     def now(self):
@@ -147,6 +179,8 @@ class World:
             step = min(50, left)
             self.clock.shift(step)
             left -= step
+            if self.down:       # the server is stopped: no heartbeat, renewal or CI result reaches it
+                continue
             self.finish_ci()
             self.heartbeat(self.bot_slugs if ready is None else ready)
             if beat:

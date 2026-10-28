@@ -94,6 +94,8 @@ class Run:
                 w.advance(ready=[b.slug for b in team.all if b.available],
                           beat=lambda: [b.renew() for b in team.all if b.available])
                 s.during(self, w, team, i)
+                if w.down:      # the server is stopped: the runner's calls wait for it, so this tick claims nothing
+                    continue
                 self.release(w, i)
                 self.assign(w, team)
                 w.scheduler_pass()
