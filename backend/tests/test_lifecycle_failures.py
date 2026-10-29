@@ -100,6 +100,20 @@ def test_a_turn_lapsed_mid_run_is_not_offered_to_another_computer_and_its_late_e
     assert job_state(api, a["job_id"]) == "uncertain" and live_attempts(api, a["job_id"]) == 0
 
 
+def test_a_finished_turn_whose_lease_lapsed_before_any_sweep_is_settled_not_refused(api):
+    r, _, a = setup_attempt(api)
+    started(api, a, r["token"])
+    assert events(api, a, r["token"], 1).json()["ack_seq"] == 1
+    # The lease runs out while the turn finishes, and no sweep runs before the runner hands in its result.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (H.shift(H.now(), seconds=-5), a["id"]))
+    done = api.post(f"/api/v2/attempts/{a['id']}/complete", headers=headers(r["token"]),
+                    json={"outcome": "completed", "last_seq": 1, "text": "Opened the pull request."})
+    assert done.status_code == 200, done.text
+    assert attempt_row(api, a["id"])["state"] != "running" and live_attempts(api, a["job_id"]) == 0
+    assert job_state(api, a["job_id"]) == "completed"
+
+
 def test_a_late_renewal_after_the_task_went_to_another_attempt_is_refused_and_the_old_one_stays_ended(api):
     r, _, old = setup_attempt(api)
     expire(api, old["id"])
