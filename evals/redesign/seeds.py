@@ -160,8 +160,11 @@ def pages(world):
     """The Engineering Lead's pages and files, published during one turn on Dana's task "Q3 launch": an older weekly
     page filed on the task and a bot-wide weekly page that replaced it (data from Oct 27), a launch plan filed on the
     task, and a signup funnel CSV bot-wide, so Library › Files has pages, data and a search hit inside a CSV. A page
-    filed on the task is pinned to its top; the replaced one is left out there."""
+    filed on the task is pinned to its top; the replaced one is left out there. Dana names the bot "Engineering Lead",
+    so the status lines name it, not its slug."""
     from .harness import DANA
+    _ok(world.api("post", "/api/v2/bots/engineering-lead/definition", {"display_name": "Engineering Lead"}, who=DANA),
+        "the Engineering Lead's name")
     made = _ok(world.api("post", "/api/v2/tasks", {"title": "Q3 launch", "body": "Plan the Q3 launch.",
                                                     "owner": "engineering-lead"}, who=DANA), "task")
     task = (made.get("task") or made)["id"]

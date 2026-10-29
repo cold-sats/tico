@@ -14,9 +14,11 @@ const pageDay = iso => { const d = new Date(String(iso) + 'T12:00:00'); return i
 const pageHref = id => PAGE_ROUTE + encodeURIComponent(id);
 // The bot's name as the rest of the app shows it (duplicates get their slug), else the server's.
 const pageBotName = x => x.bot && (S.emps || []).some(e => e.name === x.bot) ? botDisplayName(x.bot) : x.bot_name || x.bot || '';
-function pageStatusHTML(p) {
+// `link: false` inside a card that is itself a link: the replacing page's title without its own link.
+function pageStatusHTML(p, {link = true} = {}) {
   if (p.replaced_by) {
-    return `<div class="pg-status pg-replaced">Replaced by <a href="${esc(pageHref(p.replaced_by))}">${esc(p.replaced_by_title || 'a newer page')}</a></div>`;
+    const title = esc(p.replaced_by_title || 'a newer page');
+    return `<div class="pg-status pg-replaced">Replaced by ${link ? `<a href="${esc(pageHref(p.replaced_by))}">${title}</a>` : title}</div>`;
   }
   const stale = Number.isInteger(p.stale_days);
   const by = String(p.updated_by || '');
@@ -47,23 +49,26 @@ function pageFrame(p, src, height) {
   f.src = src;
   return f;
 }
-// pageCard(page, {size}): the status line, then the framed page (or an Open card without an address). Tapping a card
-// opens the page full size; `full` is that full size. `page` is GET /api/v2/pages/{id}'s page.
+// pageCard(page, {size}): one card holding the page's status line and the framed page (or an Open card, the status
+// under its title, when there is no address). Tapping a card opens the page full size; `full` is that full size, where
+// the status line sits under the view's own title. `page` is GET /api/v2/pages/{id}'s page.
 window.pageCard = function pageCard(page, {size = 'medium'} = {}) {
   const full = size === 'full', cap = PAGE_SIZES[size] || PAGE_SIZES.medium;
   const el = document.createElement('article');
   el.className = `pg-card pg-${full ? 'full' : PAGE_SIZES[size] ? size : 'medium'}`;
   el.dataset.page = page.file_id;
-  el.innerHTML = pageStatusHTML(page);
   const src = pageSrc(page);
   if (!src) {
     const open = document.createElement(full ? 'div' : 'a');
     open.className = 'pg-open';
     if (!full) open.href = pageHref(page.file_id);
-    open.innerHTML = `<span class="nav-icon" aria-hidden="true">article</span><span class="pg-open-title">${esc(page.title || 'Page')}</span>${full ? '' : '<span class="pg-open-btn">Open</span>'}`;
+    open.innerHTML = `<span class="nav-icon" aria-hidden="true">article</span><div class="pg-open-text"><span class="pg-open-title">${esc(page.title || 'Page')}</span>${full ? '' : pageStatusHTML(page, {link: false})}</div>${full ? '' : '<span class="pg-open-btn">Open</span>'}`;
+    if (full) el.innerHTML = pageStatusHTML(page);
     el.append(open);
     return el;
   }
+  el.classList.add('pg-framed');
+  el.innerHTML = pageStatusHTML(page);
   const box = document.createElement('div');
   box.className = 'pg-box';
   const frame = pageFrame(page, src, full ? PAGE_FULL_MIN : cap);
@@ -264,9 +269,14 @@ function lfControls() {
   const task = root.querySelector('.lf-task');
   task.hidden = !f.task;
   task.innerHTML = f.task ? `Task <button type="button" class="link" data-lf-clear="task" aria-label="Show every task">✕</button>` : '';
+  tasksBarEdge(root.querySelector('.lf-frow'));
 }
 function lfWire() {
   const root = LF.root;
+  // On a phone the filters scroll sideways, the right edge fading while more are off it, as the Tasks bar does.
+  const frow = root.querySelector('.lf-frow');
+  frow.onscroll = () => tasksBarEdge(frow);
+  if (window.ResizeObserver) new ResizeObserver(() => tasksBarEdge(frow)).observe(frow);
   const changed = () => {
     history.replaceState(null, '', RD_FILES + lfQuery());
     S.route = LAST_ROUTE = location.hash;
@@ -315,7 +325,7 @@ function lfRowHTML(f) {
   const page = kind === 'page', link = f.locator === 'remote_link' || (f.hit && f.url);
   const url = page ? pageHref(f.id) : link ? (f.open?.url || f.url) : f.open?.url || `${API}/v2/files/${encodeURIComponent(f.id)}`;
   const label = LF_KINDS.find(([v]) => v === kind)?.[1] || 'Other';
-  const pins = (f.pins || []).length ? `<span class="lf-pins" title="${esc(f.pins.join(', '))}">Pinned ${f.pins.length}</span>` : '';
+  const pins = (f.pins || []).length ? `<span class="lf-pins" title="${esc(f.pins.join(', '))}">Pinned${f.pins.length > 1 ? ' ' + f.pins.length : ''}</span>` : '';
   const attrs = page ? '' : link ? ' target="_blank" rel="noopener noreferrer"' : ` data-lf-open="tico" data-id="${esc(f.id)}" data-name="${esc(f.name || f.title)}"`;
   return `<a class="lf-row" href="${esc(url)}"${attrs}>
     <span class="nav-icon" aria-hidden="true">${link ? 'link' : LF_ICON[kind] || 'inventory_2'}</span>

@@ -1,12 +1,17 @@
 """Pages, Library › Files, file search and hard delete (docs/pages.md, docs/files.md). Visibility first: a page or
 file the reader may not read leaves no title, count or text anywhere."""
 
+import base64
 import hashlib
+import json
+
+import pytest
 from datetime import datetime, timedelta, timezone
 
-from backend import file_library, pages as P
-from backend.store import encode
-from backend.tests.test_api import api, headers, post  # noqa: F401  (fixtures)
+from backend import blobs as B, file_library, market, pages as P
+from backend.store import H, encode
+from backend.tests.test_api import api, get, headers, post  # noqa: F401  (fixtures)
+from backend.tests.test_groups import send
 from backend.tests.test_files import publish, turn
 
 HTML = (b"<html><head><title>Weekly</title><script>alert('x')</script></head><body><h1>Acme weekly review</h1>"
@@ -146,6 +151,21 @@ def test_library_lists_only_what_each_person_may_see_without_totals_and_pages_on
     assert api.get("/api/v2/files?kind=everything", headers=headers("ben-test")).status_code == 422
 
 
+def test_a_teams_files_are_its_bots_and_the_files_on_its_tasks(api):
+    send(api, "POST", "groups", {"name": "Product", "add": {"people": ["cara"], "bots": ["cpo"]}})
+    gid = next(g["id"] for g in get(api, "groups"))
+    machine, attempt = turn(api)                                        # ops is on no team
+    with api.app.state.store.transaction() as c:
+        tid = H.task_create(c, "human:ana", "Pricing", "Details.", "human:cara", lint=False)["id"]
+    on_task = publish(api, attempt, name="pricing.md", text="# Pricing", task=tid).json()["file"]["id"]
+    publish(api, attempt, name="ops.md", text="# Ops")
+    _, cpo = turn(api, bot="cpo", machine=machine)
+    own = publish(api, cpo, name="roadmap.md", text="# Roadmap").json()["file"]["id"]
+    listed = api.get("/api/v2/files", params={"team": gid}, headers=headers("ben-test")).json()["files"]
+    assert sorted(f["id"] for f in listed) == sorted([on_task, own])
+    assert api.get("/api/v2/files?team=nowhere", headers=headers("ben-test")).status_code == 404
+
+
 def test_search_finds_text_and_titles_ranks_titles_first_and_never_shows_another_persons_file(api):
     _, attempt = turn(api)
     publish(api, attempt, name="pricing.md", text="# Pricing\nThe enterprise plan costs more.")
@@ -195,6 +215,7 @@ def test_hard_delete_is_the_owners_removes_the_bytes_and_keeps_only_that_it_happ
     assert len(digests) == 2
     for who in ("ben-test", attempt["token"]):
         assert api.delete("/api/v2/files/" + gone, headers=headers(who)).status_code == 403
+    aged(api)
     done = api.delete("/api/v2/files/" + gone, headers=headers("ana-test"))
     assert done.status_code == 200 and done.json() == {"deleted": gone, "versions": 2}
     still = {d for d in digests if (blobs.directory / blobs.key(d)).is_file()}
@@ -212,6 +233,93 @@ def test_hard_delete_is_the_owners_removes_the_bytes_and_keeps_only_that_it_happ
     # The same path published again is a new file, not the deleted one.
     again = publish(api, attempt, name="leak.md", text="clean").json()["file"]["id"]
     assert again != gone
+
+
+def aged(api):
+    """Minutes later: nothing was written just now (blobs.FRESH_SECONDS)."""
+    api.app.state.blobs._fresh.clear()
+
+
+def on_disk(api, data):
+    blobs = api.app.state.blobs
+    return (blobs.directory / blobs.key(hashlib.sha256(data).hexdigest())).is_file()
+
+
+ICON_SIZE = 16
+
+
+def icon_png(api):
+    from backend.tests.test_team_icon import image
+    assert api.post("/api/v2/team/icon", content=image(), headers=headers()).status_code == 200
+    return api.get("/api/v2/team/icon").content
+
+
+# Every place that keeps bytes adds a `blobs` row of its own, so a digest another row names outlives a file's hard
+# delete; the team icon's retired digest is the one reference without a row (file_library.still_used reads it).
+def share_another_file(api, attempt, data):
+    kept = publish(api, attempt, name="copy.txt", text=None, content_base64=base64.b64encode(data).decode()).json()["file"]["id"]
+    return lambda: api.get("/api/v2/files/" + kept, headers=headers("ana-test")).content == data
+
+
+def share_task_file(api, attempt, data):
+    tid = post(api, "tasks", {"owner": "ops", "title": "Report", "body": "x"})["id"]
+    made = post(api, f"tasks/{tid}/files", {"name": "report.txt", "text": data.decode()})
+    return lambda: api.get(f"/api/v2/files/{made['file_id']}", headers=headers("ana-test")).content == data
+
+
+def share_market_evidence(api, attempt, data):
+    with api.app.state.store.transaction() as c:
+        bid = market._store_blob(c, api.app.state.blobs, "evidence.txt", data)
+    return lambda: api.app.state.blobs.get(hashlib.sha256(data).hexdigest()) == data and bid
+
+
+def share_meeting_media(api, attempt, data):
+    # A meeting's recording, a person's chat upload or a message attachment: each writer registers its own row.
+    from types import SimpleNamespace
+    with api.app.state.store.transaction() as c:
+        B.register(c, SimpleNamespace(actor="human:ana"), hashlib.sha256(data).hexdigest(), len(data), "audio.webm",
+                   "audio/webm")
+    return lambda: on_disk(api, data)
+
+
+def share_team_icon(api, attempt, data):
+    return lambda: api.get("/api/v2/team/icon").content == data
+
+
+def share_retired_icon(api, attempt, data):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT OR REPLACE INTO registry_metadata(key,value_json) VALUES('team_icon',?)",
+                  (json.dumps({"id": "gone", "digest": "0" * 64, "retired_digest": hashlib.sha256(data).hexdigest()}),))
+    return lambda: on_disk(api, data)
+
+
+@pytest.mark.parametrize("share", [share_another_file, share_task_file, share_market_evidence, share_meeting_media,
+                                   share_team_icon, share_retired_icon])
+def test_bytes_another_kind_of_row_still_names_survive_a_hard_delete(api, share):
+    _, attempt = turn(api, who="ana-test")
+    data = icon_png(api) if share is share_team_icon else b"Acme shared bytes " + share.__name__.encode()
+    gone = publish(api, attempt, name="shared.png" if share is share_team_icon else "shared.txt", text=None, content_base64=base64.b64encode(data).decode()).json()["file"]["id"]
+    still = share(api, attempt, data)
+    aged(api)
+    assert api.delete("/api/v2/files/" + gone, headers=headers("ana-test")).status_code == 200
+    file_library.drain(api.app.state.store, api.app.state.blobs)
+    assert on_disk(api, data) and still()
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM blob_purges").fetchone()[0] == 0
+
+
+def test_bytes_written_moments_ago_wait_for_a_later_purge(api):
+    _, attempt = turn(api, who="ana-test")
+    gone = publish(api, attempt, name="draft.md", text="Acme draft").json()["file"]["id"]
+    # Another writer has stored the same bytes and not yet added its row.
+    api.app.state.blobs.put(b"Acme draft", "text/markdown")
+    assert api.delete("/api/v2/files/" + gone, headers=headers("ana-test")).status_code == 200
+    assert on_disk(api, b"Acme draft")                                          # waits: written moments ago
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM blob_purges").fetchone()[0] == 1
+    aged(api)
+    assert file_library.drain(api.app.state.store, api.app.state.blobs) == 1
+    assert not on_disk(api, b"Acme draft")
 
 
 def test_a_page_of_the_library_stays_under_its_byte_cap(api):

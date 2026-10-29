@@ -291,19 +291,18 @@ class Library:
     def __init__(self, app, store, auth, files):
         self.app, self.store, self.auth, self.files = app, store, auth, files
 
-    def _team_bots(self, c, gid):
-        """Bots in group `gid` or any group under it."""
-        from .groups import _roster
-        groups = _roster(c).get("org_groups") or {}
-        if gid not in groups:
+    def _team_where(self, c, who, gid):
+        """A team's files: its bots' (the group and the groups under it, as team pages count them) and any file on a
+        task one of its bots or people owns."""
+        from . import cards
+        ctx = cards.Ctx(c, self.auth, who, self.store.settings)
+        if gid not in ctx.groups:
             raise Problem("not_found", "Team not found", 404)
-        wanted, grew = {gid}, True
-        while grew:
-            more = {g for g, row in groups.items() if row.get("parent") in wanted} - wanted
-            wanted |= more
-            grew = bool(more)
-        marks = ",".join("?" * len(wanted))
-        return [r[0] for r in c.execute(f"SELECT bot FROM bot_config WHERE team IN ({marks})", sorted(wanted))]
+        actors = sorted(ctx.team_actors(gid))
+        bots = [a[4:] for a in actors if a.startswith("bot:")]
+        return ("(f.bot IN (SELECT value FROM json_each(?)) OR f.task_id IN "
+                "(SELECT id FROM tasks WHERE owner IN (SELECT value FROM json_each(?))))"), [json.dumps(bots),
+                                                                                         json.dumps(actors)]
 
     def _pins(self, c, who, fid, cache):
         """Where a file is pinned, as places the reader may know of; a task place only when they may read the task."""
@@ -362,9 +361,9 @@ class Library:
             params.append(until)
         with self.store.read() as c:
             if team:
-                bots = self._team_bots(c, team)
-                where.append("f.bot IN (%s)" % ",".join("?" * len(bots)) if bots else "0")
-                params += bots
+                sql, args = self._team_where(c, who, team)
+                where.append(sql)
+                params += args
             if pinned:
                 where.append("EXISTS (SELECT 1 FROM pins WHERE item='page:' || f.id)" if has_pins(c) else "0")
             cache, caches = {}, {"task": {}, "repo": {}}
@@ -559,22 +558,29 @@ def purge_rows(c, actor, row):
 
 
 def drain(store, blobs, limit=50):
-    """Remove queued bytes from storage, each checked again first: bytes a new upload brought back stay. A place
-    that fails is tried again on the next pass, up to PURGE_ATTEMPTS times. How many were removed."""
+    """Remove queued bytes from storage, each checked again first: bytes a row needs again stay, and bytes this server
+    wrote in the last few minutes (blobs.FRESH_SECONDS: a write whose row is still to come, or a copy landing) wait
+    for a later pass. A place that fails is tried again on the next pass, up to PURGE_ATTEMPTS times. How many were
+    removed."""
     with store.read() as c:
         queued = c.execute("SELECT * FROM blob_purges WHERE attempts<? ORDER BY queued LIMIT ?",
                            (PURGE_ATTEMPTS, limit)).fetchall()
     removed = 0
     for q in queued:
-        with store.read() as c:
-            needed = still_used(c, q["digest"])
-        error = ""
-        if not needed:
-            try:
-                blobs.purge(q["digest"], q["kind"] or None)
-            except Exception as exc:              # an unreachable place: the next pass tries again
-                error = str(exc)[:500]
-                LOG.warning("A deleted file's bytes could not be removed everywhere yet: %s", error)
+        error, fresh = "", False
+        # Held while checking and removing, so a write of the same bytes either marks them first or comes after
+        # (and stores them again).
+        with blobs.purging(q["digest"]) as fresh:
+            if fresh:
+                continue
+            with store.read() as c:
+                needed = still_used(c, q["digest"])
+            if not needed:
+                try:
+                    blobs.purge(q["digest"], q["kind"] or None)
+                except Exception as exc:              # an unreachable place: the next pass tries again
+                    error = str(exc)[:500]
+                    LOG.warning("A deleted file's bytes could not be removed everywhere yet: %s", error)
         with store.transaction() as c:
             if error:
                 c.execute("UPDATE blob_purges SET attempts=attempts+1,error=? WHERE digest=?", (error, q["digest"]))

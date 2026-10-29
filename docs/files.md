@@ -142,8 +142,9 @@ Pages, Library › Files, search and deleting for good are below and in [Pages](
 [pages](pages.md), task and chat attachments, people's uploads, links and imports. Each row passes the same check as
 the bot's page, so a file you may not read adds no row, name or count.
 
-- **Filters:** kind (Pages, Documents, Images, Data, Video and audio, Other), bot, team (its nested teams
-  included), task, date, pinned and archived. They ride in the address (`#/library/files?kind=page&bot=…`).
+- **Filters:** kind (Pages, Documents, Images, Data, Video and audio, Other), bot, team (its bots' files and the
+  files on tasks its bots and people own, nested teams included), task, date, pinned and archived. They ride in the
+  address (`#/library/files?kind=page&bot=…`). On a phone they scroll sideways.
 - **Rows:** title, kind, bot, last updated, and where a page is pinned. A page opens full size; another stored file
   opens in the file viewer; a link opens at its provider.
 - **Paging:** newest activity first, 50 rows at a time, each answer capped in bytes, with no total.
@@ -170,11 +171,14 @@ page's menu, `DELETE /api/v2/files/{id}`, or `hub file delete ID` with an owner 
 confirm first.
 
 - Every version's bytes leave every place Tico stored them: this server, the company's bucket and its earlier
-  places, and Tico file hosting. Bytes another file still uses stay.
+  places, and Tico file hosting. Bytes anything else still uses stay: another file, a task or chat attachment, a
+  meeting's recording, market evidence, the team icon. Bytes this server wrote in the last two minutes (the same
+  bytes, uploaded again) go on a later pass, within a few minutes.
 - Its search text, page settings and pins go.
 - One row stays, titled **Deleted file**, and its activity records who deleted it, when and how many versions,
   without the name or the content. Publishing the same path again makes a new file.
-- Backups already taken keep their copy until they age out.
+- The backup (`TICO_BACKUP_URL`) keeps its copy: files there are only ever added. Remove them there by hand if they
+  must go.
 
 ## Retention
 

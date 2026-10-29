@@ -11,7 +11,7 @@ const FRAME = 'https://visuals.acme.example/visuals/acme-page.sig';
 const TALL = '<!doctype html><html><body style="margin:0"><div style="height:600px;background:#dfe">Tall page</div>'
   + '<script>parent.postMessage({ticoVisualHeight: 600}, "*")</script></body></html>';
 
-run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phone, tag}) => {
+run('redesign-e2e-pages', ['org', 'toured', 'groups', 'pages'], async ({hub, browser, phone, tag}) => {
   const page = await open(browser, hub, 'dana', {phone, hash: '#/library/files'});
   const rows = page.locator('.lf-row');
   await page.waitForFunction(() => document.querySelectorAll('.lf-row').length === 4, null, {timeout: t(15000)})
@@ -26,7 +26,23 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   const h = await rows.first().evaluate(el => el.getBoundingClientRect().height);
   assert.ok(h < 64, `${tag}: one dense row (${h}px)`);
   assert.equal(await sideways(page), false, `${tag}: no sideways scroll`);
+  assert.ok((await page.locator('.lf-meta').allInnerTexts()).every(x => x.includes('Engineering Lead')), `${tag}: the bot's name`);
+  assert.deepEqual(await page.locator('.lf-pins').allInnerTexts(), ['Pinned', 'Pinned'], `${tag}: one pin each, no count`);
+  // The filters never run off the screen: they fit, or scroll sideways with the right edge faded.
+  const frow = await page.locator('.lf-frow').evaluate(el => ({right: el.getBoundingClientRect().right, width: innerWidth,
+    over: el.scrollWidth > el.clientWidth + 1, fade: el.classList.contains('more')}));
+  assert.ok(frow.right <= frow.width && frow.over === frow.fade, `${tag}: filters fit or fade (${JSON.stringify(frow)})`);
   await shot(page, `${tag}-01-files`);
+
+  // Team: the team's bots' files and the files on its tasks.
+  const teams = await page.locator('.lf-team option').allInnerTexts();
+  assert.ok(['Engineering', 'Release'].every(x => teams.includes(x)), `${tag}: the teams (${teams})`);
+  await page.locator('.lf-team').selectOption({label: 'Release'});
+  await page.locator('.lf-list', {hasText: 'Nothing matches.'}).waitFor({timeout: t(5000)});
+  await page.locator('.lf-team').selectOption({label: 'Engineering'});
+  await page.waitForFunction(() => location.hash.includes('team=') && document.querySelectorAll('.lf-row').length === 4,
+    null, {timeout: t(5000)});
+  await page.locator('.lf-team').selectOption('');
 
   // Kind narrows the list and rides in the address.
   await page.locator('.lf-kind').selectOption('page');
@@ -52,7 +68,7 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   await page.waitForFunction(id => location.hash === '#/page/' + id, weekly.file_id, {timeout: t(5000)});
   const status = page.locator('#pg-view .pg-status');
   await status.waitFor({timeout: t(5000)});
-  assert.match(await status.innerText(), /^Updated .+ by .+ · v1 · weekly · data from Oct 27$/, `${tag}: the status line`);
+  assert.match(await status.innerText(), /^Updated .+ by Engineering Lead · v1 · weekly · data from Oct 27$/, `${tag}: the status line`);
   await page.locator('#pg-view .pg-preview iframe.html-view').waitFor({timeout: t(10000)});
   const shown = await page.locator('#pg-view iframe.html-view').evaluate(f => f.srcdoc);
   assert.ok(shown.includes('Shipped 14 changes') && !shown.includes('steal()'), `${tag}: the cleaned page, no script`);
@@ -78,6 +94,9 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   await cards.first().waitFor({timeout: t(10000)})
     .catch(() => assert.fail(`${tag}: a page card on the task (${JSON.stringify(page.errors)})`));
   assert.deepEqual(await cards.locator('.pg-open-title').allInnerTexts(), ['Launch plan']);
+  // Its status line is inside the card, under the page's title, not loose under the task's.
+  assert.match(await cards.locator('.pg-open .pg-status').innerText(), /^Updated .+ by Engineering Lead · v1$/, `${tag}: status in the card`);
+  assert.equal(await cards.locator(':scope > .pg-status').count(), 0, `${tag}: no loose status line`);
   await shot(page, `${tag}-04-task`);
   await cards.locator('a.pg-open', {hasText: 'Launch plan'}).click();
   await page.waitForFunction(id => location.hash === '#/page/' + id, launch.file_id, {timeout: t(5000)});
@@ -115,9 +134,11 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
     const small = await page.evaluate(([p, src]) => {
       const card = pageCard({...p, src}, {size: 'small'});
       card.id = 'probe'; document.querySelector('#pg-view').append(card);
-      return !!card.querySelector('a.pg-tap');
+      return {tap: !!card.querySelector('a.pg-tap'),
+        bar: card.classList.contains('pg-framed') && card.firstElementChild.classList.contains('pg-status')};
     }, [weekly, FRAME]);
-    assert.ok(small, 'a card opens its page on a tap');
+    assert.ok(small.tap, 'a card opens its page on a tap');
+    assert.ok(small.bar, 'a framed card carries its status line as its top bar');
     await page.waitForFunction(() => document.querySelector('#probe iframe.page-frame')?.style.height === '180px', null, {timeout: t(5000)});
     await shot(page, `${tag}-06-framed`);
     await page.unrouteAll({behavior: 'wait'});
