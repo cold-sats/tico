@@ -251,6 +251,11 @@ STABLE = [
     ("/api/v2/tasks/{tid}/delete", "post", "Tasks", "deleteTask",
      "Delete a task made by mistake, with its conversation, to the trash: its human requester or a mover, signed in "
      "as themselves; a task carrying work is refused (409 has_work)", None),
+    ("/api/v2/tasks/{tid}/model", "post", "Tasks", "setTaskModel",
+     "Set the model this task's runs use, with its effort and harness (backend/task_run_models.py): an absent `model` "
+     "keeps it and changes only what is named, and a null `model` clears it so the bot's task model runs the task "
+     "again. Whoever may change the bot's model may change this; a bot never does. Its `readiness` says whether the bot's "
+     "computer can run it now", "TaskRunModelResult"),
     ("/api/v2/tasks/{tid}/snooze", "post", "Tasks", "snoozeTask",
      "Set a task aside until `until` (an ISO-8601 date or date-time): off lists and Needs you, and quiet, until "
      "then, when its owner bot is woken once. Its requester, owner, anyone on it by role, or a mover", "TaskResult"),
@@ -842,6 +847,11 @@ SCHEMAS = {
                                "applies; read in full"}},
                     required=["tasks", "next_offset", "cursor"], actors=ACTORS),
     "TaskResult": obj({"task": ref("Task")}),
+    # A task's own model (backend/task_run_models.py `of`); null when its runs use the bot's task model.
+    "TaskRunChoice": obj({"model": "s", "harness": "s", "runtime": "s", "reasoning_effort": "s", "set_by": "n",
+                          "set_at": "n"}),
+    "TaskRunModelResult": obj({"task": "s", "run_model": {"oneOf": [ref("TaskRunChoice"), {"type": "null"}]},
+                               "readiness": {"type": ["object", "null"]}, "warning": "s"}),
     "TaskBulkResult": obj({"dry_run": "b", "matched": "i", "cap": "i", "changed": "i", "unchanged": "i", "skipped": "i",
                            "tasks": obj({"changed": items(obj({"id": "s", "number": {"type": ["integer", "null"]}, "title": "s"})),
                                          "skipped": items(obj({"id": "s", "number": {"type": ["integer", "null"]}, "title": "s",
@@ -861,8 +871,9 @@ SCHEMAS = {
     "CommentDelivery": obj({"default": {"type": ["string", "null"], "enum": ["steer", "queue", None]},
                             "steer": "b", "steers": "b", "goal": "b"}, required=["default", "steer", "steers", "goal"]),
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
-                       "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "mover": "b",
-                       "runs": items(ref("TaskRun")),
+                       "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "can_set_run_model": "b",
+                       "mover": "b", "runs": items(ref("TaskRun")),
+                       "run_model": {"oneOf": [ref("TaskRunChoice"), {"type": "null"}]},
                        "comment_delivery": {"oneOf": [ref("CommentDelivery"), {"type": "null"}]}},
                        required=["task", "events", "children", "comments", "messages", "has_more"], actors=ACTORS),
     "TaskReviewAskView": obj({"questions": "a", "who": "n", "by": "s"}),

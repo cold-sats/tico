@@ -215,8 +215,21 @@ class TaskCreate(Contract):
     # A bot's own subtask run on another model, `<runtime>[:<model>]`, as a review or a check (backend/check_models.py).
     check_model: str | None = Field(default=None, max_length=120)
     check_role: Literal["review", "check"] | None = None
+    # The model a bot-owned task's runs use, with its effort and harness (backend/task_run_models.py). No model is the
+    # bot's task model, then its own; an effort or harness needs a model.
+    model: ID | None = None
+    effort: ID | None = None
+    harness: ID | None = None
     # A company-visible task a private task's owning bot files from that work, in its own words (task_privacy.from_private).
     from_private: StrictBool = False
+
+
+class TaskRunModel(Contract):
+    """A task's own model (backend/task_run_models.py). An absent `model` keeps the task's and changes only the
+    effort or harness named; a null `model` clears it, so the task's runs use the bot's task model again."""
+    model: ID | None = Field(None, description="The model the task's runs use; null clears the task's choice")
+    effort: ID | None = None
+    harness: ID | None = None
 
 
 class NoteCreate(Contract):
