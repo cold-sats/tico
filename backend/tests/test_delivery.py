@@ -46,8 +46,9 @@ def fired(api):
 
 
 def test_a_deadline_starts_one_run_for_its_session_once(api):
-    setup(api)
-    task = post(api, "tasks", {"owner": "ops", "title": "Plan the launch", "body": "For the team."})
+    machine = setup(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Plan the launch", "body": "For the team.",
+                               "delivery": "defer", "defer_for": "never"})
     path = f"tasks/{task['id']}/comments"
     first = post(api, path, {"text": "Billing first.", "delivery": "defer", "defer_for": "30m"})["comment"]
     second = post(api, path, {"text": "Then the docs.", "delivery": "defer", "defer_for": "2h"})["comment"]
@@ -58,11 +59,16 @@ def test_a_deadline_starts_one_run_for_its_session_once(api):
     # The earliest deadline came: one run for the room, on its newest waiting comment, carrying both.
     tick(api, 31)
     assert job_of(api, second["id"])[1] == "queued" and job_of(api, first["id"]) is None
-    assert {r["fired_job"] for r in rows(api, task_id=task["id"])} == {second["id"]}
+    assert {r["fired_job"] for r in rows(api, kind="comment")} == {second["id"]}
     # A restarted scheduler, and the later deadline, start nothing more.
     tick(api, 31)
     tick(api, 130)
     assert fired(api) == [second["id"]]
+    # The run is an ordinary turn on the task: it carries both comments and settles the task's own wait.
+    attempt = post(api, "jobs/claim", {"next_run": True}, token=machine["token"])["attempt"]
+    assert attempt["message"]["id"] == second["id"]
+    assert attempt["deferred"] == "Deferred since your last turn: 2 comments"
+    assert {r["how"] for r in rows(api, bot="ops")} == {"carried"}
 
 
 def test_deferred_tasks_batch_into_one_run_that_carries_them_all(api):
