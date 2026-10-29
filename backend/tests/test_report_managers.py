@@ -153,6 +153,14 @@ def test_the_hub_tools_and_the_model_route_work_for_a_manager_bot(api):
     assert not err, out
     assert any(row["after"]["model"] == "claude-sonnet-5-5" and row["via"] == "report_manager"
                for row in changes_to(api, "counsel", "model"))
+    # Its task model too, through the tool; a task's own model stays a person's, so the manager cannot set one.
+    err, out = call(api, "hub_bot_task_model", {"bot": "counsel", "model": "claude-haiku-5-5"}, token=lead)
+    assert not err, out
+    assert any(row["via"] == "report_manager" for row in changes_to(api, "counsel", "task_model"))
+    task = post(api, "tasks", {"owner": "counsel", "title": "Review the lease", "body": "Check the break clause."})
+    err, out = call(api, "hub_task_model", {"id": task["id"], "model": "claude-haiku-5-5"}, token=lead)
+    assert err, out
+    assert get(api, "tasks/" + task["id"])["run_model"] is None
 
 
 def test_a_manager_bot_follows_its_reports_model_change_without_reading_its_checkpoints(api):

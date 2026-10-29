@@ -3871,7 +3871,8 @@ def task_model(api, args):
 @tool("hub_bot_task_model", "Show, or set, the model a bot's tasks run on, as the person who asked you: a model id or "
       "name from the list, with its effort and harness. Leave out `model` to change only the effort or harness on the "
       "bot's own model; `clear` puts the bot's tasks back on its own model. A task's own model (hub_task_model) comes "
-      "before this. Whoever may change the bot's model may change this; a bot never does.",
+      "before this. Whoever may change the bot's model may change this, and so may a manager bot for its direct "
+      "report.",
       {"bot": _s("The bot's slug"),
        "model": _s("A model id or name from hub_bot_model's list; leave out to keep the bot's own"),
        "effort": _s("Reasoning effort that model takes"),
@@ -3883,7 +3884,8 @@ def bot_task_model(api, args):
     who = _as_person(api, args.get("on_behalf_of"))
     if not any(args.get(k) for k in ("model", "harness", "effort", "clear")):
         return {"task_model": who.get(f"bots/{args['bot']}").get("task_model")}
-    revision = who.get(f"bots/{args['bot']}/access")["revision"]
+    # The bot row, not its access card: a manager bot reads its report's row but not who may reach it.
+    revision = who.get(f"bots/{args['bot']}")["revision"]
     if args.get("clear"):
         body = {"task_model": None, "expected_revision": revision}
     else:
@@ -5507,9 +5509,10 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_repo_list", "hub_repo_update", "hub_bot_repos_get", "hub_bot_repos_set")},
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
     "hub_bot_branch": REQUESTER,
-    # A bot or agent that manages the bot changes its name and description and its model (report_managers); the server
-    # refuses any other bot.
+    # A bot or agent that manages the bot changes its name and description, its model and its task model
+    # (report_managers); the server refuses any other bot.
     "hub_bot_update": REQUESTER + ("bot", "agent"), "hub_bot_model": REQUESTER + ("bot", "agent"),
+    "hub_bot_task_model": REQUESTER + ("bot", "agent"),
     "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     # Org changes: the Strategy Bot's owner chat makes one the person asked for, citing their words (`on_behalf_of`).
     **{name: REQUESTER + ("assistant",) for name in ("hub_group_update", "hub_group_delete", "hub_org_reports_to")},
@@ -5521,7 +5524,7 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_bot_turns_at_once",
                                     "hub_computer_turns_at_once", "hub_agent_pair_show", "hub_agent_pair_approve",
                                     "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live",
-                                    "hub_bot_task_model", "hub_task_model",
+                                    "hub_task_model",
                                     "hub_bot_keep_tasks_going", "hub_stall_triage", "hub_bot_budget",
                                     "hub_bot_profile", "hub_bot_release", "hub_bot_pause",
                                     "hub_bot_scope",
