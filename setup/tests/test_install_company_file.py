@@ -1,8 +1,12 @@
 """scripts/install.sh --company-file: the team a company file (tico.company.yaml) starts with, run for real against a local
 release with docker, curl, chown and the wizard's python stubbed (the `box` of test_install_runner.py). The server image's
-packer is a stub here; its own tests are in backend/tests/test_company_file.py (`pack` command)."""
+packer is a stub there; the last test runs the installer's own packer program (PACKER) against this checkout's backend."""
+import os
+import re
 import stat
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +14,7 @@ from setup.tests.test_install_runner import box, install  # noqa: F401  (box is 
 
 COMPANY = b"version: '0.2'\ncompany:\n  name: Acme Heating & Air\n"   # the packer is a stub: any bytes will do
 PACKED = "H4sIAAAAAAAC+stub/packed/text=="   # standard base64, as backend.company_file.starter.pack prints it
-PACK = "docker compose run --rm -T --no-deps server python -m backend.company_file.starter pack"
+PACK = """docker compose run --rm -T --no-deps -e TICO_PACKER server python -c import os; exec(os.environ["TICO_PACKER"])"""
 DOCKER = """#!/bin/sh
 echo "docker $*" >> "$STUB_LOG"
 case "$*" in
@@ -206,3 +210,24 @@ def test_an_install_that_already_has_its_env_keeps_its_team_and_says_the_file_wa
 def test_the_help_text_names_the_flag(company):
     r = run(company, "--help")
     assert r.returncode == 0 and "--company-file PATH" in r.stdout
+
+
+def test_the_installers_packer_prints_the_plan_the_server_reads_and_refuses_a_file_it_cannot_import():
+    # The program install.sh runs in the server image, run here as the image runs it: the same bytes the server unpacks.
+    from backend.company_file import starter
+    root = Path(__file__).resolve().parents[2]
+    packer = re.search(r"^PACKER='(.*?)'$", (root / "scripts" / "install.sh").read_text(), re.S | re.M).group(1)
+
+    def pack(data):
+        return subprocess.run([sys.executable, "-c", 'import os; exec(os.environ["TICO_PACKER"])'], input=data,
+                              capture_output=True, cwd=root, timeout=120, env={**os.environ, "TICO_PACKER": packer})
+
+    text = (root / "backend" / "tests" / "fixtures" / "company_strategy" / "company.yaml").read_text()
+    done = pack(text.encode())
+    assert done.returncode == 0 and done.stderr == b""
+    packed = done.stdout.decode().strip()
+    assert packed == starter.pack(text, starter.MAX_PACKED) and starter.unpack(packed) == starter.load(text)
+    bad = pack(b"version: 0.2\nthis: [is not yaml")
+    assert bad.returncode == 2 and bad.stdout == b"" and b"isn't valid YAML" in bad.stderr
+    assert pack(b"\xff\xfe not utf-8").returncode == 2
+    assert pack(b"x" * (starter.MAX_BYTES + 1)).returncode == 2

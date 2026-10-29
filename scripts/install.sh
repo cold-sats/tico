@@ -560,14 +560,30 @@ run_wizard() {
 # TICO_COMPANY_FILE_B64; a bigger one is a private file the server container reads, named by TICO_COMPANY_FILE, as
 # setup does for a server (setup/settings.py). It runs before .env is installed, so a file that does not pack leaves
 # nothing behind to skip the team on a re-run.
+# PACKER uses only what every 0.4 image has (starter.pack, MAX_BYTES, MAX_PACKED), so --version can pick an older one.
+# Exit 2 with the reason on stderr for a file Tico cannot import.
+PACKER='import sys
+from backend.company_file import draft, starter
+raw = sys.stdin.buffer.read(starter.MAX_BYTES + 1)
+try:
+    if len(raw) > starter.MAX_BYTES:
+        raise draft.DraftError("the company file is too large")
+    print(starter.pack(raw.decode("utf-8"), starter.MAX_PACKED))
+except UnicodeError:
+    print("Cannot read --company-file; use a readable UTF-8 company YAML file", file=sys.stderr)
+    sys.exit(2)
+except draft.DraftError as exc:
+    print(exc, file=sys.stderr)
+    sys.exit(2)
+'
 pack_company_file() {
   env_out=$1
   step "Packing $COMPANY_FILE"
   ( cd "$DIR" && as_root env TICO_TAG="$VERSION" docker compose pull --quiet server ) \
     || die 6 "docker compose could not pull the Tico image in $DIR. Run this again."
   # The packer exits 2 with the reason for a file Tico cannot import; any other failure is docker compose's.
-  packed=$( cd "$DIR" && as_root env TICO_TAG="$VERSION" docker compose run --rm -T --no-deps server \
-    python -m backend.company_file.starter pack <"$COMPANY_FILE" ) || {
+  packed=$( cd "$DIR" && as_root env TICO_TAG="$VERSION" TICO_PACKER="$PACKER" docker compose run --rm -T --no-deps \
+    -e TICO_PACKER server python -c 'import os; exec(os.environ["TICO_PACKER"])' <"$COMPANY_FILE" ) || {
     rc=$?
     rm -f "$env_out"
     [ "$rc" = 2 ] && die 2 "The company file is not one Tico can import (the reason is above). Nothing was installed."
