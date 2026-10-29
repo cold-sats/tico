@@ -1348,6 +1348,16 @@ class StrategyTableNames(HubCase):
         self.act("a4", "done")
         self.assertEqual(self.rows("ceo_actions"), self.rows("strategy_actions"))
 
+    def test_the_start_that_copies_an_older_releases_rows_leaves_the_triggers_in_place(self):
+        """Another server of this release may write as soon as the copy commits: that write reaches the old table."""
+        self.act("a1", "done")
+        self.conn.commit()
+        self.conn.execute("UPDATE ceo_actions SET state='undone' WHERE id='a1'")
+        self.conn.commit()
+        H._sync_strategy_tables(self.conn)
+        self.act("a2", "done")
+        self.assertEqual(self.rows("ceo_actions"), [("a1", "undone"), ("a2", "done")])
+
     def test_a_new_install_has_the_old_tables_with_the_new_columns(self):
         for old, new, _ in H.STRATEGY_TABLES:
             columns = [r[1] for r in self.conn.execute(f"PRAGMA table_info({new})")]

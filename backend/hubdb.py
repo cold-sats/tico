@@ -1123,6 +1123,19 @@ def _shared_columns(conn, old, new):
     return [row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept]
 
 
+def _mirror(conn, old, new):
+    """The triggers that copy every write to `new` to `old` (STRATEGY_TABLES)."""
+    columns = _shared_columns(conn, old, new)
+    names, values = ",".join(columns), ",".join("new." + column for column in columns)
+    keys = [row[1] for row in conn.execute(f"PRAGMA table_info({new})") if row[5]]
+    match = " AND ".join(f"{key}=old.{key}" for key in keys)
+    upsert = f"INSERT OR REPLACE INTO {old}({names}) VALUES({values});"
+    for event, body in (("insert", upsert), ("update", f"DELETE FROM {old} WHERE {match}; {upsert}"),
+                        ("delete", f"DELETE FROM {old} WHERE {match};")):
+        conn.execute(f"CREATE TRIGGER IF NOT EXISTS {new}_to_old_{event} AFTER {event.upper()} ON {new} "
+                     f"BEGIN {body} END")
+
+
 def _sync_strategy_tables(conn):
     """Make each Strategy Bot table under its new name equal to the one under its old name, before the migrations run:
     the old one holds every row as it last was, whichever release wrote it (STRATEGY_TABLES). A file from before the
@@ -1150,6 +1163,7 @@ def _sync_strategy_tables(conn):
                 columns = ",".join(_shared_columns(conn, old, new))
                 conn.execute(f"DELETE FROM {new}")
                 conn.execute(f"INSERT INTO {new}({columns}) SELECT {columns} FROM {old}")
+                _mirror(conn, old, new)     # back before the lock goes, so no write by another server is missed
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
@@ -1171,15 +1185,7 @@ def _keep_old_strategy_tables(conn):
                 conn.execute(re.sub(r'^CREATE TABLE (IF NOT EXISTS )?("?)\w+\2', f"CREATE TABLE {old}", sql))
                 columns = ",".join(_shared_columns(conn, old, new))
                 conn.execute(f"INSERT INTO {old}({columns}) SELECT {columns} FROM {new}")
-            columns = _shared_columns(conn, old, new)
-            names, values = ",".join(columns), ",".join("new." + column for column in columns)
-            keys = [row[1] for row in conn.execute(f"PRAGMA table_info({new})") if row[5]]
-            match = " AND ".join(f"{key}=old.{key}" for key in keys)
-            upsert = f"INSERT OR REPLACE INTO {old}({names}) VALUES({values});"
-            for event, body in (("insert", upsert), ("update", f"DELETE FROM {old} WHERE {match}; {upsert}"),
-                                ("delete", f"DELETE FROM {old} WHERE {match};")):
-                conn.execute(f"CREATE TRIGGER IF NOT EXISTS {new}_to_old_{event} AFTER {event.upper()} ON {new} "
-                             f"BEGIN {body} END")
+            _mirror(conn, old, new)
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
