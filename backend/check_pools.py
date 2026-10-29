@@ -218,21 +218,20 @@ def online(c, slug):
 
 
 def _task_model(c, slug):
-    """(config, task model or None): the bot's config, and the task model a task filed to it runs on. A check is a task
-    the bot owns, so it runs on the bot's task model whenever the bot gives its tasks their own sessions, unless that
-    model cannot run on the bot's computer now (retired, not installed or signed in, held at a usage limit): then on
-    the bot's own model, as backend/task_models.py `pick` falls back."""
+    """(config, task model or None, whether it runs now): the bot's config, and the task model a task filed to it
+    would run on. A check is a task the bot owns, so it runs on the bot's task model whenever the bot gives its tasks
+    their own sessions, unless that model cannot run on the bot's computer now (retired, not installed or signed in,
+    held at a usage limit): then on the bot's own model, as backend/task_models.py `pick` falls back."""
     from clients import sessions
     from . import task_models
     from .shared_bots import follow
     row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
     config = follow(c, slug, H._json(row["config_json"], {}) or {}) if row else {}
     task = task_models.of(config) if sessions.session_key(config, slug, "check", None).startswith("task:") else None
-    if task:
-        runner = c.execute("SELECT runner_id FROM assignments WHERE bot=?", (slug,)).fetchone()
-        if task_models.why_not(c, None, slug, task, runner[0] if runner else None):
-            task = None
-    return config, task
+    if not task:
+        return config, None, False
+    runner = c.execute("SELECT runner_id FROM assignments WHERE bot=?", (slug,)).fetchone()
+    return config, task, not task_models.why_not(c, None, slug, task, runner[0] if runner else None)
 
 
 def _company(names):
@@ -244,8 +243,8 @@ def maker(c, slug):
     """The model company a task filed to the bot runs on (`anthropic`, `openai`, ...): its task model's when it has
     one that can run, else its own model's; '' when its config names none Tico knows."""
     from . import providers
-    config, task = _task_model(c, slug)
-    if task:
+    config, task, runs = _task_model(c, slug)
+    if runs:
         return _company((task["model"], task["runtime"]))
     runtime, model = providers.bot_choice(c, None, config)
     return _company((model, config.get("model"), runtime, config.get("runtime")))
@@ -255,13 +254,13 @@ RECENT_TURNS = 3
 TURNS_READ = 20
 
 
-def _recent_turns(c, slug, task):
+def _recent_turns(c, slug, task, runs):
     """The bot's last few finished turns that ran where a check filed to it would: none on a task with a model of its
-    own or a check model, which ran on that, and with a task model, only its turns on tasks, since its other turns run
-    on its own model."""
+    own or a check model, which ran on that. With a task model that runs, only its turns on tasks; with one that
+    cannot run now, only its other turns, which run on its own model as the check would."""
     from . import task_run_models
-    rows = c.execute("SELECT id,task_id FROM turns WHERE bot=? AND finished IS NOT NULL"
-                     + (" AND task_id IS NOT NULL" if task else "")
+    where = "" if not task else " AND task_id IS NOT NULL" if runs else " AND task_id IS NULL"
+    rows = c.execute("SELECT id,task_id FROM turns WHERE bot=? AND finished IS NOT NULL" + where
                      + " ORDER BY finished DESC LIMIT ?", (slug, TURNS_READ)).fetchall()
     return [r[0] for r in rows
             if not (r[1] and (task_run_models.of(c, r[1]) or H.check_model(c, r[1])))][:RECENT_TURNS]
@@ -273,8 +272,8 @@ def makers(c, slug, known_only=False):
     do the check). A run with an unknown segment makes the answer empty, or with `known_only` adds nothing, leaving
     what is known."""
     from .usage_records import ran_on
-    _, task = _task_model(c, slug)
-    recent = ran_on(c, _recent_turns(c, slug, task)).values()
+    _, task, runs = _task_model(c, slug)
+    recent = ran_on(c, _recent_turns(c, slug, task, runs)).values()
     found = set()
     for run in recent:
         segments = run["segments"]
@@ -370,9 +369,11 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
             why.add("busy")
             continue
         idle = (c.execute("SELECT last_turn_at FROM bots WHERE slug=?", (slug,)).fetchone() or [None])[0] or ""
-        same = bool(builder and makers(c, slug, known_only=True) & builder)
-        if same and required:
-            why.add("company")
+        known = makers(c, slug, known_only=True) if builder else set()
+        same = bool(known & builder)
+        # Require needs the bot shown to run elsewhere: a company Tico cannot name may be the builder's.
+        if required and (same or not known):
+            why.add("company" if same else "unknown")
             continue
         # Model company only orders the free bots, so it ranks first; eligibility, workload and idle time break ties.
         free.append((same, 0 if decision["eligible"] else 1, held, idle, slug))
@@ -381,7 +382,11 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
         return [slug for _, _, _, _, slug in free], ""
     base = ("every reviewer in the pool is at its limit of open checks" if "busy" in why
             else "no reviewer in the pool is online" if "offline" in why else "")
-    if "company" in why:
+    if "unknown" in why:
+        rest = "the builder's model company or one Tico can't name" if "company" in why else \
+            "a model company Tico can't name"
+        reason = f"{base}; the rest run on {rest}" if base else f"every free bot in the pool runs on {rest}"
+    elif "company" in why:
         reason = (f"{base}; the rest run on the builder's model company" if base
                   else "every free bot in the pool runs on the model company the builder ran on")
     elif base:

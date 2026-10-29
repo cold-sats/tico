@@ -705,6 +705,43 @@ def test_a_task_model_held_at_its_usage_limit_counts_the_bots_own_model_for_requ
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
 
 
+def test_a_task_model_that_cannot_run_counts_only_the_turns_on_the_bots_own_model(api):
+    """rev-a's task model on Anthropic ran its last task there, but claude is no longer installed on its computer, so
+    a check given to it runs on its own model, on OpenAI: a required check for an Anthropic build goes to it."""
+    team(api)
+    task = qa_ticket(api)
+    task_model(api, "rev-a", "claude-haiku-5-5", "claude")
+    own = busy(api, "rev-a")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='done' WHERE id=?", (own["id"],))
+        c.execute("INSERT INTO turns(id,bot,started,finished,task_id) VALUES('earlier','rev-a',?,?,?)",
+                  (H.now(), H.now(), own["id"]))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('earlier',0,'claude-haiku-5-5','anthropic')")
+        c.execute("UPDATE runners SET readiness_json=? WHERE id='r1'",
+                  (json.dumps({"schema_version": 1, "bots": {}, "runtimes": {"claude": {"installed": False}}}),))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_require_never_gives_the_check_to_a_bot_whose_model_company_is_unknown(api):
+    """rev-a names no model and has no runs to read, so it may be on the builder's company: a required check waits
+    and says why, where a preferred one would take it."""
+    team(api)
+    task = qa_ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='rev-a'",
+                  (encode({"name": "rev-a", "runtime": "fake", "status": "active", "profile": "reviewer"}),))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
+    assert "can't name" in wait["reason"], wait["reason"]
+
+
 def test_a_recent_check_on_a_check_model_says_nothing_about_a_bot_with_no_task_model(api):
     """rev-a runs on OpenAI with no task model; its last check ran on Anthropic because it had a check model. A
     required check for an Anthropic build still goes to it."""
