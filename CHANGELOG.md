@@ -8,11 +8,6 @@ below word for word as its notes.
 
 ## [Unreleased]
 
-### Changed
-- Tasks: a person can always delete a task, even one bots worked on. Before, a task with a bot's turn, file,
-  approval or subtask could only be closed, which counts it as finished work. Its bot work stays where it is,
-  hidden while the task is in the trash, and a restore links it back. The offline bulk delete still refuses.
-
 ## [0.4.15] - 2026-10-27
 
 ### Fixed
