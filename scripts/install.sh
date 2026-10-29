@@ -177,7 +177,7 @@ while [ $# -gt 0 ]; do
     --owner-email=*) OWNER_EMAIL=${1#--owner-email=}; shift ;;
     --team-name|--company) [ $# -ge 2 ] || { usage >&2; die 2 "$1 needs a value"; }; COMPANY=$2; shift 2 ;;
     --team-name=*|--company=*) COMPANY=${1#*=}; shift ;;
-    --company-file) [ $# -ge 2 ] && [ -n "$2" ] || { usage >&2; die 2 "--company-file needs a path"; }; COMPANY_FILE=$2; shift 2 ;;
+    --company-file) [ -n "${2:-}" ] || { usage >&2; die 2 "--company-file needs a path"; }; COMPANY_FILE=$2; shift 2 ;;
     --company-file=*) [ -n "${1#--company-file=}" ] || { usage >&2; die 2 "--company-file needs a path"; }; COMPANY_FILE=${1#--company-file=}; shift ;;
     --owner-name) [ $# -ge 2 ] || { usage >&2; die 2 "--owner-name needs a value"; }; OWNER_NAME=$2; shift 2 ;;
     --owner-name=*) OWNER_NAME=${1#--owner-name=}; shift ;;
@@ -283,7 +283,7 @@ case $COMPANY_FILE in
   *) COMPANY_FILE=$(pwd)/$COMPANY_FILE ;;
 esac
 if [ -n "$COMPANY_FILE" ]; then
-  [ -f "$COMPANY_FILE" ] && [ -r "$COMPANY_FILE" ] || die 2 "Cannot read --company-file; use a readable UTF-8 company YAML file"
+  if [ ! -f "$COMPANY_FILE" ] || [ ! -r "$COMPANY_FILE" ]; then die 2 "Cannot read --company-file; use a readable UTF-8 company YAML file"; fi
   [ -z "$RUNNER$DOCKER_ONLY" ] || die 2 "--company-file goes with --local, --recommended or a team install."
   # A team install hands the file to the setup wizard, as `-- --company-file` always did.
   if [ -z "$LOCAL" ]; then set -- --company-file "$COMPANY_FILE" "$@"; fi
