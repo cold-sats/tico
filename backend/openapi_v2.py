@@ -1454,6 +1454,9 @@ SCHEMAS.update({
                        "next_run": {"type": ["string", "null"]}, "pending": "i", "warning": "s",
                        "kind": {"type": "string", "description": "The trigger as the overview groups it; system for "
                                 "Tico's own jobs"},
+                       "problems": {"type": "array", "description": "Wake rules that name a step their task type "
+                                    "does not have (they never fire until changed): rule id, the step named and why",
+                                    "items": obj({"rule": "s", "step": "s", "why": "s"})},
                        "paused": {"type": "boolean", "description": "Off because the run guard paused it"},
                        "schedule": {"type": "string", "description": "A system job's schedule in words"}},
                       required=["id", "can_edit"]),

@@ -134,6 +134,11 @@ export type Automation = {
   owner?: string;
   paused?: boolean;
   pending?: number;
+  problems?: Array<{
+  rule: string;
+  step: string;
+  why: string;
+}>;
   schedule?: string;
   spend_cap?: Record<string, unknown> | null;
   steps?: Array<Record<string, unknown>>;
