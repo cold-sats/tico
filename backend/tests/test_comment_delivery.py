@@ -57,6 +57,41 @@ def test_queue_waits_for_the_next_turn_steer_joins_the_running_one_and_no_choice
     assert plain["woke"] is True and job_state(api, plain["comment"]["id"]) == "queued"
 
 
+def forwarded(turn, after):
+    """The room messages the runner puts in a turn's prompt: those after the message its thread last answered, which
+    is the earlier turn's trigger (runner-rs/src/prompt.rs reads `history` after the cursor execute.rs sets)."""
+    history = turn["history"]
+    ids = [m["id"] for m in history]
+    newer = history[ids.index(after) + 1:] if after in ids else history
+    return [m["body"] for m in newer]
+
+
+def test_a_comment_queued_mid_turn_reaches_the_bots_next_prompt_once(api):
+    machine, tid = world(api)
+    first = claim(api, machine)
+    post(api, f"attempts/{first['id']}/started", {"thread_id": "plan"}, machine["token"])
+    queued = post(api, f"tasks/{tid}/comments", {"text": "Billing first, then the docs.", "delivery": "queue"})
+    assert queued["woke"] is False
+    # The turn finishes with its reply after the queued comment.
+    post(api, f"attempts/{first['id']}/complete", {"outcome": "completed", "text": "Plan drafted.", "last_seq": 0},
+         machine["token"])
+
+    later = post(api, f"tasks/{tid}/comments", {"text": "Also the API page."})
+    second = claim(api, machine)
+    assert second["message"]["id"] == later["comment"]["id"]
+    assert first["message"]["id"] in [m["id"] for m in second["history"]]
+    assert "Billing first, then the docs." in forwarded(second, first["message"]["id"])
+    post(api, f"attempts/{second['id']}/started", {"thread_id": "plan"}, machine["token"])
+    post(api, f"attempts/{second['id']}/complete", {"outcome": "completed", "text": "API page noted.", "last_seq": 0},
+         machine["token"])
+
+    # Delivered once: the next turn's prompt starts after the second turn's own trigger, so the queued comment is gone.
+    again = post(api, f"tasks/{tid}/comments", {"text": "Then the launch note."})
+    third = claim(api, machine)
+    assert third["message"]["id"] == again["comment"]["id"]
+    assert "Billing first, then the docs." not in forwarded(third, second["message"]["id"])
+
+
 def test_the_send_says_which_ways_a_reader_may_deliver(api):
     machine, tid = world(api)
     cd = get(api, f"tasks/{tid}")["comment_delivery"]
