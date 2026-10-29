@@ -27066,6 +27066,38 @@
         ],
         "title": "ClarifyAsk"
       },
+      "CommentDelivery": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "steer",
+              "queue",
+              null
+            ]
+          },
+          "steer": {
+            "type": "boolean"
+          },
+          "steers": {
+            "type": "boolean"
+          },
+          "goal": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "default",
+          "goal",
+          "steer",
+          "steers"
+        ],
+        "additionalProperties": true
+      },
       "CommentResult": {
         "type": "object",
         "properties": {
@@ -27089,6 +27121,9 @@
           },
           "held": {
             "type": "string"
+          },
+          "goal": {
+            "type": "object"
           }
         },
         "required": [
@@ -37923,6 +37958,22 @@
             "type": "array",
             "maxItems": 10,
             "title": "Attachments"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "steer",
+                  "queue",
+                  "goal"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
           }
         },
         "additionalProperties": false,
@@ -38282,6 +38333,16 @@
             "items": {
               "$ref": "#/components/schemas/TaskRun"
             }
+          },
+          "comment_delivery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CommentDelivery"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "actors": {
             "type": "object",

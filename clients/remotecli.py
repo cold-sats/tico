@@ -542,6 +542,8 @@ def run(args, who=None):
                 body["ask"] = ask
             if getattr(args, "needs_action", False):
                 body["needs_action"] = True
+            if getattr(args, "delivery", None):
+                body["delivery"] = args.delivery
             if getattr(args, "public", None):
                 body["public"] = True
             if getattr(args, "approval_id", None):
