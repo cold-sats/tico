@@ -45,7 +45,7 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   const weekly = pages.find(p => p.title === 'Engineering weekly'), old = pages.find(p => p.title === 'Engineering weekly (old)');
   const launch = pages.find(p => p.title === 'Launch plan');
   assert.equal(weekly.src, null, 'no visual address on this hub');
-  await page.locator('.lf-row', {hasText: /^Engineering weekly$/m}).first().click();
+  await rows.filter({has: page.locator('.lf-title', {hasText: /^Engineering weekly$/})}).click();
   await page.waitForFunction(id => location.hash === '#/page/' + id, weekly.file_id, {timeout: t(5000)});
   const status = page.locator('#pg-view .pg-status');
   await status.waitFor({timeout: t(5000)});
