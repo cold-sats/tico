@@ -57,7 +57,7 @@ def name(c):
 def view(c):
     history = level_history(c)
     return {"name": name(c), "regular_checks": checks(c),
-            "level": level(c), "levels": levels(),
+            "level": level(c), "level_chosen": _record(c).get("level") in LEVELS, "levels": levels(),
             "level_changed_by": history[0]["by"] if history else "",
             "level_changed_at": history[0]["at"] if history else "",
             "level_history": history, "asked_today": asked_today_all(c),
@@ -152,7 +152,8 @@ def proactive(c):
 
 def _review(c, actor, record):
     """The Monday note (the bot's `goals-review` routine, declared paused) starts when the level is above Passive: when
-    the owner raises it from Passive, or, on an install that never chose a level, once `reconcile` finds the routine.
+    the owner raises it from Passive, or, on an install that never chose a level, once `reconcile` finds the routine
+    if no person has ever started or paused it.
     Back at Passive, it is paused again only if this started it and nobody has paused or started it since: a person's
     own choice is never overruled. `review_settled` says it has had its one go at starting it at the current raise, so
     `reconcile` never starts it again."""
@@ -168,7 +169,8 @@ def _review(c, actor, record):
     if not row or row["deleted_at"]:
         return              # not there yet: `reconcile` starts it once it is
     record["review_settled"] = True
-    if not row["enabled"]:
+    # Above Passive only by default: a note a person already started or paused stays as they left it.
+    if not row["enabled"] and (record.get("level") in LEVELS or not _review_touched(c, "")):
         routines.update(c, H.KEEPER, REVIEW, {"enabled": True})
         record["review_armed"] = H.now()
         H.event(c, actor, "ceo_bot.review_armed", REVIEW, {})

@@ -10,7 +10,8 @@ changes that, and what stays yours. There is no On/Off switch: you choose how mu
 ## The three levels
 
 **Settings > CEO Bot** shows the regular checks, then three levels. Each level has one sentence on what the CEO Bot will
-and won't do. Every company starts at **Suggests actions** until its owner chooses another level.
+and won't do. Every company starts at **Suggests actions** until its owner chooses another level. Until then the
+owner can also confirm Suggests actions as their own choice, so a later change to where companies start never moves it.
 
 | Level | Name | What the CEO Bot does |
 |---|---|---|
@@ -92,7 +93,7 @@ the bets, and you publish:
 ## What the CEO Bot does at Suggests actions
 
 Everything at Passive, plus these. Going up from Passive starts the Monday note, and so does an install that never
-chose a level, since it starts here.
+chose a level, since it starts here, unless a person already started or paused the note themselves.
 - **Takes "Draft the strategy" tasks.** A drafting run ends in a `strategy_draft` proposal you confirm
   ([Strategy](#strategy)), as at every level; it writes nothing to the page itself.
 - **Asks you for the vision.** While the team's vision is empty, the first item in the owner's **Needs you** is "Tell

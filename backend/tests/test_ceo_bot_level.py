@@ -79,9 +79,11 @@ def test_an_owner_who_picks_the_default_keeps_it_as_their_choice(api):
     so a later default never moves an owner who chose it."""
     store = api.app.state.store
     with_ceo_bot(api, level=None)
+    assert get(api, "ceo-bot")["level_chosen"] is False
     with store.transaction() as c:
         ceo_bot.set_level(c, OWNER, 2)
         assert ceo_bot._record(c)["level"] == 2 and ceo_bot.level_history(c) == []
+    assert get(api, "ceo-bot")["level_chosen"] is True
 
 
 def test_only_the_owner_changes_the_level_and_each_change_is_logged(api):
@@ -267,6 +269,21 @@ def test_with_no_chosen_level_the_monday_note_starts_once_and_a_persons_pause_st
         ceo_bot.reconcile(c)
     assert not review_enabled(api)
     with store.transaction() as c:
+        ceo_bot.reconcile(c)
+    assert not review_enabled(api)
+
+
+def test_an_upgrade_to_the_new_default_keeps_a_monday_note_a_person_paused(api):
+    """Before the default was Suggests actions, a person started the Monday note and paused it again. The upgrade's
+    reconcile leaves it paused, and never tries again."""
+    with_ceo_bot(api, level=None)
+    review_routine(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": True})
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        ceo_bot.reconcile(c)
+        assert ceo_bot._record(c).get("review_settled") is True
         ceo_bot.reconcile(c)
     assert not review_enabled(api)
 

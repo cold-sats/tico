@@ -19,7 +19,7 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
   const page = await browser.newPage({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
   const errors = [], posted = [];
   page.on('pageerror', e => errors.push(e.message));
-  const state = {regular_checks: true, level: 2, level_changed_by: '', level_changed_by_name: '', level_changed_at: '', level_history: [], levels: LEVELS,
+  const state = {regular_checks: true, level: 2, level_chosen: false, level_changed_by: '', level_changed_by_name: '', level_changed_at: '', level_history: [], levels: LEVELS,
     name, asked_today: {}};
   await page.route('**/*', route => {
     const req = route.request(), p = new URL(req.url()).pathname;
@@ -40,6 +40,9 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
     if (p === '/api/v2/ceo-bot/level') {
       const body = req.postDataJSON();
       posted.push(body);
+      state.level_chosen = true;
+      // The same level again is only kept as the owner's choice: nothing changed, so no history line.
+      if (body.level === state.level) return json(state);
       const at = new Date().toISOString();
       state.level_history.unshift({level: body.level, was: state.level, by: 'human:ana', by_name: 'Ana', at});
       Object.assign(state, {level: body.level, level_changed_by: 'human:ana', level_changed_by_name: 'Ana', level_changed_at: at});
@@ -89,6 +92,17 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
         /Regular checks[\s\S]*How much your CEO Bot does[\s\S]*Suggests actions, where every company starts/);
       assert.doesNotMatch(panel, /Goal Manager|level 1|switch/i);
       assert.equal(await page.locator('#set-ceo-bot [data-ceo-checks]').isChecked(), true);
+      // The level is only the default, so the owner can confirm it as their own choice; once chosen, picking it again
+      // asks nothing.
+      await levels.nth(1).click();
+      await page.locator('#set-ceo-bot .ceo-confirm', {hasText: 'Keep Suggests actions as your choice?'}).waitFor();
+      await page.locator('#set-ceo-bot [data-ceo-confirm="2"]').click();
+      await page.locator('#set-ceo-bot .ceo-confirm').waitFor({state: 'detached'});
+      assert.deepEqual(posted, [{level: 2}]);
+      await levels.nth(1).click();
+      await page.waitForTimeout(200);
+      assert.equal(await page.locator('#set-ceo-bot .ceo-confirm').count(), 0);
+      posted.length = 0;
       // Picking Passive shows its sentence with a Confirm; Cancel changes nothing.
       await levels.nth(0).click();
       const confirm = page.locator('#set-ceo-bot .ceo-confirm');
