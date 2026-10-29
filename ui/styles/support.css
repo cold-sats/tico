@@ -1,10 +1,5 @@
 /* ui/styles/support.css — the Support pop-up (ui/support.js) and Report this.
    The cascade runs in the order index.html links these files; keep rules in order. */
-#help-open,#mobile-support{cursor:pointer}
-#help-open{background:none;padding:0}
-#help-open[data-support-unread]{position:relative}
-/* The number of unread support replies, on the ? itself (support.js sets it; absent at zero). */
-#help-open[data-support-count]::after{content:attr(data-support-count);position:absolute;top:-6px;right:-8px;min-width:20px;height:20px;padding:0 4px;box-sizing:border-box;border-radius:10px;background:var(--accent);color:var(--accent-ink);font:700 var(--t-2xs)/16px var(--sans);text-align:center;border:2px solid var(--surface);pointer-events:none}
 #support-access-banner [data-access-left]{color:inherit;text-decoration:none}
 #support-access-banner [data-access-left]:hover{text-decoration:underline}
 /* The pop-up: about 400 px wide and up to 640 px tall, bottom-left beside the sidebar; a bottom sheet on a phone. */

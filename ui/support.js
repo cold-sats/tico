@@ -1,4 +1,4 @@
-/* Support is a pop-up over the current screen, opened by the ? at the foot of the sidebar (the ? tab on a phone), by
+/* Support is a pop-up over the current screen, opened from Ask's + (Tico support, ui/app/ask-panel.js), by a #/support link, by
    Report this and Want help setting up?, and by old #/help links. It uses the existing ticket transport.
    Drafts stay on this page's account in memory; an attachment is an immutable server preview, never silently replaced
    when Send is pressed. */
@@ -102,18 +102,20 @@
     if (!r.ok) throw Object.assign(new Error(data.error?.detail || data.error?.message || (typeof data.detail === 'string' ? data.detail : '') || 'Could not reach support. Try again.'), {status: r.status});
     return data;
   }
-  // The ? (and the phone's ? tab) carries the number of unread replies.
+  // Ask's button (and the phone's Ask tab) and Tico support in its + menu carry the number of unread replies
+  // (ui/app/ask-panel.js, which hears `tico:support` to show an open request as in its chat).
   function mark() {
-    const n = state.unread, label = n ? `Support, ${n} new ${n === 1 ? 'reply' : 'replies'}` : 'Support';
-    for (const id of ['help-open', 'mobile-support']) {
+    const n = state.unread;
+    for (const id of ['ask-fab', 'mobile-ask', 'ask-support']) {
       const el = document.getElementById(id);
       if (!el) continue;
       if (n) { el.setAttribute('data-support-unread', n); el.setAttribute('data-support-count', n > 9 ? '9+' : String(n)); }
       else { el.removeAttribute('data-support-unread'); el.removeAttribute('data-support-count'); }
-      el.setAttribute('aria-label', label);
     }
-    const badge = document.querySelector('#mobile-support [data-support-badge]');
+    document.getElementById('ask-support')?.setAttribute('aria-label', n ? `Tico support, ${n} new ${n === 1 ? 'reply' : 'replies'}` : 'Tico support');
+    const badge = document.querySelector('#mobile-ask [data-support-badge]');
     if (badge) { badge.hidden = !n; badge.textContent = n > 9 ? '9+' : String(n); }
+    document.dispatchEvent(new CustomEvent('tico:support'));
   }
   function accept(data) {
     state = {enabled: data.enabled !== false, tickets: data.tickets || [], unread: data.unread || 0};
@@ -205,7 +207,7 @@
     const total = state.tickets.length;
     pop.querySelector('[data-whats-new]').textContent = news ? `What's new (${news})` : "What's new";
     const mine = pop.querySelector('[data-mine]');
-    // The number of requests the list shows; the unread replies are the dots in it and the count on the ?.
+    // The number of requests the list shows; the unread replies are the dots in it and the count on Ask.
     mine.textContent = total ? `Your requests (${total})` : 'Your requests';
     mine.setAttribute('aria-pressed', String(view === 'list'));
   }
@@ -600,6 +602,28 @@
       {message, email: compose?.email || '', ids: true, diag: true, perf: 24, bundle: null, key: uid(), kind, open: false});
     render(); renderThread(true); renderComposer(); focusBox();
   }
+  window.supportState = () => ({enabled: state.enabled, unread: state.unread,
+                                 open: state.tickets.filter(t => !ended(t)).map(t => ({id: t.id, unread: !!t.unread}))});
+  // Ask's panel (ui/app/ask-panel.js) shows an open request's messages in its chat, writes to it and reads its replies.
+  window.supportTicket = id => state.tickets.find(t => t.id === id) || null;
+  window.supportReply = async (id, message) => {
+    const next = await call('POST', `/support/tickets/${encodeURIComponent(id)}/messages`, {message, diagnostics: ''});
+    stateRevision++;
+    state.tickets = [next, ...state.tickets.filter(t => t.id !== next.id)];
+    mark(); if (isOpen()) render(); schedule();
+    return next;
+  };
+  window.supportRead = async id => {
+    const revision = stateRevision;
+    try {
+      const next = await call('POST', `/support/tickets/${encodeURIComponent(id)}/read`);
+      if (revision !== stateRevision) return;
+      stateRevision++;
+      state.tickets = state.tickets.map(x => x.id === next.id ? next : x);
+      state.unread = state.tickets.reduce((n, x) => n + (x.unread || 0), 0);
+      toasted = state.unread; mark();
+    } catch (_) { /* unread until it is seen again */ }
+  };
   window.supportStart = (message, kind = 'support') => {
     starting = {message, kind};
     void open({fresh: true});
@@ -616,7 +640,7 @@
   });
 
   // The pop-up: a modal dialog beside the sidebar on a computer, a bottom sheet on a phone. Focus moves into the box,
-  // Tab stays inside, and Esc, ✕ or a click outside closes it and gives focus back to whatever opened it (the ?).
+  // Tab stays inside, and Esc, ✕ or a click outside closes it and gives focus back to whatever opened it (Ask).
   function build() {
     if (pop) return pop;
     pop = document.createElement('dialog');
@@ -698,7 +722,7 @@
     });
     return pop;
   }
-  const visibleQuestion = () => ['help-open', 'mobile-support'].map(id => document.getElementById(id)).find(el => el?.getClientRects().length);
+  const visibleQuestion = () => ['ask-fab', 'mobile-ask'].map(id => document.getElementById(id)).find(el => el?.getClientRects().length);
   // On a phone the sheet sits on the bottom of what is visible: with the keyboard up, the space above it. The browser
   // reports that space in the visual viewport, whose height shrinks both for the keyboard and for pinch zoom, so
   // height × scale is the visible height in page pixels with zoom taken out. At normal scale the sheet follows the
@@ -769,10 +793,6 @@
     if (state.enabled) { await refresh(); schedule(); }
   }
   window.supportOpen = open;
-  document.addEventListener('click', e => {
-    if (!e.target.closest?.('#help-open, #mobile-support')) return;
-    e.preventDefault(); void open();
-  });
   window.supportPoll = refresh;
   // Replies are checked when the app comes back into view or focus, and on the poll above; there is no Refresh button.
   // Only with a ticket still open (as the poll above), and once for a focus and a visibilitychange that come together.

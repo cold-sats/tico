@@ -170,20 +170,6 @@ function renderInboxNav() {
   patchHTML(list, rows.map(inboxNavLink).join(''));
 }
 function renderLibrarians() {
-  // The owner's tab is the Strategy Bot, by its name; everyone else's the Assistant (ui/app/state.js meStrategyBot).
-  const mine = myChatBot();
-  for (const [id, slug, href] of [
-    ['nav-assistant', mine, mePerson() ? ASSISTANT : `#/bot/${encodeURIComponent(mine)}`],
-    ['nav-botops', 'botops', '#/bot/botops'],
-  ]) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    el.href = href;
-    // The owner's Strategy Bot is talked to beside the Strategy tabs, not from the rail.
-    el.hidden = !(S.emps || []).some(e => e.name === slug) || (id === 'nav-assistant' && slug === 'goal-manager');
-  }
-  const label = document.querySelector('#nav-assistant [data-nav-name]');
-  if (label && label.textContent !== myChatName()) label.textContent = myChatName();
   window.syncLibrarianRail?.();   // the Librarian's chat beside Library's pages follows the team as read now
 }
 function mailPersonVisible(person) {
@@ -809,8 +795,6 @@ function renderTree() {
       (a.dataset.nav === 'usage' && S.route === '#/usage') ||
       (a.dataset.nav === 'replay' && S.route.startsWith('#/replay')) ||
       (a.dataset.nav === 'updates' && (S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) ||
-      (a.dataset.nav === 'assistant' && (S.route === $('#nav-assistant')?.getAttribute('href') || S.route === LEARNED)) ||
-      (a.dataset.nav === 'botops' && /^#\/bot\/botops(?:\/|$)/.test(S.route)) ||
       (a.dataset.nav === 'more' && !mobilePrimary) ||
       redesignNavCurrent(a.dataset.nav);
     a.classList.toggle('cur', isCurrent);
