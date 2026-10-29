@@ -636,7 +636,8 @@ the task's own choice as `run_model`.
 
 Whoever may change the bot's model may change a task's model. A bot never does, not even on its own task. A run uses
 the task's own model first, then the bot's task model, then the bot's own model; a review or check subtask keeps its
-check model.
+check model. A task that changes owner loses its own model, however it moves: its history records the clear, and the
+new owner's bot runs it on that bot's task model.
 
 ## Snoozing a task
 

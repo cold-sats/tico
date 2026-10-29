@@ -32,7 +32,9 @@ An install that had routines moved them once, on the upgrade to Automations; see
   `"harness"` (`"model": "<model id>", "effort": "high"`). The task the run opens is stamped with that choice
   ([Choosing the model a task runs on](tasks.md#choosing-the-model-a-task-runs-on)). Leave them out to use the bot's
   task model. Naming a model needs the same right as changing the bot's model: someone without it sends the change for
-  a manager to approve as a pending version, and a bot's new automation starts off.
+  a manager to approve as a pending version, and a bot's new automation starts off. Until a manager approves that
+  version, someone without the right cannot turn the routine on or run it by hand; a manager who turns it on approves
+  it.
 
   ```
   hub automation list [--owner O]

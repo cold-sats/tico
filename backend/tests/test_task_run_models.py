@@ -1,10 +1,15 @@
 """A task's own model (backend/task_run_models.py): one task runs on the model set on it while the bot's other
 tasks keep theirs, a check subtask keeps its check model over it, a model that cannot run falls back and says so,
 whoever may change the bot's model may set a task's and a bot never does, change and clear are in the task's
-history, and a routine's Bot turn step stamps its model on the task its run opens."""
-from backend.tests.test_api import api, claim, get, headers, post  # noqa: F401  (api is a fixture)
+history, a task handed to another owner loses its model, and a routine's Bot turn step stamps its model on the task
+its run opens, which a routine nobody with that right has approved neither turns on nor runs by hand."""
+import json
+
+from backend import task_run_models
+from backend.store import H
+from backend.tests.test_api import api, assign, claim, get, headers, post  # noqa: F401  (api is a fixture)
 from backend.tests.test_check_models import finish, heartbeat
-from backend.tests.test_task_models import ops_on_sonnet, task_turn
+from backend.tests.test_task_models import ops_on_sonnet, set_task_model, task_turn
 
 HAIKU = {"model": "claude-haiku-5-5", "effort": "low", "harness": "claude"}
 HAIKU_RAN = {"model": "claude-haiku-5-5", "runtime": "claude", "harness": "claude", "effort": "low", "billing": "api"}
@@ -146,3 +151,116 @@ def test_a_routine_step_model_from_someone_who_may_not_set_it_waits_for_a_person
     proposed = api.patch(f"/api/v2/automations/{draft['id']}", json=changed, headers=headers("cara-test"))
     assert proposed.status_code == 200 and proposed.json()["pending"], proposed.text
     assert get(api, f"automations/{draft['id']}")["steps"][0]["effort"] == "low"
+
+
+def patch(api, path, body, token="ana-test", expected=200):
+    r = api.patch("/api/v2/" + path, json=body, headers=headers(token))
+    assert r.status_code == expected, r.text
+    return r.json()
+
+
+def cara_routine(api):
+    """Cara's routine whose step names ops' model: saved off, its only version pending, since she may not set it."""
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops", "prompt": "Run the audit.", **HAIKU}
+    draft = post(api, "automations", {"name": "Haiku audit", "owner": "human:cara",
+                                      "trigger": {"type": "event", "name": "x.y"}, "steps": [step]},
+                 token="cara-test")
+    assert draft["pending"] == 1 and get(api, f"automations/{draft['id']}")["enabled"] is False
+    return draft["id"]
+
+
+def test_a_routine_step_model_is_not_turned_on_by_someone_who_may_not_set_it_until_one_who_may_approves(api):
+    ops_on_sonnet(api)
+    aid = cara_routine(api)
+    # Switching the draft on would set the model all the same: Cara may not, and it stays off.
+    patch(api, f"automations/{aid}", {"enabled": True}, token="cara-test", expected=403)
+    assert get(api, f"automations/{aid}")["enabled"] is False
+    # Ana manages ops: turning it on approves the version it runs, so nothing is left pending.
+    assert patch(api, f"automations/{aid}", {"enabled": True})["enabled"] is True
+    assert get(api, f"automations/{aid}/versions?status=pending")["versions"] == []
+    # Approved, Cara may switch it off and on again: the step's model is no longer hers to approve.
+    assert patch(api, f"automations/{aid}", {"enabled": False}, token="cara-test")["enabled"] is False
+    assert patch(api, f"automations/{aid}", {"enabled": True}, token="cara-test")["enabled"] is True
+
+
+def test_a_routine_step_model_is_not_run_by_hand_by_someone_who_may_not_set_it_before_it_is_approved(api):
+    ops_on_sonnet(api)
+    aid = cara_routine(api)
+    post(api, f"automations/{aid}/run", {}, token="cara-test", expected=403)
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM automation_runs WHERE automation_id=?", (aid,)).fetchone()[0] == 0
+    # Ana may run it by hand; that is one run, and the routine stays off until someone turns it on.
+    post(api, f"automations/{aid}/run", {})
+    assert get(api, f"automations/{aid}")["enabled"] is False
+
+
+def finance_on_the_computer(api, machine):
+    """Finance assigned to the computer and reported ready, so a turn handed to it can be claimed there."""
+    assign(api, machine, "finance")
+    readiness = {"schema_version": 1, "runtimes": {"claude": {"installed": True, "authenticated": "ready"}},
+                 "bots": {"finance": {"runtime": "claude", "ready": True}}}
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test",
+                                    "capabilities": ["task_lanes_v2", "session_roots_v1"], "readiness": readiness},
+         token=machine["token"])
+
+
+def test_a_task_handed_to_another_bot_loses_the_model_its_old_bot_was_given(api):
+    machine = ops_on_sonnet(api)
+    finance_on_the_computer(api, machine)
+    mine = filed(api, "Tidy the changelog")
+    own_model(api, mine["id"], HAIKU)
+    post(api, "tasks/" + mine["id"], {"version": mine["version"], "owner": "finance"})
+    assert get(api, "tasks/" + mine["id"])["run_model"] is None
+    with api.app.state.store.read() as c:
+        events = c.execute("SELECT old,new FROM task_events WHERE task_id=? AND field='run_model' ORDER BY rowid",
+                           (mine["id"],)).fetchall()
+    assert [tuple(e) for e in events] == [("", "claude-haiku-5-5 (low)"), ("claude-haiku-5-5 (low)", "")]
+    turn = claim(api, machine, "finance")
+    assert turn["task"]["id"] == mine["id"] and turn["config"]["model"] != "claude-haiku-5-5"
+
+
+def test_a_bulk_handoff_of_a_task_loses_its_model_too(api):
+    machine = ops_on_sonnet(api)
+    finance_on_the_computer(api, machine)
+    mine = filed(api, "Tidy the changelog")
+    own_model(api, mine["id"], HAIKU)
+    out = post(api, "task-bulk", {"filter": {"ids": [mine["id"]]}, "action": "owner", "owner": "finance"})
+    assert out["changed"] == 1
+    assert get(api, "tasks/" + mine["id"])["run_model"] is None
+    turn = claim(api, machine, "finance")
+    assert turn["task"]["id"] == mine["id"] and turn["config"]["model"] != "claude-haiku-5-5"
+
+
+def test_a_temporary_assignment_retired_with_its_task_takes_the_model_off_it(api):
+    from backend.shared_bots import retire_assignments
+    ops_on_sonnet(api)
+    mine = filed(api, "Tidy the changelog")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,state,created) VALUES('ops-a1','Ops A1','active',?)", (H.now(),))
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('ops-a1',?,'ana')",
+                  (json.dumps({"assignment_branch": True, "shared_from": "ops"}),))
+        c.execute("UPDATE tasks SET owner='bot:ops-a1',status='doing' WHERE id=?", (mine["id"],))
+        haiku = task_run_models.stamped("claude-haiku-5-5", "low", "claude")
+        task_run_models.set_choice(c, "human:ana", mine["id"], haiku)
+        assert task_run_models.of(c, mine["id"]) is not None
+        # Ops is not active, so the task goes back to it directly rather than through a handoff.
+        c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
+        retire_assignments(c)
+        assert H.task(c, mine["id"])["owner"] == "bot:ops"
+        assert task_run_models.of(c, mine["id"]) is None
+
+
+def test_a_tasks_own_model_falling_back_to_the_bots_task_model_starts_a_side_session(api):
+    machine = ops_on_sonnet(api)
+    set_task_model(api, HAIKU)
+    mine = filed(api, "Index the docs")
+    own_model(api, mine["id"], GROK)
+    heartbeat(api, machine, grok="missing")
+    turn = claim(api, machine)
+    assert (turn["config"]["model"], turn["config"]["reasoning_effort"]) == ("claude-haiku-5-5", "low")
+    # The runner resumes its thread for a runtime unless the turn is marked a fallback: this one ran on another
+    # model than the task asked for, so it starts a side session from the task's checkpoint.
+    assert turn["config"]["task_model_fallback"] is True
+    finish(api, machine, turn, HAIKU_RAN)
+    ran = get(api, "tasks/" + mine["id"])["runs"][0]["ran_on"]
+    assert ran["task_model"]["source"] == "fallback" and "grok-4.6" in ran["task_model"]["note"]

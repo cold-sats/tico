@@ -344,7 +344,9 @@ def _on_task_model(c, settings, bot, followed, choice, own, compact_at, failed):
                       ran=label(choice), ran_model=_asked(choice),
                       note=f"{note}: " + "; ".join(f"task model {label(cand)} could not run ({why})"
                                                   for cand, why in failed))
-        return apply(followed, choice), record
+        # As for the bot's own model below: a provider thread on the bot's runtime can predate this turn's model, so the
+        # runner starts the turn in a side session from the task checkpoint instead of resuming that thread.
+        return {**apply(followed, choice), "task_model_fallback": True}, record
     bot_model = providers.bot_choice(c, settings, followed)[1]
     if below_minimum(bot_model, choice) and stakes(c, settings, bot):
         # Below the minimum for what this bot does: it runs all the same, and the run says so (task 7a9b30d4).

@@ -50,6 +50,13 @@ def set_choice(c, actor, task_id, choice, note=""):
     return of(c, task_id)
 
 
+def moved(c, actor, task_id):
+    """A task handed to another owner loses its own model: whoever chose it chose it for the bot that had the task, and
+    nobody has chosen one for the new owner's bot. The task's history says so."""
+    if of(c, task_id):
+        set_choice(c, actor, task_id, None, note="Cleared when the task changed owner")
+
+
 def may_set(c, auth, who, bot):
     """Whether `who` may set the model `bot`'s tasks run on: whoever may manage the bot (Auth.bot_manager, the rule
     settings_admin applies to the bot's own model), and never a bot, whatever it manages."""

@@ -6192,6 +6192,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         sets.append("owner=:owner")
         args["owner"] = new_owner
         _task_event(conn, task_id, actor, "owner", row["owner"], new_owner, note or "")
+        if new_owner != row["owner"]:
+            from . import task_run_models
+            task_run_models.moved(conn, actor, task_id)
         if new_owner != row["owner"] and row.get("guest"):
             # The guest was the old owner's to bring in; a new owner starts with the task's two parties.
             sets.append("guest=NULL")
