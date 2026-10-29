@@ -18,7 +18,7 @@ from . import providers
 from . import app_delivery
 from . import rooms
 from . import shared_bots
-from . import auto_tasks, profiles, start_places, task_models, update_feeds, wake_presets
+from . import auto_tasks, profiles, start_places, task_models, task_run_models, update_feeds, wake_presets
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
@@ -168,23 +168,10 @@ class SettingsAdmin:
             raise Problem("not_found", "Bot not found", 404)
         return row
 
-    @staticmethod
-    def _effort(choice, requested=None, current=None):
-        supported = tuple(choice.get("efforts") or ())
-        value = str(requested or "").strip().lower()
-        if requested is not None and value not in supported:
-            raise Problem("effort", "Choose an effort supported by that model", 422)
-        current = str(current or "").strip().lower()
-        return value or (current if current in supported else choice.get("default_effort") or "")
-
-    @staticmethod
-    def _harness(choice, requested=None, current=None):
-        supported = tuple(choice.get("harnesses") or (choice.get("runtime"),))
-        value = str(requested or "").strip().lower()
-        if requested is not None and value not in supported:
-            raise Problem("harness", "Choose a harness that can run that model", 422)
-        current = str(current or "").strip().lower()
-        return value or (current if current in supported else (supported[0] if supported else ""))
+    # The catalog checks a model's effort and harness go through (backend/task_models.py), shared with a task's
+    # own model.
+    _effort = staticmethod(task_models.effort_of)
+    _harness = staticmethod(task_models.harness_of)
 
     @staticmethod
     def _entry(row):
@@ -277,11 +264,7 @@ class SettingsAdmin:
                 "fallback": normalize_fallback(effective.get("fallback")),
                 "app_delivery": app_delivery.view(c, _json(config["config_json"], {}) or {})}
 
-    @staticmethod
-    def refuse_retired(choice):
-        """A retired model stays in the catalog for bots already on it; nothing new may pick it."""
-        if choice.get("deprecated"):
-            raise Problem("model", f"{choice['label']} is retired; choose a current model", 422)
+    refuse_retired = staticmethod(task_models.refuse_retired)
 
     def validate_template(self, template):
         if not template:
@@ -1423,6 +1406,53 @@ class SettingsAdmin:
         warning = task_models.warning(c, self.settings, bot, declared, model) if model else ""
         return {"bot": bot, "task_model": after, "revision": config["revision"] + 1, "readiness": readiness,
                 "warning": warning}
+
+    def set_task_run_model(self, c, who, task_id, body):
+        """The model one task's runs use (backend/task_run_models.py), for the bot that runs it. Whoever may change
+        that bot's model may change this, a bot never does, not even on its own task. Only this task changes: its
+        bot's task model and own model stay as they are. An absent `model` keeps the task's model and changes only
+        the effort or harness it names; a null `model` clears the task's choice, so its runs use the bot's task model
+        again. A model the bot's computer cannot run is saved all the same: its runs fall back until it can, and
+        `readiness` says so."""
+        row = H.task(c, task_id)
+        if not row:
+            raise Problem("not_found", "Task not found", 404)
+        if not H.is_bot(row["owner"]):
+            raise Problem("owner", "Only a task a bot runs has a model to choose", 422)
+        bot = H.actor_id(row["owner"])
+        what = f"change the model task {task_id} runs on"
+        current = task_run_models.of(c, task_id)
+        if "model" in body.model_fields_set and body.model is None:
+            self._task_run_rights(c, who, bot, what)
+            target = None
+        else:
+            model = body.model if "model" in body.model_fields_set else (current or {}).get("model")
+            if not model:
+                raise Problem("model", "Choose a model for this task first", 422)
+            target = self.task_run_choice(c, who, bot, what, model, body.effort, body.harness, current)
+        if (target is None and current is None) or (target and current and all(
+                target[k] == current.get(k) for k in ("harness", "model", "reasoning_effort"))):
+            raise Problem("unchanged", "That task model is already selected", 409)
+        saved = task_run_models.set_choice(c, who.actor, task_id, target)
+        declared = shared_bots.follow(c, bot, _json(self._config(c, bot)["config_json"], {}) or {})
+        readiness = task_models.readiness(c, bot, target) if target else None
+        warning = task_models.warning(c, self.settings, bot, declared, target) if target else ""
+        return {"task": task_id, "run_model": saved, "readiness": readiness, "warning": warning}
+
+    def _task_run_rights(self, c, who, bot, what):
+        """Who may set the model a task of `bot`'s runs on: whoever may change the bot's model (the same gate and check
+        as set_task_model). A bot never does, not even on its own task. A branch's model is its original's, so its
+        tasks answer to the original's managers; the task's choice does not change the branch's definition."""
+        CA.gate(c, who.actor, "cost", what)
+        if who.role == "bot":
+            raise Problem("forbidden", "A bot does not choose the model its tasks run on", 403)
+        self._manager(c, who, shared_bots.model_bot(c, bot))
+
+    def task_run_choice(self, c, who, bot, what, model, effort=None, harness=None, current=None):
+        """A task's own model, checked the way a bot's task model is (task_models.choice_of), for `who` to set on a
+        task `bot` runs. `current` is the task's choice a change keeps what it does not name."""
+        self._task_run_rights(c, who, bot, what)
+        return task_models.choice_of(model, effort, harness, current=current)
 
     def set_compact_at(self, c, who, bot, body):
         """Where the bot's conversation compacts. The runner passes it every turn, so unlike a model change the

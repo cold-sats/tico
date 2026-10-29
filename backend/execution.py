@@ -245,7 +245,10 @@ def ran_another_model(c, settings, attempt):
     """Whether the bot is now set to another runtime or model than the one its claim handed this turn. The turn runs
     on what it was handed, so what it meets (a usage limit, a provider thread) is that model's, not the bot's now
     (Dev 334: a rate-limited bot can be moved off the spent model while a turn is out). An effort change, or a move
-    away and back, leaves the turn on the bot's own model, and its limit holds (Dev 353)."""
+    away and back, leaves the turn on the bot's own model, and its limit holds (Dev 353). A turn on a task model or
+    a check model ran on that one, so the bot's own model moving says nothing about it."""
+    if task_models.off_bot_model(c, attempt["id"]):
+        return False
     from .shared_bots import follow
     row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (attempt["bot"],)).fetchone()
     now = providers.bot_choice(c, settings, follow(c, attempt["bot"], json.loads(row[0]) if row and row[0] else {}))
@@ -3136,9 +3139,6 @@ class Execution:
         from .shared_bots import follow
         followed = follow(c, row["bot"], json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
-        # The runtime and model the bot's own turn is handed (a check's is its own): a model change while the turn is out
-        # is told from an effort change by these (ran_another_model).
-        handed = providers.bot_choice(c, self.store.settings, followed)
         # A check subtask's turns run on its own model, in its own session (backend/check_models.py).
         check = check_models.of(c, task["id"], row["bot"]) if task else None
         released_notice = bool(task and auto_tasks.notice_releases(c, task, msg))
@@ -3156,6 +3156,9 @@ class Execution:
             session_task_id(c, row["bot"], followed, task["id"], roots) if task else None, conv["id"],
             who.runner_id, row["id"], check)
         followed = check_models.apply(followed, check)
+        # What really runs this turn: the task's or check's model, or the bot's own after a fallback. A change to
+        # the bot's model while the turn is out is told from an effort change by these (ran_another_model).
+        handed = providers.bot_choice(c, self.store.settings, followed)
         lane = job_lane(c, row["bot"], followed, msg, conv, lanes, roots)
         token = secrets.token_urlsafe(32)
         until = H.shift(H.now(), seconds=self.store.settings.lease_seconds)

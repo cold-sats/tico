@@ -126,11 +126,11 @@ kept by id, so renaming a step keeps its flow. All keys are optional:
 
 | Key | What it does |
 | --- | --- |
-| `on_pass`, `on_fail` | Make the step a check step. A pass or approve moves the ticket to `on_pass` (`merge`: merging is next and the Builder is told once CI is green); changes, a fail, or a check finished with no verdict (its comments) move it to `on_fail`. |
+| `on_pass`, `on_fail` | Make the step a check step. A pass or approve moves the ticket to `on_pass` (`merge`: merging is next and the Builder is told once CI is green); changes, a fail, or a check finished with no verdict (its comments) move it to `on_fail`. A pass at a head where this step already gave a fail, changes or comments moves it to `on_fail` too: only a new head clears that, as a failed CI check or test receipt at a head is cleared only by a new one. |
 | `after_green` | A work step: green CI on a head newer than the one its check judged moves the ticket here (`merge` to merge next). Without it the owner moves the ticket on when its work is done. |
 | `on_merge` | The one step a ticket goes to when its pull request merges, from any earlier step. |
 | `skip_tag` | A ticket with this tag passes the step: it goes straight to `on_pass`, and the skip is recorded. |
-| `timeout_hours` | A check still open this long is closed unanswered and the round skipped: the ticket goes on as if it passed with no comments. |
+| `timeout_hours` | A check still open this long is closed unanswered and the round skipped: the ticket goes on as if it passed with no comments, unless a check there already gave a fail, changes or comments at the pull request's head, in which case it moves to `on_fail`. |
 | `status_hours`, `late_hours` | A ticket quiet this long at the step gets its bot owner one status check; one this long at the step gets its manager one notice. Dev working steps default to 2 and 4. |
 | `assign` | `{pool, slots}`: an unowned ticket here goes to the least busy pool bot with a free slot (tickets past this step it holds). |
 | `backlog` | `{over, per, notify, every_hours}`: more than `over` tickets at the step (`per: step`) or for one owner (`per: owner`) tells `notify`: `manager` (the type's), `owner`, `owner_manager` (one level up on the org chart), or a named bot or person. Once every `every_hours` (4) while over. |
@@ -625,6 +625,24 @@ digest, a Manager wakes for people, tasks given to it, its own clock and its exc
 ([Profiles](how-it-works.md#profiles)).
 
 `GET /api/v2/event-types` (`hub event-types`, `hub_event_types`) lists the named events a rule or automation can use.
+
+## Choosing the model a task runs on
+
+A bot's task runs on the bot's task model, or on its own model while that is not set
+([Run a bot's tasks on another model](harnesses.md#run-a-bots-tasks-on-another-model)). A task can name its own model,
+effort and harness instead. In a bot's task window, **Runs on** picks them and **Apply** saves. When filing, use
+`hub task create --model <id> --effort <effort> --harness <harness>`. To change a task that already exists, use
+`hub task model <id> <model> --effort <effort> --harness <harness>`, or `hub task model <id> --clear` to return it to the
+bot's task model. `hub_task_create`, `hub_task_model` and `POST /api/v2/tasks/{id}/model` (with `{"model": null}` to clear) do
+the same. `hub bot task-model` and `hub_bot_task_model` read or set the bot's task model. `GET /api/v2/tasks/{id}` shows
+the task's own choice as `run_model`, and `can_set_run_model` says whether the reader may change it.
+
+Whoever may change the bot's model may change a task's model. A bot never does, not even on its own task. On a
+[branch](creating-bots.md#branches) that is whoever may change the original's model, since the branch follows it; the
+task's choice is the task's own and leaves the branch's definition as it is. A run uses the task's own model first,
+then the bot's task model, then the bot's own model; a review or check subtask keeps its check model. A task that
+changes owner loses its own model, however it moves: its history records the clear, and the new owner's bot runs it on
+that bot's task model.
 
 ## Snoozing a task
 

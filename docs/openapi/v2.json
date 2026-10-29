@@ -19622,6 +19622,77 @@
         ]
       }
     },
+    "/api/v2/tasks/{tid}/model": {
+      "post": {
+        "summary": "Set the model this task's runs use, with its effort and harness (backend/task_run_models.py): an absent `model` keeps it and changes only what is named, and a null `model` clears it so the bot's task model runs the task again. Whoever may change the bot's model may change this; a bot never does. Its `readiness` says whether the bot's computer can run it now",
+        "operationId": "setTaskModel",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskRunModel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRunModelResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
     "/api/v2/tasks/{tid}/publication-preview": {
       "post": {
         "summary": "Exact publish approval payload for public edits or replies",
@@ -38370,6 +38441,45 @@
             ],
             "title": "Check Role"
           },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness"
+          },
           "from_private": {
             "type": "boolean",
             "title": "From Private",
@@ -38415,6 +38525,9 @@
           "can_comment": {
             "type": "boolean"
           },
+          "can_set_run_model": {
+            "type": "boolean"
+          },
           "mover": {
             "type": "boolean"
           },
@@ -38423,6 +38536,16 @@
             "items": {
               "$ref": "#/components/schemas/TaskRun"
             }
+          },
+          "run_model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskRunChoice"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "comment_delivery": {
             "oneOf": [
@@ -39018,6 +39141,126 @@
           "ran_on",
           "run",
           "started"
+        ],
+        "additionalProperties": true
+      },
+      "TaskRunChoice": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "type": "string"
+          },
+          "set_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "harness",
+          "model",
+          "reasoning_effort",
+          "runtime",
+          "set_at",
+          "set_by"
+        ],
+        "additionalProperties": true
+      },
+      "TaskRunModel": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "The model the task's runs use; null clears the task's choice"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TaskRunModel",
+        "description": "A task's own model (backend/task_run_models.py). An absent `model` keeps the task's and changes only the\neffort or harness named; a null `model` clears it, so the task's runs use the bot's task model again."
+      },
+      "TaskRunModelResult": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string"
+          },
+          "run_model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskRunChoice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "readiness": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "readiness",
+          "run_model",
+          "task",
+          "warning"
         ],
         "additionalProperties": true
       },

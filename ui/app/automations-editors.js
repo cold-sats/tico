@@ -22,6 +22,7 @@ function auEdOpen(ed) {
   if (ed.kind === 'versions') void auVersionsLoad(ed);
   if (ed.kind === 'step' && ed.step.type === 'decide') void auLastRun(ed);
   if (ed.kind === 'step' && ed.step.type === 'decide' && AU.sets === null) void auSetsLoad(ed);
+  if (ed.kind === 'step' && ed.step.type === 'bot_turn' && !TASK_RUN_ROWS) void auModelsLoad(ed);
   // A phone would open its keyboard over the sheet; a computer starts in the first field.
   if (!auPhone()) AU.root.querySelector('.au-ed .au-edb :is(input,textarea,select):not([disabled])')?.focus({preventScroll: true});
   AU.root.querySelector('.au-ed .au-rb.focus')?.scrollIntoView({block: 'nearest'});
@@ -189,7 +190,22 @@ function auFindFields(s) {
 function auBotFields(s) {
   const bot = s.bot ? 'bot:' + String(s.bot).replace(/^bot:/, '') : '';
   return auFld('Bot', auSel('step.bot', auWithCur(auBots(), bot, auActorName(bot)), bot, 'data-slug'))
-    + auFld('Prompt', auTa('step.prompt', s.prompt));
+    + auFld('Prompt', auTa('step.prompt', s.prompt)) + auBotRunsFields(s);
+}
+// Runs on: the model the turn's task runs on, stamped on the task its run opens (backend/task_run_models.py). Blank is the
+// bot's task model; the harness and effort follow the model picked, and a blank one is left out of the step.
+function auBotRunsFields(s) {
+  const rows = TASK_RUN_ROWS || [], model = s.model || '', row = rows.find(m => m.id === model);
+  const models = auWithCur([['', "The bot's task model"], ...rows.map(m => [m.id, m.label || m.id])], model, model);
+  const harnesses = (row?.harnesses || []).length > 1 ? row.harnesses.map(h => [h, harnessWords(h) || h]) : [];
+  return auFld('Runs on', auSel('step.model', models, model, 'data-blank data-redraw'))
+    + (harnesses.length ? auFld('Harness', auSel('step.harness', harnesses, s.harness || row.harnesses[0], 'data-blank')) : '')
+    + (row?.efforts?.length ? auFld('Effort', auSel('step.effort', [['', 'Default'], ...row.efforts.map(e => [e, e])], s.effort || '', 'data-blank')) : '');
+}
+// The models the Runs on field lists (the task picker's catalog, read once); the editor draws again when they arrive.
+async function auModelsLoad(ed) {
+  await taskRunCatalog();
+  if (AU.ed === ed) auDrawSide();
 }
 function auActionFields(s) {
   const a = s.args || {};
@@ -229,6 +245,7 @@ function auEdWire(box) {
     let v = t.type === 'checkbox' ? t.checked : t.value;
     if (t.hasAttribute('data-pct')) v = v === '' ? undefined : Math.max(0, Math.min(100, Number(v))) / 100;
     else if (t.hasAttribute('data-num')) v = v === '' ? undefined : Number(v);
+    else if (t.hasAttribute('data-blank')) v = v === '' ? undefined : v;
     else if (t.hasAttribute('data-slug')) v = String(v).replace(/^bot:/, '');
     if (b === 'evpick') {
       if (e.type !== 'change') return;
@@ -242,6 +259,8 @@ function auEdWire(box) {
     if (b === 'set') { ed.custom = !v; if (v) { ed.step.set = v; delete ed.step.questions; auDecideQs(ed); } auDrawSide(); return; }
     if (b.startsWith('qs.')) ed.custom = true;
     auPathSet(ed, b, v);
+    // Another model has its own harnesses and efforts: the ones kept for the last model do not carry over.
+    if (b === 'step.model') { auPathSet(ed, 'step.harness', undefined); auPathSet(ed, 'step.effort', undefined); }
     if (t.hasAttribute('data-redraw') && e.type === 'change') { if (b === 'step.do') ed.step.args = {}; auDrawSide(); }
   };
   box.addEventListener('input', onField);

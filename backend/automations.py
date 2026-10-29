@@ -41,6 +41,8 @@ from . import automation_engine as E
 from . import automation_flow as F
 from . import people as P
 from . import report_managers
+from . import task_models
+from . import task_run_models
 from .models import Contract
 from . import audit_log
 from .store import H, Problem
@@ -376,6 +378,27 @@ def _require(c, who, flow, what="change this automation"):
         raise Problem("forbidden", f"Only its owner, the people above its owner or its group's lead may {what}", 403)
 
 
+def _approved(c, row):
+    """Whether the version the automation runs is approved (active). A draft's only version stays pending until someone
+    who may set its steps' models turns it on or restores it, and a proposal waits the same way."""
+    found = c.execute("SELECT status FROM automation_versions WHERE automation_id=? AND n=?",
+                      (row["id"], row["version"])).fetchone()
+    return bool(found) and found[0] == "active"
+
+
+def _stamp_blocked(c, auth, who, flow, before=None):
+    """The bot whose model a step of `flow` sets on its task, when `who` may not set that model
+    (task_run_models.may_set: whoever may change the bot's model, and never a bot), else None. Only what a save adds
+    or alters counts: a rename keeps the stamp it has. `before` is the approved flow whose stamps stand; None when
+    nothing is approved, as for a draft, so every stamp counts."""
+    kept = _stamps(before) if before else set()
+    for _, bot, *_ in sorted(_stamps(flow) - kept, key=str):
+        slug = H.actor_id(bot or "")
+        if not task_run_models.may_set(c, auth, who, slug):
+            return slug
+    return None
+
+
 def _by_botops(who):
     """Whether BotOps makes this call: for a person or a bot it acts for (the dispatcher lends their identity, via
     botops), or with its own rights."""
@@ -383,8 +406,9 @@ def _by_botops(who):
 
 
 def _bot_draft(c, who, flow):
-    """A new automation BotOps makes for a bot that may not make it: saved off, with version 1 pending, for a person
-    with the change rule to turn on (a bot's own call is refused, as before). Like a bot's other proposals it writes no audit row until then."""
+    """A new automation saved off, with version 1 pending, for a person with the change rule to turn on: what BotOps
+    makes for a bot that may not make it, and what anyone makes that sets a model its tasks run on which they may not
+    set (a bot's own call is refused, as before). Like a bot's other proposals it writes no audit row until then."""
     aid = "auto_" + H.new_id()
     row = _save(c, who.actor, aid, {**flow, "enabled": False}, None, audit=False)
     c.execute("UPDATE automation_versions SET status='pending' WHERE automation_id=? AND n=?", (aid, row["version"]))
@@ -402,9 +426,10 @@ def _owner_known(c, owner):
     return ident in (views.roster(c).get("org_groups") or {})
 
 
-def _checked(c, flow, settings=None, access=True):
+def _checked(c, flow, settings=None, access=True, saved=None):
     """The flow as saved: its shape, its owner and group on the team, and (with `access`) what it reads is its
-    owner's: the inbox it hears and the Assistant it runs on."""
+    owner's: the inbox it hears and the Assistant it runs on. `saved` is the flow a change is made to: its steps' models
+    are checked only where the change adds or alters them."""
     try:
         flow = F.check(flow)
     except F.Invalid as exc:
@@ -412,6 +437,7 @@ def _checked(c, flow, settings=None, access=True):
     if flow.get("wakes"):   # a converted "What wakes" automation: only edits its wake rules can carry out
         from .redesign_migration import check_wakes
         check_wakes(flow)
+    _checked_run_models(flow, _stamps(saved) if saved else frozenset())
     for ref in (flow["owner"], flow.get("group")):
         if ref and not _owner_known(c, ref):
             raise Problem("invalid", f"{ref} is not on the team", 422)
@@ -445,6 +471,48 @@ def _actions(steps):
         for path in step.get("paths") or []:
             yield from _actions(path.get("steps"))
         yield from _actions((step.get("otherwise") or {}).get("steps"))
+
+
+RUN_MODEL_KEYS = ("model", "effort", "harness")
+
+
+def _run_model_steps(steps):
+    """The bot_turn steps that stamp a model on the task they open (`model`, `effort`, `harness`), nested steps
+    included."""
+    for step in steps or []:
+        if step.get("type") == "bot_turn" and any(step.get(key) for key in RUN_MODEL_KEYS):
+            yield step
+        for path in step.get("paths") or []:
+            yield from _run_model_steps(path.get("steps"))
+        yield from _run_model_steps((step.get("otherwise") or {}).get("steps"))
+
+
+def _stamp(step):
+    """What one stamping step sets on its task: (step id, bot, model, effort, harness)."""
+    return (step.get("id"), step.get("bot"), step.get("model"), step.get("effort"), step.get("harness"))
+
+
+def _stamps(flow):
+    """What each stamping step sets on its task. A change to one is a change to the model its task runs on, so the
+    rights are checked on the ones a save adds or alters."""
+    return {_stamp(step) for step in _run_model_steps(flow.get("steps"))}
+
+
+def _checked_run_models(flow, kept=frozenset()):
+    """Each step's model, effort and harness are checked the way a bot's task model is (task_models.choice_of): a model
+    the catalog has and that is not retired, a harness that runs it, an effort it takes. An effort or harness needs a
+    model to be picked for. A stamp the saved flow already has (`kept`) is not checked again: its model may have been
+    retired or taken off the catalog since, and the routine still pauses, renames and saves its other changes."""
+    for step in _run_model_steps(flow.get("steps")):
+        if _stamp(step) in kept:
+            continue
+        where = f"Step {step.get('id')}"
+        if not step.get("model"):
+            raise Problem("invalid", f"{where} needs a model to pick an effort or harness for it", 422)
+        try:
+            task_models.choice_of(step["model"], step.get("effort"), step.get("harness"))
+        except Problem as exc:
+            raise Problem("invalid", f"{where}: {exc.detail}", 422)
 
 
 def _finds(steps):
@@ -1193,7 +1261,7 @@ class HubServices:
             if cap is not None and _spent(c, self.row["id"], self.run_id) + float(ctx.get("cost") or 0) >= float(cap):
                 return None
             started = A.start_turn(c, self.auto, self.run_id, ctx["step"], who, prompt, self.hub.settings.assistant_bot,
-                                   ctx["key"], label=ctx.get("label"))
+                                   ctx["key"], label=ctx.get("label"), run_model=ctx.get("run_model"))
             c.execute("INSERT OR REPLACE INTO automation_holds(ref,automation_id,run_id,amount,at) VALUES(?,?,?,?,?)",
                       (started["ref"], self.row["id"], self.run_id, _usual_cost(c, started["turn"]["bot"]), H.now()))
             return started
@@ -1652,7 +1720,10 @@ def install(app, store, auth, mutate):
             flow = _checked(c, fields, store.settings)
             if flow["builtin"]:
                 raise Problem("forbidden", "Built-in automations come with Tico; the hub makes them", 403)
-            if who.role == "bot" and _by_botops(who) and not may_change(c, who, flow):
+            # A step that sets its task's model is saved as a draft for a person who may set that model, as a bot's is.
+            blocked = _stamp_blocked(c, auth, who, flow)
+            if (who.role == "bot" and _by_botops(who) and not may_change(c, who, flow)) or (
+                    blocked and may_change(c, who, flow)):
                 return _bot_draft(c, who, flow)
             _require(c, who, flow, "make an automation for " + flow["owner"])
             return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)
@@ -1695,7 +1766,8 @@ def install(app, store, auth, mutate):
             # What it reads is checked when that changes; pausing or renaming one whose owner lost access still works.
             merged = {**before_cap, **changes}
             flow = _checked(c, merged, store.settings,
-                            access=any(merged.get(k) != before.get(k) for k in ("trigger", "steps", "owner")))
+                            access=any(merged.get(k) != before.get(k) for k in ("trigger", "steps", "owner")),
+                            saved=before)
             if before.get("readonly"):
                 # Tico's own rules, shown read-only: the top of the org may pause or resume it, and nothing else.
                 if who.role != "owner" or set(changes) - {"enabled"}:
@@ -1706,10 +1778,24 @@ def install(app, store, auth, mutate):
                 warning = ("This is a built-in automation: the rules it shows are Tico's own and keep working while "
                            "it is paused.") if changes.get("enabled") is False else None
                 return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
-            if who.role == "bot" and not may_change(c, who, before):
+            # What a save makes live is checked against the steps already approved: a draft's are not, until someone who
+            # may set their models turns it on, so turning it on by anyone else is refused.
+            approved = _approved(c, row)
+            turns_on = changes.get("enabled") is True and not before.get("enabled")
+            versioned = bool(set(changes) & set(VERSIONED))
+            blocked = _stamp_blocked(c, auth, who, flow, before if approved else None) \
+                if versioned or turns_on else None
+            if blocked and turns_on and not versioned:
+                raise Problem("forbidden", f"Only whoever may change {blocked}'s model may turn on a routine that sets "
+                              "it", 403)
+            # A bot never sets the model a step's task runs on, and a person who may change the automation but not that
+            # model proposes it: either way the change is a pending version a person with the rights restores.
+            proposed = who.role == "bot" and not may_change(c, who, before)
+            if proposed or (blocked and may_change(c, who, before)):
                 if not changes or set(changes) - set(VERSIONED):
                     raise Problem("forbidden", "A bot may only propose a change to an automation's trigger, steps "
-                                  "or batch times", 403)
+                                  "or batch times" if proposed else "A change to the model a step's task runs on is "
+                                  "proposed as a version: send only its trigger, steps or batch times", 403)
                 n = _propose(c, who.actor, aid, flow, before, summary)
                 if may_see(c, who, before):
                     return {**view(c, row, who, detail=True), "pending": n}
@@ -1722,7 +1808,10 @@ def install(app, store, auth, mutate):
                     raise Problem("forbidden", "Only the top of the org pauses a built-in automation", 403)
                 warning = "This is a built-in automation: the work it does stops until it is turned back on."
             if flow != before:
-                row = _save(c, who.actor, aid, flow, before, summary=summary, via=_via(who))
+                # Turning a draft on is its approval, as restoring its version is: that version is active from now on.
+                approve = turns_on and not approved and _versioned(flow) == _versioned(before)
+                row = _save(c, who.actor, aid, flow, before, summary=summary, via=_via(who),
+                            current=row["version"] if approve else None)
             if changes.get("enabled") is True and flow.get("wakes"):
                 _resume_task_triggers(c, aid, flow)
             return {**view(c, row, who, detail=True), **({"warning": warning} if warning else {})}
@@ -1765,6 +1854,9 @@ def install(app, store, auth, mutate):
             flow = flow_of(row)
             if flow.get("readonly"):
                 raise Problem("readonly", "This built-in shows work Tico runs itself; it has nothing to run", 409)
+            if not _approved(c, row) and (blocked := _stamp_blocked(c, auth, who, flow)):
+                raise Problem("forbidden", f"Only whoever may change {blocked}'s model may run a routine that sets it "
+                              "before it is turned on", 403)
             _input_readable(c, flow["owner"], body.input)
             if body.input and not F.all_hold(flow["trigger"].get("filters") or [], body.input):
                 # A sample the trigger's filters drop is dropped as the trigger would drop it: counted, no run row.
@@ -1832,8 +1924,13 @@ def install(app, store, auth, mutate):
             draft = pending and not before["enabled"] and not c.execute(
                 "SELECT 1 FROM automation_versions WHERE automation_id=? AND status='active'", (aid,)).fetchone()
             flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"]),
-                                **({"enabled": True} if draft else {})}, store.settings)
+                                **({"enabled": True} if draft else {})}, store.settings, saved=before)
             _require(c, who, flow, "restore this version")
+            # A draft's row already holds the steps its pending version turns on, so nothing of it counts as kept.
+            blocked = _stamp_blocked(c, auth, who, flow, before if _approved(c, row) else None)
+            if blocked:
+                raise Problem("forbidden", f"Only whoever may change {blocked}'s model may restore a version that "
+                              "sets the model its tasks run on", 403)
             saved = _save(c, who.actor, aid, flow, before, current=n if pending else None, new_version=not pending,
                           via=_via(who))
             return view(c, saved, who, detail=True)

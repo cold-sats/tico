@@ -351,13 +351,15 @@ class Builder(Bot):
 
     def keeps(self, task, judged, pr):
         """Whether the builder leaves the judged head as it is: an approval with nothing to fix (`hold_approved`),
-        or a fail it disputes, once per ticket, by sending the same head back to the check (`dispute_fail`). Each
-        style draws from the generator only when the scenario sets it."""
+        or a fail it disputes, once per ticket, by sending the same head back to the check (`dispute_fail`). A pass
+        at a head a fail still stands on is no approval: the builder pushes a fix. Each style draws from the generator
+        only when the scenario sets it."""
         w = self.world
         if not judged or str(judged.get("verdict_head") or "") != w.prs[pr]["head"] or w.ci_state(pr) == "failing":
             return False
         if judged["verdict"] in ("approve", "pass"):
-            return bool(self.style.get("hold_approved")) and self.chance("hold_approved") and "held"
+            standing = w.failed_at(task["id"], w.check_step(judged), w.prs[pr]["head"])
+            return bool(self.style.get("hold_approved")) and not standing and self.chance("hold_approved") and "held"
         if self.style.get("dispute_fail") and task["id"] not in self.disputed and self.chance("dispute_fail"):
             self.disputed.add(task["id"])
             return "disputed"
@@ -420,14 +422,20 @@ class Builder(Bot):
         if pr and w.ci_state(pr) == "failing":
             self.push(task, pr)
             return "pushed a fix for failing CI"
-        judged = w.judged(task["id"], step.name)
-        if not judged or not pr or judged.get("verdict_head") != w.prs[pr]["head"]:
+        # Only the round the ticket waits on counts: an earlier round's verdict, from before the ticket came back to
+        # this step, is no reason to move it by hand while the new round is still open.
+        current = w.current_check(task["id"], step.name)
+        if not current or not current.get("verdict") or not pr or current.get("verdict_head") != w.prs[pr]["head"]:
             return None
-        if judged["verdict"] in ("approve", "pass"):
+        # A pass at a head a fail still stands on is no approval: only a new head clears it (World.failed_at).
+        if current["verdict"] in ("approve", "pass") and w.failed_at(task["id"], step.name, w.prs[pr]["head"]):
+            self.push(task, pr)
+            return "pushed a fix for the head QA failed"
+        if current["verdict"] in ("approve", "pass"):
             if check.passed == MERGE:
                 return self.merge(task, pr)
             return self.fallback(task, check.passed, "passed, still at " + step.name)
-        return self.fallback(task, check.other, judged["verdict"] + ", still at " + step.name)
+        return self.fallback(task, check.other, current["verdict"] + ", still at " + step.name)
 
     def push(self, task, pr, clean=False):
         self.world.push(pr)
