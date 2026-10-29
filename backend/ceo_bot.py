@@ -152,8 +152,8 @@ def proactive(c):
 
 def _review(c, actor, record, raised=False):
     """The Monday note (the bot's `goals-review` routine, declared paused) starts when the level is above Passive: when
-    the owner raises it from Passive (`raised`), or later, once `reconcile` finds the routine, if no person has ever
-    started or paused it.
+    the owner raises it from Passive (`raised`), or later, once `reconcile` finds the routine, if no person has
+    started or paused it since that raise (`review_raised`, kept while the routine is missing) or, with no raise, ever.
     Back at Passive, it is paused again only if this started it and nobody has paused or started it since: a person's
     own choice is never overruled. `review_settled` says it has had its one go at starting it at the current raise, so
     `reconcile` never starts it again."""
@@ -162,15 +162,20 @@ def _review(c, actor, record, raised=False):
     if (record.get("level") if record.get("level") in LEVELS else DEFAULT_LEVEL) < 2:     # the level being saved
         armed = record.pop("review_armed", None)
         record.pop("review_settled", None)
+        record.pop("review_raised", None)
         if row and not row["deleted_at"] and armed and row["enabled"] and not _review_touched(c, armed):
             routines.update(c, H.KEEPER, REVIEW, {"enabled": False})
             H.event(c, actor, "ceo_bot.review_paused", REVIEW, {})
         return
     if not row or row["deleted_at"]:
+        if raised:
+            record["review_raised"] = H.now()
         return              # not there yet: `reconcile` starts it once it is
     record["review_settled"] = True
-    # Only the owner's raise from Passive overrides a person's earlier start or pause; the default never does.
-    if not row["enabled"] and (raised or not _review_touched(c, "")):
+    since = record.pop("review_raised", None)
+    # Only the owner's raise from Passive overrides a person's earlier start or pause; the default never does, and a
+    # person's choice after the raise still wins.
+    if not row["enabled"] and (raised or not _review_touched(c, since or "")):
         routines.update(c, H.KEEPER, REVIEW, {"enabled": True})
         record["review_armed"] = H.now()
         H.event(c, actor, "ceo_bot.review_armed", REVIEW, {})

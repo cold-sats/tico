@@ -304,6 +304,24 @@ def test_confirming_the_default_never_restarts_a_monday_note_a_person_paused(api
     assert not review_enabled(api)
 
 
+def test_a_raise_while_the_note_is_missing_still_starts_it_over_an_older_pause(api):
+    """A person paused the Monday note and deleted it, and the owner raised the level from Passive: when the note is
+    back, still paused, the reconcile starts it, since the raise is newer than the pause."""
+    goal_manager(api)
+    review_routine(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": True})
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        routines.remove(c, OWNER, REVIEW)
+    with store.transaction() as c:
+        ceo_bot.set_level(c, OWNER, 2)
+        # The note comes back still paused, the way backend/redesign_migration.py brings an automation back.
+        c.execute("UPDATE automations SET deleted_at=NULL WHERE id=?", (routines.row(c, REVIEW)["automation"],))
+        ceo_bot.reconcile(c)
+    assert review_enabled(api)
+
+
 def test_with_no_chosen_level_passive_pauses_the_note_and_withdraws_what_waits_and_the_default_changes_nothing(api):
     """The owner picks Passive on an install that never chose a level: the Monday note the reconcile started is paused
     and the recoveries still waiting are withdrawn, exactly as when lowering from level 2. Picking the level the install
