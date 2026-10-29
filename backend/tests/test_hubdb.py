@@ -1263,12 +1263,15 @@ OLD_STRATEGY_TABLES = {
 
 
 class StrategyTableNames(HubCase):
-    """An install from before the rename keeps its Strategy Bot rows: `_move_strategy_rows` moves them to the new
-    tables before the migrations run, and the old tables stay, empty, for an older release reopened after a rollback."""
+    """An install from before the rename keeps its Strategy Bot rows in the new tables, and for one release the old
+    tables stay equal to them, so an older release reopened after a rollback reads every row and what it writes there
+    comes back (hubdb.STRATEGY_TABLES)."""
 
     def back_to_old_names(self, new):
         old, indexes = OLD_STRATEGY_TABLES[new]
-        self.conn.execute(f"DROP TABLE {old}")      # the empty one a new install keeps for an older release
+        self.conn.execute(f"DROP TABLE {old}")      # the twin a new install keeps for an older release
+        for event in ("insert", "update", "delete"):
+            self.conn.execute(f"DROP TRIGGER {new}_to_old_{event}")
         for index in indexes:
             self.conn.execute(f"DROP INDEX {index}")
         self.conn.execute(f"ALTER TABLE {new} RENAME TO {old}")
@@ -1278,9 +1281,15 @@ class StrategyTableNames(HubCase):
     def names(self, kind="table"):
         return {r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type=?", (kind,))}
 
+    def rows(self, table, columns="id, state"):
+        return sorted(tuple(r) for r in self.conn.execute(f"SELECT {columns} FROM {table}"))
+
+    def act(self, ident, state, table="strategy_actions"):
+        self.conn.execute(f"INSERT INTO {table}(id,created,actor,kind,state) VALUES(?,?,?,'level',?)",
+                          (ident, H.now(), "bot:goal-manager", state))
+
     def test_rows_move_to_the_new_names_when_an_older_schema_starts_again(self):
-        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
-                          (H.now(), "bot:goal-manager"))
+        self.act("a1", "done")
         self.conn.execute("INSERT INTO strategy_merges(merged_into,original,person,asker,created) "
                           "VALUES('t1','t2','human:ana','bot:coo',?)", (H.now(),))
         self.back_to_old_names("strategy_actions")
@@ -1290,54 +1299,56 @@ class StrategyTableNames(HubCase):
         self.conn.execute(f"PRAGMA user_version={first}")
         self.conn.commit()
         H.migrate(self.conn)
-        self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM strategy_actions")], ["a1"])
-        self.assertEqual([r[0] for r in self.conn.execute("SELECT merged_into FROM strategy_merges")], ["t1"])
-        for old in ("ceo_actions", "ceo_merges"):
-            self.assertEqual(self.conn.execute(f"SELECT count(*) FROM {old}").fetchone()[0], 0)
+        self.assertEqual(self.rows("strategy_actions"), [("a1", "done")])
+        self.assertEqual(self.rows("strategy_merges", "merged_into, original"), [("t1", "t2")])
+        self.assertEqual(self.rows("ceo_merges", "merged_into, original"), [("t1", "t2")])
         self.assertLessEqual({"strategy_actions_created", "strategy_merges_original", "strategy_merges_person"},
                              self.names("index"))
         self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], len(H.MIGRATIONS))
 
     def test_a_second_start_changes_nothing(self):
-        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
-                          (H.now(), "bot:goal-manager"))
+        self.act("a1", "done")
         self.back_to_old_names("strategy_actions")
         H.migrate(self.conn)
-        before = self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id").fetchall()
+        before = self.rows("strategy_actions")
         H.migrate(self.conn)
-        self.assertEqual(self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id").fetchall(), before)
-        self.assertEqual(before[0][0], "a1")
+        self.assertEqual(self.rows("strategy_actions"), before)
+        self.assertEqual(before, [("a1", "done")])
 
-    def test_when_both_names_exist_the_old_rows_join_the_new_table_and_the_old_one_empties(self):
-        """An older release reopened the file and wrote to the old table since: its rows join the new one, and where
-        both have the same id the old row, the later, wins (an Undo done then stays done)."""
-        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
-                          (H.now(), "bot:goal-manager"))
-        self.back_to_old_names("strategy_actions")
-        self.conn.execute("CREATE TABLE strategy_actions(id TEXT PRIMARY KEY, created TEXT NOT NULL, "
-                          "actor TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL)")
-        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('new',?,?,'level','done')",
-                          (H.now(), "bot:goal-manager"))
-        self.conn.execute("INSERT INTO ceo_actions(id,created,actor,kind,state) VALUES('new',?,?,'level','undone')",
-                          (H.now(), "bot:goal-manager"))
+    def test_every_write_this_release_makes_reaches_the_old_tables(self):
+        """A merged question and a log entry from before a rollback are there for the older release to read: its
+        answer is relayed to the original askers, and its Undo finds the entry."""
+        self.act("a1", "done")
+        self.act("a2", "done")
+        self.conn.execute("INSERT INTO strategy_merges(merged_into,original,person,asker,created) "
+                          "VALUES('t1','t2','human:ana','bot:coo',?)", (H.now(),))
+        self.conn.execute("UPDATE strategy_actions SET state='undone' WHERE id='a1'")
+        self.conn.execute("DELETE FROM strategy_actions WHERE id='a2'")
+        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a3',?,?,'level','done') "
+                          "ON CONFLICT(id) DO NOTHING", (H.now(), "bot:goal-manager"))
+        self.assertEqual(self.rows("ceo_actions"), self.rows("strategy_actions"))
+        self.assertEqual(self.rows("ceo_actions"), [("a1", "undone"), ("a3", "done")])
+        self.assertEqual(self.rows("ceo_merges", "merged_into, original, state"), [("t1", "t2", "merged")])
+
+    def test_what_an_older_release_wrote_after_a_rollback_is_what_the_next_start_reads(self):
+        """The older release writes only to the old tables: an entry it added, one it undid and one it removed are all
+        as it left them once this release starts again."""
+        self.act("a1", "done")
+        self.act("a2", "done")
+        self.conn.commit()
+        for statement in ("INSERT INTO ceo_actions(id,created,actor,kind,state) VALUES('a3','x','bot:goal-manager',"
+                          "'level','done')", "UPDATE ceo_actions SET state='undone' WHERE id='a1'",
+                          "DELETE FROM ceo_actions WHERE id='a2'",
+                          "UPDATE ceo_merges SET state='settled' WHERE 0"):
+            self.conn.execute(statement)
         self.conn.commit()
         H.migrate(self.conn)
-        self.assertEqual([tuple(r) for r in self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id")],
-                         [("a1", "done"), ("new", "undone")])
-        self.assertEqual(self.conn.execute("SELECT count(*) FROM ceo_actions").fetchone()[0], 0)
+        self.assertEqual(self.rows("strategy_actions"), [("a1", "undone"), ("a3", "done")])
+        # The triggers are back, so this release's writes reach the old table again.
+        self.act("a4", "done")
+        self.assertEqual(self.rows("ceo_actions"), self.rows("strategy_actions"))
 
-    def test_an_older_release_reopened_on_a_new_install_finds_its_tables_and_its_rows_come_back(self):
-        """A file this release made has the old-named tables too, so an older release, whose migrations count as run,
-        writes its log and merges there after a rollback; the next start of this release moves them."""
+    def test_a_new_install_has_the_old_tables_with_the_new_columns(self):
         for old, new, _ in H.STRATEGY_TABLES:
             columns = [r[1] for r in self.conn.execute(f"PRAGMA table_info({new})")]
             self.assertEqual([r[1] for r in self.conn.execute(f"PRAGMA table_info({old})")], columns)
-        self.conn.execute("INSERT INTO ceo_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
-                          (H.now(), "bot:goal-manager"))
-        self.conn.execute("INSERT INTO ceo_merges(merged_into,original,person,asker,created) "
-                          "VALUES('t1','t2','human:ana','bot:coo',?)", (H.now(),))
-        self.conn.commit()
-        H.migrate(self.conn)
-        self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM strategy_actions")], ["a1"])
-        self.assertEqual([r[0] for r in self.conn.execute("SELECT merged_into FROM strategy_merges")], ["t1"])
-        self.assertEqual(self.conn.execute("SELECT count(*) FROM ceo_actions").fetchone()[0], 0)

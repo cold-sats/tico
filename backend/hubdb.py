@@ -743,7 +743,7 @@ CREATE TABLE IF NOT EXISTS compact_first(
 
 # The Strategy Bot's merged asks (backend/strategy_merge.py): each original item in a person's Needs you that one
 # Strategy Bot item stands for, and what became of it. An install that has the old table gets the table and its rows
-# before the migrations run (`_move_strategy_rows`), so this creates the table only on a new install.
+# before the migrations run (`_sync_strategy_tables`), so this creates the table only on a new install.
 STRATEGY_MERGES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategy_merges (
   merged_into TEXT NOT NULL, original TEXT NOT NULL, person TEXT NOT NULL, asker TEXT NOT NULL,
@@ -1106,19 +1106,38 @@ def ensure_market_reads(conn):
 
 
 # The Strategy Bot's tables, each under the name an older release gives it. That release, reopened on the file after a
-# rollback, counts the migrations that make its tables as run, so for one release the old tables stay here, empty.
+# rollback, counts the migrations that make its tables as run, so for one release the old tables stay here. Triggers
+# keep each equal to its new one, so that release reads every row as it last was; it writes only to the old table, so
+# on start the old table holds the rows as they are, and the new one is made equal to it (`_sync_strategy_tables`).
 STRATEGY_TABLES = (("ceo_merges", "strategy_merges", STRATEGY_MERGES_SCHEMA),
                    ("ceo_actions", "strategy_actions", STRATEGY_ACTIONS_SCHEMA))
+_MIRRORS = ("insert", "update", "delete")
 
 
-def _move_strategy_rows(conn):
-    """Move the Strategy Bot's rows from each table under its old name to the one under its new name, before the
-    migrations run. Rows under the old name were written by an older release since the last move, so they are the
-    newer: they replace any of the same key, and an Undo done then stays done. The old table stays, empty. What is
-    left to move is looked at again under the write lock, so two servers starting together move the rows once."""
+def _tables(conn):
+    return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def _shared_columns(conn, old, new):
+    kept = {row[1] for row in conn.execute(f"PRAGMA table_info({new})")}
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept]
+
+
+def _sync_strategy_tables(conn):
+    """Make each Strategy Bot table under its new name equal to the one under its old name, before the migrations run:
+    the old one holds every row as it last was, whichever release wrote it (STRATEGY_TABLES). A file from before the
+    rename gets its new tables here. What differs is looked at again under the write lock, so two servers starting
+    together copy once."""
     def pending(old, new):
-        found = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        return old in found and (new not in found or conn.execute(f"SELECT 1 FROM {old} LIMIT 1").fetchone())
+        found = _tables(conn)
+        if old not in found:
+            return False
+        if new not in found:
+            return True
+        columns = ",".join(_shared_columns(conn, old, new))
+        return conn.execute(f"SELECT 1 FROM (SELECT {columns} FROM {old} EXCEPT SELECT {columns} FROM {new}) UNION ALL "
+                            f"SELECT 1 FROM (SELECT {columns} FROM {new} EXCEPT SELECT {columns} FROM {old}) "
+                            "LIMIT 1").fetchone() is not None
     for old, new, schema in STRATEGY_TABLES:
         if not pending(old, new):
             continue
@@ -1126,10 +1145,11 @@ def _move_strategy_rows(conn):
         try:
             if pending(old, new):
                 _apply(conn, schema)
-                kept = {row[1] for row in conn.execute(f"PRAGMA table_info({new})")}
-                columns = ",".join(row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept)
-                conn.execute(f"INSERT OR REPLACE INTO {new}({columns}) SELECT {columns} FROM {old}")
-                conn.execute(f"DELETE FROM {old}")
+                for event in _MIRRORS:      # the copy below is not this release's write to mirror back
+                    conn.execute(f"DROP TRIGGER IF EXISTS {new}_to_old_{event}")
+                columns = ",".join(_shared_columns(conn, old, new))
+                conn.execute(f"DELETE FROM {new}")
+                conn.execute(f"INSERT INTO {new}({columns}) SELECT {columns} FROM {old}")
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
@@ -1137,10 +1157,33 @@ def _move_strategy_rows(conn):
 
 
 def _keep_old_strategy_tables(conn):
-    """Make each old-named table a new install never had, with the columns of the new one (STRATEGY_TABLES)."""
-    for old, new, _ in STRATEGY_TABLES:
-        sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (new,)).fetchone()[0]
-        conn.execute(re.sub(r'^CREATE TABLE (IF NOT EXISTS )?("?)\w+\2', f"CREATE TABLE IF NOT EXISTS {old}", sql))
+    """Give each Strategy Bot table its old-named twin, with its columns, where a new install has none, and the
+    triggers that copy every write to it (STRATEGY_TABLES)."""
+    triggers = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+    if all(old in _tables(conn) and {f"{new}_to_old_{event}" for event in _MIRRORS} <= triggers
+           for old, new, _ in STRATEGY_TABLES):
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for old, new, _ in STRATEGY_TABLES:
+            if old not in _tables(conn):
+                sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (new,)).fetchone()[0]
+                conn.execute(re.sub(r'^CREATE TABLE (IF NOT EXISTS )?("?)\w+\2', f"CREATE TABLE {old}", sql))
+                columns = ",".join(_shared_columns(conn, old, new))
+                conn.execute(f"INSERT INTO {old}({columns}) SELECT {columns} FROM {new}")
+            columns = _shared_columns(conn, old, new)
+            names, values = ",".join(columns), ",".join("new." + column for column in columns)
+            keys = [row[1] for row in conn.execute(f"PRAGMA table_info({new})") if row[5]]
+            match = " AND ".join(f"{key}=old.{key}" for key in keys)
+            upsert = f"INSERT OR REPLACE INTO {old}({names}) VALUES({values});"
+            for event, body in (("insert", upsert), ("update", f"DELETE FROM {old} WHERE {match}; {upsert}"),
+                                ("delete", f"DELETE FROM {old} WHERE {match};")):
+                conn.execute(f"CREATE TRIGGER IF NOT EXISTS {new}_to_old_{event} AFTER {event.upper()} ON {new} "
+                             f"BEGIN {body} END")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def migrate(conn, adopt_legacy=False):
@@ -1153,7 +1196,7 @@ def migrate(conn, adopt_legacy=False):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == 0 and not adopt_legacy:
         _refuse_foreign(conn)
-    _move_strategy_rows(conn)
+    _sync_strategy_tables(conn)
     from .flight import begin
     for i in range(version, len(MIGRATIONS)):
         done = begin(conn)
