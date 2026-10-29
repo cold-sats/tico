@@ -74,7 +74,21 @@ function dashPageEl(page, size) {
     <span class="muted">${esc(dashBot(page.bot))} · Updated ${agoSpan(page.updated)}</span></span>`;
   return a;
 }
-const dashPinTitle = pin => pin.card ? pin.card.heading + (pin.card.team_name ? ' · ' + pin.card.team_name : '') : pin.page?.title || 'Page';
+// A card names its team, except on that team's own page.
+const dashTeamShown = (card, view) => card.team_name && !(view?.kind === 'team' && card.settings?.team === view.group) ? card.team_name : '';
+const dashPinTitle = (pin, view) => pin.card ? pin.card.heading + (dashTeamShown(pin.card, view) ? ' · ' + pin.card.team_name : '') : pin.page?.title || 'Page';
+// Who sees a team page, in a few words: Everyone, the one team or person, else how many.
+function dashAudienceWords(aud) {
+  if (!aud || aud.everyone !== false) return 'Everyone';
+  const teams = aud.teams || [], people = aud.people || [], bots = aud.bots || [];
+  const groupName = id => (S.orgGroups || []).find(g => g.id === id)?.name || id;
+  const personName = id => (S.people || []).find(p => p.id === id)?.name || id;
+  if (teams.length === 1 && !people.length && !bots.length) return groupName(teams[0]);
+  if (people.length === 1 && !teams.length && !bots.length) return personName(people[0]);
+  const parts = [[teams.length, 'team'], [people.length, 'person'], [bots.length, 'bot']].filter(([n]) => n)
+    .map(([n, w]) => `${n} ${n === 1 ? w : w === 'person' ? 'people' : w + 's'}`);
+  return parts.join(', ') || 'Nobody';
+}
 
 // ---- the page
 async function pageDashboard(place) {
@@ -105,17 +119,20 @@ function dashDraw(state) {
   const actions = root.querySelector('.dash-actions');
   actions.hidden = !v.can_edit;
   const aud = root.querySelector('[data-dash-audience]');
-  if (aud) aud.innerHTML = `<span class="nav-icon" aria-hidden="true">${v.audience?.everyone === false ? 'person' : 'groups'}</span>${v.audience?.everyone === false ? 'Chosen' : 'Everyone'}`;
+  if (aud) {
+    aud.innerHTML = `<span class="nav-icon" aria-hidden="true">groups</span>Seen by ${esc(dashAudienceWords(v.audience))}`;
+    aud.setAttribute('aria-haspopup', 'dialog');
+  }
   const grid = root.querySelector('#dash-grid');
   grid.innerHTML = v.pins.length ? '' : `<p class="empty">${v.can_edit ? 'Add a card or a page' : 'Nothing pinned'}</p>`;
   v.pins.forEach((pin, i) => {
     const el = document.createElement('article');
     el.className = 'dash-pin'; el.dataset.size = pin.size || 'medium'; el.dataset.at = String(i);
     el.innerHTML = `<header class="dash-pin-head">
-        ${v.can_edit ? `<button type="button" class="dash-grip" data-dash-grip aria-label="Move ${esc(dashPinTitle(pin))}" title="Move">${BOT_SVG.grip}</button>` : ''}
-        <h2>${pin.card ? esc(pin.card.heading) : ''}${pin.card?.team_name ? ` <span class="muted">· ${esc(pin.card.team_name)}</span>` : ''}</h2>
+        ${v.can_edit ? `<button type="button" class="dash-grip" data-dash-grip aria-label="Move ${esc(dashPinTitle(pin, v))}" title="Move">${BOT_SVG.grip}</button>` : ''}
+        <h2>${pin.card ? esc(pin.card.heading) : ''}${pin.card && dashTeamShown(pin.card, v) ? ` <span class="muted">· ${esc(pin.card.team_name)}</span>` : ''}</h2>
         <span class="spacer"></span>
-        ${v.can_edit ? `<button type="button" class="dash-more" data-dash-menu aria-haspopup="menu" aria-expanded="false" aria-label="${esc(dashPinTitle(pin))} menu" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button>` : ''}</header>
+        ${v.can_edit ? `<button type="button" class="dash-more" data-dash-menu aria-haspopup="menu" aria-expanded="false" aria-label="${esc(dashPinTitle(pin, v))} menu" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button>` : ''}</header>
       <div class="dash-pin-body"></div>`;
     const body = el.querySelector('.dash-pin-body');
     if (pin.card) body.innerHTML = dashCardBody(pin.card);

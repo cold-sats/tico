@@ -434,6 +434,8 @@ async function open(browser, viewport, colorScheme, server) {
     await paged.page.goto('https://tico-ui.test/#/bot/lead');
     await paged.page.waitForFunction(() => document.querySelector('#pane-tasks .bot-w[data-widget="page:f1"]')?.textContent.includes('Weekly numbers'));
     assert.deepEqual(await shown(), ['page:f1'], 'a sidebar of pages only');
+    const pencil = await prail.locator('#bot-sidebar-edit').boundingBox(), first = await prail.locator('.bot-w[data-widget="page:f1"] .bot-pin > :first-child').boundingBox();
+    assert.ok(pencil.y + pencil.height <= first.y + 1, 'the edit icon sits above the page, not on it');
     if (process.env.TICO_UI_SHOTS) await paged.page.screenshot({path: require('node:path').join(process.env.TICO_UI_SHOTS, 'bot-sidebar-pages.png')});
     await prail.locator('#bot-sidebar-edit').click();
     await prail.locator('#bot-sidebar-add').click();

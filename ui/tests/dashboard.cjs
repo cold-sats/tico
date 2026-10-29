@@ -207,7 +207,8 @@ async function shot(page, name) {
       await page.waitForFunction(() => location.hash === '#/team/eng');
       await page.locator('#dash-grid .dash-pin').first().waitFor();
       assert.equal(await page.locator('.dash-head h1').innerText(), 'Engineering');
-      assert.deepEqual(await headings(page), ['TASKS BY STATUS · ENGINEERING', 'DONE PER WEEK · ENGINEERING', 'NEEDS YOU · ENGINEERING']);
+      assert.deepEqual(await headings(page), ['TASKS BY STATUS', 'DONE PER WEEK', 'NEEDS YOU'], 'its own team goes unsaid');
+      assert.equal(await page.locator('[data-dash-audience]').innerText(), 'Seen by Everyone');
       assert.equal(await page.locator('#tree a.dept-label.cur').count(), 1);
       const kids = page.locator('#tree li.org-group:has(> .noderow a.dept-label.cur) > ul');
       const wasOpen = await kids.isVisible();
@@ -219,7 +220,7 @@ async function shot(page, name) {
       await page.locator('#dash-dialog[open] [name="everyone"]').uncheck();
       await page.locator('#dash-dialog[open] [name="people"][value="ana"]').check();
       await page.locator('#dash-dialog[open] [type="submit"]').click();
-      await page.waitForFunction(() => document.querySelector('[data-dash-audience]')?.textContent.includes('Chosen'));
+      await page.waitForFunction(() => document.querySelector('[data-dash-audience]')?.textContent.includes('Seen by Ana Silva'));
       assert.deepEqual(fake.writes.at(-1).slice(1), ['/api/v2/places/team%3Aeng', {audience: {everyone: false, teams: [], people: ['ana'], bots: []}}]);
       await shot(page, 'desktop-team');
       assert.deepEqual(errors, []);
