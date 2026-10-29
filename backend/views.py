@@ -36,7 +36,8 @@ from . import task_relations as TR
 
 MIN_RUNNER_VERSION = (0, 2, 0)
 DOC_BOT = "doc-updater"         # the documentation agent: docs questions and doc PR reviews
-CEO_BOT = "goal-manager"       # the CEO Bot (backend/ceo_bot.py SLUG): of people, only the owner chats with it
+# the Strategy Bot (backend/strategy_bot.py SLUG): of people, only the owner chats with it
+STRATEGY_BOT = "goal-manager"
 
 
 def runner_version_supported(value):
@@ -265,10 +266,10 @@ def seat_parents(c, settings, auth, who):
     """{open seat id: where it hangs on the team chart for this caller}, as GET /api/people draws it
     (backend/lifecycle.py `chart_seats`): GET /api/v2/seats carries the same, so a client that refreshes the seats from
     there still hangs a seat under a closed seat where that seat answered to."""
-    from . import ceo_bot
+    from . import strategy_bot
     r, configs = roster(c), entries(c)
     archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-    chart = ceo_bot.chart_entries(c, settings, r, configs, archived, hidden=ceo_bot.hidden_for(c, who))
+    chart = strategy_bot.chart_entries(c, settings, r, configs, archived, hidden=strategy_bot.hidden_for(c, who))
     access = auth.bot_accesses(c, who)
     return {seat["id"]: seat["org_parent"] for seat in lifecycle.chart_seats(
         c, r, chart, archived, lambda slug: access.get(slug, auth.FULL)["see"])}
@@ -306,20 +307,20 @@ def may_chat(c, auth, who, bot):
         return True
     # The assistant is chatted with in one place only: each person's own Assistant room, through
     # /api/v2/assistant (backend/assistant.py). It has no chat with anyone else and no shared or
-    # per-bot chat, so every other route that asks "may I chat with it" says no. The CEO Bot the
-    # same: of people, only the owner talks to it, in the CEO Bot chat /api/v2/assistant gives them;
+    # per-bot chat, so every other route that asks "may I chat with it" says no. The Strategy Bot the
+    # same: of people, only the owner talks to it, in the Strategy Bot chat /api/v2/assistant gives them;
     # an earlier chat with it anyone had stays readable, read-only.
-    return bot not in (auth.settings.assistant_bot, CEO_BOT)
+    return bot not in (auth.settings.assistant_bot, STRATEGY_BOT)
 
 
 def require_chat(c, auth, who, bot):
     """Write on the bot, and a bot that has a chat of its own (the Assistant has only the room
-    /api/v2/assistant gives each person, the CEO Bot only the owner's CEO Bot chat)."""
+    /api/v2/assistant gives each person, the Strategy Bot only the owner's Strategy Bot chat)."""
     auth.require_write(c, who, bot)
     if not may_chat(c, auth, who, bot):
-        if bot == CEO_BOT:
-            from . import ceo_bot
-            raise Problem("forbidden", "Of people, only the company's owner talks to the " + ceo_bot.name(c)
+        if bot == STRATEGY_BOT:
+            from . import strategy_bot
+            raise Problem("forbidden", "Of people, only the company's owner talks to the " + strategy_bot.name(c)
                           + ", in their own chat with it (/api/v2/assistant); talk to your Assistant", 403)
         raise Problem("forbidden", auth.settings.assistant_name + " chats only in your own Assistant "
                       "(/api/v2/assistant); message one of your bots here", 403)
@@ -1598,8 +1599,8 @@ def needs_items(c, auth, who, task_view, older=None, count_only=False):
     H.hydrate_task_tags(c, raw["tasks"] + raw["waiting"] + raw["declined"])
     from . import ask_deadlines, team_rules
     rules = team_rules.load(c)
-    from . import ceo_merge
-    merged = ceo_merge.hidden_by_item(c, who.actor)
+    from . import strategy_merge
+    merged = strategy_merge.hidden_by_item(c, who.actor)
     # Each card reads its task, its open asks, its origin and the chain of tasks above it. Those rows are read here
     # for every card together, in this snapshot; readability of the cards themselves is one task_sql pass.
     cards = raw["tasks"] + raw["waiting"] + raw["declined"]
@@ -1641,7 +1642,8 @@ def needs_items(c, auth, who, task_view, older=None, count_only=False):
                 item.update(assigned_not_started=True, note=row['note'])
             item["recommend"] = next((r for a in open_asks if (r := recommendation(a, who.actor))), None)
             if row["id"] in merged:
-                # The CEO Bot's merged item: the originals it stands for, which the Tasks page leaves out of Needs you.
+                # The Strategy Bot's merged item: the originals it stands for, which the Tasks page leaves out of Needs
+                # you.
                 item["merged"] = [t for t in merged[row["id"]] if t in can_see]
             if ask and ask.get("to_actor") == who.actor and H.ask_older(ask):
                 ask["stale"] = True      # its one-click Clarify (backend/clarify_asks.py) shows on the card
@@ -1958,11 +1960,12 @@ def install_views(app, store, auth, mutate, task_view):
         # serves a person, and the UI shows it with the built-ins, apart from the org chart.
         from .onboarding import helper_templates, template_icons
         icons, helpers = template_icons(store.settings), helper_templates(store.settings)
-        # Where each bot hangs on the chart; the CEO Bot switch moves it there and nowhere else (backend/ceo_bot.py).
-        # A person who hid the CEO Bot from their chart sees nothing moved, and its row says so (`chart_hidden`).
-        from . import ceo_bot
-        hide_ceo = ceo_bot.hidden_for(c, who)
-        chart = ceo_bot.chart_entries(c, store.settings, people, configs, archived, hidden=hide_ceo)
+        # Where each bot hangs on the chart; the Strategy Bot switch moves it there and nowhere else
+        # (backend/strategy_bot.py). A person who hid the Strategy Bot from their chart sees nothing moved, and its row
+        # says so (`chart_hidden`).
+        from . import strategy_bot
+        hide_strategy = strategy_bot.hidden_for(c, who)
+        chart = strategy_bot.chart_entries(c, store.settings, people, configs, archived, hidden=hide_strategy)
         bare = True                        # a bot's bare person id in reports_to is that person (backend/people.py)
 
         def icon_of(config):
@@ -2001,14 +2004,14 @@ def install_views(app, store, auth, mutate, task_view):
                              "private_tasks_default": H.private_tasks_default(c, "bot:" + slug),
                              "team": P.team_of(slug, configs, people),
                              "org_parent": P.org_parent("bot", slug, people, chart, archived, bare),
-                             **ceo_bot.chart_hidden_row(slug, hide_ceo),
+                             **strategy_bot.chart_hidden_row(slug, hide_strategy),
                              "report_position": places.get("bot:" + slug),
                              "operator": registry["operator"] if registry else None,
                              "is_branch": bool((configs.get(slug) or {}).get("shared_from")),
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                              "icon": icon_of(configs.get(slug, {}) or {}),
                              "helper": helper(configs.get(slug, {}) or {}),
-                             "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT)})
+                             "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, STRATEGY_BOT)})
                 continue
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
@@ -2043,7 +2046,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "team": P.team_of(slug, configs, people),
                          "gateway_department": gateway_tiers.department_of(departments.of("bot:" + slug)),
                          "org_parent": P.org_parent("bot", slug, people, chart, archived, bare),
-                         **ceo_bot.chart_hidden_row(slug, hide_ceo),
+                         **strategy_bot.chart_hidden_row(slug, hide_strategy),
                          "report_position": places.get("bot:" + slug),
                          "operator": registry["operator"] if registry else None,
                          "revision": registry["revision"] if registry else None,
@@ -2056,7 +2059,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "wake": wake_presets.effective(config),
                          "profile": profiles.effective(config),
                          "my_access": level, **policy,
-                         "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, CEO_BOT),
+                         "can_chat": level["write"] and slug not in (auth.settings.assistant_bot, STRATEGY_BOT),
                          # Onboarding or Active, and whether this person may mark onboarding complete (backend/lifecycle.py).
                          "stage": lifecycle.stage(config.get("onboarding_state")),
                          "can_complete_onboarding": (lifecycle.stage(config.get("onboarding_state")) == lifecycle.ONBOARDING
@@ -2076,7 +2079,7 @@ def install_views(app, store, auth, mutate, task_view):
             # Sign-in needs chat choices, not every bot's routines, machine and setup state.
             access = auth.bot_accesses(c, who)
             bots = [row["slug"] for row in H.bots(c)
-                    if row["state"] != "archived" and row["slug"] not in (store.settings.assistant_bot, CEO_BOT)
+                    if row["state"] != "archived" and row["slug"] not in (store.settings.assistant_bot, STRATEGY_BOT)
                     and access.get(row["slug"], auth.FULL)["see"]
                     and access.get(row["slug"], auth.FULL)["write"]]
             from .credentials import administrator, can_open
@@ -2124,11 +2127,13 @@ def install_views(app, store, auth, mutate, task_view):
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
             bare = True                    # a bot's bare person id in reports_to is that person (backend/people.py)
             view = P.org_view(r, configs, archived, bare_people=bare)
-            # The CEO Bot switch hangs the Heads' groups under it on the chart (backend/ceo_bot.py).
-            from . import ceo_bot
-            hide_ceo = ceo_bot.hidden_for(c, who)          # this person hid it from their chart: nothing moves
-            chart = ceo_bot.chart_entries(c, store.settings, r, configs, archived, hidden=hide_ceo)
-            view["org_groups"] = ceo_bot.chart_groups(r, configs, chart, view["org_groups"], archived, hidden=hide_ceo)
+            # The Strategy Bot switch hangs the Heads' groups under it on the chart (backend/strategy_bot.py).
+            from . import strategy_bot
+            # this person hid it from their chart: nothing moves
+            hide_strategy = strategy_bot.hidden_for(c, who)
+            chart = strategy_bot.chart_entries(c, store.settings, r, configs, archived, hidden=hide_strategy)
+            view["org_groups"] = strategy_bot.chart_groups(r, configs, chart, view["org_groups"], archived,
+                                                           hidden=hide_strategy)
             access = auth.bot_accesses(c, who)
             from .report_order import positions
             places = positions(c)

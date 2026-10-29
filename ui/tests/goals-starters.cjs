@@ -9,7 +9,7 @@ const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 
 const bot = (name, display_name, over) => ({name, display_name, org_parent: '', host: 'keeper', status: 'active', can_chat: true, ...over});
-const bots = [bot('coo', 'Assistant'), bot('botops', 'BotOps'), bot('goal-manager', 'CEO Bot', {org_parent: 'p:ana', reports_to: ''})];
+const bots = [bot('coo', 'Assistant'), bot('botops', 'BotOps'), bot('goal-manager', 'Strategy Bot', {org_parent: 'p:ana', reports_to: ''})];
 const STARTERS = ['Set a goal', 'Fix my goals', 'Go through suggestions'];
 
 async function open(browser, {role = 'owner', chat = []} = {}) {
@@ -33,6 +33,7 @@ async function open(browser, {role = 'owner', chat = []} = {}) {
     if (p === '/api/v2/status') return json({bots: []});
     if (p === '/api/v2/goals/tree') return json({goals: [], owners: {}, other_kpis: [], proposals: []});
     if (p === '/api/v2/goals/needs-you') return json({actor: 'human:ana', items: []});
+    // The server keeps the owner's Strategy Bot chat under room_key "ceo" (STRATEGY_ROOM, backend/rooms.py).
     if (p === '/api/v2/conversations') return json({conversations: messages.length ? [{id: 'gm-chat', kind: 'chat', room_key: 'ceo'}] : []});
     if (p === '/api/v2/chat/goal-manager' && post) {
       const body = req.postDataJSON();
@@ -58,7 +59,7 @@ async function open(browser, {role = 'owner', chat = []} = {}) {
       await rail.locator('[data-gm-starter]').first().waitFor();
       assert.equal(await rail.locator('.gm-form textarea').getAttribute('placeholder'), 'Ask Strategy Bot');
       assert.deepEqual(await rail.locator('[data-gm-starter]').allInnerTexts(), STARTERS);
-      // Test 2: a tap sends its words, as typed by the owner, to the CEO Bot's chat.
+      // Test 2: a tap sends its words, as typed by the owner, to the Strategy Bot's chat.
       await rail.locator('[data-gm-starter]', {hasText: 'Go through suggestions'}).click();
       await rail.locator('[data-gm-thread] .bubble.you', {hasText: 'Go through suggestions'}).waitFor();
       assert.deepEqual(posted, [{path: '/api/v2/chat/goal-manager', body: {text: 'Go through suggestions', refs: {}}}]);

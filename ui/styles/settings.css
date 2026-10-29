@@ -714,18 +714,19 @@ fieldset.brepo>.repo-name+p{margin:-4px 0 4px 24px;font-size:var(--t-xs);line-he
 .listen-form label{display:grid;gap:4px;min-width:0}.listen-form input,.listen-form select{min-width:0;width:100%}
 .listen-wide{grid-column:1/-1}
 @media (max-width:640px){.listen-list li{grid-template-columns:1fr}.listen-actions{justify-content:flex-start}}
-/* Settings > CEO Bot (ui/app/settings-ceo-bot.js): three levels, one sentence each, a Confirm before a change. */
-.ceo-levels{display:grid;gap:8px;margin:10px 0}
-.ceo-level{display:grid;gap:4px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:inherit;font:inherit;cursor:pointer}
-.ceo-level span{font-size:var(--t-sm);color:var(--muted)}
-.ceo-level[aria-checked="true"]{border-color:var(--accent)}
-.ceo-confirm{padding:10px 12px;border:1px solid var(--accent);border-radius:8px;margin-bottom:8px}
-.ceo-confirm p{margin:0 0 8px}
-.ceo-log{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-.ceo-log-entry{padding-bottom:10px;border-bottom:1px solid var(--line)}
-.ceo-log-entry:last-child{border-bottom:0}
-.ceo-log-entry .row{gap:8px;flex-wrap:wrap;align-items:baseline}
-.ceo-log-entry ul{margin:6px 0 0;padding-left:18px}
+/* Settings > Strategy Bot (ui/app/settings-strategy-bot.js): three levels, one sentence each, a Confirm before a
+   change. */
+.strategy-levels{display:grid;gap:8px;margin:10px 0}
+.strategy-level{display:grid;gap:4px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:inherit;font:inherit;cursor:pointer}
+.strategy-level span{font-size:var(--t-sm);color:var(--muted)}
+.strategy-level[aria-checked="true"]{border-color:var(--accent)}
+.strategy-confirm{padding:10px 12px;border:1px solid var(--accent);border-radius:8px;margin-bottom:8px}
+.strategy-confirm p{margin:0 0 8px}
+.strategy-log{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.strategy-log-entry{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.strategy-log-entry:last-child{border-bottom:0}
+.strategy-log-entry .row{gap:8px;flex-wrap:wrap;align-items:baseline}
+.strategy-log-entry ul{margin:6px 0 0;padding-left:18px}
 /* Settings > System, the flat list of Tico's own jobs (ui/app/settings-recurring.js) */
 .sysr-list{display:grid}
 .settings-bots-filters .settings-filter-search.sysr-search{width:min(100%,420px);flex:0 1 420px;max-width:100%}

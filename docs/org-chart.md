@@ -8,8 +8,8 @@ and bots, with the groups inside it below them. A group's name opens its team pa
 one more level: the owner, when nobody is above them and they are in no group (else the only human nobody is above), is a
 row of its own, and the groups, then the humans and bots, that report to them sit beside it rather than under it. Any other
 human nobody is above follows as an ordinary row with their reports under them. With no such top person it nests as before. The built-in bots (the Assistant, BotOps, the
-Librarian, the CEO Bot) stay out of the chart and the Goals tree. Assistant and BotOps have main rail entries;
-the Librarian is reached from Docs and Market, the CEO Bot from its panel beside the Strategy tabs. Settings > Bots lists all four.
+Librarian, the Strategy Bot) stay out of the chart and the Goals tree. Assistant and BotOps have main rail entries;
+the Librarian is reached from Docs and Market, the Strategy Bot from its panel beside the Strategy tabs. Settings > Bots lists all four.
 When bots' names start with the same words (the "Head of" in **Head of Product** and **Head of Sales**), those words are
 muted, and on a narrow sidebar they drop out whole so each row keeps the part that tells it apart. Hover a bot to see its
 whole name. A bot still onboarding has a small amber gear beside its name (**Onboarding**).
@@ -18,7 +18,7 @@ and a **Recruiting** mark where its reporting line puts it: under its bot or hum
 chart lays out roles under roles, `reports_to: seat:<id>`). Hover it for its job description. It is not dragged and nothing
 is dropped on it; under a bot you may not see it hangs from the next row up, and it is left out of the recently-opened list.
 The sidebar reads seats from `seats` on `GET /api/humans`, the same rows as `seats` on `GET /api/v2/org`.
-The built-in **CEO Bot** ([Your CEO Bot](ceo-bot.md)) is on every install. The server hangs the Heads, each in its department's group, and the bots that report to no one under it; since it is not on the chart, the app shows them under the owner.
+The built-in **Strategy Bot** ([Your Strategy Bot](strategy-bot.md)) is on every install. The server hangs the Heads, each in its department's group, and the bots that report to no one under it; since it is not on the chart, the app shows them under the owner.
 The Assistant, BotOps, the Librarian and message bots stay apart. Only the chart moves: nobody's `reports_to` and
 nobody's access changes, and `hub team show` still gives each bot the `reports_to` it has.
 Message bots such as Inbox Manager follow in a separate **Message bots** section on the chart and Goals. The mailboxes and
@@ -70,7 +70,7 @@ direct reports' ([Updates](using-tico.md#updates)).
 
 The **+** beside **Team** offers **Add section**, **Add bot** and **Add human**, according to your permissions.
 **Add section** opens the inline group-name field. **Add bot** makes a Recruiting seat (a role with no bot yet) under the
-manager you choose and opens it: its job description, which the CEO Bot drafts for the owner, then **Recruit** and the
+manager you choose and opens it: its job description, which the Strategy Bot drafts for the owner, then **Recruit** and the
 pick ([Recruiting a seat](onboarding.md#recruiting-a-seat)). Open seats show on the chart under their manager with a
 **Recruiting** mark; clicking one opens it. **Ask BotOps** in the Add bot form opens its chat with an editable request,
 preserving any draft already there. Describe a custom bot or

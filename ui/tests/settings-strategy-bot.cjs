@@ -1,4 +1,4 @@
-// Settings > CEO Bot (ui/app/settings-ceo-bot.js): the owner sees the regular checks, on, and the three levels with
+// Settings > Strategy Bot (ui/app/settings-strategy-bot.js): the owner sees the regular checks, on, and the three levels with
 // their sentences, Suggests actions current (the level every install starts at); picking another shows its sentence
 // again and changes nothing until Confirm, and Cancel leaves it as it was. Turning the regular checks off saves at
 // once. Only the owner has the tab: an admin or a member has none. The tab and headings use the bot's name. Fixtures
@@ -15,7 +15,7 @@ const LEVELS = [
   {level: 3, name: 'Acts on its own', sentence: 'It also decides on its own: it makes, moves up, reassigns and closes bot tasks, each with an Undo.', ready: true},
 ];
 
-async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
+async function open(browser, {role = 'owner', name = 'Strategy Bot'} = {}) {
   const page = await browser.newPage({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
   const errors = [], posted = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -36,8 +36,8 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
     if (p === '/api/v2/status') return json({bots: []});
     if (p === '/api/v2/models') return json({models: [], harnesses});
-    if (p === '/api/v2/ceo-bot' && req.method() === 'GET') return json(state);
-    if (p === '/api/v2/ceo-bot/level') {
+    if (p === '/api/v2/strategy-bot' && req.method() === 'GET') return json(state);
+    if (p === '/api/v2/strategy-bot/level') {
       const body = req.postDataJSON();
       posted.push(body);
       state.level_chosen = true;
@@ -48,21 +48,21 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
       Object.assign(state, {level: body.level, level_changed_by: 'human:ana', level_changed_by_name: 'Ana', level_changed_at: at});
       return json(state);
     }
-    if (p === '/api/v2/ceo-bot/checks') {
+    if (p === '/api/v2/strategy-bot/checks') {
       const body = req.postDataJSON();
       posted.push({checks: body.on});
       state.regular_checks = body.on;
       return json(state);
     }
-    // The CEO Bot log, two pages: Undo on an entry of the second page.
+    // The Strategy Bot log, two pages: Undo on an entry of the second page.
     const entry = (id, over) => ({id, kind: 'decision', reason: 'Reason ' + id, state: 'done', undoable: true, created: '2026-10-01T00:00:00Z',
       done: [{text: 'Close "Task ' + id + '"'}], left: [], note: '', proposal_task: null, undo: null, ...over});
-    if (p === '/api/v2/ceo-bot/log') {
+    if (p === '/api/v2/strategy-bot/log') {
       const before = new URL(req.url()).searchParams.get('before');
       return json(before === 'c|first-last' ? {items: [entry('older')], next_before: null, can_undo: true}
         : {items: [entry('newest'), entry('first-last')], next_before: 'c|first-last', can_undo: true});
     }
-    const undo = p.match(/^\/api\/v2\/ceo-bot\/log\/([^/]+)\/undo$/);
+    const undo = p.match(/^\/api\/v2\/strategy-bot\/log\/([^/]+)\/undo$/);
     if (undo) {
       posted.push({undo: undo[1]});
       return json(entry(undo[1], {state: 'undone', undoable: false, undo: {restored: [], kept: [], text: 'Undone: Task ' + undo[1] + ' put back.'}}));
@@ -79,49 +79,58 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
     {
+      // An old settings address (#/settings/ceo, in links and bookmarks) opens the tab at its new address.
+      const {page, errors} = await open(browser);
+      await page.evaluate(() => { location.hash = '#/settings/ceo'; });
+      await page.locator('#set-strategy-bot [data-strategy-level]').first().waitFor();
+      assert.equal(await page.evaluate(() => location.hash), '#/settings/strategy-bot');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
       const {page, errors, posted} = await open(browser);
-      await page.locator('[data-settings-tab="ceo"]').click();
-      const levels = page.locator('#set-ceo-bot [data-ceo-level]');
+      await page.locator('[data-settings-tab="strategy-bot"]').click();
+      const levels = page.locator('#set-strategy-bot [data-strategy-level]');
       await levels.first().waitFor();
       assert.equal(await levels.count(), 3);
       assert.match(await levels.nth(1).innerText(), /Suggests actions[\s\S]*Now[\s\S]*asks goal owners/);
       assert.equal(await levels.nth(1).getAttribute('aria-checked'), 'true');
       assert.match(await levels.nth(2).innerText(), /decides on its own/);
-      const panel = await page.locator('#set-ceo-bot').innerText();
+      const panel = await page.locator('#set-strategy-bot').innerText();
       assert.match(panel,
-        /Regular checks[\s\S]*How much your CEO Bot does[\s\S]*Suggests actions, where every company starts/);
+        /Regular checks[\s\S]*How much your Strategy Bot does[\s\S]*Suggests actions, where every company starts/);
       assert.doesNotMatch(panel, /Goal Manager|level 1|switch/i);
-      assert.equal(await page.locator('#set-ceo-bot [data-ceo-checks]').isChecked(), true);
+      assert.equal(await page.locator('#set-strategy-bot [data-strategy-checks]').isChecked(), true);
       // The level is only the default, so the owner can confirm it as their own choice; once chosen, picking it again
       // asks nothing.
       await levels.nth(1).click();
-      await page.locator('#set-ceo-bot .ceo-confirm', {hasText: 'Keep Suggests actions as your choice?'}).waitFor();
-      await page.locator('#set-ceo-bot [data-ceo-confirm="2"]').click();
-      await page.locator('#set-ceo-bot .ceo-confirm').waitFor({state: 'detached'});
+      await page.locator('#set-strategy-bot .strategy-confirm', {hasText: 'Keep Suggests actions as your choice?'}).waitFor();
+      await page.locator('#set-strategy-bot [data-strategy-confirm="2"]').click();
+      await page.locator('#set-strategy-bot .strategy-confirm').waitFor({state: 'detached'});
       assert.deepEqual(posted, [{level: 2}]);
       await levels.nth(1).click();
       await page.waitForTimeout(200);
-      assert.equal(await page.locator('#set-ceo-bot .ceo-confirm').count(), 0);
+      assert.equal(await page.locator('#set-strategy-bot .strategy-confirm').count(), 0);
       posted.length = 0;
       // Picking Passive shows its sentence with a Confirm; Cancel changes nothing.
       await levels.nth(0).click();
-      const confirm = page.locator('#set-ceo-bot .ceo-confirm');
+      const confirm = page.locator('#set-strategy-bot .strategy-confirm');
       await confirm.waitFor();
       assert.match(await confirm.innerText(), /Change to Passive\?[\s\S]*acts only when you talk to it/);
-      await confirm.locator('[data-ceo-cancel]').click();
+      await confirm.locator('[data-strategy-cancel]').click();
       await confirm.waitFor({state: 'detached'});
       assert.deepEqual(posted, []);
       // Confirm saves it, and the change is listed with who.
       await levels.nth(0).click();
-      await page.locator('#set-ceo-bot [data-ceo-confirm="1"]').click();
+      await page.locator('#set-strategy-bot [data-strategy-confirm="1"]').click();
       await page.waitForFunction(() =>
-        document.querySelector('#set-ceo-bot [data-ceo-level="1"]')?.classList.contains('cur'));
+        document.querySelector('#set-strategy-bot [data-strategy-level="1"]')?.classList.contains('cur'));
       assert.deepEqual(posted, [{level: 1}]);
-      assert.match(await page.locator('#set-ceo-bot').innerText(), /chosen by Ana/);
+      assert.match(await page.locator('#set-strategy-bot').innerText(), /chosen by Ana/);
       // The regular checks go off at once, on the owner's click.
-      await page.locator('#set-ceo-bot [data-ceo-checks]').uncheck();
-      await page.waitForFunction(() => document.querySelector('#set-ceo-bot [data-ceo-checks]') && !document.querySelector('#set-ceo-bot [data-ceo-checks]').disabled
-        && !document.querySelector('#set-ceo-bot [data-ceo-checks]').checked);
+      await page.locator('#set-strategy-bot [data-strategy-checks]').uncheck();
+      await page.waitForFunction(() => document.querySelector('#set-strategy-bot [data-strategy-checks]') && !document.querySelector('#set-strategy-bot [data-strategy-checks]').disabled
+        && !document.querySelector('#set-strategy-bot [data-strategy-checks]').checked);
       assert.deepEqual(posted, [{level: 1}, {checks: false}]);
       assert.deepEqual(errors, []);
       await page.close();
@@ -129,35 +138,35 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
     {
       // Named by the owner: the tab and the heading use that name.
       const {page, errors} = await open(browser, {name: 'Atlas'});
-      assert.equal((await page.locator('[data-settings-tab="ceo"]').innerText()).trim(), 'Atlas');
-      await page.locator('[data-settings-tab="ceo"]').click();
-      await page.locator('#set-ceo-bot [data-ceo-level]').first().waitFor();
-      assert.match(await page.locator('#set-ceo-bot').innerText(), /How much your Atlas does/);
+      assert.equal((await page.locator('[data-settings-tab="strategy-bot"]').innerText()).trim(), 'Atlas');
+      await page.locator('[data-settings-tab="strategy-bot"]').click();
+      await page.locator('#set-strategy-bot [data-strategy-level]').first().waitFor();
+      assert.match(await page.locator('#set-strategy-bot').innerText(), /How much your Atlas does/);
       assert.deepEqual(errors, []);
       await page.close();
     }
     {
       // Undo on an entry past the first page asks, and confirms, where it is: the older page stays loaded.
       const {page, errors, posted} = await open(browser);
-      await page.evaluate(() => { const host = document.createElement('div'); host.id = 'log-under-test'; host.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#fff;overflow:auto'; document.body.append(host); void renderCeoBotLog(host); });
+      await page.evaluate(() => { const host = document.createElement('div'); host.id = 'log-under-test'; host.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#fff;overflow:auto'; document.body.append(host); void renderStrategyBotLog(host); });
       const log = page.locator('#log-under-test');
-      await log.locator('[data-ceo-log-more]').click();
-      await log.locator('[data-ceo-undo="older"]').click();
-      await log.locator('[data-ceo-undo-confirm="older"]').click();
+      await log.locator('[data-strategy-log-more]').click();
+      await log.locator('[data-strategy-undo="older"]').click();
+      await log.locator('[data-strategy-undo-confirm="older"]').click();
       await log.getByText('Undone: Task older put back.').waitFor();
       assert.deepEqual(posted, [{undo: 'older'}]);
-      assert.equal(await log.locator('[data-ceo-log]').count(), 3);
-      assert.equal(await log.locator('[data-ceo-undo]').count(), 2);
+      assert.equal(await log.locator('[data-strategy-log]').count(), 3);
+      assert.equal(await log.locator('[data-strategy-undo]').count(), 2);
       assert.deepEqual(errors, []);
       await page.close();
     }
     for (const opts of [{role: 'admin'}, {role: 'viewer'}]) {
       const {page, errors} = await open(browser, opts);
-      assert.equal(await page.locator('[data-settings-tab="ceo"]').count(), 0, JSON.stringify(opts));
+      assert.equal(await page.locator('[data-settings-tab="strategy-bot"]').count(), 0, JSON.stringify(opts));
       assert.deepEqual(errors, []);
       await page.close();
     }
-    console.log('settings-ceo-bot: ok');
+    console.log('settings-strategy-bot: ok');
   } finally {
     await browser.close();
   }

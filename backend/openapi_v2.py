@@ -37,7 +37,8 @@ TAGS = {
     "Pages": "HTML pages bots publish and keep current (docs/pages.md): a file with a cadence, a data date and a status line.",
     "Docs": "The team's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; external sources, including indexed public GitHub docs; and search across them.",
     "Assistant": "The signed-in person's own private Assistant chat (docs/assistant.md): ask, and confirm what it proposes.",
-    "Goals": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the CEO Bot works out from their KPIs, "
+    "Goals": "What every person and bot is for (docs/goals-and-kpis.md): "
+             "goals with a colour the Strategy Bot works out from their KPIs, "
              "unless a person set one; check-ins in the owner's words; proposals the owner confirms.",
     "KPIs": "Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, "
             "evidence and a quality, never edited; a correction supersedes the old one.",
@@ -129,13 +130,15 @@ STABLE = [
     ("/api/v2/seats/{seat_id}/close", "post", "Team chart", "closeSeat", "Take a seat off the chart; its row is kept",
      "SeatClosed"),
     ("/api/v2/seats/{seat_id}", "get", "Team chart", "getSeat",
-     "One seat, with whether the CEO Bot's draft of its job description is done and whether the caller may edit it",
+     "One seat, with whether the Strategy Bot's draft of its job description is done and "
+     "whether the caller may edit it",
      "SeatDetail"),
     ("/api/v2/seats/{seat_id}/open", "post", "Team chart", "openSeat",
-     "Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it",
+     "Open a seat: the owner opening it asks the Strategy Bot to draft its job description, unless a person wrote it",
      "SeatDetail"),
     ("/api/v2/seats/{seat_id}/draft", "post", "Team chart", "draftSeat",
-     "The CEO Bot's draft of the job description the owner asked for; a person's own words are kept", "SeatDetail"),
+     "The Strategy Bot's draft of the job description the owner asked "
+     "for; a person's own words are kept", "SeatDetail"),
     ("/api/v2/seats/{seat_id}/recruit", "post", "Team chart", "recruitSeat",
      "Up to three Tico templates for the seat at once, each with a one-line reason and a suggested model, exactly one "
      "recommended, and the models one may choose instead. Local: nothing leaves the server", "SeatCandidates"),
@@ -398,7 +401,8 @@ STABLE = [
     ("/api/v2/librarian/turn-on", "post", "Docs", "turnOnLibrarian",
      "Owner only: add the Librarian from the catalog (or wake a planned one) and activate it", None),
     ("/api/v2/assistant", "get", "Assistant", "getAssistant",
-     "The caller's Assistant (the CEO Bot, for the owner): their private room id, whether it is on, the recent messages "
+     "The caller's Assistant (the Strategy Bot, for the owner): their private room id, "
+     "whether it is on, the recent messages "
      "and what waits for their OK",
      "Assistant"),
     ("/api/v2/assistant/messages", "post", "Assistant", "sendAssistantMessage",
@@ -426,48 +430,54 @@ STABLE = [
      "The Assistant only: post the list of approvals it is about to approve for you in your chat; only those may then "
      "be approved on your yes", None),
     # Goals and KPIs (docs/goals-and-kpis.md)
-    ("/api/v2/ceo-bot", "get", "Goals", "getCeoBot",
-     "The CEO Bot's name, whether its regular checks run, how much it does (its level, with each level's sentence and "
+    ("/api/v2/strategy-bot", "get", "Goals", "getStrategyBot",
+     "The Strategy Bot's name, whether its regular checks run, how much it does (its level, "
+     "with each level's sentence and "
      "who changed it when), and how many items it put in each person's Needs you today against its cap of 5 "
-     "(everyone's for the owner, admins and the CEO Bot; your own for anyone else)", "CeoBotView"),
-    ("/api/v2/ceo-bot/level", "post", "Goals", "setCeoBotLevel",
-     "Settings > CEO Bot, \"How much your CEO Bot does\": the owner picks Passive (1), Suggests actions (2) or Acts on "
-     "its own (3) on their own click, logged with who and when. No admin or bot may, the CEO Bot included",
-     "CeoBotView"),
-    ("/api/v2/ceo-bot/checks", "post", "Goals", "setCeoBotChecks",
-     "Settings > CEO Bot, \"Regular checks\": the owner turns the KPI pass and the automatic goal colours on or off, "
-     "on their own click. Off, neither runs until they are turned back on. No admin or bot may", "CeoBotView"),
-    ("/api/v2/ceo-bot/merge", "post", "Goals", "mergeCeoBotAsks",
-     "The CEO Bot only, at level 2 or 3: one item in a person's Needs you for 2 to 10 tasks where bots ask them the "
+     "(everyone's for the owner, admins and the Strategy Bot; your own for anyone else)", "StrategyBotView"),
+    ("/api/v2/strategy-bot/level", "post", "Goals", "setStrategyBotLevel",
+     "Settings > Strategy Bot, \"How much your Strategy Bot does\": the owner picks Passive (1), "
+     "Suggests actions (2) or Acts on "
+     "its own (3) on their own click, logged with who and when. No admin or bot may, the Strategy Bot included",
+     "StrategyBotView"),
+    ("/api/v2/strategy-bot/checks", "post", "Goals", "setStrategyBotChecks",
+     "Settings > Strategy Bot, \"Regular checks\": the owner turns the KPI pass and the "
+     "automatic goal colours on or off, "
+     "on their own click. Off, neither runs until they are turned back on. No admin or bot may", "StrategyBotView"),
+    ("/api/v2/strategy-bot/merge", "post", "Goals", "mergeStrategyBotAsks",
+     "The Strategy Bot only, at level 2 or 3: one item in a person's Needs you for 2 to 10 "
+     "tasks where bots ask them the "
      "same thing. The originals leave their Needs you while it is open; their one answer goes to each bot that asked, "
-     "and an item that ends unanswered puts the originals back. Counts toward its 5 a day", "CeoBotMergeResult"),
-    ("/api/v2/ceo-bot/level3-offer", "post", "Goals", "recordCeoBotLevel3Offer",
-     "The CEO Bot only: record that its Monday note offered level 3. Refused (422) unless level3_offer.due: 10 "
+     "and an item that ends unanswered puts the originals back. Counts toward its 5 a day", "StrategyBotMergeResult"),
+    ("/api/v2/strategy-bot/level3-offer", "post", "Goals", "recordStrategyBotLevel3Offer",
+     "The Strategy Bot only: record that its Monday note offered level 3. Refused (422) unless level3_offer.due: 10 "
      "recoveries approved in a row with its pick unchanged, and no offer in 30 days. It never raises its own level",
-     "CeoBotLevel3OfferResult"),
-    ("/api/v2/ceo-bot/decisions", "post", "Goals", "makeCeoBotDecision",
-     "The CEO Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top of "
-     "their queue, given to another bot or closed, under one action id in the CEO Bot log. A person's task, a bot "
-     "offline or a refusal becomes one proposal in the owner's Needs you instead, never dropped", "CeoBotLogEntry"),
-    ("/api/v2/ceo-bot/log", "get", "Goals", "listCeoBotLog",
-     "The CEO Bot log, newest first: each decision it made alone and each thing it proposed because it stays the "
+     "StrategyBotLevel3OfferResult"),
+    ("/api/v2/strategy-bot/decisions", "post", "Goals", "makeStrategyBotDecision",
+     "The Strategy Bot only, at level 3: one decision made alone, with its reason: "
+     "bot tasks created, moved to the top of "
+     "their queue, given to another bot or closed, under one action id in the Strategy Bot log. A person's task, a bot "
+     "offline or a refusal becomes one proposal in the owner's "
+     "Needs you instead, never dropped", "StrategyBotLogEntry"),
+    ("/api/v2/strategy-bot/log", "get", "Goals", "listStrategyBotLog",
+     "The Strategy Bot log, newest first: each decision it made alone and each thing it proposed because it stays the "
      "owner's (cost, publishing, outside sends, adding or removing bots, goal and KPI targets, the vision, a bot's "
-     "instructions, a person's task), with the reason. The owner only; anyone else is refused (403)", "CeoBotLog"),
-    ("/api/v2/ceo-bot/log/{action_id}/undo", "post", "Goals", "undoCeoBotDecision",
-     "The owner, on their own click, undoes one decision the CEO Bot made alone: each task goes back where nobody "
+     "instructions, a person's task), with the reason. The owner only; anyone else is refused (403)", "StrategyBotLog"),
+    ("/api/v2/strategy-bot/log/{action_id}/undo", "post", "Goals", "undoStrategyBotDecision",
+     "The owner, on their own click, undoes one decision the Strategy Bot made alone: each task goes back where nobody "
      "changed it since, a later change is kept and named, a task it made is closed, and each bot is told",
-     "CeoBotLogEntry"),
+     "StrategyBotLogEntry"),
     ("/api/v2/company", "get", "Goals", "getCompany",
      "The team's Vision and Description (the Company section at the top of Goals), and whether the caller may edit "
      "them. The Vision is the strategy's: the draft's for the owner, the published one for everyone else",
      "CompanyResult"),
     ("/api/v2/company", "post", "Goals", "updateCompany",
      "The owner, on their own click: change the Vision (written to the strategy draft) and/or the Description; never "
-     "an admin or a bot, the CEO Bot included. Each change is kept with who and when", "CompanyResult"),
+     "an admin or a bot, the Strategy Bot included. Each change is kept with who and when", "CompanyResult"),
     ("/api/v2/company/history", "get", "Goals", "getCompanyHistory",
      "Every change to the Vision and the Description, newest first, with who made it and when", "CompanyHistory"),
     ("/api/v2/goal-manager/turn-on", "post", "Goals", "turnOnGoalManager",
-     "Owner only: add the CEO Bot from the catalog or restore it, and activate it", None),
+     "Owner only: add the Strategy Bot from the catalog or restore it, and activate it", None),
     ("/api/v2/goals", "get", "Goals", "listGoals",
      "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read "
      "(?status=red,gray filters); ?owner= names someone else", "GoalList"),
@@ -478,12 +488,14 @@ STABLE = [
      "what the Goals page draws", "GoalTree"),
     ("/api/v2/goals/needs-you", "get", "Goals", "getGoalsNeedsYou",
      "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm; for a person "
-     "each is a CEO Bot task (`task`), the one Tasks and Decide show", "GoalsNeedsYou"),
+     "each is a Strategy Bot task (`task`), the one Tasks and Decide show", "GoalsNeedsYou"),
     ("/api/v2/goals/refresh", "post", "Goals", "refreshGoalStatuses",
-     "The CEO Bot's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
+     "The Strategy Bot's status pass (or the owner's): work automatic colours out again. "
+     "A colour a person set only gets a suggestion",
      "GoalRefreshView"),
     ("/api/v2/goals/read-back", "post", "Goals", "readBackGoalChanges",
-     "The CEO Bot only, in the owner's own chat: Tico writes the read-back of up to 20 changes to goals, measures and "
+     "The Strategy Bot only, in the owner's own chat: Tico writes the read-back of up to 20 "
+     "changes to goals, measures and "
      "suggestions as its reply and stores the exact saves. The owner's yes to it (a plain yes, or a yes to some by number) "
      "within 30 minutes lets exactly those saves through (each step's method, path and body_json, sent as it is), cited "
      "with X-Tico-On-Behalf-Of; anything else is 403 not_agreed. "
@@ -502,7 +514,7 @@ STABLE = [
      "Bring a done or dropped goal back with a colour and one line why, or auto for the colour it had; whoever may set "
      "its colour", "GoalResult"),
     ("/api/v2/goals/{gid}/status/auto", "post", "Goals", "handBackGoalStatus",
-     "\"Let CEO Bot set it\": end a colour set by hand; the automatic colour is worked out at once", "GoalResult"),
+     "\"Let Strategy Bot set it\": end a colour set by hand; the automatic colour is worked out at once", "GoalResult"),
     ("/api/v2/goals/{gid}/why", "post", "Goals", "setGoalWhy",
      "A person who may edit the goal writes its Why (one line tying it to the vision) or clears it; a bot proposes one "
      "instead (kind goal_why)", "GoalResult"),
@@ -519,17 +531,19 @@ STABLE = [
      "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it", "GoalProposalList"),
     ("/api/v2/proposals", "post", "Goals", "createGoalProposal",
      "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag; "
-     "the CEO Bot at level 2 or 3, a recovery for a red or stalled goal (evidence, options of bot-task changes, its pick)",
+     "the Strategy Bot at level 2 or 3, a recovery for a red or stalled goal (evidence, "
+     "options of bot-task changes, its pick)",
      "GoalProposalResult"),
     ("/api/v2/proposals/{pid}/decide", "post", "Goals", "decideGoalProposal",
      "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it. "
      "An Add a KPI suggestion may be confirmed with a `target` for the link (as a goal's KPI target), used in place of its own. "
-     "A recovery applies exactly the chosen option (`option`, else the CEO Bot's pick) in the CEO Bot's name; what "
+     "A recovery applies exactly the chosen option (`option`, else the Strategy Bot's pick) in "
+     "the Strategy Bot's name; what "
      "can't be done comes back as a new recovery saying why", "GoalProposalResult"),
     ("/api/v2/proposals/{pid}/note", "post", "Goals", "addGoalProposalReason",
      "After a reject, the person who turned the suggestion down adds one line on why (at most 280 characters), once, "
      "while it has none; a pending or confirmed suggestion, anyone else, a second reason or an empty one is refused. "
-     "The CEO Bot reads it before suggesting again", "GoalProposalResult"),
+     "The Strategy Bot reads it before suggesting again", "GoalProposalResult"),
     ("/api/v2/kpis", "get", "KPIs", "listKpis",
      "The KPIs the caller may see; archived KPIs are omitted unless include_archived=true; goal_id, owner, unlinked=true narrow it; auto_for=<bot> is that bot's five automatic KPIs", "KpiList"),
     ("/api/v2/kpis", "post", "KPIs", "createKpi",
@@ -746,7 +760,7 @@ SCHEMAS = {
     "SeatClosed": obj({"id": "s", "closed": "b"}, required=["id", "closed"]),
     "SeatDetail": obj({"id": "s", "kind": {"enum": ["seat"]}, "stage": {"enum": ["recruiting"]}, "title": "s",
                        "description": "s", "reports_to": "s", "team": "s", "created": "s",
-                       "description_by": {"enum": ["ceo_bot", "chart", "person"]},
+                       "description_by": {"enum": ["strategy_bot", "chart", "person"]},
                        "draft": obj({"state": {"enum": ["none", "drafting", "drafted"]}, "by": "s", "at": "s"},
                                     required=["state", "by", "at"]),
                        "can_edit": "b"},
@@ -1045,14 +1059,16 @@ SCHEMAS = {
                       "actions": {"type": "object", "description": "{action id: proposal} for every card in `messages` "
                                   "(a message whose refs.action names one is a Confirm / Cancel card)"},
                       "pending": "a",
-                      "ceo": {"type": "boolean", "description": "True for the owner, who talks to the CEO Bot in place of an "
-                              "Assistant: `bot` is the CEO Bot and `name` its name"},
+                      "strategy_bot": {"type": "boolean", "description": "True for the owner, "
+                                                                         "who talks to the Strategy Bot "
+                                       "in place of an Assistant: `bot` is the Strategy Bot and `name` its name"},
                       "earlier": {"oneOf": [obj({"room_id": "s", "bot": "s", "name": "s"},
                                                 required=["room_id", "bot", "name"]), {"type": "null"}],
                                   "description": "The owner's own earlier Assistant chats, read-only (GET "
                                   "/api/v2/conversations/{room_id}/messages); null for everyone else, or none"}},
-                     required=["available", "state", "bot", "name", "can_turn_on", "room_id", "messages", "has_more",
-                               "next_before", "execution", "actions", "pending", "ceo", "earlier"], actors=ACTORS),
+                     required=["available", "state", "bot", "name", "can_turn_on", "room_id", "messages",
+                               "has_more", "next_before", "execution", "actions", "pending", "strategy_bot",
+                               "earlier"], actors=ACTORS),
     "Librarian": obj({"available": "b", "state": "s", "bot": "s", "name": "s", "can_turn_on": "b"},
                      required=["available", "state", "bot", "name", "can_turn_on"]),
     "DocsAsked": obj({"conversation_id": "s", "message_id": "s",
@@ -1082,8 +1098,12 @@ SCHEMAS = {
     "Goal": obj({"id": "s", "title": "s", "owner": "s", "parent_id": "n", "body": "s", "status": {"type": ["string", "null"], "description":
                  "red, yellow, green, gray (no data), done, dropped; null while it has no colour yet"},
                  "status_note": "s", "status_by": "n", "status_at": "n",
-                 "status_source": {"type": ["string", "null"], "description": "auto: worked out by the CEO Bot; person: set by hand and kept until handed back"},
-                 "suggest_status": {"type": ["string", "null"], "description": "On a colour set by hand: the colour the CEO Bot would choose, when it differs"},
+                 "status_source": {"type": ["string", "null"], "description": "auto: worked out by the Strategy Bot; "
+                                                                              "person: "
+                                                                              "set by hand and kept until handed back"},
+                 "suggest_status": {"type": ["string", "null"], "description": "On a colour set by hand: "
+                                                                               "the colour the Strategy "
+                                                                               "Bot would choose, when it differs"},
                  "suggest_note": "n", "suggest_at": "n", "rank": {"type": ["integer", "null"]}, "created": "s", "created_by": "s", "updated": "s"},
                 required=["id", "title", "owner", "parent_id", "body", "status", "status_note", "status_by", "status_at", "status_source",
                           "rank", "created", "created_by", "updated"],
@@ -1150,7 +1170,8 @@ SCHEMAS = {
                      "unaligned": {"type": "object", "description": "{actor: open tasks that serve no goal}"},
                      "other_kpis": items(ref("Kpi")), "proposals": items(ref("GoalProposalView"))},
                     required=["goals", "owners", "unaligned", "other_kpis", "proposals"]),
-    "CeoBotView": obj({"name": "s", "regular_checks": {"type": "boolean", "description": "Whether the KPI pass and the automatic goal colours run"},
+    "StrategyBotView": obj({"name": "s", "regular_checks": {"type": "boolean",
+                       "description": "Whether the KPI pass and the automatic goal colours run"},
                        "level": {"type": "integer", "enum": [1, 2, 3]},
                        "level_chosen": {"type": "boolean",
                                         "description": "Whether the owner chose the level; if not, it is the default"},
@@ -1160,10 +1181,12 @@ SCHEMAS = {
                        "level_history": items(obj({"level": "i", "was": "i", "by": "s", "by_name": "s", "at": "s"},
                                                   required=["level", "was", "by", "at"])),
                        "asked_today": {"type": "object", "additionalProperties": {"type": "integer"},
-                                                         "description": "{person actor: items the CEO Bot put in their Needs you today (UTC)}"},
-                       "level3_offer": ref("CeoBotLevel3Offer")},
+                                                         "description": "{person actor: "
+                                                                        "items the Strategy Bot put "
+                                                                        "in their Needs you today (UTC)}"},
+                       "level3_offer": ref("StrategyBotLevel3Offer")},
                       required=["name", "regular_checks", "level", "levels"]),
-    "CeoBotLogEntry": obj({"id": "s", "created": "s", "kind": {"type": "string", "enum": [
+    "StrategyBotLogEntry": obj({"id": "s", "created": "s", "kind": {"type": "string", "enum": [
                                "decision", "cost", "publish", "send", "bots", "target", "vision", "instructions",
                                "person_task"]},
                            "reason": "s", "goal_id": "s", "state": {"type": "string", "enum": ["done", "proposed", "undone"]},
@@ -1174,12 +1197,14 @@ SCHEMAS = {
                            "undo": {"type": "object", "additionalProperties": True,
                                     "description": "What Undo restored and what it kept: {restored, kept, text}"}},
                           required=["id", "created", "kind", "state", "done", "left", "undoable"]),
-    "CeoBotLog": obj({"items": items(ref("CeoBotLogEntry")), "next_before": "s", "can_undo": "b"},
+    "StrategyBotLog": obj({"items": items(ref("StrategyBotLogEntry")), "next_before": "s", "can_undo": "b"},
                      required=["items", "can_undo"]),
-    "CeoBotLevel3Offer": obj({"streak": "i", "needed": "i", "due": "b", "last_offered_at": "s"},
+    "StrategyBotLevel3Offer": obj({"streak": "i", "needed": "i", "due": "b", "last_offered_at": "s"},
                              required=["streak", "needed", "due"]),
-    "CeoBotLevel3OfferResult": obj({"level3_offer": ref("CeoBotLevel3Offer")}),
-    "CeoBotMergeResult": obj({"task": {"type": "object", "description": "The merged item: the CEO Bot's task, waiting on the person"},
+    "StrategyBotLevel3OfferResult": obj({"level3_offer": ref("StrategyBotLevel3Offer")}),
+    "StrategyBotMergeResult": obj({"task": {"type": "object", "description": "The merged item: "
+                                                                             "the Strategy "
+                                                                             "Bot's task, waiting on the person"},
                               "originals": items(obj({"task_id": "s", "title": "s", "asker": "s", "asker_name": "s",
                                                       "state": "s", "note": "s"}, required=["task_id", "asker", "state"]))}),
     "GoalsNeedsYou": obj({"actor": "s", "items": items({
@@ -1550,7 +1575,7 @@ STABLE.extend([
      'fields sent', None),
     ('/api/v2/strategy/summary', 'get', 'Strategy', 'getStrategySummary', 'The published strategy as the text every '
      'run carries; {text, n} with Accept: application/json', None),
-    ('/api/v2/strategy/guides', 'get', 'Strategy', 'listStrategyGuides', 'The question guides the CEO Bot drafts '
+    ('/api/v2/strategy/guides', 'get', 'Strategy', 'listStrategyGuides', 'The question guides the Strategy Bot drafts '
      'with', None),
     ('/api/v2/strategy/draft-from', 'post', 'Strategy', 'draftStrategyFrom', 'Owner only: research the team\'s '
      'website and/or the owner\'s words into the draft; answers the job (running, or no_model with no model)', None),

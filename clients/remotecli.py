@@ -235,7 +235,7 @@ def run(args, who=None):
               "message list", "message mark-read", "bot recent", "agent pair show", "agent pair approve", "agent pair decline",
               "slack channel list", "slack channel add", "slack channel remove", "slack channel import",
               "seat list", "seat create", "seat update", "seat close", "seat draft"):
-        if fn == "seat draft" and args.file:      # the CEO Bot's draft, from a file beside it
+        if fn == "seat draft" and args.file:      # the Strategy Bot's draft, from a file beside it
             return via_tool(client, args, text=Path(args.file).read_text())
         return via_tool(client, args)
     if fn == "run export":

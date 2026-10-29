@@ -12,7 +12,7 @@ from dataclasses import replace
 from .settings_catalog import Setting as S
 
 SETTINGS_FILES = sorted(
-    ["settings.js", "settings-access.js", "settings-bot-editor.js", "settings-bots.js", "settings-ceo-bot.js",
+    ["settings.js", "settings-access.js", "settings-bot-editor.js", "settings-bots.js", "settings-strategy-bot.js",
      "settings-company.js", "settings-devices.js", "settings-history.js", "settings-hosted.js", "settings-listening.js",
      "settings-people.js", "settings-providers.js", "settings-recurring.js", "settings-release.js",
      "settings-repositories.js", "settings-storage.js", "settings-webhooks.js",
@@ -25,7 +25,7 @@ def _card(tab, card=""):
 
 GENERAL, PEOPLE, COMPUTERS, BOTS = "Settings > General", "Settings > Humans", "Settings > Computers", "Settings > Bots"
 RULES, HOOKS, TASKS, REPOS = "Settings > System", "Settings > Webhooks", "Settings > Tasks", "Settings > Repositories"
-INBOUND, CEO = "Settings > Email & Phone", "Settings > CEO bot"
+INBOUND, STRATEGY = "Settings > Email & Phone", "Settings > Strategy bot"
 
 _RULE_NAMES = {
     "assistant_direct": ("Assistant acts without asking", "confirm", ""),
@@ -210,11 +210,11 @@ ENTRIES = TEAM_RULES + [
       why="A Run workflows or Edit workflow files tick (a kept one coming back too), turning Create product "
           "repositories back on (the owner only), or taking access away needs a Confirm card: running or editing "
           "workflows starts CI, which uses the repository's secrets"),
-    # CEO bot
-    S("ceo.checks", "CEO bot regular checks", CEO, "owner", "confirm", "POST", "ceo-bot/checks", "on",
-      card=_card("ceo")),
-    S("ceo.level", "How much the CEO bot does", CEO, "owner", "confirm", "POST", "ceo-bot/level", "level", "int",
-      _card("ceo")),
+    # Strategy bot
+    S("strategy.checks", "Strategy bot regular checks", STRATEGY, "owner", "confirm", "POST",
+      "strategy-bot/checks", "on", card=_card("strategy-bot")),
+    S("strategy.level", "How much the Strategy bot does", STRATEGY, "owner", "confirm", "POST",
+      "strategy-bot/level", "level", "int", _card("strategy-bot")),
     # Repositories
     S("repo.enabled", "Repository on", REPOS, "admin", "direct", "PUT", "repositories/{id}", "enabled",
       card=_card("repos", "set-repos")),
@@ -311,7 +311,7 @@ ENTRIES = TEAM_RULES + [
 # changes them in Settings until it can, rather than BotOps changing them at once.
 NO_CARD_YET = ("assistant.on", "privacy.usage_count.reset", "company.server_connection.remove", "storage.s3.remove",
                "storage.move", "people.person.delete", "me.tokens.revoke", "team.turn_levels",
-               "bot.budget", "ceo.checks", "ceo.level",
+               "bot.budget", "strategy.checks", "strategy.level",
                "repos.product.create", "hooks.wake_url", "webhooks.outgoing.create",
                "listening.destination", "listening.destination.remove", "roadmap.public",
                "inbound.inbox.release", "inbound.phone_request", "inbound.phone_request.accept", "pool.limit.usd")
@@ -341,7 +341,7 @@ NOT_SETTINGS = {
     ("POST", "providers/gateway/check"): "checks the gateway connection",
     ("POST", "hosted-servers/{x}/start"): "starts one hosted server",
     ("POST", "settings/history/{x}/undo"): "undoes one past change; the owner does it from History",
-    ("POST", "ceo-bot/log/{x}/undo"): "undoes one CEO bot action",
+    ("POST", "strategy-bot/log/{x}/undo"): "undoes one Strategy bot action",
     ("POST", "repositories/refresh"): "re-reads the repositories from GitHub",
     ("POST", "release/now"): "starts one release (`hub release now`)",
     ("POST", "{x}/deliveries/{x}/replay"): "replays one delivery",

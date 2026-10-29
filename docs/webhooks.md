@@ -223,7 +223,7 @@ on the webhook still runs, and the failure is in History as `rule.event_error`.
 
 **Who may write them.** The owner and admins write team rules; a bot's owners, its operator and BotOps write that bot's rules.
 `wake_bot` needs rights over the bot it wakes. `send_webhook` is written by a person, or by a bot with its outbound send switch on.
-The CEO Bot never writes one. Tico checks this when the rule is saved: the endpoint must exist and its maker must be allowed to send
+The Strategy Bot never writes one. Tico checks this when the rule is saved: the endpoint must exist and its maker must be allowed to send
 to it (they own it, or are an admin), or the save is refused with the reason. When the rule runs, the same test is made again, and a
 bot's rule reaches only an endpoint that listens for the type.
 
@@ -431,7 +431,7 @@ is refused (`hub webhook example` too); turn the endpoint back on first.
   call. The approver then owns the endpoint.
 - Bots can list endpoints without the full address. They cannot read send logs.
 - A bot sends a custom event only while its **outbound send** switch is on (Settings → Bots → Mail sending, or
-  `hub bot mail <slug> --send`), and only to an endpoint that listens for it. The CEO Bot sends nothing.
+  `hub bot mail <slug> --send`), and only to an endpoint that listens for it. The Strategy Bot sends nothing.
 - An endpoint hears about a task, approval or bot only if its owner could read it. Health, inbound and webhook events go only to
   owner and admin endpoints.
 - A person can have 50 endpoints.

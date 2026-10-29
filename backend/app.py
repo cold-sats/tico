@@ -29,7 +29,7 @@ from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
 from . import start_places
-from . import ask_ingest, ceo_bot, invites, owner_link
+from . import ask_ingest, strategy_bot, invites, owner_link
 from . import login_holds
 from . import step_age
 from . import bot_stops, turn_budgets, proposals, task_caps
@@ -698,9 +698,9 @@ def create_app(settings=None):
                     # An org change they asked for (the Strategy Bot's suggestion they said to make) runs the same way.
                     org = (not approves and request.state.identity.via == "assistant"
                            and assistant_mod.instructed_org(request.method, request.url.path, raw))
-                    # The owner's yes to a goal read-back in their CEO Bot chat (backend/goal_read_back.py): the goal,
-                    # measure and suggestion routes save exactly what it read back, or nothing (`not_agreed`).
-                    goal_yes = (not approves and goal_read_back.ceo_turn(request.state.identity)
+                    # The owner's yes to a goal read-back in their Strategy Bot chat (backend/goal_read_back.py): the
+                    # goal, measure and suggestion routes save exactly what it read back, or nothing (`not_agreed`).
+                    goal_yes = (not approves and goal_read_back.strategy_turn(request.state.identity)
                                 and goal_read_back.saving(request.method, request.url.path))
                     if goal_yes and not asked:
                         raise goal_read_back.not_agreed("A goal change is saved only on the owner's yes to its "
@@ -724,7 +724,7 @@ def create_app(settings=None):
                                     record = assistant_instruction(c, request.state.identity, asked)
                                 except Problem as exc:
                                     raise goal_read_back.not_agreed(exc.detail.split(";")[0]) from None
-                                # Recorded on every save as the owner, via the CEO Bot, citing their yes and the
+                                # Recorded on every save as the owner, via the Strategy Bot, citing their yes and the
                                 # read-back it answered.
                                 return {**record, "assistant": request.state.identity.task_actor,
                                         **goal_read_back.agreement(c, request.state.identity, record["cited"],
@@ -742,7 +742,7 @@ def create_app(settings=None):
                                                                     settings.public_url)
                             if approves:
                                 # Recorded on the approval: decided by the Assistant for the person, their words quoted.
-                                # The bot whose turn it is: the person's Assistant, or the owner's CEO Bot.
+                                # The bot whose turn it is: the person's Assistant, or the owner's Strategy Bot.
                                 acting = request.state.identity.task_actor or "bot:" + settings.assistant_bot
                                 record = {**record, "assistant": acting,
                                           **assistant_mod.approval_words(c, request.state.identity, record["cited"],
@@ -1302,7 +1302,7 @@ def create_app(settings=None):
                 raise Problem("forbidden", "Only a human writes to their private Assistant", 403)
             if body.conversation_id and not assistant_room(c, who, body.conversation_id):
                 raise Problem("forbidden", "Use your own Assistant room", 403)
-            # The owner's is the CEO Bot (backend/assistant.py).
+            # The owner's is the Strategy Bot (backend/assistant.py).
             info = assistant_mod.availability(c, settings, who)
             if not info["available"]:
                 raise Problem("assistant_off", "The " + info["name"] + " is off", 409)
@@ -1322,14 +1322,14 @@ def create_app(settings=None):
                         raise Problem("forbidden", settings.assistant_name + " chats only in your own Assistant "
                                       "(/api/v2/assistant); message one of your bots here", 403)
                     in_assistant_room = True
-                elif who.role in ("human", "owner") and H.actor_id(to) == ceo_bot.SLUG:
-                    # Of people, only the owner talks to the CEO Bot, in the CEO Bot chat (their menu tab). Bots still
-                    # message it; that is its goals session, never the owner's chat. The owner's post with no room
-                    # (the Goals page, `hub chat`) goes to that one chat.
-                    if not body.conversation_id and not who.via and assistant_mod.ceo_seat(c, who):
+                elif who.role in ("human", "owner") and H.actor_id(to) == strategy_bot.SLUG:
+                    # Of people, only the owner talks to the Strategy Bot, in the Strategy Bot chat (their menu tab).
+                    # Bots still message it; that is its goals session, never the owner's chat. The owner's post with no
+                    # room (the Goals page, `hub chat`) goes to that one chat.
+                    if not body.conversation_id and not who.via and assistant_mod.strategy_seat(c, who):
                         body.conversation_id = assistant_mod.chat_room(c, settings, who)["id"]
-                    if not assistant_room(c, who, body.conversation_id) or not assistant_mod.ceo_seat(c, who):
-                        raise Problem("forbidden", "Only the company's owner talks to the " + ceo_bot.name(c)
+                    if not assistant_room(c, who, body.conversation_id) or not assistant_mod.strategy_seat(c, who):
+                        raise Problem("forbidden", "Only the company's owner talks to the " + strategy_bot.name(c)
                                       + ", in their own chat with it; talk to your Assistant", 403)
                     in_assistant_room = True
                 auth.require_write(c, who, H.actor_id(to), missing="Unknown recipient")
@@ -1929,16 +1929,20 @@ def create_app(settings=None):
         with store.read() as c:
             return {"cards": onboarding.catalog(c)}
 
-    @app.get("/api/v2/ceo-bot")
-    def ceo_bot_settings(request: Request):
-        """The CEO Bot's name, level and regular checks (backend/ceo_bot.py). How many items it put in each person's
-        Needs you today is the owner's, an admin's and the CEO Bot's to read; anyone else sees only their own count."""
+    # The /api/v2/ceo-bot path is the Strategy Bot's old one: clients built before the rename still call it, so it
+    # stays a hidden alias of the route under it.
+    @app.get("/api/v2/ceo-bot", include_in_schema=False)
+    @app.get("/api/v2/strategy-bot")
+    def strategy_bot_settings(request: Request):
+        """The Strategy Bot's name, level and regular checks (backend/strategy_bot.py). How many items it put in each
+        person's Needs you today is the owner's, an admin's and the Strategy Bot's to read; anyone else sees only their
+        own count."""
         who = request.state.identity
         auth.domain(who)
-        from . import ceo_bot
+        from . import strategy_bot
         with store.read() as c:
-            value = ceo_bot.named(c, ceo_bot.view(c))
-        if who.actor != "bot:" + ceo_bot.SLUG and auth.company_role(who) not in ("owner", "admin"):
+            value = strategy_bot.named(c, strategy_bot.view(c))
+        if who.actor != "bot:" + strategy_bot.SLUG and auth.company_role(who) not in ("owner", "admin"):
             value["asked_today"] = {k: n for k, n in value["asked_today"].items() if k == who.actor}
         return value
 
@@ -1946,9 +1950,9 @@ def create_app(settings=None):
     def turn_on_goal_manager(request: Request, body: M.Empty):
         who = request.state.identity
         if who.role != "owner":
-            from . import ceo_bot
+            from . import strategy_bot
             with store.read() as c:
-                raise Problem("forbidden", "Only the owner turns the " + ceo_bot.name(c) + " on", 403)
+                raise Problem("forbidden", "Only the owner turns the " + strategy_bot.name(c) + " on", 403)
         return mutate(request, body, lambda c: onboarding.turn_on_goal_manager(c, who))
 
     @app.get("/api/v2/onboarding")
@@ -2300,25 +2304,26 @@ def create_app(settings=None):
             access = auth.bot_accesses(c, who)
             roster, configs = views.roster(c), views.entries(c)
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
-            # The CEO Bot heads the chart: bots move on the chart only; each keeps the `reports_to` it has (backend/ceo_bot.py).
-            # A person who hid the CEO Bot from their chart gets it without the CEO Bot, nothing moved under it.
-            from . import ceo_bot
-            hide_ceo = ceo_bot.hidden_for(c, who)
-            chart = ceo_bot.chart_entries(c, settings, roster, configs, archived, hidden=hide_ceo)
+            # The Strategy Bot heads the chart: bots move on the chart only; each keeps the `reports_to` it has
+            # (backend/strategy_bot.py). A person who hid the Strategy Bot from their chart gets it without the Strategy
+            # Bot, nothing moved under it.
+            from . import strategy_bot
+            hide_strategy = strategy_bot.hidden_for(c, who)
+            chart = strategy_bot.chart_entries(c, settings, roster, configs, archived, hidden=hide_strategy)
             # A bot's bare person id in reports_to is that person (backend/people.py).
             view = P.org_view(roster, chart, archived, person_id=person or "", team=team or "", bare_people=True)
-            view["org_groups"] = ceo_bot.chart_groups(roster, configs, chart, view["org_groups"], archived,
-                                                      hidden=hide_ceo)
+            view["org_groups"] = strategy_bot.chart_groups(roster, configs, chart, view["org_groups"], archived,
+                                                      hidden=hide_strategy)
             for row in view["bots"]:
                 row["reports_to"] = P._clean((configs.get(row["id"]) or {}).get("reports_to"))
             live = {row["slug"]: row for row in H.bots(c)}
             bots = []
             by_id = {row["id"]: row for row in view["bots"]}
             departments = P.bot_departments(configs, roster, archived)
-            # On the chart: what the caller may see, less the CEO Bot when they hid it (those under it hang from the
-            # next thing up, as under a bot they may not see; their `reports_to` stays the stored one).
+            # On the chart: what the caller may see, less the Strategy Bot when they hid it (those under it hang from
+            # the next thing up, as under a bot they may not see; their `reports_to` stays the stored one).
             def drawn(slug):
-                return access.get(slug, auth.FULL)["see"] and not (hide_ceo and slug == ceo_bot.SLUG)
+                return access.get(slug, auth.FULL)["see"] and not (hide_strategy and slug == strategy_bot.SLUG)
             for row in view["bots"]:
                 level = access.get(row["id"], auth.FULL)
                 if not drawn(row["id"]) or (can and not level[can]):
@@ -2720,7 +2725,8 @@ def create_app(settings=None):
                          (who.actor, path, key)).fetchone():
                 return False
             target = H.actor_id(route(c, who.actor, "bot:" + bot))
-            return target == bot and bot not in (settings.assistant_bot, ceo_bot.SLUG) and views.may_chat(c, auth, who, bot)
+            return (target == bot and bot not in (settings.assistant_bot, strategy_bot.SLUG)
+                    and views.may_chat(c, auth, who, bot))
         return topic_change.check(store, app.state.judge, who, bot, body, admit, uploads=())
 
     # ------------------------------------------------------------------ updates (backend/updates.py)
@@ -4561,10 +4567,11 @@ def create_app(settings=None):
             views.human_only(who)
             if not isinstance(body.value, bool):
                 raise Problem("validation", "meetings.auto_share is a boolean", 422)
-        if key == ceo_bot.HIDE_PREF:                        # Hide from my chart on the CEO Bot: a person's own view
+        # Hide from my chart on the Strategy Bot: a person's own view
+        if key == strategy_bot.HIDE_PREF:
             views.human_only(who)
             if not isinstance(body.value, bool):
-                raise Problem("validation", ceo_bot.HIDE_PREF + " is a boolean", 422)
+                raise Problem("validation", strategy_bot.HIDE_PREF + " is a boolean", 422)
         if not re.fullmatch(r"[a-z0-9_.-]{1,64}", key):
             raise Problem("kind", "A preference key is lower-case letters, digits, dots, dashes", 422)
         if not request.headers.get("idempotency-key"):
@@ -4577,9 +4584,12 @@ def create_app(settings=None):
             if same:
                 return {"key": key, "value": body.value}
         def work(c):
+            at = H.now()
             c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) "
                       "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
-                      (who.actor, key, encode(body.value), H.now()))
+                      (who.actor, key, encode(body.value), at))
+            if key == strategy_bot.HIDE_PREF:
+                strategy_bot.mirror_hide(c, who.actor, encode(body.value), at)
             return {"key": key, "value": body.value}
         return mutate(request, body, work)
 
@@ -4719,7 +4729,7 @@ def create_app(settings=None):
 
     @app.get("/api/v2/org-models")
     def org_models(request: Request):
-        """Published Tico starter org charts, the only chart models the CEO Bot uses for re-org recommendations."""
+        """Published Tico starter org charts, the only chart models the Strategy Bot uses for re-org recommendations."""
         from . import org_models as published_models
         auth.domain(request.state.identity)
         return {"models": published_models.published()}
@@ -4748,7 +4758,8 @@ def create_app(settings=None):
 
     @app.get("/api/v2/seats/{seat_id}")
     def seat_show(request: Request, seat_id: str):
-        """One Recruiting seat, with whether the CEO Bot's draft of its job description is done (backend/recruiting.py)."""
+        """One Recruiting seat, with whether the Strategy Bot's draft of its job description is done
+        (backend/recruiting.py)."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
@@ -4756,14 +4767,16 @@ def create_app(settings=None):
 
     @app.post("/api/v2/seats/{seat_id}/open")
     def seat_open(request: Request, seat_id: str, body: M.Empty):
-        """Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it."""
+        """Open a seat: the owner opening it asks the Strategy Bot to draft its job description, unless a person wrote
+        it."""
         who = request.state.identity
         auth.domain(who)
         return mutate(request, body, lambda c: recruiting.open_seat(auth, c, who, seat_id))
 
     @app.post("/api/v2/seats/{seat_id}/draft")
     def seat_draft(request: Request, seat_id: str, body: M.SeatDraft):
-        """The CEO Bot's draft of the job description the owner asked for by opening the seat (`hub seat draft`)."""
+        """The Strategy Bot's draft of the job description the owner asked for by opening the seat (`hub seat
+        draft`)."""
         who = request.state.identity
         auth.domain(who)
         return mutate(request, body, lambda c: recruiting.draft(auth, c, who, seat_id, body.text))
@@ -6494,8 +6507,9 @@ def create_app(settings=None):
     def model(request: Request, bot: str, body: M.BotModel):
         who = request.state.identity
         def work(c):
-            from . import ceo_acts
-            ceo_acts.gate(c, who.actor, "cost", f"change {bot}'s model to {body.model}")     # the owner's at every level
+            from . import strategy_acts
+            # the owner's at every level
+            strategy_acts.gate(c, who.actor, "cost", f"change {bot}'s model to {body.model}")
             settings_admin._manager(c, who, bot, report="model")
             from .shared_bots import refuse_copy
             refuse_copy(c, bot)

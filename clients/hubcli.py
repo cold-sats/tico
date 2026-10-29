@@ -133,7 +133,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            (task actions, approval decisions, answers to bots' questions)
     hub assistant learn "<line>" [--company]
                                            in a person's own chat: save what they taught you, in their own
-                                           layer (--company: the CEO Bot, about the company, owner's chat only)
+                                           layer (--company: the Strategy Bot, about the company, owner's chat only)
     hub assistant learned                  what a person's chat bot has learned (What it has learned)
     hub replay show [--from ISO] [--to ISO] [--bot B|--person P|--team T]
                                            what happened in a window (default the last 24 hours), as you may see it
@@ -146,20 +146,24 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            set a goal; a parent is optional. With one, it supports that goal
     hub goal status <id> red|yellow|green|done|dropped "<one sentence>"
                                            set the colour by hand: it sticks (with your name) until handed back
-    hub goal status <id> auto              let the CEO Bot set the colour again (ends a colour set by hand)
-    hub goal refresh [--goal ID ...]       the CEO Bot's status pass: work automatic colours out again
+    hub goal status <id> auto              let the Strategy Bot set the colour again (ends a colour set by hand)
+    hub goal refresh [--goal ID ...]       the Strategy Bot's status pass: work automatic colours out again
     hub goal checkin <id> "<words>" [--signal on_track|at_risk|off_track] [--from X] [--kpi ID]
                                            how the owner says it is going, in their words (colours a goal with no KPI)
     hub goal checkin-list <id>             a goal's check-ins, newest first
     hub goal needs-you                     red KPIs on your goals, stale KPIs you own, proposals to confirm
     hub goal company                       the company's Vision and Description (read-only)
-    hub goal ceo-bot                       the CEO Bot: its level (1 Passive to 3), regular checks and today's Needs you count
-    hub goal ceo-bot-merge <person> "<title>" "<question>" <task-id> <task-id>...
-                                           the CEO Bot at level 2+: one item for several bots' same ask of a person
-    hub goal ceo-bot-level3-offer          the CEO Bot: record the level-3 offer its Monday note made (when it is due)
-    hub goal ceo-bot-decide "<reason>" '<changes json>' [--goal-id ID]
-                                           the CEO Bot at level 3: one decision alone on bot tasks, logged with Undo
-    hub goal ceo-bot-log [--before CURSOR] the CEO Bot log (the owner only): what it decided alone, proposed instead
+    hub goal strategy-bot                       the Strategy Bot: its level (1 Passive to 3), regular checks and today's
+                                                Needs you count
+    hub goal strategy-bot-merge <person> "<title>" "<question>" <task-id> <task-id>...
+                                           the Strategy Bot at level 2+: one item for several bots' same ask of a person
+    hub goal strategy-bot-level3-offer          the Strategy Bot: record the level-3 offer its Monday note made (when
+                                                is due)
+    hub goal strategy-bot-decide "<reason>" '<changes json>' [--goal-id ID]
+                                           the Strategy Bot at level 3: one decision alone on bot tasks, logged with
+                                           Undo
+    hub goal strategy-bot-log [--before CURSOR] the Strategy Bot log (the owner only): what it decided alone, proposed
+                                                instead
     hub goal update <id> [--title ...] [--body ...|--body-file f] [--parent ID|--parent ""] [--owner X]
                     [--rank N|--top] [--bet ID|--bet ""]
     hub kpi list [--goal ID] [--owner me|X] [--unlinked] [--bot SLUG] [--archived]
@@ -191,7 +195,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub strategy summary                   the text every run carries
     hub strategy versions [N]              published versions, newest first; N: that version whole
     hub strategy diff --from N --to N      what changed between two versions
-    hub strategy guides                    deprecated: the CEO Bot's drafting questions; the exercises are lenses
+    hub strategy guides                    deprecated: the Strategy Bot's drafting questions; the exercises are lenses
     hub strategy draft [--summary ...] [--vision ...] [--section KEY=TEXT ...] [--revision N]
     hub strategy publish [--note "..."] [--revision N]
     hub strategy bet add --statement "..." [--why ...] [--rules-out ...] [--status proposed|active] [--rank N]
@@ -203,8 +207,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            proposal create --kind strategy_draft
     hub lens list [--market]               the lenses: thought exercises run against the strategy or the market
     hub lens run <id> [--answers-file f.json] [--draft] [--no-wait]
-                                           run one (the owner, the CEO Bot; a market lens also the Librarian); waits up
-                                           to 60 s and prints the run with its summary; --draft: the owner's draft
+                                           run one (the owner, the Strategy Bot; a market lens also the Librarian);
+                                           waits up to 60 s and prints the run with its summary; --draft: the owner's
+                                           draft
     hub lens show <run-id>                 one run: answers, result, changes
     hub lens runs [--lens ID]              runs, newest first, with their summaries
     hub approval request --kind send|spend|publish|merge|support|task_cap|spend_limit --payload-file f.json [--task ID] [--supersedes ID]
@@ -317,7 +322,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub seat create <title> [--description D] [--reports-to R] [--team G]
                                            add a seat under you or someone below you; update <seat> / close <seat>
     hub seat draft <seat> (--text T | --file F)
-                                           CEO Bot: draft the job description of a seat the owner opened
+                                           Strategy Bot: draft the job description of a seat the owner opened
     hub org order <manager> [--set a,b,c]  a manager's direct reports in the chart's order; --set puts them in
                                            that order (the ones left out keep their places)
     hub org reports-to <bot:slug|human:id> <manager> [--on-behalf-of turn]
@@ -947,7 +952,7 @@ def parser():
     s = assistant.add_parser("learn", help="save one thing the person taught you (What it has learned)")
     s.add_argument("text", help="one short line, in their words")
     s.add_argument("--company", dest="layer", action="store_const", const="company", default="personal",
-                   help="the CEO Bot in the owner's chat: about the company, not how they like things")
+                   help="the Strategy Bot in the owner's chat: about the company, not how they like things")
     s.set_defaults(fn="assistant learn")
     assistant.add_parser("learned", help="what your chat bot has learned: your layer, and the company's for the owner") \
         .set_defaults(fn="assistant learned")
@@ -1382,7 +1387,8 @@ def parser():
     scope.add_argument("--team", help="only what involves this team")
     s.set_defaults(fn="replay show")
     goal = sub.add_parser("goal", help="goals: list, read-back, create and edit",
-                          description="Read back goal changes in the owner's CEO Bot chat. Saves nothing without a plain yes; "
+                          description="Read back goal changes in the owner's Strategy Bot chat. "
+                                      "Saves nothing without a plain yes; "
                                       "cite that yes with --on-behalf-of turn (or its message id) on each save.").add_subparsers(dest="sub")
     s = goal.add_parser("read-back", help="Tico writes the draft; saves nothing without a plain yes",
                         description="Post 1 to 20 changes as Tico's read-back. Saves nothing without a plain yes. "
@@ -1435,7 +1441,7 @@ def parser():
     s.add_argument("--bet", dest="bet_id", help='the strategy bet it serves; "" unlinks it')
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help="turn or the message id of the owner's plain yes to a goal read-back")
     s.set_defaults(fn="goal update")
-    s = goal.add_parser("refresh", help="the CEO Bot's status pass: work automatic colours out again")
+    s = goal.add_parser("refresh", help="the Strategy Bot's status pass: work automatic colours out again")
     s.add_argument("--goal", action="append", dest="goal_ids", help="only this goal; repeatable")
     s.set_defaults(fn="goal refresh")
     s = goal.add_parser("checkin", help="how the owner says the goal is going, in their words")
@@ -1452,27 +1458,32 @@ def parser():
     s.set_defaults(fn="goal needs-you")
     s = goal.add_parser("company", help="the company's Vision and Description (read-only)")
     s.set_defaults(fn="goal company")
-    s = goal.add_parser("ceo-bot", help="the CEO Bot: its level, regular checks and today's Needs you count per person")
-    s.set_defaults(fn="goal ceo-bot")
-    s = goal.add_parser("ceo-bot-merge", help="the CEO Bot at level 2+: one item for several bots' same ask of a person")
+    s = goal.add_parser("strategy-bot", help="the Strategy Bot: its level, "
+                                             "regular checks and today's Needs you count per person")
+    s.set_defaults(fn="goal strategy-bot")
+    s = goal.add_parser("strategy-bot-merge", help="the Strategy Bot at level 2+: "
+                                                   "one item for several bots' same ask of a person")
     s.add_argument("person", help="the person they all wait on (a person id)")
     s.add_argument("title")
     s.add_argument("question", help="the one question that answers them all")
     s.add_argument("tasks", nargs="+", help="2 to 10 task ids waiting on that person")
-    s.set_defaults(fn="goal ceo-bot-merge")
-    s = goal.add_parser("ceo-bot-level3-offer", help="the CEO Bot: record the level-3 offer its Monday note made")
-    s.set_defaults(fn="goal ceo-bot-level3-offer")
-    s = goal.add_parser("ceo-bot-decide", help="the CEO Bot at level 3: one decision alone on bot tasks, with Undo")
+    s.set_defaults(fn="goal strategy-bot-merge")
+    s = goal.add_parser("strategy-bot-level3-offer", help="the Strategy Bot: "
+                                                          "record the level-3 offer its Monday note made")
+    s.set_defaults(fn="goal strategy-bot-level3-offer")
+    s = goal.add_parser("strategy-bot-decide", help="the Strategy Bot at level 3: "
+                                                    "one decision alone on bot tasks, with Undo")
     s.add_argument("reason", help="why, in one sentence the owner reads in the log")
     s.add_argument("changes", help='a JSON list of 1 to 10 changes: {"do": "create", "owner": "<bot>", "title": "..."}, '
                                    '{"do": "reorder"|"close", "task_id": "..."}, {"do": "reassign", "task_id": "...", '
                                    '"owner": "<bot>"}')
     s.add_argument("--goal-id", dest="goal_id", help="the goal this serves")
-    s.set_defaults(fn="goal ceo-bot-decide")
-    s = goal.add_parser("ceo-bot-log", help="the CEO Bot log (the owner only): what it decided alone and what it "
+    s.set_defaults(fn="goal strategy-bot-decide")
+    s = goal.add_parser("strategy-bot-log", help="the Strategy Bot log (the owner only): "
+                                                 "what it decided alone and what it "
                                             "proposed instead")
     s.add_argument("--before", help="next_before from the previous page")
-    s.set_defaults(fn="goal ceo-bot-log")
+    s.set_defaults(fn="goal strategy-bot-log")
     def target_flags(s):
         s.add_argument("--baseline", type=float, help="improvement: where it starts (default the latest reading)")
         s.add_argument("--target", type=float, help="improvement: the value to reach; needs --deadline")
@@ -1597,7 +1608,8 @@ def parser():
     s.add_argument("--from", dest="from_n", type=int, required=True)
     s.add_argument("--to", dest="to_n", type=int, required=True)
     s.set_defaults(fn="strategy diff")
-    s = strategy.add_parser("guides", help="deprecated: the CEO Bot's drafting questions; the exercises are lenses")
+    s = strategy.add_parser("guides", help="deprecated: the Strategy Bot's drafting "
+                                           "questions; the exercises are lenses")
     s.set_defaults(fn="strategy guides")
     bet = strategy.add_parser("bet", help="owner only: add, change or retire a bet").add_subparsers(dest="subsub")
 
@@ -2288,7 +2300,7 @@ def parser():
     s.add_argument("--reports-to", dest="reports_to")
     s.add_argument("--team")
     s.set_defaults(fn="seat update")
-    s = seat.add_parser("draft", help="the CEO Bot's draft of a seat's job description, on the task asking for it")
+    s = seat.add_parser("draft", help="the Strategy Bot's draft of a seat's job description, on the task asking for it")
     s.add_argument("seat")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("--text", help="the job description")

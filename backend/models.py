@@ -690,8 +690,8 @@ class LearnedEdit(Contract):
 
 
 class GoalReadBack(Contract):
-    """Up to 20 changes the CEO Bot reads back in the owner's chat (backend/goal_read_back.py): each one an object with a
-    `kind` (goal_create, goal_update, measure_add, target_set, measure_remove, suggestion) and its fields."""
+    """Up to 20 changes the Strategy Bot reads back in the owner's chat (backend/goal_read_back.py): each one an object
+    with a `kind` (goal_create, goal_update, measure_add, target_set, measure_remove, suggestion) and its fields."""
     changes: list[dict] = Field(min_length=1, max_length=20)
 
 
@@ -1641,7 +1641,7 @@ class SeatUpdate(Contract):
 
 
 class SeatDraft(Contract):
-    """The CEO Bot's draft of a seat's job description (backend/recruiting.py)."""
+    """The Strategy Bot's draft of a seat's job description (backend/recruiting.py)."""
     text: Annotated[str, Field(min_length=1, max_length=8000)]
 
 
@@ -1973,24 +1973,24 @@ class UsageCount(Contract):
     enabled: bool
 
 
-class CeoBotChecks(Contract):
+class StrategyBotChecks(Contract):
     on: bool
 
 
-class CeoBotLevel(Contract):
+class StrategyBotLevel(Contract):
     level: Literal[1, 2, 3]
 
 
-# Several bots' asks waiting on one person, made one CEO Bot item (backend/ceo_merge.py).
-class CeoBotMerge(Contract):
+# Several bots' asks waiting on one person, made one Strategy Bot item (backend/strategy_merge.py).
+class StrategyBotMerge(Contract):
     person: str = Field(min_length=1, max_length=200)
     title: str = Field(min_length=1, max_length=300)
     question: str = Field(min_length=1, max_length=4000)
     tasks: list[str] = Field(min_length=2, max_length=10)
 
 
-# One change in a decision the CEO Bot makes alone at level 3 (backend/ceo_acts.py).
-class CeoBotChange(Contract):
+# One change in a decision the Strategy Bot makes alone at level 3 (backend/strategy_acts.py).
+class StrategyBotChange(Contract):
     do: Literal["create", "reorder", "reassign", "close"]
     task_id: str | None = Field(default=None, max_length=100)
     owner: str | None = Field(default=None, max_length=200)
@@ -1999,10 +1999,10 @@ class CeoBotChange(Contract):
     note: str | None = Field(default=None, max_length=1000)
 
 
-class CeoBotDecision(Contract):
+class StrategyBotDecision(Contract):
     reason: str = Field(min_length=1, max_length=1000)
     goal_id: str | None = Field(default=None, max_length=100)
-    changes: list[CeoBotChange] = Field(min_length=1, max_length=10)
+    changes: list[StrategyBotChange] = Field(min_length=1, max_length=10)
 
 
 class UsageCountNotice(Contract):
@@ -2472,7 +2472,7 @@ class AssistantMessage(Contract):
 
 
 class AssistantUpload(Contract):
-    """A message with files in the owner's CEO Bot chat (POST /api/v2/uploads/assistant/messages)."""
+    """A message with files in the owner's Strategy Bot chat (POST /api/v2/uploads/assistant/messages)."""
     text: Annotated[str, Field(min_length=1, max_length=8000)]
     # Each file's caption, in upload order.
     titles: list[Annotated[StrictStr, Field(max_length=200)]] = Field(default_factory=list, max_length=10)

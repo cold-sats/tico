@@ -6,7 +6,7 @@
 const PERSON_TABS = ['profile', 'slack'];
 // The Assistant tab is first, and only on your own page: it opens your private chat with the assistant, the
 // Assistant page (ui/app/assistant-page.js). The old #/person/<you>/assistant link lands there too. The owner's reads
-// "CEO Bot", by its name: it is their Assistant (ui/app/state.js meCeo).
+// "Strategy Bot", by its name: it is their Assistant (ui/app/state.js meStrategyBot).
 const personTabs = p => S.me?.id === p.id ? ['assistant', ...PERSON_TABS] : PERSON_TABS;
 const PERSON_TAB_LABELS = {assistant: 'Assistant', profile: 'Profile', slack: 'Slack'};
 function personCanEdit(p) {
@@ -97,9 +97,9 @@ function pagePerson(id, tab) {
         <input type="checkbox" role="switch" class="people-switch" id="person-notify-bots" ${p.notify_slack_bot_messages !== false ? 'checked' : ''}>
         <span>Bot messages in Slack</span></label>
       <div class="person-muted" id="person-muted" ${p.notify_slack_bot_messages === false ? 'hidden' : ''}></div>
-      <label class="person-notify" title="Each morning ${S.me?.id === p.id && meCeo() ? esc(ceoBotName()) : 'the Assistant'} drafts their update from what everyone may see: their shared tasks and goals, their decisions, comments and answers on those tasks, the meetings they were in that are not private, and their reports' updates. Never their private chats or approvals. It posts as theirs, labelled, and they can edit or replace it; once they post their own words that day, there is no draft">
+      <label class="person-notify" title="Each morning ${S.me?.id === p.id && meStrategyBot() ? esc(strategyBotName()) : 'the Assistant'} drafts their update from what everyone may see: their shared tasks and goals, their decisions, comments and answers on those tasks, the meetings they were in that are not private, and their reports' updates. Never their private chats or approvals. It posts as theirs, labelled, and they can edit or replace it; once they post their own words that day, there is no draft">
         <input type="checkbox" role="switch" class="people-switch" id="person-update-draft" ${p.update_draft !== false ? 'checked' : ''}>
-        <span>${S.me?.id === p.id && meCeo() ? esc(ceoBotName()) : 'Assistant'} drafts my update</span></label>
+        <span>${S.me?.id === p.id && meStrategyBot() ? esc(strategyBotName()) : 'Assistant'} drafts my update</span></label>
       <div class="err" role="status" id="person-notify-status"></div></section>` : ''}
   </div>
   <div id="pane-pslack" ${tab === 'slack' ? '' : 'hidden'}>

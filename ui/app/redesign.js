@@ -147,7 +147,7 @@ function syncStrategyBot() {
   }
   $('#main').classList.add('sbot-open');
   if (SBOT?.el.isConnected) return;
-  const name = ceoBotName();
+  const name = strategyBotName();
   const el = document.createElement('aside');
   el.id = 'sbot'; el.className = 'sbot'; el.setAttribute('aria-label', name);
   el.innerHTML = `<header class="sbot-head"><span class="nav-icon" aria-hidden="true">auto_awesome</span><h2>${esc(name)}</h2>

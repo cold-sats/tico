@@ -394,19 +394,19 @@ class Auth:
     def assistant_principal(self, c, attempt):
         """The person an assistant chat turn acts for, as that person and nobody more, or None.
 
-        Only a turn the person started themselves in their own Assistant room counts: the message
-        that queued the job came from the room's owner through /api/v2/assistant/messages (the
-        only door that sets the `assistant` reference). Any other turn of the assistant bot (a
-        Slack route, a meeting delivery, a routine) stays the bot's own.
+        Only a turn the person started themselves in their own Assistant room counts: the message that queued the job
+        came from the room's owner through /api/v2/assistant/messages (the only door that sets the `assistant`
+        reference). Any other turn of the assistant bot (a Slack route, a meeting delivery, a routine) stays the bot's
+        own.
 
-        The CEO Bot is the owner's Assistant (backend/assistant.py): its turn in the owner's CEO Bot chat acts as the
-        owner, with the same rights, while that person is still the owner. Its every other turn (the regular checks,
-        goal work, a bot's message) stays the bot's own."""
-        from . import ceo_bot
+        The Strategy Bot is the owner's Assistant (backend/assistant.py): its turn in the owner's Strategy Bot chat acts
+        as the owner, with the same rights, while that person is still the owner. Its every other turn (the regular
+        checks, goal work, a bot's message) stays the bot's own."""
+        from . import strategy_bot
         # Only a live lease: a token kept from a finished turn means nothing (validate_identity says the
         # same for the plain bot identity; this repeats it where the token turns into a person).
         room_key = (rooms.ASSISTANT_ROOM if attempt["bot"] == self.settings.assistant_bot
-                    else rooms.CEO_ROOM if attempt["bot"] == ceo_bot.SLUG else None)
+                    else rooms.STRATEGY_ROOM if attempt["bot"] == strategy_bot.SLUG else None)
         if (not room_key or attempt["state"] not in ("leased", "running")
                 or str(attempt["lease_until"] or "") <= H.now()):
             return None
@@ -420,10 +420,10 @@ class Auth:
         return self.chat_person(c, row["owner_actor"], attempt["bot"], attempt["id"], attempt["runner_id"])
 
     def chat_person(self, c, owner_actor, bot, attempt_id="", runner_id=""):
-        """The person a turn of their chat bot (`bot`: the Assistant, or the CEO Bot for the owner) acts as, with
-        their rights and nobody more, or None: a person who is gone or suspended, or for the CEO Bot one who is no
+        """The person a turn of their chat bot (`bot`: the Assistant, or the Strategy Bot for the owner) acts as, with
+        their rights and nobody more, or None: a person who is gone or suspended, or for the Strategy Bot one who is no
         longer the owner (ownership moved on since they asked: the turn is the bot's own, never theirs)."""
-        from . import ceo_bot
+        from . import strategy_bot
         if not str(owner_actor or "").startswith("human:"):
             return None
         human = H.human(c, H.actor_id(owner_actor))
@@ -431,12 +431,12 @@ class Auth:
             return None
         email = str(human.get("email") or "").lower()
         owner = bool(email) and email == self.owner_email
-        ceo = bot == ceo_bot.SLUG
-        if ceo and not owner:
+        is_strategy = bot == strategy_bot.SLUG
+        if is_strategy and not owner:
             return None
         return Identity(owner_actor, "owner" if owner else "human",
                         email=email, via_token=True,
-                        token_label=ceo_bot.name(c) if ceo else self.settings.assistant_name,
+                        token_label=strategy_bot.name(c) if is_strategy else self.settings.assistant_name,
                         via="assistant", task_actor="bot:" + bot,
                         attempt_id=attempt_id, runner_id=runner_id)
 
@@ -565,8 +565,9 @@ class Auth:
     FULL = {"see": True, "read": True, "write": True}
 
     def system_bot(self, slug):
-        """The built-in bots (the Assistant, BotOps, the Librarian, the CEO Bot, the Health Monitor, the Task Manager): they act for
-        the whole company, so only the company owner changes them. Admins manage every other bot."""
+        """The built-in bots (the Assistant, BotOps, the Librarian, the Strategy Bot, the Health Monitor, the Task
+        Manager): they act for the whole company, so only the company owner changes them. Admins manage every other
+        bot."""
         return slug in (self.settings.assistant_bot, "assistant", "botops", "librarian", "goal-manager", "health-monitor", "task-manager")
 
     def bot_manager(self, c, who, slug, operator=None):
@@ -996,9 +997,9 @@ class Auth:
             # Personal assistant rooms do not inherit the normal owner inspection bypass.
             if who.actor != owner:
                 raise Problem("forbidden", "This personal conversation belongs to another person", 403)
-            # The CEO Bot chat belongs to the owner seat: a person who is no longer the owner reads it no more, even
-            # before it moves to the new owner (backend/assistant.py ceo_room).
-            if row.get("room_key") == rooms.CEO_ROOM and who.role != "owner":
+            # The Strategy Bot chat belongs to the owner seat: a person who is no longer the owner reads it no more,
+            # even before it moves to the new owner (backend/assistant.py move_strategy_room).
+            if row.get("room_key") == rooms.STRATEGY_ROOM and who.role != "owner":
                 raise Problem("forbidden", "This chat belongs to the company's owner", 403)
         elif scope == rooms.SHARED:
             bot = rooms.room_bot(row)

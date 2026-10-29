@@ -26,7 +26,7 @@ def profile_of(c, slug):
 
 
 def put(c, slug, name, **options):
-    """Give an existing bot a profile the way the API does (without the CEO gate or audit)."""
+    """Give an existing bot a profile the way the API does (without the Strategy Bot gate or audit)."""
     declared = profile_of(c, slug)
     c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(P.apply(declared, name, options)), slug))
 

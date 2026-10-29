@@ -54,20 +54,25 @@ const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slu
 // The Librarian (a helper, as BotOps is): its chat beside Library's pages and its settings from Docs; an install without one shows
 // neither.
 const librarianBot = () => (S.emps || []).find(e => e.name === 'librarian' && e.status !== 'archived' && e.status !== 'retired') || null;
-// The Strategy Bot (backend/ceo_bot.py, slug goal-manager) is on every install, by the name the owner gave it, else
-// "Strategy Bot": its older default names ("CEO Bot", "Goal Manager") read so too.
-const ceoDefaultName = () => 'Strategy Bot';
-const ceoDefaultish = name => !name || name === 'Goal Manager' || name === 'CEO Bot';
-const ceoBotName = () => {
+// The Strategy Bot (backend/strategy_bot.py, slug goal-manager) is on every install, by the name the owner gave it,
+// else
+// "Strategy Bot". An install that has not started the new server yet still stores its older default names ("CEO Bot",
+// "Goal Manager"), so those read as the default too.
+const strategyDefaultName = () => 'Strategy Bot';
+const strategyDefaultish = name => !name || name === 'Goal Manager' || name === 'CEO Bot';
+const strategyBotName = () => {
   const name = String((S.emps || []).find(e => e.name === 'goal-manager')?.display_name || '').trim();
-  return ceoDefaultish(name) ? ceoDefaultName() : name;
+  return strategyDefaultish(name) ? strategyDefaultName() : name;
 };
-// The owner talks to the CEO Bot in place of an Assistant (backend/assistant.py): their menu tab and #/assistant are the
-// CEO Bot, by its name. Everyone else, admins included, keeps their Assistant.
-const meCeo = () => S.me?.role === 'owner'
+// The room_key the server stores the owner's Strategy Bot chat under (backend/rooms.py). The value stays "ceo" so a
+// runner one version behind still finds that chat by it; only the constant's name follows the bot.
+const STRATEGY_ROOM = 'ceo';
+// The owner talks to the Strategy Bot in place of an Assistant (backend/assistant.py): their menu tab and #/assistant
+// are the Strategy Bot, by its name. Everyone else, admins included, keeps their Assistant.
+const meStrategyBot = () => S.me?.role === 'owner'
   && (S.emps || []).some(e => e.name === 'goal-manager' && !['archived', 'planned'].includes(e.status));
-const myChatBot = () => meCeo() ? 'goal-manager' : assistantBot();
-const myChatName = () => meCeo() ? ceoBotName() : assistantName();
+const myChatBot = () => meStrategyBot() ? 'goal-manager' : assistantBot();
+const myChatName = () => meStrategyBot() ? strategyBotName() : assistantName();
 const companyName = () => S.config.company_name || appName();
 // Tico's own wordmark, only while the app is called Tico; a team that named its app gets that name as text.
 const brandLogo = () => appName() === CONFIG_DEFAULTS.app_name

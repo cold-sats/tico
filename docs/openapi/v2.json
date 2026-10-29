@@ -76,7 +76,7 @@
     },
     {
       "name": "Goals",
-      "description": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the CEO Bot works out from their KPIs, unless a person set one; check-ins in the owner's words; proposals the owner confirms."
+      "description": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the Strategy Bot works out from their KPIs, unless a person set one; check-ins in the owner's words; proposals the owner confirms."
     },
     {
       "name": "KPIs",
@@ -394,7 +394,7 @@
     },
     "/api/v2/assistant": {
       "get": {
-        "summary": "The caller's Assistant (the CEO Bot, for the owner): their private room id, whether it is on, the recent messages and what waits for their OK",
+        "summary": "The caller's Assistant (the Strategy Bot, for the owner): their private room id, whether it is on, the recent messages and what waits for their OK",
         "operationId": "getAssistant",
         "responses": {
           "200": {
@@ -4153,497 +4153,6 @@
         ]
       }
     },
-    "/api/v2/ceo-bot": {
-      "get": {
-        "summary": "The CEO Bot's name, whether its regular checks run, how much it does (its level, with each level's sentence and who changed it when), and how many items it put in each person's Needs you today against its cap of 5 (everyone's for the owner, admins and the CEO Bot; your own for anyone else)",
-        "operationId": "getCeoBot",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotView"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/checks": {
-      "post": {
-        "summary": "Settings > CEO Bot, \"Regular checks\": the owner turns the KPI pass and the automatic goal colours on or off, on their own click. Off, neither runs until they are turned back on. No admin or bot may",
-        "operationId": "setCeoBotChecks",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CeoBotChecks"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotView"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/decisions": {
-      "post": {
-        "summary": "The CEO Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top of their queue, given to another bot or closed, under one action id in the CEO Bot log. A person's task, a bot offline or a refusal becomes one proposal in the owner's Needs you instead, never dropped",
-        "operationId": "makeCeoBotDecision",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CeoBotDecision"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotLogEntry"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/level": {
-      "post": {
-        "summary": "Settings > CEO Bot, \"How much your CEO Bot does\": the owner picks Passive (1), Suggests actions (2) or Acts on its own (3) on their own click, logged with who and when. No admin or bot may, the CEO Bot included",
-        "operationId": "setCeoBotLevel",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CeoBotLevel"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotView"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/level3-offer": {
-      "post": {
-        "summary": "The CEO Bot only: record that its Monday note offered level 3. Refused (422) unless level3_offer.due: 10 recoveries approved in a row with its pick unchanged, and no offer in 30 days. It never raises its own level",
-        "operationId": "recordCeoBotLevel3Offer",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Empty"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotLevel3OfferResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/log": {
-      "get": {
-        "summary": "The CEO Bot log, newest first: each decision it made alone and each thing it proposed because it stays the owner's (cost, publishing, outside sends, adding or removing bots, goal and KPI targets, the vision, a bot's instructions, a person's task), with the reason. The owner only; anyone else is refused (403)",
-        "operationId": "listCeoBotLog",
-        "parameters": [
-          {
-            "name": "before",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Before"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 50,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotLog"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/log/{action_id}/undo": {
-      "post": {
-        "summary": "The owner, on their own click, undoes one decision the CEO Bot made alone: each task goes back where nobody changed it since, a later change is kept and named, a task it made is closed, and each bot is told",
-        "operationId": "undoCeoBotDecision",
-        "parameters": [
-          {
-            "name": "action_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Action Id"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Empty"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotLogEntry"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ]
-      }
-    },
-    "/api/v2/ceo-bot/merge": {
-      "post": {
-        "summary": "The CEO Bot only, at level 2 or 3: one item in a person's Needs you for 2 to 10 tasks where bots ask them the same thing. The originals leave their Needs you while it is open; their one answer goes to each bot that asked, and an item that ends unanswered puts the originals back. Counts toward its 5 a day",
-        "operationId": "mergeCeoBotAsks",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CeoBotMerge"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CeoBotMergeResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Goals"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
     "/api/v2/changelog": {
       "get": {
         "summary": "Shipped changes with your read state; kind=product|activity|all (default all), unread=true, q search, since_version for releases newer than a version, and limit/offset paging. Only installed releases or earlier appear. unread_count counts all unread product entries, independently of filters; reading does not acknowledge them.",
@@ -5004,7 +4513,7 @@
         ]
       },
       "post": {
-        "summary": "The owner, on their own click: change the Vision (written to the strategy draft) and/or the Description; never an admin or a bot, the CEO Bot included. Each change is kept with who and when",
+        "summary": "The owner, on their own click: change the Vision (written to the strategy draft) and/or the Description; never an admin or a bot, the Strategy Bot included. Each change is kept with who and when",
         "operationId": "updateCompany",
         "requestBody": {
           "content": {
@@ -8150,7 +7659,7 @@
     },
     "/api/v2/goal-manager/turn-on": {
       "post": {
-        "summary": "Owner only: add the CEO Bot from the catalog or restore it, and activate it",
+        "summary": "Owner only: add the Strategy Bot from the catalog or restore it, and activate it",
         "operationId": "turnOnGoalManager",
         "requestBody": {
           "content": {
@@ -8355,7 +7864,7 @@
     },
     "/api/v2/goals/needs-you": {
       "get": {
-        "summary": "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm; for a person each is a CEO Bot task (`task`), the one Tasks and Decide show",
+        "summary": "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm; for a person each is a Strategy Bot task (`task`), the one Tasks and Decide show",
         "operationId": "getGoalsNeedsYou",
         "responses": {
           "200": {
@@ -8396,7 +7905,7 @@
     },
     "/api/v2/goals/read-back": {
       "post": {
-        "summary": "The CEO Bot only, in the owner's own chat: Tico writes the read-back of up to 20 changes to goals, measures and suggestions as its reply and stores the exact saves. The owner's yes to it (a plain yes, or a yes to some by number) within 30 minutes lets exactly those saves through (each step's method, path and body_json, sent as it is), cited with X-Tico-On-Behalf-Of; anything else is 403 not_agreed. A colour, done or dropped, archiving, a reading or the Vision is refused here: it stays a click",
+        "summary": "The Strategy Bot only, in the owner's own chat: Tico writes the read-back of up to 20 changes to goals, measures and suggestions as its reply and stores the exact saves. The owner's yes to it (a plain yes, or a yes to some by number) within 30 minutes lets exactly those saves through (each step's method, path and body_json, sent as it is), cited with X-Tico-On-Behalf-Of; anything else is 403 not_agreed. A colour, done or dropped, archiving, a reading or the Vision is refused here: it stays a click",
         "operationId": "readBackGoalChanges",
         "requestBody": {
           "content": {
@@ -8506,7 +8015,7 @@
     },
     "/api/v2/goals/refresh": {
       "post": {
-        "summary": "The CEO Bot's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
+        "summary": "The Strategy Bot's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
         "operationId": "refreshGoalStatuses",
         "requestBody": {
           "content": {
@@ -9224,7 +8733,7 @@
     },
     "/api/v2/goals/{gid}/status/auto": {
       "post": {
-        "summary": "\"Let CEO Bot set it\": end a colour set by hand; the automatic colour is worked out at once",
+        "summary": "\"Let Strategy Bot set it\": end a colour set by hand; the automatic colour is worked out at once",
         "operationId": "handBackGoalStatus",
         "parameters": [
           {
@@ -15716,7 +15225,7 @@
         ]
       },
       "post": {
-        "summary": "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag; the CEO Bot at level 2 or 3, a recovery for a red or stalled goal (evidence, options of bot-task changes, its pick)",
+        "summary": "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag; the Strategy Bot at level 2 or 3, a recovery for a red or stalled goal (evidence, options of bot-task changes, its pick)",
         "operationId": "createGoalProposal",
         "requestBody": {
           "required": true,
@@ -15778,7 +15287,7 @@
     },
     "/api/v2/proposals/{pid}/decide": {
       "post": {
-        "summary": "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it. An Add a KPI suggestion may be confirmed with a `target` for the link (as a goal's KPI target), used in place of its own. A recovery applies exactly the chosen option (`option`, else the CEO Bot's pick) in the CEO Bot's name; what can't be done comes back as a new recovery saying why",
+        "summary": "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it. An Add a KPI suggestion may be confirmed with a `target` for the link (as a goal's KPI target), used in place of its own. A recovery applies exactly the chosen option (`option`, else the Strategy Bot's pick) in the Strategy Bot's name; what can't be done comes back as a new recovery saying why",
         "operationId": "decideGoalProposal",
         "parameters": [
           {
@@ -15849,7 +15358,7 @@
     },
     "/api/v2/proposals/{pid}/note": {
       "post": {
-        "summary": "After a reject, the person who turned the suggestion down adds one line on why (at most 280 characters), once, while it has none; a pending or confirmed suggestion, anyone else, a second reason or an empty one is refused. The CEO Bot reads it before suggesting again",
+        "summary": "After a reject, the person who turned the suggestion down adds one line on why (at most 280 characters), once, while it has none; a pending or confirmed suggestion, anyone else, a second reason or an empty one is refused. The Strategy Bot reads it before suggesting again",
         "operationId": "addGoalProposalReason",
         "parameters": [
           {
@@ -16582,7 +16091,7 @@
         ]
       },
       "get": {
-        "summary": "One seat, with whether the CEO Bot's draft of its job description is done and whether the caller may edit it",
+        "summary": "One seat, with whether the Strategy Bot's draft of its job description is done and whether the caller may edit it",
         "operationId": "getSeat",
         "parameters": [
           {
@@ -16705,7 +16214,7 @@
     },
     "/api/v2/seats/{seat_id}/draft": {
       "post": {
-        "summary": "The CEO Bot's draft of the job description the owner asked for; a person's own words are kept",
+        "summary": "The Strategy Bot's draft of the job description the owner asked for; a person's own words are kept",
         "operationId": "draftSeat",
         "parameters": [
           {
@@ -16847,7 +16356,7 @@
     },
     "/api/v2/seats/{seat_id}/open": {
       "post": {
-        "summary": "Open a seat: the owner opening it asks the CEO Bot to draft its job description, unless a person wrote it",
+        "summary": "Open a seat: the owner opening it asks the Strategy Bot to draft its job description, unless a person wrote it",
         "operationId": "openSeat",
         "parameters": [
           {
@@ -17523,6 +17032,497 @@
         ]
       }
     },
+    "/api/v2/strategy-bot": {
+      "get": {
+        "summary": "The Strategy Bot's name, whether its regular checks run, how much it does (its level, with each level's sentence and who changed it when), and how many items it put in each person's Needs you today against its cap of 5 (everyone's for the owner, admins and the Strategy Bot; your own for anyone else)",
+        "operationId": "getStrategyBot",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/checks": {
+      "post": {
+        "summary": "Settings > Strategy Bot, \"Regular checks\": the owner turns the KPI pass and the automatic goal colours on or off, on their own click. Off, neither runs until they are turned back on. No admin or bot may",
+        "operationId": "setStrategyBotChecks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyBotChecks"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/decisions": {
+      "post": {
+        "summary": "The Strategy Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top of their queue, given to another bot or closed, under one action id in the Strategy Bot log. A person's task, a bot offline or a refusal becomes one proposal in the owner's Needs you instead, never dropped",
+        "operationId": "makeStrategyBotDecision",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyBotDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotLogEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/level": {
+      "post": {
+        "summary": "Settings > Strategy Bot, \"How much your Strategy Bot does\": the owner picks Passive (1), Suggests actions (2) or Acts on its own (3) on their own click, logged with who and when. No admin or bot may, the Strategy Bot included",
+        "operationId": "setStrategyBotLevel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyBotLevel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/level3-offer": {
+      "post": {
+        "summary": "The Strategy Bot only: record that its Monday note offered level 3. Refused (422) unless level3_offer.due: 10 recoveries approved in a row with its pick unchanged, and no offer in 30 days. It never raises its own level",
+        "operationId": "recordStrategyBotLevel3Offer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotLevel3OfferResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/log": {
+      "get": {
+        "summary": "The Strategy Bot log, newest first: each decision it made alone and each thing it proposed because it stays the owner's (cost, publishing, outside sends, adding or removing bots, goal and KPI targets, the vision, a bot's instructions, a person's task), with the reason. The owner only; anyone else is refused (403)",
+        "operationId": "listStrategyBotLog",
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotLog"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/log/{action_id}/undo": {
+      "post": {
+        "summary": "The owner, on their own click, undoes one decision the Strategy Bot made alone: each task goes back where nobody changed it since, a later change is kept and named, a task it made is closed, and each bot is told",
+        "operationId": "undoStrategyBotDecision",
+        "parameters": [
+          {
+            "name": "action_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotLogEntry"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/strategy-bot/merge": {
+      "post": {
+        "summary": "The Strategy Bot only, at level 2 or 3: one item in a person's Needs you for 2 to 10 tasks where bots ask them the same thing. The originals leave their Needs you while it is open; their one answer goes to each bot that asked, and an item that ends unanswered puts the originals back. Counts toward its 5 a day",
+        "operationId": "mergeStrategyBotAsks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyBotMerge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyBotMergeResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/strategy/bets": {
       "post": {
         "summary": "Owner only: a new bet",
@@ -17852,7 +17852,7 @@
     },
     "/api/v2/strategy/guides": {
       "get": {
-        "summary": "The question guides the CEO Bot drafts with",
+        "summary": "The question guides the Strategy Bot drafts with",
         "operationId": "listStrategyGuides",
         "responses": {
           "200": {
@@ -25951,9 +25951,9 @@
           "pending": {
             "type": "array"
           },
-          "ceo": {
+          "strategy_bot": {
             "type": "boolean",
-            "description": "True for the owner, who talks to the CEO Bot in place of an Assistant: `bot` is the CEO Bot and `name` its name"
+            "description": "True for the owner, who talks to the Strategy Bot in place of an Assistant: `bot` is the Strategy Bot and `name` its name"
           },
           "earlier": {
             "oneOf": [
@@ -25996,7 +25996,6 @@
           "available",
           "bot",
           "can_turn_on",
-          "ceo",
           "earlier",
           "execution",
           "has_more",
@@ -26005,7 +26004,8 @@
           "next_before",
           "pending",
           "room_id",
-          "state"
+          "state",
+          "strategy_bot"
         ],
         "additionalProperties": true
       },
@@ -28345,491 +28345,6 @@
         ],
         "additionalProperties": true
       },
-      "CeoBotChange": {
-        "properties": {
-          "do": {
-            "type": "string",
-            "enum": [
-              "create",
-              "reorder",
-              "reassign",
-              "close"
-            ],
-            "title": "Do"
-          },
-          "task_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Id"
-          },
-          "owner": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Owner"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 300
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          },
-          "body": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 8000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Body"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 1000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "do"
-        ],
-        "title": "CeoBotChange"
-      },
-      "CeoBotChecks": {
-        "properties": {
-          "on": {
-            "type": "boolean",
-            "title": "On"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "on"
-        ],
-        "title": "CeoBotChecks"
-      },
-      "CeoBotDecision": {
-        "properties": {
-          "reason": {
-            "type": "string",
-            "maxLength": 1000,
-            "minLength": 1,
-            "title": "Reason"
-          },
-          "goal_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 100
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Goal Id"
-          },
-          "changes": {
-            "items": {
-              "$ref": "#/components/schemas/CeoBotChange"
-            },
-            "type": "array",
-            "maxItems": 10,
-            "minItems": 1,
-            "title": "Changes"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "reason",
-          "changes"
-        ],
-        "title": "CeoBotDecision"
-      },
-      "CeoBotLevel": {
-        "properties": {
-          "level": {
-            "type": "integer",
-            "enum": [
-              1,
-              2,
-              3
-            ],
-            "title": "Level"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "level"
-        ],
-        "title": "CeoBotLevel"
-      },
-      "CeoBotLevel3Offer": {
-        "type": "object",
-        "properties": {
-          "streak": {
-            "type": "integer"
-          },
-          "needed": {
-            "type": "integer"
-          },
-          "due": {
-            "type": "boolean"
-          },
-          "last_offered_at": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "due",
-          "needed",
-          "streak"
-        ],
-        "additionalProperties": true
-      },
-      "CeoBotLevel3OfferResult": {
-        "type": "object",
-        "properties": {
-          "level3_offer": {
-            "$ref": "#/components/schemas/CeoBotLevel3Offer"
-          }
-        },
-        "required": [
-          "level3_offer"
-        ],
-        "additionalProperties": true
-      },
-      "CeoBotLog": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CeoBotLogEntry"
-            }
-          },
-          "next_before": {
-            "type": "string"
-          },
-          "can_undo": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "can_undo",
-          "items"
-        ],
-        "additionalProperties": true
-      },
-      "CeoBotLogEntry": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "created": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "decision",
-              "cost",
-              "publish",
-              "send",
-              "bots",
-              "target",
-              "vision",
-              "instructions",
-              "person_task"
-            ]
-          },
-          "reason": {
-            "type": "string"
-          },
-          "goal_id": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "done",
-              "proposed",
-              "undone"
-            ]
-          },
-          "proposal_task": {
-            "type": "string",
-            "description": "The owner's Needs you item, when filed"
-          },
-          "note": {
-            "type": "string"
-          },
-          "done": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "left": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "undoable": {
-            "type": "boolean"
-          },
-          "undone_at": {
-            "type": "string"
-          },
-          "undone_by": {
-            "type": "string"
-          },
-          "undo": {
-            "type": "object",
-            "additionalProperties": true,
-            "description": "What Undo restored and what it kept: {restored, kept, text}"
-          }
-        },
-        "required": [
-          "created",
-          "done",
-          "id",
-          "kind",
-          "left",
-          "state",
-          "undoable"
-        ],
-        "additionalProperties": true
-      },
-      "CeoBotMerge": {
-        "properties": {
-          "person": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Person"
-          },
-          "title": {
-            "type": "string",
-            "maxLength": 300,
-            "minLength": 1,
-            "title": "Title"
-          },
-          "question": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Question"
-          },
-          "tasks": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 10,
-            "minItems": 2,
-            "title": "Tasks"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "person",
-          "title",
-          "question",
-          "tasks"
-        ],
-        "title": "CeoBotMerge"
-      },
-      "CeoBotMergeResult": {
-        "type": "object",
-        "properties": {
-          "task": {
-            "type": "object",
-            "description": "The merged item: the CEO Bot's task, waiting on the person"
-          },
-          "originals": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "task_id": {
-                  "type": "string"
-                },
-                "title": {
-                  "type": "string"
-                },
-                "asker": {
-                  "type": "string"
-                },
-                "asker_name": {
-                  "type": "string"
-                },
-                "state": {
-                  "type": "string"
-                },
-                "note": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "asker",
-                "state",
-                "task_id"
-              ],
-              "additionalProperties": true
-            }
-          }
-        },
-        "required": [
-          "originals",
-          "task"
-        ],
-        "additionalProperties": true
-      },
-      "CeoBotView": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "regular_checks": {
-            "type": "boolean",
-            "description": "Whether the KPI pass and the automatic goal colours run"
-          },
-          "level": {
-            "type": "integer",
-            "enum": [
-              1,
-              2,
-              3
-            ]
-          },
-          "level_chosen": {
-            "type": "boolean",
-            "description": "Whether the owner chose the level; if not, it is the default"
-          },
-          "levels": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "level": {
-                  "type": "integer"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "sentence": {
-                  "type": "string"
-                },
-                "ready": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "level",
-                "name",
-                "ready",
-                "sentence"
-              ],
-              "additionalProperties": true
-            }
-          },
-          "level_changed_by": {
-            "type": "string"
-          },
-          "level_changed_by_name": {
-            "type": "string"
-          },
-          "level_changed_at": {
-            "type": "string"
-          },
-          "level_history": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "level": {
-                  "type": "integer"
-                },
-                "was": {
-                  "type": "integer"
-                },
-                "by": {
-                  "type": "string"
-                },
-                "by_name": {
-                  "type": "string"
-                },
-                "at": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "at",
-                "by",
-                "level",
-                "was"
-              ],
-              "additionalProperties": true
-            }
-          },
-          "asked_today": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "description": "{person actor: items the CEO Bot put in their Needs you today (UTC)}"
-          },
-          "level3_offer": {
-            "$ref": "#/components/schemas/CeoBotLevel3Offer"
-          }
-        },
-        "required": [
-          "level",
-          "levels",
-          "name",
-          "regular_checks"
-        ],
-        "additionalProperties": true
-      },
       "ChangelogEntry": {
         "type": "object",
         "properties": {
@@ -30675,14 +30190,14 @@
               "string",
               "null"
             ],
-            "description": "auto: worked out by the CEO Bot; person: set by hand and kept until handed back"
+            "description": "auto: worked out by the Strategy Bot; person: set by hand and kept until handed back"
           },
           "suggest_status": {
             "type": [
               "string",
               "null"
             ],
-            "description": "On a colour set by hand: the colour the CEO Bot would choose, when it differs"
+            "description": "On a colour set by hand: the colour the Strategy Bot would choose, when it differs"
           },
           "suggest_note": {
             "type": [
@@ -31498,7 +31013,7 @@
           "changes"
         ],
         "title": "GoalReadBack",
-        "description": "Up to 20 changes the CEO Bot reads back in the owner's chat (backend/goal_read_back.py): each one an object with a\n`kind` (goal_create, goal_update, measure_add, target_set, measure_remove, suggestion) and its fields."
+        "description": "Up to 20 changes the Strategy Bot reads back in the owner's chat (backend/goal_read_back.py): each one an object\nwith a `kind` (goal_create, goal_update, measure_add, target_set, measure_remove, suggestion) and its fields."
       },
       "GoalRefresh": {
         "properties": {
@@ -31630,14 +31145,14 @@
                   "string",
                   "null"
                 ],
-                "description": "auto: worked out by the CEO Bot; person: set by hand and kept until handed back"
+                "description": "auto: worked out by the Strategy Bot; person: set by hand and kept until handed back"
               },
               "suggest_status": {
                 "type": [
                   "string",
                   "null"
                 ],
-                "description": "On a colour set by hand: the colour the CEO Bot would choose, when it differs"
+                "description": "On a colour set by hand: the colour the Strategy Bot would choose, when it differs"
               },
               "suggest_note": {
                 "type": [
@@ -31842,14 +31357,14 @@
                     "string",
                     "null"
                   ],
-                  "description": "auto: worked out by the CEO Bot; person: set by hand and kept until handed back"
+                  "description": "auto: worked out by the Strategy Bot; person: set by hand and kept until handed back"
                 },
                 "suggest_status": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "description": "On a colour set by hand: the colour the CEO Bot would choose, when it differs"
+                  "description": "On a colour set by hand: the colour the Strategy Bot would choose, when it differs"
                 },
                 "suggest_note": {
                   "type": [
@@ -38293,7 +37808,7 @@
           },
           "description_by": {
             "enum": [
-              "ceo_bot",
+              "strategy_bot",
               "chart",
               "person"
             ]
@@ -38353,7 +37868,7 @@
           "text"
         ],
         "title": "SeatDraft",
-        "description": "The CEO Bot's draft of a seat's job description (backend/recruiting.py)."
+        "description": "The Strategy Bot's draft of a seat's job description (backend/recruiting.py)."
       },
       "SeatHire": {
         "properties": {
@@ -39124,6 +38639,491 @@
         "additionalProperties": false,
         "type": "object",
         "title": "StrategyBetUpdate"
+      },
+      "StrategyBotChange": {
+        "properties": {
+          "do": {
+            "type": "string",
+            "enum": [
+              "create",
+              "reorder",
+              "reassign",
+              "close"
+            ],
+            "title": "Do"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "do"
+        ],
+        "title": "StrategyBotChange"
+      },
+      "StrategyBotChecks": {
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "title": "On"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "on"
+        ],
+        "title": "StrategyBotChecks"
+      },
+      "StrategyBotDecision": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Id"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyBotChange"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Changes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "changes"
+        ],
+        "title": "StrategyBotDecision"
+      },
+      "StrategyBotLevel": {
+        "properties": {
+          "level": {
+            "type": "integer",
+            "enum": [
+              1,
+              2,
+              3
+            ],
+            "title": "Level"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "level"
+        ],
+        "title": "StrategyBotLevel"
+      },
+      "StrategyBotLevel3Offer": {
+        "type": "object",
+        "properties": {
+          "streak": {
+            "type": "integer"
+          },
+          "needed": {
+            "type": "integer"
+          },
+          "due": {
+            "type": "boolean"
+          },
+          "last_offered_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "due",
+          "needed",
+          "streak"
+        ],
+        "additionalProperties": true
+      },
+      "StrategyBotLevel3OfferResult": {
+        "type": "object",
+        "properties": {
+          "level3_offer": {
+            "$ref": "#/components/schemas/StrategyBotLevel3Offer"
+          }
+        },
+        "required": [
+          "level3_offer"
+        ],
+        "additionalProperties": true
+      },
+      "StrategyBotLog": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StrategyBotLogEntry"
+            }
+          },
+          "next_before": {
+            "type": "string"
+          },
+          "can_undo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "can_undo",
+          "items"
+        ],
+        "additionalProperties": true
+      },
+      "StrategyBotLogEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "cost",
+              "publish",
+              "send",
+              "bots",
+              "target",
+              "vision",
+              "instructions",
+              "person_task"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "goal_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "proposed",
+              "undone"
+            ]
+          },
+          "proposal_task": {
+            "type": "string",
+            "description": "The owner's Needs you item, when filed"
+          },
+          "note": {
+            "type": "string"
+          },
+          "done": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "undoable": {
+            "type": "boolean"
+          },
+          "undone_at": {
+            "type": "string"
+          },
+          "undone_by": {
+            "type": "string"
+          },
+          "undo": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "What Undo restored and what it kept: {restored, kept, text}"
+          }
+        },
+        "required": [
+          "created",
+          "done",
+          "id",
+          "kind",
+          "left",
+          "state",
+          "undoable"
+        ],
+        "additionalProperties": true
+      },
+      "StrategyBotMerge": {
+        "properties": {
+          "person": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Person"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "tasks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 2,
+            "title": "Tasks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "person",
+          "title",
+          "question",
+          "tasks"
+        ],
+        "title": "StrategyBotMerge"
+      },
+      "StrategyBotMergeResult": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "description": "The merged item: the Strategy Bot's task, waiting on the person"
+          },
+          "originals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "task_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "asker": {
+                  "type": "string"
+                },
+                "asker_name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "asker",
+                "state",
+                "task_id"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "originals",
+          "task"
+        ],
+        "additionalProperties": true
+      },
+      "StrategyBotView": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "regular_checks": {
+            "type": "boolean",
+            "description": "Whether the KPI pass and the automatic goal colours run"
+          },
+          "level": {
+            "type": "integer",
+            "enum": [
+              1,
+              2,
+              3
+            ]
+          },
+          "level_chosen": {
+            "type": "boolean",
+            "description": "Whether the owner chose the level; if not, it is the default"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sentence": {
+                  "type": "string"
+                },
+                "ready": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "level",
+                "name",
+                "ready",
+                "sentence"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "level_changed_by": {
+            "type": "string"
+          },
+          "level_changed_by_name": {
+            "type": "string"
+          },
+          "level_changed_at": {
+            "type": "string"
+          },
+          "level_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "type": "integer"
+                },
+                "was": {
+                  "type": "integer"
+                },
+                "by": {
+                  "type": "string"
+                },
+                "by_name": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "at",
+                "by",
+                "level",
+                "was"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "asked_today": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "{person actor: items the Strategy Bot put in their Needs you today (UTC)}"
+          },
+          "level3_offer": {
+            "$ref": "#/components/schemas/StrategyBotLevel3Offer"
+          }
+        },
+        "required": [
+          "level",
+          "levels",
+          "name",
+          "regular_checks"
+        ],
+        "additionalProperties": true
       },
       "StrategyDraft": {
         "properties": {

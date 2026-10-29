@@ -140,8 +140,8 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 /* a bot's or group's name wraps at a space rather than cutting off ("Sales Developm…"); only a very long rename stops at three lines */
 .oc-bnode .oc-text strong,.oc-dnode .oc-text strong{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;white-space:normal;overflow-wrap:break-word}
 .oc-top{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:var(--rg)}
-.oc-ceo{display:inline-flex;padding:5px 14px 5px 5px;border-radius:999px;border-color:color-mix(in srgb,var(--ink) 18%,var(--line))}
-.oc-ceo .av,.oc-ceo img{flex:none}
+.oc-owner{display:inline-flex;padding:5px 14px 5px 5px;border-radius:999px;border-color:color-mix(in srgb,var(--ink) 18%,var(--line))}
+.oc-owner .av,.oc-owner img{flex:none}
 .oc-empty{margin:4px 0 0 var(--gut);color:var(--muted);font-size:var(--t-sm)}
 .oc-rows{position:relative}
 .oc-rows::before{content:"";position:absolute;left:var(--spine);top:calc(-1 * var(--rg));height:calc(var(--rg) + var(--drop) / 2);border-left:1.5px solid var(--oc-line)}
