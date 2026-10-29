@@ -133,23 +133,26 @@ def qa_down_then_waive(run, w, team, i):
 
 
 # ---------------------------------------------------------------------------------------------- checks
-def passed_by(w, ticket_id, head, when):
-    """Whether QA passed `head` on a check whose pass was recorded at or before `when` (a task timestamp). The verdict
-    event reads "pass <head>"."""
+def standing_at(w, ticket_id, head, when):
+    """What stood for `head` when the pull request merged at `when`: the newest of QA's verdicts on it ("pass",
+    "fail", "changes" or "comments", from each check's "<verdict> <head>" event) and a person's waiver ("waiver"),
+    recorded at or before `when`; None when there was none. A fail after a waiver stands: the waiver did not see it."""
+    found = []
     for c in qa_children(w, ticket_id):
-        if c["verdict"] != "pass" or c["verdict_head"] != head:
-            continue
-        found = w.sql("SELECT min(ts) ts FROM task_events WHERE task_id=? AND field='verdict' AND lower(new)=?",
-                      (c["id"], f"pass {head}"))
-        if found and found[0]["ts"] and w.H.parse_ts(found[0]["ts"]) <= w.H.parse_ts(when):
-            return True
-    return False
+        for e in w.sql("SELECT ts, lower(new) new FROM task_events WHERE task_id=? AND field='verdict'", (c["id"],)):
+            verdict, _, judged = str(e["new"] or "").partition(" ")
+            if judged == str(head).lower():
+                found.append((w.H.parse_ts(e["ts"]), verdict))
+    found += [(w.H.parse_ts(e["ts"]), "waiver") for e in waiver_events(w, ticket_id)
+              if e["head"] == head and e["actor"].startswith("human:")]
+    found = [f for f in found if f[0] <= w.H.parse_ts(when)]
+    return max(found, key=lambda f: f[0])[1] if found else None
 
 
 def merged_on_pass_or_waiver(run):
-    """Every merged ticket's head had a QA pass or a person's waiver for it by the time its pull request merged, and at
-    least one ticket merged on a waiver: nothing merges on a stale waiver. A pass QA records after the merge does not
-    make the merge right, so a ticket that merged on its waiver stays a waiver merge when QA judges the head later."""
+    """Every merged ticket's head had a QA pass or a person's waiver for it by the time its pull request merged, with
+    no QA fail recorded after it, and at least one ticket merged on a waiver: nothing merges on a stale waiver or a
+    failed head. A verdict QA records after the merge does not change what the merge stood on."""
     w, bad, on_waiver = run.w, [], 0
     for t in run.final:
         if t["id"] not in run.merged_at:
@@ -157,12 +160,11 @@ def merged_on_pass_or_waiver(run):
         pr = w.pr_of(t["id"])
         head = w.prs[pr]["head"] if pr else None
         merged = (w.prs[pr] if pr else {}).get("merged_at") or w.H.now()
-        passed = passed_by(w, t["id"], head, merged)
-        waived = any(e["head"] == head and e["actor"].startswith("human:") and
-                     w.H.parse_ts(e["ts"]) <= w.H.parse_ts(merged) for e in waiver_events(w, t["id"]))
-        on_waiver += waived and not passed
-        if not (passed or waived):
-            bad.append(f"{t['title']} merged at {str(head)[:7]} with no QA pass or waiver there")
+        stood = standing_at(w, t["id"], head, merged)
+        on_waiver += stood == "waiver"
+        if stood not in ("pass", "waiver"):
+            bad.append(f"{t['title']} merged at {str(head)[:7]} on " + (f"QA's {stood}" if stood else
+                                                                         "no QA pass or waiver there"))
     if not on_waiver:
         bad.append("no ticket merged on a waiver (ana: " + "; ".join(
             f"{a['title']} {a['outcome'][:200]}" for a in getattr(run, "ana", [])) + ")")

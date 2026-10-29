@@ -676,6 +676,26 @@ def test_a_round_timed_out_after_a_fail_at_the_head_goes_to_on_fail_and_never_to
     assert handoffs[0]["refs"]["verdict"] == "fail" and "QA Fixes" in handoffs[0]["body"], handoffs[0]
 
 
+def test_a_later_pass_at_a_failed_head_does_not_let_a_timed_out_round_clear_the_merge(api):
+    """QA failed the head, a later round passed the same head without a fix, and the ticket came back once more: the
+    round that times out then finds the fail still standing, so the ticket goes to QA Fixes, never to the merge."""
+    task = ticket(api, step="In QA")
+    _suite(api, "github-actions", "completed", "success", sha=HEAD)
+    verdict(api, check(api, task, "QA: PR #412"), "fail")
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+    verdict(api, check(api, task, "QA: PR #412"), "pass")
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+        c.execute("DELETE FROM jobs")
+    check(api, task, "QA: PR #412")
+    with api.app.state.store.transaction() as c:
+        assert V.timeouts(c, H.shift(H.now(), hours=24 * 7)) == [task["id"]]
+        assert V.merge_ready(c, H.task(c, task["id"])) is None
+    assert step(api, task) == "QA Fixes"
+    assert [m["refs"][V.HANDOFF] for m in builder_jobs(api) if m["refs"].get(V.HANDOFF)] == ["verdict"]
+
+
 def test_a_finished_suite_with_no_check_run_keeps_its_failure(api, monkeypatch):
     """Only a suite still waiting to start is left out: one GitHub finished as failed, runs or none, still fails."""
     from backend import github as G

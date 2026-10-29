@@ -290,13 +290,13 @@ def delivery(c, check):
 
 
 def _verdict_at(c, row, step, head):
-    """The newest verdict a check at `step` gave on `head` (lowered), or None when no check there judged that head."""
+    """The verdict the checks at `step` hold against `head` (lowered), or None when none judged that head. A fail,
+    changes or comments wins over any pass on the same head, newer or not: a failed head is cleared by a fix at a new
+    head, not by a later round at the same one (docs/tasks.md, `timeout_hours`)."""
     head = str(head or "").lower()
-    for check in reversed(_checks(c, row, step)):
-        judged = str(check.get("verdict_head") or _judged_head(c, check) or "").lower()
-        if _verdict(check) and judged and head.startswith(judged):
-            return _verdict(check)
-    return None
+    given = [_verdict(check) for check in _checks(c, row, step) if _verdict(check)
+             and head.startswith(str(check.get("verdict_head") or _judged_head(c, check) or "-").lower())]
+    return next((v for v in given if v not in GOOD), given[-1] if given else None)
 
 
 def _skipped(c, row, step, head):

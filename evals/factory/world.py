@@ -529,10 +529,20 @@ class World:
                    and t["status"] not in ("done", "closed", "declined"))
 
     def cleared(self, task_id):
-        """Whether Tico let the ticket pass its current step without a check: a skip tag or a skipped round."""
+        """Whether Tico let the ticket pass its current step without a check: a skip tag, or a round skipped at a head
+        no check failed. A round that timed out at a failed head is recorded as skipped too, but sends the ticket to
+        the step's on_fail (backend/verdict_moves.py `timeouts`), so it clears nothing."""
         entered = self.step_entered_at(task_id) or ""
-        return bool(self.sql("SELECT 1 FROM task_events WHERE task_id=? AND field IN ('step_skipped','round_skipped') "
-                             "AND ts>=? LIMIT 1", (task_id, entered)))
+        for e in self.sql("SELECT field, new FROM task_events WHERE task_id=? AND ts>=? "
+                          "AND field IN ('step_skipped','round_skipped')", (task_id, entered)):
+            step_id, _, head = str(e["new"] or "").partition(":")
+            step = self.sql("SELECT name FROM task_steps WHERE id=?", (step_id,))
+            failed = [c for c in self.checks(task_id) if step and self.check_step(c) == step[0]["name"]
+                      and c.get("verdict") and c["verdict"] not in ("approve", "pass")
+                      and head.lower().startswith(str(c.get("verdict_head") or "-").lower())]
+            if e["field"] == "step_skipped" or not failed:
+                return True
+        return False
 
     def fallback(self, who, task_id, what):
         self.fallbacks.append((self.now(), who, self.title(task_id), what))
