@@ -77,7 +77,7 @@ def template():
                      'OriginAccessControlId': {'Ref': 'OriginAccess'}, 'S3OriginConfig': {'OriginAccessIdentity': ''}}],
         'DefaultCacheBehavior': behavior('Files'), 'CacheBehaviors': [visual_behavior],
         'CustomErrorResponses': [{'ErrorCode': code, 'ErrorCachingMinTTL': 0} for code in [400, 403, 404, 500, 502, 503, 504]]}}}
-    return {'AWSTemplateFormatVersion': '2010-09-09', 'Description': 'Prepared file edge; no stand-up authorization',
+    return {'AWSTemplateFormatVersion': '2010-09-09', 'Description': 'Tico file edge (signed company files and visuals)',
             'Parameters': {
                 'FilesDomain': {'Type': 'String', 'AllowedPattern': '[a-z0-9]+([.-][a-z0-9]+)*'},
                 'CertificateArn': {'Type': 'String'}, 'BucketRegionalDomainName': {'Type': 'String'},
