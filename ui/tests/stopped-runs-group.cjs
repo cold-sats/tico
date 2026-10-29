@@ -42,8 +42,9 @@ const issues = canReview => [
   async function open({canReview, width, height}) {
     const page = await browser.newPage({viewport: {width, height}, serviceWorkers: 'block'});
     const errors = [], decisions = [];
+    let delay = 0;
     page.on('pageerror', e => errors.push(e.message));
-    await page.route('**/*', route => {
+    await page.route('**/*', async route => {
       const p = new URL(route.request().url()).pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
       const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
@@ -70,6 +71,7 @@ const issues = canReview => [
       const reconcile = p.match(/^\/api\/v2\/jobs\/([^/]+)\/reconcile$/);
       if (reconcile) {
         const body = route.request().postDataJSON();
+        if (delay) await new Promise(resolve => setTimeout(resolve, delay));
         decisions.push({id: reconcile[1], ...body});
         return json({job_id: reconcile[1], state: body.decision === 'resume' ? 'queued' : 'cancelled', deferred: false});
       }
@@ -79,18 +81,23 @@ const issues = canReview => [
     await page.goto('https://tico-ui.test/#/settings');
     const panel = page.locator('.needs-you');
     await panel.waitFor({timeout: t(5000)});
-    return {page, panel, errors, decisions};
+    return {page, panel, errors, decisions, slow: ms => { delay = ms; }};
   }
 
   try {
     // A person who may decide: one row for the three safe runs, the unsafe one stays on its own line.
     {
-      const {page, panel, errors, decisions} = await open({canReview: true, width: 1280, height: 800});
+      const {page, panel, errors, decisions, slow} = await open({canReview: true, width: 1280, height: 800});
       const group = panel.locator('[data-update-group="0"]');
       assert.equal(await panel.locator('[data-update-group]').count(), 2);
       assert.match(await group.locator('strong').innerText(), /^3 runs stopped during Tico.s update at 14:02 UTC$/);
       assert.match(await panel.locator('[data-update-group="1"] strong').innerText(), /^2 runs stopped during Tico.s update at 14:30 UTC$/);
       assert.deepEqual(await group.locator('.issue-buttons > button').allInnerTexts(), ['Try all again', 'Don’t retry', 'Details']);
+      assert.doesNotMatch(await group.locator('p').first().innerText(), /can.t check/);
+      // A group with a run that ran commands Tico cannot check says so and leads with Don't retry.
+      const later = panel.locator('[data-update-group="1"]');
+      assert.match(await later.locator('p').first().innerText(), /^1 of them ran commands Tico can.t check\. /);
+      assert.deepEqual(await later.locator('.issue-buttons > button').allInnerTexts(), ['Don’t retry', 'Try all again', 'Details']);
       assert.equal(await group.locator('[data-group-runs]').isVisible(), false);
       await group.locator('[data-group-details]').click();
       assert.equal(await group.locator('[data-group-details]').innerText(), 'Hide details');
@@ -107,9 +114,15 @@ const issues = canReview => [
       assert.equal(await panel.locator('[data-group-runs]', {hasText: 'Draft the release notes'}).count(), 0);
       assert.deepEqual(await chosen.locator('button:enabled').allInnerTexts(), ['Don’t retry']);
       await shot(page, 'stopped-group-desktop');
-      // Try all again posts each run's own request once, then every grouped line says what was queued.
+      // Try all again posts each run's own request once, then every grouped line says what was queued. While the
+      // choices are saved, no grouped run offers its own choice.
+      slow(300);
       await group.locator('[data-group-decision=resume]').click();
+      await group.locator('[data-group-result]', {hasText: 'Saving choices'}).waitFor();
+      assert.equal(await group.locator('[data-group-runs] [data-run-decision]:enabled').count(), 0);
       await group.locator('[data-group-result]', {hasText: 'Queued to try again.'}).waitFor();
+      assert.equal(await group.locator('[data-group-runs] [data-run-decision]:enabled').count(), 0);
+      slow(0);
       assert.deepEqual(decisions.map(d => [d.id, d.decision]), [['u1', 'resume'], ['u2', 'resume'], ['u3', 'resume']]);
       assert.ok(decisions.every(d => /Check existing work/.test(d.note)), 'each retry tells the bot to check first');
       await group.locator('[data-group-details]').click();

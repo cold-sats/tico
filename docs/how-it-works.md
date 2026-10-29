@@ -278,7 +278,7 @@ report. A run that ended within the lease plus fifteen minutes of an update fini
 take minutes) stopped during it: Needs you says so, but that is timing, not proof, so the run is held by the same rule
 as any lapsed run. Needs you groups those runs, two or more within ten minutes, into one row with **Try all again**
 and **Don’t retry** for the people who may decide them; each retry tells the bot to check what already happened
-first. Each run keeps its own line under Details, and a run that recorded a named outside action or used an approval,
+first. When any of them ran commands Tico can’t check, the row says how many and offers **Don’t retry** first. Each run keeps its own line under Details, and a run that recorded a named outside action or used an approval,
 or one with a choice already saved, keeps its own choices. A stopped run is counted once however many requests were
 folded into it. A consumed approval or a named irreversible outside action
 (merge, publish, send or payment) holds it for BotOps instead, and the review names the action. A second interruption

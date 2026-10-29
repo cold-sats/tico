@@ -220,13 +220,19 @@ function updateGroups(issues) {
   return groups.filter(g => g.members.length > 1).map((g, k) => ({...g, k, at: new Date(g.at)}));
 }
 // Only the people who may decide a run see its buttons: the others read the same line with no choice to make.
+// The update's stop is timing, not proof its computer restarted, so the row says how many ran commands Tico cannot
+// check, and the safe pick leads by the rule each run's own line uses: Don't retry first when any of them is unsafe.
 const updateGroupRow = group => {
   const n = group.members.length, deciding = group.members.filter(m => m.issue.can_review && m.run.jobs).length;
   const scope = deciding === n ? 'all of them' : `the ${deciding} you can decide`;
+  const risky = group.members.filter(m => !m.run.retry).length;
+  const risk = risky ? `${risky === n ? (n === 1 ? 'It' : 'All of them') : `${risky} of them`} ran commands Tico can’t check. ` : '';
+  const resume = cls => `<button class="${cls}" type="button" data-group-decision="resume">Try all again</button>`;
+  const dismiss = cls => `<button class="${cls}" type="button" data-group-decision="dismiss">Don’t retry</button>`;
   return `<div class="settings-issue stopped-group" data-update-group="${group.k}">
     <div><strong>${n} run${n === 1 ? '' : 's'} stopped during Tico’s update at ${group.at.toISOString().slice(11, 16)} UTC</strong>
-    <p>${deciding ? `Try all again applies to ${scope}. Each bot checks what already happened first.` : 'Only the operator of each bot, or BotOps, can decide them.'}</p></div>
-    <div class="issue-buttons">${deciding ? '<button class="primary" type="button" data-group-decision="resume">Try all again</button><button class="ghost" type="button" data-group-decision="dismiss">Don’t retry</button>' : ''}<button class="ghost" type="button" data-group-details aria-expanded="false">Details</button></div>
+    <p>${risk}${deciding ? `Try all again applies to ${scope}; each bot checks what already happened before repeating anything.` : 'Only the operator of each bot, or BotOps, can decide them.'}</p></div>
+    <div class="issue-buttons">${deciding ? (risky ? dismiss('primary') + resume('ghost') : resume('primary') + dismiss('ghost')) : ''}<button class="ghost" type="button" data-group-details aria-expanded="false">Details</button></div>
     <ul class="stopped-lines" data-group-runs hidden></ul><p class="stopped-result" data-group-result role="status" aria-live="polite"></p></div>`;
 };
 function bindUpdateGroup(panel, group, stopped) {
@@ -248,11 +254,18 @@ function bindUpdateGroup(panel, group, stopped) {
   picks.forEach(button => button.onclick = async () => {
     const decision = button.dataset.groupDecision;
     const todo = group.members.filter(m => m.issue.can_review && m.run.jobs && !stoppedChosen(m.run) && m.li);
+    // Each run's own choices wait while the group's are saved, so no run gets both; afterwards they show what was
+    // saved, as a run's own line does.
+    const lines = todo.map(m => [m.run, [...m.li.querySelectorAll('[data-run-decision]')]]);
+    const settle = () => lines.forEach(([run, buttons]) => buttons.forEach(b =>
+      b.disabled = !!run.decided || !!stoppedChosen(run) && b.dataset.runDecision !== stoppedChosen(run)));
     picks.forEach(b => b.disabled = true);
+    lines.forEach(([, buttons]) => buttons.forEach(b => b.disabled = true));
     result.classList.remove('err'); result.textContent = 'Saving choices…';
     try {
       // One request per run, in order: a refusal stops the rest and shows here, and the runs already saved stay saved.
       for (const m of todo) {
+        if (stoppedChosen(m.run)) continue;
         await decideRun(m.run, decision);
         m.li.dataset.decided = m.run.decided;
         m.li.querySelector('[data-result]').textContent = stoppedOutcome(m.run.decided, stoppedWaits(m.run));
@@ -260,8 +273,10 @@ function bindUpdateGroup(panel, group, stopped) {
     } catch (e) {
       result.classList.add('err'); result.textContent = e.message;
       picks.forEach(b => b.disabled = false);
+      settle();
       return;
     }
+    settle();
     result.textContent = decision === 'resume' ? 'Queued to try again.' : 'Dismissed. Tico won’t retry these runs.';
     void refresh(false);
   });
