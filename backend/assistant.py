@@ -1551,6 +1551,9 @@ def install(app, store, auth, mutate, onboarding):
             refs = {"assistant": True}
             if getattr(body, "place", None) == "updates":
                 refs["updates"] = True        # its turn is handed the updates they may read (backend/updates_chat.py)
+            page = getattr(body, "page", None)
+            if page and page.path.startswith("#/"):
+                refs["page"] = {"path": page.path, "title": page.title}   # where they asked from (runner-rs prompt.rs)
             if reply is not None:
                 refs["quiet"] = True
             message = H.say(c, who.actor, "bot:" + bot, body.text, conversation_id=room["id"],

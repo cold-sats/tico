@@ -25484,6 +25484,16 @@
               }
             ],
             "title": "Place"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantPage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -25492,6 +25502,27 @@
           "text"
         ],
         "title": "AssistantMessage"
+      },
+      "AssistantPage": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Path"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Title",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "AssistantPage"
       },
       "AssistantReadBack": {
         "properties": {
