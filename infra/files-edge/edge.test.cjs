@@ -183,7 +183,16 @@ test('hostile object headers, metadata and body never widen the ceiling or set c
 test('distribution wiring preserves files and error fallback without stacking the visual CSP', async () => {
     const config = resources.Distribution.Properties.DistributionConfig;
     const behaviors = [config.DefaultCacheBehavior, ...config.CacheBehaviors];
-    assert.equal(config.Enabled, false);
+    // Disabled unless the stand-up passes Enabled=true; standard logs only when given a log bucket.
+    assert.deepEqual(config.Enabled, {'Fn::If': ['Activate', true, false]});
+    assert.deepEqual(template.Conditions.Activate, {'Fn::Equals': [{Ref: 'Enabled'}, 'true']});
+    assert.equal(template.Parameters.Enabled.Default, 'false');
+    assert.deepEqual(config.Logging['Fn::If'][0], 'Logs');
+    assert.deepEqual(config.Logging['Fn::If'][1], {Bucket: {Ref: 'LogBucketDomainName'}, Prefix: {Ref: 'LogPrefix'},
+        IncludeCookies: false});
+    const logBucket = new RegExp('^(?:' + template.Parameters.LogBucketDomainName.AllowedPattern + ')$');
+    assert.ok(logBucket.test('ticofiles-logs-1.s3.amazonaws.com') && logBucket.test(''));
+    assert.ok(!logBucket.test('ticofiles-logs-1') && !logBucket.test('logs.s3.us-east-1.amazonaws.com.evil'));
     assert.equal(config.CacheBehaviors[0].PathPattern, '/visuals/*');
     for (const [i, behavior] of behaviors.entries()) {
         const name = i ? 'Visuals' : 'Files';
