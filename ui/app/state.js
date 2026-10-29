@@ -83,12 +83,14 @@ const runnerUrl = () => S.config.runner_url || location.origin;
 // Only a successful authenticated workspace config may grant native visual navigation.
 // Local name/provider edits still use synchronous applyConfig and never change that grant.
 const NATIVE_VISUAL_WAIT_MS = 5000, NATIVE_VISUAL_TIMEOUT = Symbol('native visual wait');
-let NATIVE_VISUAL_VERSION = 0, NATIVE_VISUAL_PENDING = Promise.resolve(), NATIVE_VISUAL_ORIGIN = '';
+// NATIVE_VISUAL_FILES: Tico file hosting's address (config.visual_files) once the shell acknowledged it: a page's frame
+// may then follow the app's own /visuals route on to it (ui/app/visual-cards.js visualFrameOk).
+let NATIVE_VISUAL_VERSION = 0, NATIVE_VISUAL_PENDING = Promise.resolve(), NATIVE_VISUAL_ORIGIN = '', NATIVE_VISUAL_FILES = '';
 const nativeVisualVersion = () => NATIVE_VISUAL_VERSION;
 const authenticatedConfigPerson = me => !!(me && typeof me.id === 'string' && me.id.trim()
   && me.cloud === true && ['owner', 'viewer'].includes(me.role));
-function nativeVisualOrigin(config) {
-  const raw = config?.visual_origin;
+function nativeVisualOrigin(config, field = 'visual_origin') {
+  const raw = config?.[field];
   if (typeof raw !== 'string' || !raw || /[^\x21-\x7e]|[@\\%?#]/.test(raw)) return '';
   try {
     const url = new URL(raw);
@@ -96,15 +98,18 @@ function nativeVisualOrigin(config) {
       && !url.search && !url.hash && url.origin !== location.origin ? url.origin : '';
   } catch { return ''; }
 }
-function nativeVisualChange(origin, clear = false) {
+function nativeVisualChange(origin, clear = false, files = '') {
   const version = ++NATIVE_VISUAL_VERSION;
-  NATIVE_VISUAL_ORIGIN = '';
+  NATIVE_VISUAL_ORIGIN = NATIVE_VISUAL_FILES = '';
   const pending = NATIVE_VISUAL_PENDING.catch(() => {}).then(async () => {
     if (!clear && version !== NATIVE_VISUAL_VERSION) return false;
-    if ((window.ticoNativeFeatures || []).includes('visualOrigin') && window.ticoNative) {
+    const features = window.ticoNativeFeatures || [];
+    if (features.includes('visualOrigin') && window.ticoNative) {
+      // A shell without `visualFiles` hears only {origin}: it would refuse the whole message.
+      const body = features.includes('visualFiles') ? {origin, files} : {origin};
       let handler, accepted = false;
-      try { handler = window.ticoNative('visualOrigin'); accepted = await handler.postMessage({origin}) === true; } catch {}
-      if (origin && !accepted && handler) try { await handler.postMessage({origin: ''}); } catch {}
+      try { handler = window.ticoNative('visualOrigin'); accepted = await handler.postMessage(body) === true; } catch {}
+      if ((origin || body.files) && !accepted && handler) try { await handler.postMessage({origin: ''}); } catch {}
       return accepted;
     }
     return false;
@@ -126,7 +131,8 @@ function clearNativeVisualOrigin() {
 }
 async function applyAuthenticatedConfig(config, expected = nativeVisualVersion()) {
   if (SESSION.out || expected !== nativeVisualVersion()) return null;
-  const origin = nativeVisualOrigin(config), {version, pending} = nativeVisualChange(origin);
+  const origin = nativeVisualOrigin(config), files = nativeVisualOrigin(config, 'visual_files');
+  const {version, pending} = nativeVisualChange(origin, false, files);
   const accepted = await nativeVisualWait(pending);
   if (SESSION.out || version !== nativeVisualVersion()) return null;
   if (accepted === NATIVE_VISUAL_TIMEOUT) {
@@ -136,9 +142,12 @@ async function applyAuthenticatedConfig(config, expected = nativeVisualVersion()
     const clearedVersion = nativeVisualVersion();
     return {config: applyConfig(config), version: clearedVersion};
   }
-  if (accepted) NATIVE_VISUAL_ORIGIN = origin;
+  if (accepted) {
+    NATIVE_VISUAL_ORIGIN = origin;
+    NATIVE_VISUAL_FILES = (window.ticoNativeFeatures || []).includes('visualFiles') ? files : '';
+  }
   const value = applyConfig(config);
-  if (accepted && origin && typeof nativeVisualRepaint === 'function') nativeVisualRepaint();
+  if (accepted && (origin || NATIVE_VISUAL_FILES) && typeof nativeVisualRepaint === 'function') nativeVisualRepaint();
   return {config: value, version};
 }
 // A page reload is not evidence that the previous browser session is still valid.

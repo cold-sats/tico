@@ -791,10 +791,15 @@ SCHEMAS = {
                    "public_url": "s", "owner_email": "s", "version": "s",
                    "visual_origin": {"type": "string", "description": "Configured non-secret visual origin, or empty "
                                      "when absent or invalid; grants no native IPC permission."},
-                   "visuals": {"type": "string", "enum": ["full", "media"],
+                   "visuals": {"type": "string", "enum": ["full", "hosted", "media"],
                                "description": "How visuals show, from the setup (no switch): full with a separate "
-                                              "visual address; media without one (pictures, video and audio inline, "
-                                              "pages and SVG open in the file viewer)."},
+                                              "visual address; hosted without one while Tico file hosting takes new "
+                                              "files (pages and SVG inline from the company's files address); media "
+                                              "otherwise (pictures, video and audio inline, pages and SVG open in the "
+                                              "file viewer)."},
+                   "visual_files": {"type": "string", "description": "Signed-in callers: the Tico file hosting origin "
+                                    "pages and SVG show from when there is no visual address, else empty; grants no "
+                                    "native IPC permission."},
                    "s3_view_urls": {"type": "object", "additionalProperties": {"type": "string"},
                                     "description": "Signed-in callers: bucket -> https base an s3://bucket/key opens at "
                                                    "(base + '/' + key, each segment URL-encoded; TICO_S3_VIEW_URLS)"}},
@@ -1158,6 +1163,8 @@ SCHEMAS = {
     "StrategyBotView": obj({"name": "s", "regular_checks": {"type": "boolean",
                        "description": "Whether the KPI pass and the automatic goal colours run"},
                        "level": {"type": "integer", "enum": [1, 2, 3]},
+                       "level_chosen": {"type": "boolean",
+                                        "description": "Whether the owner chose the level; if not, it is the default"},
                        "levels": items(obj({"level": "i", "name": "s", "sentence": "s", "ready": "b"},
                                            required=["level", "name", "sentence", "ready"])),
                        "level_changed_by": "s", "level_changed_by_name": "s", "level_changed_at": "s",

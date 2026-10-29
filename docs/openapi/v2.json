@@ -26975,9 +26975,14 @@
             "type": "string",
             "enum": [
               "full",
+              "hosted",
               "media"
             ],
-            "description": "How visuals show, from the setup (no switch): full with a separate visual address; media without one (pictures, video and audio inline, pages and SVG open in the file viewer)."
+            "description": "How visuals show, from the setup (no switch): full with a separate visual address; hosted without one while Tico file hosting takes new files (pages and SVG inline from the company's files address); media otherwise (pictures, video and audio inline, pages and SVG open in the file viewer)."
+          },
+          "visual_files": {
+            "type": "string",
+            "description": "Signed-in callers: the Tico file hosting origin pages and SVG show from when there is no visual address, else empty; grants no native IPC permission."
           },
           "s3_view_urls": {
             "type": "object",
@@ -36452,6 +36457,10 @@
               2,
               3
             ]
+          },
+          "level_chosen": {
+            "type": "boolean",
+            "description": "Whether the owner chose the level; if not, it is the default"
           },
           "levels": {
             "type": "array",

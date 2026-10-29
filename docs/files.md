@@ -285,8 +285,12 @@ be started again to copy what remains.
 
 Files in Tico storage are reachable only through short-lived signed links. Tico checks access on every request,
 private-task files stay private, and there is no public listing. Pictures, video and audio open inline from the
-company's files address. For self-hosted companies using file hosting, web pages and SVG files show as **Open**
-cards that open the file viewer. Full inline pages and SVG are a separate change.
+company's files address. Web pages and SVG files show inline from it too, so a Mac or local install with no
+[visual address](visuals.md#self-hosting) of its own still shows them in conversations and on pages: Tico stores a
+cleaned copy beside each one (`/visuals/…`, as described above) and, after checking the reader, sends their browser
+to a four-minute link to it. A page stored before file hosting was turned on stays an **Open** card until **Move
+existing files** copies it. While credits are out or hosting is stopped, a page that already has its copy still
+shows inline; a new one is an **Open** card.
 
 When the owner stops file hosting on the Gateway page, new files go back to the company's own storage: its bucket,
 or the server's storage if it has no bucket. **Download all files** offers a ZIP export of every file and version

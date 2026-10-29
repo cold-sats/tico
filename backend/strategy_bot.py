@@ -64,7 +64,7 @@ def name(c):
 def view(c):
     history = level_history(c)
     return {"name": name(c), "regular_checks": checks(c),
-            "level": level(c), "levels": levels(),
+            "level": level(c), "level_chosen": _record(c).get("level") in LEVELS, "levels": levels(),
             "level_changed_by": history[0]["by"] if history else "",
             "level_changed_at": history[0]["at"] if history else "",
             "level_history": history, "asked_today": asked_today_all(c),
@@ -166,9 +166,10 @@ def proactive(c):
     return level(c) >= 2
 
 
-def _review(c, actor, record):
+def _review(c, actor, record, raised=False):
     """The Monday note (the bot's `goals-review` routine, declared paused) starts when the level is above Passive: when
-    the owner raises it from Passive, or, on an install that never chose a level, once `reconcile` finds the routine.
+    the owner raises it from Passive (`raised`), or later, once `reconcile` finds the routine, if no person has
+    started or paused it since that raise (`review_raised`, kept while the routine is missing) or, with no raise, ever.
     Back at Passive, it is paused again only if this started it and nobody has paused or started it since: a person's
     own choice is never overruled. `review_settled` says it has had its one go at starting it at the current raise, so
     `reconcile` never starts it again."""
@@ -177,14 +178,20 @@ def _review(c, actor, record):
     if (record.get("level") if record.get("level") in LEVELS else DEFAULT_LEVEL) < 2:     # the level being saved
         armed = record.pop("review_armed", None)
         record.pop("review_settled", None)
+        record.pop("review_raised", None)
         if row and not row["deleted_at"] and armed and row["enabled"] and not _review_touched(c, armed):
             routines.update(c, H.KEEPER, REVIEW, {"enabled": False})
             H.event(c, actor, "strategy_bot.review_paused", REVIEW, {})
         return
     if not row or row["deleted_at"]:
+        if raised:
+            record["review_raised"] = H.now()
         return              # not there yet: `reconcile` starts it once it is
     record["review_settled"] = True
-    if not row["enabled"]:
+    since = record.pop("review_raised", None)
+    # Only the owner's raise from Passive overrides a person's earlier start or pause; the default never does, and a
+    # person's choice after the raise still wins.
+    if not row["enabled"] and (raised or not _review_touched(c, since or "")):
         routines.update(c, H.KEEPER, REVIEW, {"enabled": True})
         record["review_armed"] = H.now()
         H.event(c, actor, "strategy_bot.review_armed", REVIEW, {})
@@ -363,7 +370,7 @@ def set_level(c, actor, value):
     history.append({"level": value, "was": was, "by": actor, "at": at})
     record.update(level=value, level_history=history[-HISTORY_KEEP:])
     if (value >= 2) != (was >= 2):
-        _review(c, actor, record)               # the Monday note starts above Passive and stops back at it
+        _review(c, actor, record, raised=True)  # the Monday note starts above Passive and stops back at it
     _save(c, record)
     if value < 2:
         from . import strategy_suggest

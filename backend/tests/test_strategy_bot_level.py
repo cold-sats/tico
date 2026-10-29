@@ -79,9 +79,11 @@ def test_an_owner_who_picks_the_default_keeps_it_as_their_choice(api):
     so a later default never moves an owner who chose it."""
     store = api.app.state.store
     with_strategy_bot(api, level=None)
+    assert get(api, "strategy-bot")["level_chosen"] is False
     with store.transaction() as c:
         strategy_bot.set_level(c, OWNER, 2)
         assert strategy_bot._record(c)["level"] == 2 and strategy_bot.level_history(c) == []
+    assert get(api, "strategy-bot")["level_chosen"] is True
 
 
 def test_only_the_owner_changes_the_level_and_each_change_is_logged(api):
@@ -269,6 +271,55 @@ def test_with_no_chosen_level_the_monday_note_starts_once_and_a_persons_pause_st
     with store.transaction() as c:
         strategy_bot.reconcile(c)
     assert not review_enabled(api)
+
+
+def test_an_upgrade_to_the_new_default_keeps_a_monday_note_a_person_paused(api):
+    """Before the default was Suggests actions, a person started the Monday note and paused it again. The upgrade's
+    reconcile leaves it paused, and never tries again."""
+    with_strategy_bot(api, level=None)
+    review_routine(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": True})
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        strategy_bot.reconcile(c)
+        assert strategy_bot._record(c).get("review_settled") is True
+        strategy_bot.reconcile(c)
+    assert not review_enabled(api)
+
+
+def test_confirming_the_default_never_restarts_a_monday_note_a_person_paused(api):
+    """The routine appears after the upgrade, a person starts and pauses it, and the owner confirms Suggests actions
+    before the next reconcile: confirming the default is no raise, so the reconcile leaves the note paused."""
+    with_strategy_bot(api, level=None)
+    store = api.app.state.store
+    with store.transaction() as c:
+        strategy_bot.reconcile(c)                                                  # no routine yet
+    review_routine(api)
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": True})
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        strategy_bot.set_level(c, OWNER, 2)
+        strategy_bot.reconcile(c)
+    assert not review_enabled(api)
+
+
+def test_a_raise_while_the_note_is_missing_still_starts_it_over_an_older_pause(api):
+    """A person paused the Monday note and deleted it, and the owner raised the level from Passive: when the note is
+    back, still paused, the reconcile starts it, since the raise is newer than the pause."""
+    goal_manager(api)
+    review_routine(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": True})
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        routines.remove(c, OWNER, REVIEW)
+    with store.transaction() as c:
+        strategy_bot.set_level(c, OWNER, 2)
+        # The note comes back still paused, the way backend/redesign_migration.py brings an automation back.
+        c.execute("UPDATE automations SET deleted_at=NULL WHERE id=?", (routines.row(c, REVIEW)["automation"],))
+        strategy_bot.reconcile(c)
+    assert review_enabled(api)
 
 
 def test_with_no_chosen_level_passive_pauses_the_note_and_withdraws_what_waits_and_the_default_changes_nothing(api):

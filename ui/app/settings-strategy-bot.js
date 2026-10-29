@@ -4,7 +4,8 @@
 
 // Regular checks on or off (the KPI pass and the automatic goal colours), then three levels (backend/strategy_bot.py LEVELS),
 // each with its one sentence of what it will and won't do. Picking a level shows that sentence again with a Confirm
-// before anything changes. Only the owner sees the tab; the server refuses everyone else, admins and every bot
+// before anything changes. Where the level is only the default (`level_chosen` false), the owner can confirm it too,
+// so a later default never moves them. Only the owner sees the tab; the server refuses everyone else, admins and every bot
 // included. Its name is the bot's own Name field (Settings > Bots), the owner's too.
 let STRATEGY_BOT_PICK = null;
 const settingsStrategyBotShown = () => S.me?.role === 'owner';
@@ -14,7 +15,8 @@ async function renderSettingsStrategyBot() {
   const v = await v2Get('/v2/strategy-bot');
   const name = esc(v?.name || strategyBotName());
   if (!v) { host.innerHTML = `<div class="empty">Couldn't load the ${name}'s settings. Try again in a moment.</div>`; return; }
-  const pick = v.levels.find(lv => lv.level === STRATEGY_BOT_PICK && lv.level !== v.level);
+  const pick = v.levels.find(lv => lv.level === STRATEGY_BOT_PICK && (lv.level !== v.level || !v.level_chosen));
+  const keep = pick?.level === v.level;
   const now = v.levels.find(lv => lv.level === v.level);
   const last = v.level_changed_at ? `${esc(now?.name || 'Level ' + v.level)} since ${esc(fmt(v.level_changed_at))}, chosen by ${esc(v.level_changed_by_name || v.level_changed_by)}.`
     : `${esc(now?.name || 'Level ' + v.level)}, where every company starts.`;
@@ -28,7 +30,8 @@ async function renderSettingsStrategyBot() {
         <strong>${esc(lv.name)}${lv.level === v.level ? ' <span class="pill">Now</span>' : ''}</strong>
         <span>${esc(lv.sentence)}</span></button>`).join('')}</div>
     ${pick ? `<div class="strategy-confirm" role="alertdialog" aria-label="Confirm the change">
-      <p><strong>Change to ${esc(pick.name)}?</strong> ${esc(pick.sentence)}</p>
+      <p><strong>${keep ? `Keep ${esc(pick.name)} as your choice?` : `Change to ${esc(pick.name)}?`}</strong> ${keep
+        ? `It stays at ${esc(pick.name)} even if the level every company starts at changes.` : esc(pick.sentence)}</p>
       <div class="row"><button class="primary" type="button" data-strategy-confirm="${pick.level}">Confirm</button>
         <button class="ghost" type="button" data-strategy-cancel>Cancel</button></div></div>` : ''}
     <p class="settings-cell-note" data-strategy-status role="status"></p>

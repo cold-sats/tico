@@ -334,6 +334,11 @@ def config_view(c, settings, who=None):
         value["readiness_turn_user"] = True
         # Where a bucket's objects open (TICO_S3_VIEW_URLS): the UI links s3:// URIs, `hub` rewrites them before sending.
         value["s3_view_urls"] = dict(settings.s3_view_urls)
+        # Pages and SVG from Tico file hosting: the desktop app follows a frame to this origin, only on its signed
+        # visual paths (app/src/visual_origin.rs), when the install has no visual address of its own.
+        from . import tico_storage, visuals
+        value["visuals"] = visuals.shown(settings, c)
+        value["visual_files"] = "" if settings.visual_origin else tico_storage.visual_address(c)[0]
     value["in_docker"] = running_in_docker()      # the first run offers a Linux computer first when the server is one
     value["version"] = releases.version()
     value["ui_build"] = ui_bundle.build_id(settings.ui_dir)      # an open page compares it with its own (ui/app/notices.js)
