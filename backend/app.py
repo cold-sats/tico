@@ -1358,9 +1358,9 @@ def create_app(settings=None):
             raise Problem("delivery", wrong, 422)
         if body.delivery and body.kind == "ask":
             raise Problem("delivery", "A question always wakes the one it is for: send it without a delivery", 422)
-        # How it reaches a bot (backend/delivery.py). A person's message with none named is queued; a bot's goes as
-        # bot-to-bot messages always have (backend/bot_to_bot.py).
-        way = body.delivery or ("queue" if to.startswith("bot:") and who.role in ("owner", "human") else None)
+        # How it reaches a bot (backend/delivery.py). With none named a message goes as it always has: a person's
+        # steers, a bot's goes as bot-to-bot messages do (backend/bot_to_bot.py).
+        way = body.delivery
         if to.startswith("bot:") and way in ("steer", "queue") and who.role == "bot":
             refs["needs_action"] = True
         if in_assistant_room:

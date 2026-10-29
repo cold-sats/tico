@@ -763,11 +763,11 @@ the label, then add it on the task as above.
 Lane and number are a mover's alone ([Permissions](permissions.md#tags)).
 A bot's comment is a message to the people on the task, under the usual rules for reaching them.
 
-A person's comment with no way named is a **Queue** when the bot owns the task (see Conversation below), and is never
+A person's comment with no way named is a **Steer** when the bot owns the task (see Conversation below), and is never
 quiet on a task with no bot on it. On a task a bot filed and a person owns, a comment is most often a progress note:
 it is a **Defer** with a 24-hour deadline, reaching the bot that asked on its next turn on the task, or in a day at the
-latest. A comment that @mentions a bot on the task (`@ops`, or its name), or comes from the person the task waits on,
-is a Queue. A comment from someone not on the task (not its owner, requester or a mover) is a Defer with no deadline,
+latest. A comment that @mentions a bot on the task (`@ops`, or its name) is a **Queue**; one from the person the task
+waits on is a Steer. A comment from someone not on the task (not its owner, requester or a mover) is a Defer with no deadline,
 so a reader never spends a bot's turns on a task that is not theirs. A person @mentioned in a
 comment (by id, the part of their email before the @, full name, or first name when no one else
 shares it) gets the comment as a question, which puts the task in their Needs you; when the
@@ -1117,7 +1117,7 @@ this view: each bot reply in `comments` has its `run`; `execution` is the owning
 room, or a newer one for a person's message there, shaped as in a conversation snapshot with `from_person`; `comment_to`
 (`bot`, `wakes`, `mention`) is who your next comment reaches; and `comment_delivery` (`default`, `default_for`,
 `steer`, `queue`, `steers`, `goal`) is how it can reach them: `default` is what a comment without a delivery does
-(`queue` or `defer`) and `default_for` that defer's deadline (`24h`, `never`), `steer` and `queue` say you may wake the
+(`steer`, `queue` or `defer`) and `default_for` that defer's deadline (`24h`, `never`), `steer` and `queue` say you may wake the
 bot, `steers` says the bot's harness can take a message into a running turn, and `goal` says a goal can be set (null
 and false without a bot). A task still in a chat room (one filed into a chat before task
 rooms) has no `execution` and no goal of its own: that room's runs and goal belong to the chat, so `goal` is false.

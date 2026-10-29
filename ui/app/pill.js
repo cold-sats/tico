@@ -277,7 +277,8 @@ function pillButtons(P) {
 }
 // The bot chat's ways to send: a hub bot's own chat, sending a message (not a task).
 const pillWaysOn = P => !!P.ways && isKeeper(P.slug) && P.action !== 'task';
-// The way the next send goes, when it is not plain Queue: the menu's pick, for one send.
+// The way the next send goes, when it is not plain Send (Steer, as a chat message always went): the menu's pick, for
+// one send.
 const pillWay = P => pillWaysOn(P) && !pillGoalMode(P) ? P.way : null;
 const PILL_DEFER_DEFAULT = 'never';
 function pillWayMenu(P, open) {
@@ -285,14 +286,14 @@ function pillWayMenu(P, open) {
   if (!open && menu.hidden) return;
   const state = V2C?.slug === P.slug ? V2C : null;
   const goal = !!P.goalMode || !!state?.goalSupported && !goalPinned(state.goal);
-  const current = pillGoalMode(P) ? 'goal' : P.way || 'queue';
+  const current = pillGoalMode(P) ? 'goal' : P.way || 'steer';
   menu.innerHTML = open ? deliveryMenuHTML({goal, current, deferFor: deliveryWay(current) === 'defer' ? deliveryFor(current) : PILL_DEFER_DEFAULT}) : '';
   menu.hidden = !open;
   caret.setAttribute('aria-expanded', String(!!open));
   // On a phone the keyboard stays up: focus stays in the box.
   if (open && !touchKeyboard()) (menu.querySelector('[aria-checked="true"]') || menu.querySelector('button'))?.focus();
 }
-// A picked way is for one send: once a message sent that way lands, Send is Queue again.
+// A picked way is for one send: once a message sent that way lands, Send is plain Send again.
 function pillWaySent(P, extra) {
   if (!P.way || !extra?.delivery) return;
   const was = deliveryBody(P.way);
@@ -305,7 +306,7 @@ function pillWayPick(P, mode) {
     if (!P.goalMode) chatGoalButton();               // the same goal mode as the target button
   } else {
     if (P.goalMode) chatGoalButton();                // a way to send leaves goal mode
-    P.way = mode === 'queue' ? null : mode;
+    P.way = mode === 'steer' ? null : mode;
   }
   pillLabel(P); pillButtons(P);
   if (!touchKeyboard()) pq(P, '.p-text')?.focus();
@@ -528,7 +529,7 @@ async function pillSend(P) {
     sessionAcknowledge(box); pillClear(P, true); return;
   }
   if (isKeeper(P.slug)) {                                     // hub.db, not an Issue comment
-    // Plain Send is Queue and names no way; a picked way goes once (v2ChatSend puts the arrow back when it lands).
+    // Plain Send names no way (the server steers, as before); a picked way goes once (v2ChatSend puts the arrow back).
     return P.action === 'task' ? v2PillTask(P, text) : v2ChatSend(P, text, P.slug, {}, deliveryBody(pillWay(P)));
   }
   if (P.action === 'task') return pillTask(P, text);

@@ -170,13 +170,14 @@ def test_a_new_task_takes_queue_or_defer_but_not_steer(api):
     assert older["next_run"] is True and rows(api, item=older["id"])[0]["due"] > H.shift(H.now(), hours=23)
 
 
-def test_a_chat_message_queues_by_default_and_defers_with_no_deadline(api):
+def test_a_chat_message_steers_by_default_queues_when_asked_and_defers_with_no_deadline(api):
     machine = setup(api)
     first = post(api, "chat/ops", {"text": "Morning numbers?"})
     attempt = claim(api, machine)
     post(api, f"attempts/{attempt['id']}/started", {"thread_id": "chat"}, machine["token"])
-    queued = post(api, "chat/ops", {"text": "And the refunds."})
-    steered = post(api, "chat/ops", {"text": "Skip the charts.", "delivery": "steer"})
+    queued = post(api, "chat/ops", {"text": "And the refunds.", "delivery": "queue"})
+    steered = post(api, "chat/ops", {"text": "Skip the charts."})
+    assert queued["sent_as"]["delivery"] == "queue" and steered["sent_as"]["delivery"] == "steer"
     taken = [m["id"] for m in post(api, f"attempts/{attempt['id']}/inputs", {}, machine["token"])["messages"]]
     assert steered["id"] in taken and queued["id"] not in taken
     post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "text": "Done.", "last_seq": 0},

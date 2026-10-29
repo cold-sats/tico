@@ -67,9 +67,9 @@ def test_steer_joins_the_running_turn_queue_follows_it_and_defer_rides_along(api
     assert rides["sent_as"]["delivery"] == "queue" and job_state(api, rides["comment"]["id"]) == "queued"
     assert rides["comment"]["id"] not in inputs(api, machine, attempt) and deferrals(api, rides["comment"]["id"]) == []
 
-    # Omitted, a person's comment on a task they gave a bot is a queue.
+    # Omitted, a person's comment on a task they gave a bot steers, as it always has.
     plain = post(api, f"tasks/{tid}/comments", {"text": "Also the API page."})
-    assert plain["sent_as"]["delivery"] == "queue" and plain["comment"]["id"] not in inputs(api, machine, attempt)
+    assert plain["sent_as"]["delivery"] == "steer" and plain["comment"]["id"] in inputs(api, machine, attempt)
 
 
 def test_defer_wakes_nobody_and_keeps_a_deadline(api):
@@ -137,7 +137,7 @@ def test_a_deferred_comment_reaches_the_bots_next_prompt_once(api):
 def test_the_send_says_which_ways_a_reader_may_deliver(api):
     machine, tid = world(api)
     cd = get(api, f"tasks/{tid}")["comment_delivery"]
-    assert cd["default"] == "queue" and cd["default_for"] is None and cd["steer"] is True and cd["queue"] is True
+    assert cd["default"] == "steer" and cd["default_for"] is None and cd["steer"] is True and cd["queue"] is True
     assert isinstance(cd["steers"], bool) and cd["goal"] is True
 
     # A person's task with no bot on it: nothing to deliver to.
@@ -188,7 +188,7 @@ def test_the_goal_route_sets_no_task_sessions_goal_for_someone_off_the_task(api)
 def test_a_bot_whose_harness_cannot_take_goals_offers_no_goal(api):
     machine, tid = world(api, goals=False)
     cd = get(api, f"tasks/{tid}")["comment_delivery"]
-    assert cd["default"] == "queue" and cd["goal"] is False
+    assert cd["default"] == "steer" and cd["goal"] is False
 
 
 def test_goal_sets_the_task_sessions_goal_as_a_chat_goal_does(api):

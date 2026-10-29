@@ -341,8 +341,8 @@ async function emptyChat(browser) {
   console.log('empty chat: ok');
 }
 
-// The send's caret: how the next message reaches the bot. Plain Send (Queue) names no way; Steer now and Defer <duration>
-// go with the message once, then Send is Queue again; Set as goal turns on goal mode. At desktop and phone widths.
+// The send's caret: how the next message reaches the bot. Plain Send (Steer) names no way; Queue and Defer <duration>
+// go with the message once, then Send is plain again; Set as goal turns on goal mode. At desktop and phone widths.
 async function sendWays(browser, viewport, touch) {
   const api = await open(browser, viewport, touch), {page} = api;
   const press = loc => touch ? loc.tap() : loc.click();
@@ -357,7 +357,7 @@ async function sendWays(browser, viewport, touch) {
     await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
     return api.sends.at(-1);
   };
-  assert.deepEqual(await sendText('Morning'), {text: 'Morning', refs: {}}, 'plain Send is Queue and names no way');
+  assert.deepEqual(await sendText('Morning'), {text: 'Morning', refs: {}}, 'plain Send is Steer and names no way');
 
   await press(caret);
   await menu.waitFor();
@@ -382,10 +382,10 @@ async function sendWays(browser, viewport, touch) {
   await press(page.locator('#conv-thread'));
   assert.equal(await menu.isHidden(), true, 'a press outside closes the menu');
 
-  // Steer now: the button says so, the message carries it, then Send is Queue again.
-  await press(caret); await press(menu.locator('[data-deliver="steer"]'));
-  assert.equal(await send.innerText(), 'Steer');
-  assert.deepEqual(await sendText('Use the staging data'), {text: 'Use the staging data', refs: {}, delivery: 'steer'});
+  // Queue: the button says so, the message carries it, then Send is plain again.
+  await press(caret); await press(menu.locator('[data-deliver="queue"]'));
+  assert.equal(await send.innerText(), 'Queue');
+  assert.deepEqual(await sendText('Use the staging data'), {text: 'Use the staging data', refs: {}, delivery: 'queue'});
   assert.equal(await send.getAttribute('aria-label'), 'Send', 'the pick is for one send');
   assert.deepEqual(await sendText('And thanks'), {text: 'And thanks', refs: {}});
 
@@ -414,7 +414,7 @@ async function sendWays(browser, viewport, touch) {
   await press(caret); await press(menu.locator('[data-deliver="goal"]'));
   assert.equal(await page.locator('#chat-composer .p-goal').getAttribute('aria-pressed'), 'true');
   assert.equal(await send.innerText(), 'Set goal');
-  await press(caret); await press(menu.locator('[data-deliver="queue"]'));
+  await press(caret); await press(menu.locator('[data-deliver="steer"]'));
   assert.equal(await page.locator('#chat-composer .p-goal').getAttribute('aria-pressed'), 'false');
   assert.equal(await send.getAttribute('aria-label'), 'Send');
   assert.deepEqual(api.goalPosts, [], 'no goal was set');

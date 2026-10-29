@@ -5297,28 +5297,29 @@ def comment_target(conn, actor, row):
 
 def comment_way(conn, actor, row, text, *, mover=False):
     """How a comment from `actor` with no delivery named reaches the bot on the task (backend/delivery.py): `steer`,
-    `queue` or `defer`, with the defer's deadline (`24h`, `never`) or None.
+    `queue` or `defer`, with the defer's deadline (`24h`, `never`) or None. A comment that wakes the bot steers, as a
+    person's comment always has: it joins the bot's turn running on the task.
 
     A bot's comment goes as bot messages always have (steer), or waits on a snoozed task. A person's:
     - someone neither on the task nor a mover: defer, no deadline, so a reader never spends a bot's turns on a task
       that isn't theirs;
-    - no bot on the task: queue (it reaches a person, who has no turns);
-    - the task waits on them: queue, they are answering it;
+    - no bot on the task: steer (it reaches a person, who has no turns);
+    - the task waits on them: steer, they are answering it;
     - a task a bot filed for a person (its requester or origin a bot, its owner not): defer 24h, unless the comment
       @names a bot on the task: queue. Such a comment is most often a progress note, not a question for the bot;
-    - a task a bot owns: queue, the person is directing its work."""
+    - a task a bot owns: steer, the person is directing its work."""
     if is_bot(actor):
         return ("steer", None) if not TS.snoozed(row) else ("defer", "never")
     if not (mover or task_participant(conn, actor, row)):
         return "defer", "never"
     origin = task_origin(conn, row)
     if not any(is_bot(a) for a in (row["owner"], row["requester"], origin)):
-        return "queue", None
+        return "steer", None
     if row.get("waiting_on") == actor:
-        return "queue", None
+        return "steer", None
     if not is_bot(row["owner"]) and (is_bot(row["requester"]) or is_bot(origin)):
         return ("queue", None) if names_a_bot(conn, text, row) else ("defer", "24h")
-    return "queue", None
+    return "steer", None
 
 
 def comment_wakes(conn, actor, row, text, *, mover=False):

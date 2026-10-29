@@ -239,7 +239,8 @@ all; deferred tasks and messages tied to no session batch into one run per bot. 
 when idle wakes for it. Each deadline fires once, across restarts. A turn's prompt counts what was deferred to it:
 "Deferred since your last turn: 2 comments, 1 task".
 
-Defaults: Send is Queue for a chat message and a comment on a task a bot owns. A comment on a task a bot filed for a
+Defaults: plain Send is Steer for a chat message and a comment on a task a bot owns, as before (when the bot is idle
+that is the same as Queue). A comment on a task a bot filed for a
 person is a Defer with a 24-hour deadline unless it @mentions a bot on the task (then a Queue). A deferred comment or
 task has a 24-hour deadline unless you pick one; a deferred chat message or deferred message has none. Steer does not
 apply to a new task (it has no turn yet). **Set as goal** is a separate action, apart in the send menu.

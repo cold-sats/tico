@@ -72,6 +72,7 @@ CLI_TOOL_ALIASES = {
     "hub_task_show": ("hub_task_show", "hub_task_show_many"),      # `hub task show a b c` is one read
     "hub_market_size_accept": ("hub_market_size_decide",), "hub_market_size_reject": ("hub_market_size_decide",),
     "hub_market_size_params": ("hub_market_size_decide",),
+    "hub_task_defer": ("hub_task_later",),     # `hub task defer` is the older name of `hub task later`
 }
 
 

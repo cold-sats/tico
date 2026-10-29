@@ -56,7 +56,7 @@ Words are defined in the [Glossary](glossary.md).
 - **Message** — one line in a conversation. Kinds: `say`, `ask`, `answer`, `notice`, `steer`. How it reaches a bot
   is one of three ways ([Steer, queue or defer](using-tico.md#steer-queue-or-defer)): **Steer** goes into the bot's
   turn running in that conversation now (when the harness can steer, `steer` in its manifest; otherwise right after
-  it), **Queue**, a person's default, goes right after that turn or now when the bot is idle, and **Defer** wakes
+  it; a person's default), **Queue** goes right after that turn or now when the bot is idle, and **Defer** wakes
   nobody until the bot's next turn there or a deadline. Chat says which, and Stop and redirect ends the turn so the next
   one starts with that message. A requesting bot steers its delegated task's running turn with
   `hub message send --steer --ref task:<id>`.
