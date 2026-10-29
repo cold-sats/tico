@@ -1054,11 +1054,11 @@ class SettingsAdmin:
 
     def history(self, c, who, limit=100, bot="", before=""):
         """One page of the settings changes the caller may see, newest first, and `next_before` for the page after it.
-        The owner sees every change, and the newest `limit` transitions on the first page. A person who manages a bot sees only the
-        changes its manager bots made to the bots they manage (via `report_manager`), and no transitions. Anyone else
-        sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. The page is at most
-        HISTORY_PAGE_BYTES as it is sent: its transitions come first, newest first, and `transitions_truncated` says
-        when some were left out; its changes take what is left."""
+        The owner sees every change, and the newest `limit` transitions on the first page. A person who manages a bot
+        sees only the changes its manager bots made to the bots they manage (via `report_manager`), and no transitions.
+        Anyone else sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. The
+        page is at most HISTORY_PAGE_BYTES as it is sent: its transitions come first, newest first, and
+        `transitions_truncated` says when some were left out; its changes take what is left."""
         if who.role not in ("owner", "human"):
             raise Problem("forbidden", "Only the owner, or a person who manages the bot, sees its settings changes",
                           403)
