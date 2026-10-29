@@ -668,6 +668,10 @@ class GoalProposalDecision(Contract):
     target: KpiTarget | None = None      # an Add a KPI suggestion confirmed with the person's own target on the link
 
 
+class GoalProposalReason(Contract):
+    note: str = Field(max_length=1000)   # one line; backend/goals.py add_reason caps it at REASON_MAX after trimming
+
+
 # The company at the top of Goals (backend/company.py): only the fields sent change.
 class CompanyUpdate(Contract):
     vision: str | None = Field(default=None, max_length=4000)
@@ -1875,10 +1879,14 @@ class BotTaskTab(Contract):
     waiting_on: Literal["", "me", "person", "bot"] = ""
 
 
+SIDEBAR_ITEMS = 60       # pages and cards on one bot's sidebar (backend/cards.py PLACE_MAX)
+
+
 class BotSidebarWidget(Contract):
     """One widget of a bot's sidebar: hidden, and a height in pixels it grows to at most (none: its natural height;
     Tasks: 500)."""
-    id: Literal["tasks", "updates", "files", "routines"]
+    id: str = Field(pattern=r"^(tasks|updates|files|routines|(page|card):[A-Za-z0-9_.-]{1,100})$",
+                    description="A built-in widget, or a pinned page (page:<file id>) or card (card:<id>)")
     hidden: bool = False
     height: int | None = Field(default=None, ge=80, le=2000)
 
@@ -1887,7 +1895,7 @@ class BotTaskTabs(Contract):
     # No cap on how many tabs (Task-list tabs spec): the request body limit bounds one write. Leaving widgets out keeps
     # the saved ones.
     tabs: list[BotTaskTab] | None
-    widgets: list[BotSidebarWidget] | None = Field(default=None, max_length=4)
+    widgets: list[BotSidebarWidget] | None = Field(default=None, max_length=4 + SIDEBAR_ITEMS)
 
 
 class BotTransitionCreate(Contract):

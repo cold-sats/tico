@@ -316,7 +316,7 @@ async function reportFallback(browser) {
 async function externalChanges(browser) {
   const {page, errors, calls, people, groups, bots, failures} = await open(browser, {id: 'ana', role: 'owner', cloud: true});
   // Another session changes both the group tree and its members while this chart is open.
-  await page.locator('#tree .dept-label', {hasText: /^Marketing$/}).click();
+  await row(page, 'Marketing').locator('.chev').click();
   groups.push({id: 'campaigns', name: 'Campaigns', parent: 'marketing'});
   people.find(p => p.id === 'cara').team = 'campaigns';
   bots.find(b => b.name === 'scout').team = 'campaigns';
@@ -326,7 +326,7 @@ async function externalChanges(browser) {
     'Ana', {Marketing: [{Ben: ['Marketing Lead']}, {SEO: ['Writer']}, {Campaigns: ['Cara', 'Scout']}]},
     {Sales: []}]);
   assert.equal(await node(page, 'b:scout').isVisible(), false, 'normal polling preserves collapsed groups');
-  await page.locator('#tree .dept-label', {hasText: /^Marketing$/}).click();
+  await row(page, 'Marketing').locator('.chev').click();
   assert.equal(await node(page, 'b:scout').isVisible(), true);
 
   // A partial failure must not mix new bots with old humans/groups. Retry replaces them together.
@@ -351,9 +351,9 @@ async function owner(browser) {
   assert.deepEqual(await shape(page), [
     'Ana', {Marketing: [{Ben: ['CMO']}, {SEO: ['Writer']}]}, {Sales: []}, 'Cara', 'Scout']);
   // A group collapses.
-  await page.locator('#tree .dept-label', {hasText: /^Marketing$/}).click();
+  await row(page, 'Marketing').locator('.chev').click();
   assert.equal(await page.locator('#tree a.node[href="#/bot/writer"]').isVisible(), false);
-  await page.locator('#tree .dept-label', {hasText: /^Marketing$/}).click();
+  await row(page, 'Marketing').locator('.chev').click();
   assert.equal(await page.locator('#tree a.node[href="#/bot/writer"]').isVisible(), true);
   assert.equal(await node(page, 'b:botops').count(), 0, 'built-in bots stay out of the chart');
   assert.equal(await page.locator('#nav-botops').getAttribute('href'), '#/bot/botops');

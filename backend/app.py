@@ -1278,6 +1278,11 @@ def create_app(settings=None):
                 # A chat about one automation (BotOps edits the one a person has open): the caller must be able to see it.
                 if not automations.may_reference(c, who, values):
                     raise Problem("reference", "Unknown automation", 422)
+            elif kind == "automations_filter":
+                # What the Automations page shows (range, tab, filters), so BotOps answers about that view; only words
+                # the asker typed or picked, never another person's data.
+                if not isinstance(values, dict) or len(json.dumps(values)) > 2000:
+                    raise Problem("reference", "automations_filter is a small object", 422)
             elif kind not in ("depth", "turn_id"):
                 raise Problem("reference", f"Unsupported reference kind: {kind}", 422)
 
@@ -6874,6 +6879,8 @@ def create_app(settings=None):
     install_chat_goals(app, store, auth, mutate, send)
     from .bot_task_tabs import install as install_bot_task_tabs
     install_bot_task_tabs(app, store, auth, mutate, settings, task_views)
+    from .cards import install as install_cards
+    install_cards(app, store, auth, mutate, settings, task_view)
     turn_work.install(app, store, auth)
     from . import run_view
     run_view.install(app, store, auth)

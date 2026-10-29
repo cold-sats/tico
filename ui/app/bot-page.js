@@ -299,7 +299,7 @@ async function pageBot(slug, tab) {
   <aside id="pane-tasks" class="bot-rail" aria-label="Tasks" hidden${keeper && !botSidebarLayout(slug) ? ' data-loading' : ''}>
     ${keeper && !limited ? `<button type="button" class="rail-ico bot-sidebar-edit" id="bot-sidebar-edit" aria-label="Edit sidebar" title="Edit"${botSidebarLayout(slug)?.can_edit ? '' : ' hidden'}><span class="nav-icon" aria-hidden="true">edit</span></button>
     <div class="bot-rail-editbar" hidden><span class="muted" id="bot-sidebar-status" role="status"></span><span class="spacer"></span>
-      <button type="button" class="ghost" id="bot-sidebar-cancel">Cancel</button><button type="button" class="primary" id="bot-sidebar-done">Done</button></div>` : ''}
+      <button type="button" class="ghost" id="bot-sidebar-add">Add</button><button type="button" class="ghost" id="bot-sidebar-cancel">Cancel</button><button type="button" class="primary" id="bot-sidebar-done">Done</button></div>` : ''}
     <div class="bot-rail-loading rail-empty"${keeper && !botSidebarLayout(slug) ? '' : ' hidden'}>Loading…</div>
     ${botWidgetsHTML(slug, {
       tasks: `<section class="rail-sec bot-tasks-sec" id="bot-tasks" aria-labelledby="bot-tasks-h"><header class="rail-head"><h2 class="rail-h" id="bot-tasks-h">Tasks</h2></header>
@@ -482,7 +482,7 @@ async function pageBot(slug, tab) {
   if (BOT_EDIT && BOT_EDIT.slug !== slug) BOT_EDIT = null;
   botTaskTabShow(slug, botTaskTabFirst(slug, needsMeCount(slug)));
   botSidebarApply(slug);
-  if (keeper) { botSidebarBind(slug); void botSidebarLoad(slug); }
+  if (keeper) { botSidebarBind(slug); void botSidebarLoad(slug); void botPinsLoad(slug); }
   // A click opens a folded section without focusing it, so its ring shows only for the keyboard.
   $('#pane-tasks').querySelectorAll('.rail-fold>summary').forEach(sum => sum.addEventListener('mousedown', ev => ev.preventDefault()));
   $('#pane-tasks').addEventListener('click', ev => {

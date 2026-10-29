@@ -1,5 +1,5 @@
 // Automations with an event trigger (ui/app/automations*.js) against the fake hub in support/automations-fake.cjs: an
-// event reads as a few words everywhere (the list's "· source", the trigger card, a wake rule's condition, the
+// event reads as a few words everywhere (the list's Trigger column, the trigger card, a wake rule's condition, the
 // editor), never its dotted id (task.done, tico.notice, tico.builtin.*); the id is only the chip's tooltip, and the
 // editor still saves it; Custom… takes a name the catalog does not list, saved as typed. A phone first, then a computer.
 const {chromium} = require('playwright');
@@ -21,7 +21,7 @@ const tweak = fx => fx.automations.push(
   {...base, id: 'au_custom', name: 'Deploys', trigger: {type: 'event', name: 'custom.deploy_finished'}},
 );
 const RAW = /tico\.|task\.done|custom\.|status_or_relation|builtin/;
-const rowText = (page, id) => page.locator(`.au-row[data-row="${id}"] a`).innerText();
+const rowText = (page, id) => page.locator(`tr.au-row[data-row="${id}"] td.au-tt`).innerText();
 
 (async () => {
   const browser = await chromium.launch();
@@ -29,18 +29,20 @@ const rowText = (page, id) => page.locator(`.au-row[data-row="${id}"] a`).innerT
     // A phone: the list, then a built-in's flow.
     {
       const {page, errors, writes} = await openAutomations(browser, {viewport: PHONE, tweak});
-      await page.waitForSelector('.au-row[data-row="au_wakes"]');
+      await page.waitForSelector('tr.au-row[data-row="au_wakes"]');
       const want = {au_wakes: 'Every event', au_job: 'System job', au_rule: 'Task rule', au_notice: 'Notice', au_done: 'Task finished',
         au_custom: 'Deploy finished'};
-      for (const [id, words] of Object.entries(want)) assert.match(await rowText(page, id), new RegExp(`· ${words}$`), id);
-      assert.doesNotMatch(await page.locator('.au-list').innerText(), RAW, 'no dotted ids in the list');
+      for (const [id, words] of Object.entries(want)) assert.equal(await rowText(page, id), words, id);
+      assert.doesNotMatch(await page.locator('.au-tbl').innerText(), RAW, 'no dotted ids in the list');
       // Search still finds one by its words.
+      await page.locator('[data-filters]').click();
       await page.locator('.au-q').fill('task finished');
-      assert.deepEqual(await page.locator('.au-row').evaluateAll(r => r.map(x => x.dataset.row)), ['au_done']);
+      assert.deepEqual(await page.locator('tr.au-row').evaluateAll(r => r.map(x => x.dataset.row)), ['au_done']);
       await page.locator('.au-q').fill('');
+      await page.locator('[data-filters]').click();
       await shot(page, 'phone-events-list');
 
-      await page.locator('.au-row[data-row="au_wakes"] a').click();
+      await page.locator('tr.au-row[data-row="au_wakes"] a').click();
       await page.waitForSelector('.au-card[data-open="b1"]');
       const chip = page.locator('.au-trig .au-c1');
       assert.equal(await chip.innerText(), 'Every event');
@@ -65,7 +67,7 @@ const rowText = (page, id) => page.locator(`.au-row[data-row="${id}"] a`).innerT
       const {page, errors, writes} = await openAutomations(browser, {viewport: DESKTOP, tweak, hash: '#/automations/au_notice'});
       await page.waitForSelector('.au-trig .au-c1');
       assert.equal(await page.locator('.au-trig .au-c1').innerText(), 'Notice');
-      assert.doesNotMatch(await page.locator('.au-list').innerText(), RAW);
+      assert.doesNotMatch(await page.locator('.au-c').innerText(), RAW);
       await page.locator('.au-card[data-open="trigger"]').click();
       const pick = page.locator('.au-ed [data-b="evpick"]');
       await pick.waitFor();
@@ -99,7 +101,7 @@ const rowText = (page, id) => page.locator(`.au-row[data-row="${id}"] a`).innerT
       assert.equal(await page.locator('.au-ed [data-b="trigger.name"]').count(), 0);
       await page.locator('.au-ed [data-op="close"]').click();
       // One the catalog does not list opens on Custom… with its name filled in.
-      await page.locator('.au-row[data-row="au_custom"] a').click();
+      await page.evaluate(() => { location.hash = '#/automations/au_custom'; });
       await page.waitForSelector('.au-hd .au-name:text("Deploys")');
       assert.equal(await page.locator('.au-trig .au-c1').innerText(), 'Deploy finished');
       await page.locator('.au-card[data-open="trigger"]').click();

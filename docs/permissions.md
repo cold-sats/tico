@@ -94,6 +94,16 @@ never one, but stores a credential for a bot they own or manage (a chat card, or
 that bot at once, unless the owner turns **Members store credentials for their bots** off. They replace only a credential they stored, never
 read its value, and share it with their other bots ([Bot owners](#bot-owners)).
 
+## Dashboard, team pages and pins
+
+The owner and admins arrange the Dashboard. A team page is arranged by them and by a person who leads the group or a group
+above it; it is seen by its audience, Everyone unless they narrow it to people, groups or bots (the same audience as a
+bot's levels above; naming a group names the groups under it). A bot pins only its own pages and cards, to its own
+sidebar or a task it holds or asked for; a person who manages a bot may pin another bot's page to its sidebar. A page a
+person pins to the Dashboard or a team page may be read by that place's audience, and a private task's file is never
+pinned there ([Overview](overview.md), [Files](files.md)). BotOps does all of this with the rights of the person who
+asked (`hub card`, `hub pin`).
+
 ## Team rules
 
 The product favours getting going fast, and the owner tightens it later. Settings > People (owner only, saved as they change;

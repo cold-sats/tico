@@ -63,6 +63,8 @@ SCHEMA = (
     "cost REAL NOT NULL DEFAULT 0, state_json TEXT, claimed_at TEXT, wake_at TEXT, chain_json TEXT NOT NULL DEFAULT '[]')",
     "CREATE INDEX IF NOT EXISTS automation_runs_of ON automation_runs(automation_id, started)",
     "CREATE INDEX IF NOT EXISTS automation_runs_queue ON automation_runs(status, started)",
+    # The overview reads every visible automation's runs over a time range (backend/automation_overview.py).
+    "CREATE INDEX IF NOT EXISTS automation_runs_started ON automation_runs(started)",
     "CREATE TABLE IF NOT EXISTS automation_daily(automation_id TEXT NOT NULL, day TEXT NOT NULL, "
     "runs INTEGER NOT NULL DEFAULT 0, dropped INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(automation_id, day))",
     "CREATE TABLE IF NOT EXISTS automation_mail_actions(id TEXT PRIMARY KEY, automation_id TEXT NOT NULL, run_id TEXT, "
@@ -125,24 +127,39 @@ def flow_of(row):
     return json.loads(row["flow_json"])
 
 
-def view(c, row, who=None, detail=False):
+def view(c, row, who=None, detail=False, chart=None, jobs=None):
     """An automation as its readers get it: `can_edit` for `who`, and with `detail` each Decide step that names a set
-    carries that set's questions (read-only: a write sends `set` or `questions`, never both)."""
+    carries that set's questions (read-only: a write sends `set` or `questions`, never both). `kind` is the trigger as
+    the overview groups it (`system` for Tico's own jobs); a system job's mirror takes its last and next run from the
+    job (`jobs`, AO.system_jobs, read once for a list)."""
+    from . import automation_overview as AO
     flow = flow_of(row)
     if detail:
         flow["steps"] = _with_questions(flow["steps"])
     last = c.execute("SELECT id, status, started, finished FROM automation_runs WHERE automation_id=? "
                      "ORDER BY started DESC LIMIT 1", (row["id"],)).fetchone()
     out = {"id": row["id"], **flow, "version": row["version"], "created": row["created"],
-           "created_by": row["created_by"], "updated": row["updated"], "last_run": dict(last) if last else None}
+           "created_by": row["created_by"], "updated": row["updated"], "last_run": dict(last) if last else None,
+           "kind": AO.kind_of(flow)}
+    if flow["trigger"]["type"] == "schedule":
+        out["next_run"] = row["next_due"] or _iso(_due(flow["trigger"], datetime.now(timezone.utc)))
+    if flow.get("enabled") is False:
+        # Paused, not just off: the run guard turned it off and nobody has changed it since.
+        guard = c.execute("SELECT max(ts) FROM events WHERE target=? AND action='automation.run_guard'",
+                          (row["id"],)).fetchone()[0]
+        out["paused"] = bool(guard and guard >= row["updated"])
+    job = AO.system_key(flow)
+    if job:
+        known = (jobs if jobs is not None else AO.system_jobs(c)).get(job) or {}
+        out["last_run"] = known.get("last") or out["last_run"]
+        out["next_run"] = known.get("next")
+        out["schedule"] = known.get("schedule") or (flow.get("controls") or {}).get("schedule")
     if detail:
         today = c.execute("SELECT runs, dropped FROM automation_daily WHERE automation_id=? AND day=?",
                           (row["id"], H.now()[:10])).fetchone()
         out["counts"] = {"today": {"runs": today["runs"] if today else 0, "dropped": today["dropped"] if today else 0}}
-        if flow["trigger"]["type"] == "schedule":
-            out["next_run"] = row["next_due"] or _iso(_due(flow["trigger"], datetime.now(timezone.utc)))
     if who is not None:
-        out["can_edit"] = may_change(c, who, flow)
+        out["can_edit"] = may_change(c, who, flow, chart)
         out["can_pause"] = may_pause(c, who, flow, out["can_edit"])
     return out
 
@@ -1648,6 +1665,7 @@ def _input_readable(c, owner, given):
 
 def install(app, store, auth, mutate):
     from fastapi import Request
+    from . import automation_overview as AO
 
     hub = Hub(app, store)
     store.automations = hub
@@ -1671,7 +1689,9 @@ def install(app, store, auth, mutate):
 
     @app.get("/api/v2/automations")
     def automations_list(request: Request, owner: str = "", limit: int = 50, cursor: int = 0):
-        """The automations the caller may change (the same rule decides what they see), newest first."""
+        """The automations the caller may change (the same rule decides what they see), newest first; up to 500 a page,
+        and `next` is the `cursor` for the page after."""
+        from . import automation_overview as AO
         who = request.state.identity
         with store.read() as c:
             auth.domain(who)
@@ -1680,9 +1700,11 @@ def install(app, store, auth, mutate):
                              ((F.owner_ref(owner),) if owner else ())).fetchall()
             pending = {r[0]: r[1] for r in c.execute("SELECT automation_id, COUNT(*) FROM automation_versions "
                                                      "WHERE status='pending' GROUP BY automation_id")}
-            visible = [{**view(c, dict(r), who), "pending": pending.get(r["id"], 0)}
-                       for r in rows if may_see(c, who, flow_of(r))]
-        shown, more = page(visible[max(cursor, 0):], max(1, min(limit, 200)), max(cursor, 0), LIST_BYTES)
+            chart = Chart(c) if who.role in ("human", "bot") else None   # one chart for every row's rule
+            jobs = AO.system_jobs(c, store.settings)
+            visible = [{**view(c, dict(r), who, chart=chart, jobs=jobs), "pending": pending.get(r["id"], 0)}
+                       for r in rows if may_change(c, who, {**flow_of(r), "readonly": False}, chart)]
+        shown, more = page(visible[max(cursor, 0):], max(1, min(limit, 500)), max(cursor, 0), LIST_BYTES)
         return {"automations": shown, "next": more}
 
     @app.get("/api/v2/automations/question-sets")
@@ -1728,6 +1750,8 @@ def install(app, store, auth, mutate):
             _require(c, who, flow, "make an automation for " + flow["owner"])
             return view(c, _save(c, who.actor, "auto_" + H.new_id(), flow, None, via=_via(who)), who, detail=True)
         return mutate(request, body, work)
+
+    AO.install(app, store, auth)   # /runs and /stats, before /{aid} reads them as ids
 
     @app.get("/api/v2/automations/{aid}")
     def automations_get(request: Request, aid: str):
@@ -1877,10 +1901,16 @@ def install(app, store, auth, mutate):
     @app.get("/api/v2/automations/{aid}/runs")
     def automations_runs(request: Request, aid: str, limit: int = 25, before: str = ""):
         """Its runs, newest first, each with its steps' status, outputs and cost (kept 30 days); `next` is the `before`
-        for the page after. `daily` holds the counts, which include what the trigger's filters dropped."""
+        for the page after. `daily` holds the counts, which include what the trigger's filters dropped. A system job's
+        built-in shows the job's own runs (no steps; `count` the quiet runs folded into one)."""
         limit = max(1, min(limit, 100))
         with store.read() as c:
-            found(c, request.state.identity, aid, rule=may_see)
+            row = found(c, request.state.identity, aid, rule=may_see)
+            job = AO.system_key(flow_of(row))
+            if job:
+                rows, more = AO.system_runs_of(c, job, limit, before)
+                runs = [AO.system_run_view(r, aid) for r in rows]
+                return {"runs": runs, "next": runs[-1]["id"] if more and runs else None, "daily": []}
             at = c.execute("SELECT started, id FROM automation_runs WHERE id=? AND automation_id=?",
                            (before, aid)).fetchone() if before else None
             if before and not at:

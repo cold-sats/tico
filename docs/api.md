@@ -57,6 +57,7 @@ The operation groups below are generated from the committed spec's tags. After r
 | Sleep when idle | A server Tico hosts stops after quiet hours and starts again on a webhook, a routine or a sign-in (backend/sleep_idle.py). |
 | Notices | Notices from Tico Team: the ones that came through the Gateway relay and the current one from the release check. |
 | Webhooks | Outgoing webhooks: endpoints a person owns, the events Tico sends them, and each send's log ([guide](webhooks.md)). |
+| Cards and pins | Tico's built-in cards and where pages and cards are pinned: the Dashboard, team pages, bot sidebars and tasks ([guide](overview.md)). A card shows each reader only what they may see. |
 <!-- api-tags:end -->
 
 Internal developer tutorials: [Listening](listening.md#save-decide-and-resolve) and [Needs you batches](needs-you-batches.md).

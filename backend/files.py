@@ -56,7 +56,8 @@ CREATE TRIGGER IF NOT EXISTS bot_file_versions_no_delete BEFORE DELETE ON bot_fi
  BEGIN SELECT RAISE(ABORT, 'file versions are immutable'); END;
 """
 
-ACTIONS = ("created", "modified", "published", "promoted", "archived", "link_updated")
+# pinned / unpinned: a page put on or taken off a place (backend/cards.py), with the place in its detail.
+ACTIONS = ("created", "modified", "published", "promoted", "archived", "link_updated", "pinned", "unpinned")
 LIST_MAX = 100
 
 
@@ -123,7 +124,8 @@ def prime_visible(c, rows):
 
 
 def file_visible(c, auth, who, row, cache):
-    """Whether `who` may know this file exists: its scope's visibility, and never a runner's."""
+    """Whether `who` may know this file exists: its scope's visibility, or a person's pin of it to the Dashboard or a
+    team page they see (backend/cards.py widened), and never a runner's. A private task's file is never widened."""
     if who.role not in ("owner", "human", "bot"):
         return False
     if row["task_id"] and not privacy.task_readable(c, who, H.task(c, row["task_id"])):
@@ -137,9 +139,10 @@ def file_visible(c, auth, who, row, cache):
             return False
     if who.role == "bot" and H.actor_id(who.actor) != row["bot"] and not row["scope"].startswith("task:"):
         return False
-    key = row["scope"]
+    # A bot-wide file is its bot's: one cache serves files of many bots (a card's latest pages).
+    key = ("bot", row["bot"]) if row["scope"] == "bot" else row["scope"]
     if key not in cache:
-        kind, _, ident = key.partition(":")
+        kind, _, ident = row["scope"].partition(":")
         try:
             if kind == "task":
                 auth.task(c, who, ident)
@@ -150,7 +153,10 @@ def file_visible(c, auth, who, row, cache):
             cache[key] = True
         except Problem:
             cache[key] = False
-    return cache[key]
+    if cache[key]:
+        return True
+    from . import cards
+    return cards.widened(c, auth, who, row["id"], cache)
 
 
 class Files:
