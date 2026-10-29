@@ -48,7 +48,6 @@ export type Assistant = {
   available: boolean;
   bot: string;
   can_turn_on: boolean;
-  ceo: boolean;
   earlier: {
   bot: string;
   name: string;
@@ -62,6 +61,7 @@ export type Assistant = {
   pending: Array<unknown>;
   room_id: string | null;
   state: string;
+  strategy_bot: boolean;
 };
 
 export type AssistantAction = {
@@ -564,107 +564,6 @@ export type CardList = {
   next: string | null;
 };
 
-export type CeoBotChange = {
-  body?: string | null;
-  do: "create" | "reorder" | "reassign" | "close";
-  note?: string | null;
-  owner?: string | null;
-  task_id?: string | null;
-  title?: string | null;
-};
-
-export type CeoBotChecks = {
-  on: boolean;
-};
-
-export type CeoBotDecision = {
-  changes: Array<CeoBotChange>;
-  goal_id?: string | null;
-  reason: string;
-};
-
-export type CeoBotLevel = {
-  level: 1 | 2 | 3;
-};
-
-export type CeoBotLevel3Offer = {
-  due: boolean;
-  last_offered_at?: string;
-  needed: number;
-  streak: number;
-};
-
-export type CeoBotLevel3OfferResult = {
-  level3_offer: CeoBotLevel3Offer;
-};
-
-export type CeoBotLog = {
-  can_undo: boolean;
-  items: Array<CeoBotLogEntry>;
-  next_before?: string;
-};
-
-export type CeoBotLogEntry = {
-  created: string;
-  done: Array<Record<string, unknown>>;
-  goal_id?: string;
-  id: string;
-  kind: "decision" | "cost" | "publish" | "send" | "bots" | "target" | "vision" | "instructions" | "person_task";
-  left: Array<Record<string, unknown>>;
-  note?: string;
-  proposal_task?: string;
-  reason?: string;
-  state: "done" | "proposed" | "undone";
-  undo?: Record<string, unknown>;
-  undoable: boolean;
-  undone_at?: string;
-  undone_by?: string;
-};
-
-export type CeoBotMerge = {
-  person: string;
-  question: string;
-  tasks: Array<string>;
-  title: string;
-};
-
-export type CeoBotMergeResult = {
-  originals: Array<{
-  asker: string;
-  asker_name?: string;
-  note?: string;
-  state: string;
-  task_id: string;
-  title?: string;
-}>;
-  task: Record<string, unknown>;
-};
-
-export type CeoBotView = {
-  asked_today?: Record<string, number>;
-  level: 1 | 2 | 3;
-  level3_offer?: CeoBotLevel3Offer;
-  level_changed_at?: string;
-  level_changed_by?: string;
-  level_changed_by_name?: string;
-  level_chosen?: boolean;
-  level_history?: Array<{
-  at: string;
-  by: string;
-  by_name?: string;
-  level: number;
-  was: number;
-}>;
-  levels: Array<{
-  level: number;
-  name: string;
-  ready: boolean;
-  sentence: string;
-}>;
-  name: string;
-  regular_checks: boolean;
-};
-
 export type ChangelogEntry = {
   area: string;
   bullets: Array<string>;
@@ -1016,11 +915,41 @@ export type FileActivity = {
   file: string;
 };
 
+export type FileDeleted = {
+  deleted: string;
+  versions: number;
+};
+
 export type FileEdit = {
   archived?: boolean | null;
   promote?: boolean | null;
   task?: string | null;
   title?: string | null;
+};
+
+export type FileLibrary = {
+  files: Array<LibraryFile>;
+  has_more: boolean;
+  next_cursor: string | null;
+};
+
+export type FileSearch = {
+  results: Array<FileSearchHit>;
+};
+
+export type FileSearchHit = {
+  bot: string;
+  bot_name: string;
+  excerpt: string;
+  id: string;
+  kind: string;
+  library_kind: string;
+  page: boolean;
+  score: number;
+  title: string;
+  updated: string;
+  url: string | null;
+  version: number;
 };
 
 export type FileVersionEdit = {
@@ -1791,6 +1720,21 @@ export type LibrarianSetup = {
   market: LibrarianMarketSetup;
 };
 
+export type LibraryFile = {
+  archived?: boolean;
+  bot: string;
+  bot_name?: string;
+  id: string;
+  kind: string;
+  kind_label?: string;
+  last_activity_at: string;
+  library_kind: "page" | "document" | "image" | "data" | "media" | "other";
+  page?: Record<string, unknown> | null;
+  pins?: Array<unknown>;
+  title: string;
+  version: number;
+};
+
 export type LinkBody = {
   bot?: string;
   file?: string | null;
@@ -2004,6 +1948,54 @@ export type OrgModelSeat = {
 
 export type OrgModels = {
   models: Array<OrgModel>;
+};
+
+export type Page = {
+  archived: boolean;
+  as_of: string | null;
+  bot: string;
+  bot_name: string;
+  cadence: "none" | "daily" | "weekly" | "monthly";
+  file_id: string;
+  replaced_by: string | null;
+  replaced_by_title?: string | null;
+  src: string | null;
+  stale_days: number | null;
+  task_id: string | null;
+  title: string;
+  updated: string;
+  updated_by: string | null;
+  updated_by_name?: string;
+  version: number;
+};
+
+export type PageEdit = {
+  archived?: boolean | null;
+  as_of?: string | null;
+  cadence?: string | null;
+  replaced_by?: string | null;
+};
+
+export type PageList = {
+  has_more?: boolean;
+  next_cursor?: string | null;
+  pages: Array<Page>;
+};
+
+export type PagePublished = {
+  created?: boolean;
+  page: Page;
+  unembedded: Array<string>;
+};
+
+export type PageShown = {
+  can_delete?: boolean;
+  can_manage?: boolean;
+  page: Page;
+  pinned?: Array<{
+  label: string;
+  place: string;
+}>;
 };
 
 export type Pause = {
@@ -2469,7 +2461,7 @@ export type SeatDetail = {
   can_edit: boolean;
   created?: string;
   description: string;
-  description_by?: "ceo_bot" | "chart" | "person";
+  description_by?: "strategy_bot" | "chart" | "person";
   draft: {
   at: string;
   by: string;
@@ -2619,6 +2611,107 @@ export type StrategyBetUpdate = {
   status?: "proposed" | "active" | "retired" | null;
   why?: string | null;
   wrong_if?: Record<string, unknown> | null;
+};
+
+export type StrategyBotChange = {
+  body?: string | null;
+  do: "create" | "reorder" | "reassign" | "close";
+  note?: string | null;
+  owner?: string | null;
+  task_id?: string | null;
+  title?: string | null;
+};
+
+export type StrategyBotChecks = {
+  on: boolean;
+};
+
+export type StrategyBotDecision = {
+  changes: Array<StrategyBotChange>;
+  goal_id?: string | null;
+  reason: string;
+};
+
+export type StrategyBotLevel = {
+  level: 1 | 2 | 3;
+};
+
+export type StrategyBotLevel3Offer = {
+  due: boolean;
+  last_offered_at?: string;
+  needed: number;
+  streak: number;
+};
+
+export type StrategyBotLevel3OfferResult = {
+  level3_offer: StrategyBotLevel3Offer;
+};
+
+export type StrategyBotLog = {
+  can_undo: boolean;
+  items: Array<StrategyBotLogEntry>;
+  next_before?: string;
+};
+
+export type StrategyBotLogEntry = {
+  created: string;
+  done: Array<Record<string, unknown>>;
+  goal_id?: string;
+  id: string;
+  kind: "decision" | "cost" | "publish" | "send" | "bots" | "target" | "vision" | "instructions" | "person_task";
+  left: Array<Record<string, unknown>>;
+  note?: string;
+  proposal_task?: string;
+  reason?: string;
+  state: "done" | "proposed" | "undone";
+  undo?: Record<string, unknown>;
+  undoable: boolean;
+  undone_at?: string;
+  undone_by?: string;
+};
+
+export type StrategyBotMerge = {
+  person: string;
+  question: string;
+  tasks: Array<string>;
+  title: string;
+};
+
+export type StrategyBotMergeResult = {
+  originals: Array<{
+  asker: string;
+  asker_name?: string;
+  note?: string;
+  state: string;
+  task_id: string;
+  title?: string;
+}>;
+  task: Record<string, unknown>;
+};
+
+export type StrategyBotView = {
+  asked_today?: Record<string, number>;
+  level: 1 | 2 | 3;
+  level3_offer?: StrategyBotLevel3Offer;
+  level_changed_at?: string;
+  level_changed_by?: string;
+  level_changed_by_name?: string;
+  level_chosen?: boolean;
+  level_history?: Array<{
+  at: string;
+  by: string;
+  by_name?: string;
+  level: number;
+  was: number;
+}>;
+  levels: Array<{
+  level: number;
+  name: string;
+  ready: boolean;
+  sentence: string;
+}>;
+  name: string;
+  regular_checks: boolean;
 };
 
 export type StrategyDraft = {
@@ -4110,6 +4203,14 @@ export type DeleteAutomationPostParams = {
 export type DeleteAutomationPostBody = Empty | null;
 export type DeleteAutomationPostResponse = AutomationDeleted;
 
+/** DELETE /api/v2/files/{fid} */
+export type DeleteFileParams = {
+  "Idempotency-Key": string;
+  fid: string;
+};
+export type DeleteFileBody = never;
+export type DeleteFileResponse = FileDeleted;
+
 /** DELETE /api/v2/groups/{gid} */
 export type DeleteGroupParams = {
   "Idempotency-Key": string;
@@ -4245,6 +4346,14 @@ export type EditInboundInboxParams = {
 export type EditInboundInboxBody = backend__inbound__Edit;
 export type EditInboundInboxResponse = unknown;
 
+/** PATCH /api/v2/pages/{fid} */
+export type EditPageParams = {
+  "Idempotency-Key": string;
+  fid: string;
+};
+export type EditPageBody = PageEdit;
+export type EditPageResponse = PageShown;
+
 /** POST /api/v2/tasks/{tid}/comments/{mid} */
 export type EditTaskCommentParams = {
   "Idempotency-Key": string;
@@ -4376,11 +4485,6 @@ export type GetCardChoicesParams = {
 };
 export type GetCardChoicesBody = never;
 export type GetCardChoicesResponse = unknown;
-
-/** GET /api/v2/ceo-bot */
-export type GetCeoBotParams = Record<string, never>;
-export type GetCeoBotBody = never;
-export type GetCeoBotResponse = CeoBotView;
 
 /** GET /api/v2/conversations/{cid}/goal */
 export type GetChatGoalParams = {
@@ -4591,6 +4695,13 @@ export type GetOrgParams = {
 export type GetOrgBody = never;
 export type GetOrgResponse = Org;
 
+/** GET /api/v2/pages/{fid} */
+export type GetPageParams = {
+  fid: string;
+};
+export type GetPageBody = never;
+export type GetPageResponse = PageShown;
+
 /** GET /api/v2/people/{person}/assistant */
 export type GetPersonAssistantParams = {
   person: string;
@@ -4644,6 +4755,11 @@ export type GetSleepWhenIdleResponse = SleepWhenIdle;
 export type GetStrategyParams = Record<string, never>;
 export type GetStrategyBody = never;
 export type GetStrategyResponse = unknown;
+
+/** GET /api/v2/strategy-bot */
+export type GetStrategyBotParams = Record<string, never>;
+export type GetStrategyBotBody = never;
+export type GetStrategyBotResponse = StrategyBotView;
 
 /** GET /api/v2/strategy/draft-from/{job_id} */
 export type GetStrategyDraftFromJobParams = {
@@ -4932,14 +5048,6 @@ export type ListCardsParams = {
 export type ListCardsBody = never;
 export type ListCardsResponse = CardList;
 
-/** GET /api/v2/ceo-bot/log */
-export type ListCeoBotLogParams = {
-  before?: string | null;
-  limit?: number;
-};
-export type ListCeoBotLogBody = never;
-export type ListCeoBotLogResponse = CeoBotLog;
-
 /** GET /api/v2/changelog */
 export type ListChangelogParams = {
   kind?: "product" | "activity" | "all";
@@ -5001,6 +5109,22 @@ export type ListFileVersionsParams = {
 };
 export type ListFileVersionsBody = never;
 export type ListFileVersionsResponse = FileVersions;
+
+/** GET /api/v2/files */
+export type ListFilesParams = {
+  archived?: boolean;
+  bot?: string;
+  cursor?: string;
+  kind?: string;
+  limit?: number;
+  pinned?: boolean;
+  since?: string;
+  task?: string;
+  team?: string;
+  until?: string;
+};
+export type ListFilesBody = never;
+export type ListFilesResponse = FileLibrary;
 
 /** GET /api/v2/goals/{gid}/checkins */
 export type ListGoalCheckinsParams = {
@@ -5143,6 +5267,18 @@ export type ListOrgModelsParams = Record<string, never>;
 export type ListOrgModelsBody = never;
 export type ListOrgModelsResponse = OrgModels;
 
+/** GET /api/v2/pages */
+export type ListPagesParams = {
+  archived?: boolean;
+  bot?: string;
+  cursor?: string;
+  ids?: string;
+  limit?: number;
+  task?: string;
+};
+export type ListPagesBody = never;
+export type ListPagesResponse = PageList;
+
 /** GET /api/v2/profiles */
 export type ListProfilesParams = Record<string, never>;
 export type ListProfilesBody = never;
@@ -5205,6 +5341,14 @@ export type ListSourceDocumentsParams = {
 };
 export type ListSourceDocumentsBody = never;
 export type ListSourceDocumentsResponse = SourceDocumentList;
+
+/** GET /api/v2/strategy-bot/log */
+export type ListStrategyBotLogParams = {
+  before?: string | null;
+  limit?: number;
+};
+export type ListStrategyBotLogBody = never;
+export type ListStrategyBotLogResponse = StrategyBotLog;
 
 /** GET /api/v2/strategy/guides */
 export type ListStrategyGuidesParams = Record<string, never>;
@@ -5344,12 +5488,12 @@ export type ListWebhooksParams = {
 export type ListWebhooksBody = never;
 export type ListWebhooksResponse = WebhookList;
 
-/** POST /api/v2/ceo-bot/decisions */
-export type MakeCeoBotDecisionParams = {
+/** POST /api/v2/strategy-bot/decisions */
+export type MakeStrategyBotDecisionParams = {
   "Idempotency-Key": string;
 };
-export type MakeCeoBotDecisionBody = CeoBotDecision;
-export type MakeCeoBotDecisionResponse = CeoBotLogEntry;
+export type MakeStrategyBotDecisionBody = StrategyBotDecision;
+export type MakeStrategyBotDecisionResponse = StrategyBotLogEntry;
 
 /** POST /api/v2/bots/{bot}/onboarded */
 export type MarkBotOnboardedParams = {
@@ -5373,12 +5517,12 @@ export type MarkUpdatesReadParams = {
 export type MarkUpdatesReadBody = UpdateRead;
 export type MarkUpdatesReadResponse = unknown;
 
-/** POST /api/v2/ceo-bot/merge */
-export type MergeCeoBotAsksParams = {
+/** POST /api/v2/strategy-bot/merge */
+export type MergeStrategyBotAsksParams = {
   "Idempotency-Key": string;
 };
-export type MergeCeoBotAsksBody = CeoBotMerge;
-export type MergeCeoBotAsksResponse = CeoBotMergeResult;
+export type MergeStrategyBotAsksBody = StrategyBotMerge;
+export type MergeStrategyBotAsksResponse = StrategyBotMergeResult;
 
 /** POST /api/v2/tasks/{tid}/comments/{mid}/moderate */
 export type ModerateTaskCommentParams = {
@@ -5440,6 +5584,24 @@ export type ProposeAssistantActionParams = {
 export type ProposeAssistantActionBody = AssistantAction;
 export type ProposeAssistantActionResponse = AssistantActionResult;
 
+/** POST /api/v2/pages */
+export type PublishPageParams = {
+  "Idempotency-Key": string;
+};
+export type PublishPageBody = {
+  as_of?: string;
+  cadence?: "none" | "daily" | "weekly" | "monthly";
+  content_base64?: string;
+  name?: string;
+  path?: string;
+  replaces?: string;
+  scope?: "task" | "bot";
+  task?: string;
+  text?: string;
+  title?: string;
+};
+export type PublishPageResponse = PagePublished;
+
 /** POST /api/v2/strategy/publish */
 export type PublishStrategyParams = {
   "Idempotency-Key": string;
@@ -5492,19 +5654,19 @@ export type ReadInboundMessageParams = {
 export type ReadInboundMessageBody = never;
 export type ReadInboundMessageResponse = unknown;
 
-/** POST /api/v2/ceo-bot/level3-offer */
-export type RecordCeoBotLevel3OfferParams = {
-  "Idempotency-Key": string;
-};
-export type RecordCeoBotLevel3OfferBody = Empty;
-export type RecordCeoBotLevel3OfferResponse = CeoBotLevel3OfferResult;
-
 /** POST /api/v2/health-monitor/local-findings */
 export type RecordLocalHealthFindingParams = {
   "Idempotency-Key": string;
 };
 export type RecordLocalHealthFindingBody = LocalFinding;
 export type RecordLocalHealthFindingResponse = unknown;
+
+/** POST /api/v2/strategy-bot/level3-offer */
+export type RecordStrategyBotLevel3OfferParams = {
+  "Idempotency-Key": string;
+};
+export type RecordStrategyBotLevel3OfferBody = Empty;
+export type RecordStrategyBotLevel3OfferResponse = StrategyBotLevel3OfferResult;
 
 /** PUT /api/v2/subscriptions/weekly */
 export type RecordSubscriptionWeeklyParams = Record<string, never>;
@@ -5914,6 +6076,14 @@ export type SearchDocsParams = {
 export type SearchDocsBody = never;
 export type SearchDocsResponse = DocSearch;
 
+/** GET /api/v2/files/search */
+export type SearchFilesParams = {
+  limit?: number;
+  q?: string;
+};
+export type SearchFilesBody = never;
+export type SearchFilesResponse = FileSearch;
+
 /** GET /api/v2/docs/search */
 export type SearchInternalAndLinkedDocsParams = {
   collection?: string;
@@ -6026,20 +6196,6 @@ export type SetBotUsageLimitParams = {
 export type SetBotUsageLimitBody = UsageLimit;
 export type SetBotUsageLimitResponse = BotUsageLimit;
 
-/** POST /api/v2/ceo-bot/checks */
-export type SetCeoBotChecksParams = {
-  "Idempotency-Key": string;
-};
-export type SetCeoBotChecksBody = CeoBotChecks;
-export type SetCeoBotChecksResponse = CeoBotView;
-
-/** POST /api/v2/ceo-bot/level */
-export type SetCeoBotLevelParams = {
-  "Idempotency-Key": string;
-};
-export type SetCeoBotLevelBody = CeoBotLevel;
-export type SetCeoBotLevelResponse = CeoBotView;
-
 /** POST /api/v2/conversations/{cid}/goal */
 export type SetChatGoalParams = {
   "Idempotency-Key": string;
@@ -6143,6 +6299,20 @@ export type SetSleepWhenIdleParams = {
 };
 export type SetSleepWhenIdleBody = SleepSet;
 export type SetSleepWhenIdleResponse = SleepWhenIdle;
+
+/** POST /api/v2/strategy-bot/checks */
+export type SetStrategyBotChecksParams = {
+  "Idempotency-Key": string;
+};
+export type SetStrategyBotChecksBody = StrategyBotChecks;
+export type SetStrategyBotChecksResponse = StrategyBotView;
+
+/** POST /api/v2/strategy-bot/level */
+export type SetStrategyBotLevelParams = {
+  "Idempotency-Key": string;
+};
+export type SetStrategyBotLevelBody = StrategyBotLevel;
+export type SetStrategyBotLevelResponse = StrategyBotView;
 
 /** PUT /api/v2/task-caps */
 export type SetTaskCapParams = Record<string, never>;
@@ -6327,13 +6497,13 @@ export type UndoApprovalParams = {
 export type UndoApprovalBody = Empty;
 export type UndoApprovalResponse = unknown;
 
-/** POST /api/v2/ceo-bot/log/{action_id}/undo */
-export type UndoCeoBotDecisionParams = {
+/** POST /api/v2/strategy-bot/log/{action_id}/undo */
+export type UndoStrategyBotDecisionParams = {
   "Idempotency-Key": string;
   action_id: string;
 };
-export type UndoCeoBotDecisionBody = Empty;
-export type UndoCeoBotDecisionResponse = CeoBotLogEntry;
+export type UndoStrategyBotDecisionBody = Empty;
+export type UndoStrategyBotDecisionResponse = StrategyBotLogEntry;
 
 /** POST /api/v2/goals/{gid}/kpis/{kid}/unlink */
 export type UnlinkGoalKpiParams = {

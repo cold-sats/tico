@@ -29602,7 +29602,9 @@
           },
           "aliases": {
             "type": "array",
-            "items": "s"
+            "items": {
+              "type": "string"
+            }
           },
           "sourceless": {
             "type": "boolean"
