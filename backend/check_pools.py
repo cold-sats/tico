@@ -6,15 +6,17 @@ When a ticket enters a step with a pool and has no open check there for its pull
 (`Review 1: PR #n`, the head recorded as any check's is: review_gate.remember_heads) and gives it to the least busy
 eligible member: other model company first, then fewest open checks, then longest idle. Eligible means active and
 online, not paused or held, under the step's limit of open checks, and on a later review step not the bot of an
-earlier one (Review 2 is never Review 1's bot). For a review, model company
-is a preference, never a requirement. A QA bot known to run on a model company the builder builds on is never given
-the ticket's QA: it declines the build, so the check waits for a QA bot of another company (Dev 646). The
-check is filed as the ticket's owner would file it, so the gate, the one-check-per-head rule, the reviewer's wake and
-the verdict's way back to the builder are the ones a builder's own request gets.
+earlier one (Review 2 is never Review 1's bot). For a review or a QA check, model company is a preference by default: a
+bot of another model company than the builder's goes first, and a bot of the builder's company takes the check when no
+other is free, rather than the check waiting. A step whose `other_company` is `require` gives its check only to another
+company's bot: a bot of the builder's company is never free for it, so the check waits when every free bot runs on that
+company, and such a bot that frees up does not take it. The check is filed as the ticket's owner would file it, so
+the gate, the one-check-per-head rule, the reviewer's wake and the verdict's way back to the builder are the ones a
+builder's own request gets.
 
-With no pool member free, the check waits on the ticket ("Waiting for a reviewer": a `check_waits` row) and the
-first pool member to finish a check takes it (`freed`). An empty pool waits the same way. A wait ends when its check is filed, or the ticket leaves
-the step or finishes. A pool member only ever takes checks this way, never other work.
+With no pool member free, the check waits on the ticket ("Waiting for a reviewer": a `check_waits` row) and the first
+pool member to finish a check takes it (`freed`). An empty pool waits the same way. A wait ends when its check is filed,
+or the ticket leaves the step or finishes. A pool member only ever takes checks this way, never other work.
 """
 import json
 import logging
@@ -250,12 +252,14 @@ def makers(c, slug, known_only=False):
 
 
 def builder_makers(c, ticket):
-    """The model companies the ticket's builder is known to build on: what its runs on the ticket ran on, and its
-    configured model's, so a run with no usage record leaves the rest known."""
+    """The model companies the ticket's builder builds on: what its runs on the ticket actually ran on. Its configured
+    model's company stands in only while none of those runs is known, since a run that fell back ran on another one."""
     from .check_independence import _executed
     built, _ = _executed(c, ticket["id"])
+    if built:
+        return set(built)
     owner = ticket.get("owner") or ""
-    return (set(built) | ({maker(c, H.actor_id(owner))} if H.is_bot(owner) else set())) - {""}
+    return ({maker(c, H.actor_id(owner))} if H.is_bot(owner) else set()) - {""}
 
 
 def candidate_details(c, slugs):
@@ -311,19 +315,18 @@ def _earlier_reviewers(c, ticket, step):
 
 
 def ranked(c, ticket, step, slugs, limit, exclude=()):
-    """(free members best first, why none is) for this ticket's check at `step`. Best is fewest open checks, then the
-    longest idle (no turn yet counts as longest), then by name. A QA bot known to run on a model company the builder
-    builds on is never free for that ticket: it declines the build (Dev 646), so the check waits for another QA bot."""
+    """(free members best first, why none is) for this ticket's check at `step`. A check ranks a bot of another model
+    company than the builder's (`builder_makers`) ahead of a bot of the builder's company, which is still free when no
+    other is, unless the step's `other_company` is `require`: then such a bot is never free for the ticket. Then
+    eligibility from `assess`, fewest open checks, the longest idle (no turn yet counts as longest), then by name."""
     from . import step_flow
     from .check_independence import assess
     excluded = set(exclude) | _earlier_reviewers(c, ticket, step)
-    builder = builder_makers(c, ticket) if step_flow.check_kind(step) == "qa" else set()
+    builder = builder_makers(c, ticket) if step_flow.check_kind(step) else set()
+    required = bool(builder) and step_flow.other_company(step) == "require"
     free, why = [], set()
     for slug in slugs:
         if slug in excluded or "bot:" + slug == ticket["owner"]:
-            continue
-        if builder and makers(c, slug, known_only=True) & builder:
-            why.add("family")
             continue
         decision = assess(c, ticket, slug)
         if not online(c, slug):
@@ -334,23 +337,26 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
             why.add("busy")
             continue
         idle = (c.execute("SELECT last_turn_at FROM bots WHERE slug=?", (slug,)).fetchone() or [None])[0] or ""
-        # Model company is a preference only; workload and idle time break ties within each family group.
-        free.append((0 if decision["eligible"] else 1, held, idle, slug))
+        same = bool(builder and makers(c, slug, known_only=True) & builder)
+        if same and required:
+            why.add("company")
+            continue
+        # Model company only orders the free bots, so it ranks first; eligibility, workload and idle time break ties.
+        free.append((same, 0 if decision["eligible"] else 1, held, idle, slug))
     free.sort()
     if free:
-        return [slug for _, _, _, slug in free], ""
-    if "busy" in why:
-        reason = "every reviewer in the pool is at its limit of open checks"
-    elif "offline" in why:
-        reason = "no reviewer in the pool is online"
-    elif "family" in why:
-        reason = "every QA bot in the pool runs on the builder's model company"
+        return [slug for _, _, _, _, slug in free], ""
+    base = ("every reviewer in the pool is at its limit of open checks" if "busy" in why
+            else "no reviewer in the pool is online" if "offline" in why else "")
+    if "company" in why:
+        reason = (f"{base}; the rest run on the builder's model company" if base
+                  else "every free bot in the pool runs on the model company the builder ran on")
+    elif base:
+        reason = base
     elif slugs:
         reason = "no reviewer in the pool is eligible for this check"
     else:
         reason = "the step's pool has no reviewers"
-    if "family" in why and ("busy" in why or "offline" in why):
-        reason += "; the rest run on the builder's model company"
     return [], reason
 
 

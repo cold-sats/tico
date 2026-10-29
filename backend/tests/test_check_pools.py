@@ -426,7 +426,8 @@ def test_a_reviewer_whose_last_run_fell_back_to_the_builders_company_is_passed_o
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-b"]
 
 
-# Dev 646: a QA bot on the builder's model company declines the build, so the QA pool never gives it the check.
+# A QA check prefers a bot of another model company than the builder's, and takes a bot of the builder's company only
+# when no other is free.
 def qa_ticket(api, built=True):
     """A Dev ticket on the full board, its PR built by cpo (configured on Anthropic), ready to enter In QA. `built`
     adds the builder's run on Anthropic; without it the ticket's only run has no usage record (provenance unknown)."""
@@ -454,54 +455,64 @@ def to_qa(api, task):
         H.task_update(c, "bot:cpo", task["id"], step="In QA")
 
 
-def test_qa_is_never_given_to_a_qa_bot_on_the_builders_company_and_waits_for_another(api):
+def test_qa_goes_to_the_builders_company_bot_when_the_other_company_bot_is_at_its_limit(api):
     team(api)
     task = qa_ticket(api)
     set_pool(api, task, "In QA", ["rev-c", "rev-a"], limit=1)
-    held = busy(api, "rev-a")
+    busy(api, "rev-a")
     to_qa(api, task)
-    assert checks(api, task) == [], "rev-c runs on Claude like the builder: it would decline, so it is not asked"
-    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
-    assert wait["label"] == "Waiting for QA" and "limit" in wait["reason"] and "model company" in wait["reason"]
-    with api.app.state.store.transaction() as c:
-        H.task_update(c, "bot:rev-a", held["id"], status="done", note="VERDICT: approve")
     [check] = checks(api, task)
-    assert check["owner"] == "bot:rev-a" and check["title"] == "QA: PR #412"
+    assert check["owner"] == "bot:rev-c" and check["title"] == "QA: PR #412"
+    assert get(api, "tasks/" + task["id"])["task"]["check_waits"] == [], "the only free QA bot takes it: no wait"
 
 
-def test_a_pool_of_only_builder_company_qa_bots_waits_rather_than_asking_one(api):
+def test_a_pool_of_only_builder_company_qa_bots_takes_the_check_rather_than_waiting(api):
     team(api)
     task = qa_ticket(api)
     set_pool(api, task, "In QA", ["rev-c"])
     to_qa(api, task)
-    assert checks(api, task) == []
-    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
-    assert wait["reason"] == "every QA bot in the pool runs on the builder's model company"
-    with api.app.state.store.transaction() as c:
-        assert check_pools.drain(c) == [], "a sweep gives it to nobody either"
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"]
+    assert get(api, "tasks/" + task["id"])["task"]["check_waits"] == []
 
 
-def test_a_qa_bot_configured_elsewhere_whose_recent_runs_were_claude_is_not_asked(api):
-    """qa-xai's shape: named for another company, but its runs are on Claude, and it declines Claude-built PRs."""
+def test_a_qa_bot_configured_elsewhere_whose_recent_runs_were_claude_ranks_behind_one_that_was_not(api):
+    """qa-xai's shape: named for another company, but its last run was on Claude, the builder's company. The builder's
+    own run has no usage record, so no bot is eligible and the company decides: rev-a has no open check and rev-b has
+    one, and rev-b still goes first."""
     team(api)
-    task = qa_ticket(api)
-    set_pool(api, task, "In QA", ["rev-a", "rev-b"], limit=1)
+    task = qa_ticket(api, built=False)
+    set_pool(api, task, "In QA", ["rev-a", "rev-b"])
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO turns(id,bot,started,finished) VALUES('qa-run','rev-a',?,?)", (H.now(), H.now()))
         c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
                   "VALUES('qa-run',0,'claude-haiku-5-5','anthropic')")
     busy(api, "rev-b")
     to_qa(api, task)
-    assert checks(api, task) == [], "rev-a ran on Claude and rev-b is at its limit"
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-b"]
 
 
-def test_unknown_builder_provenance_still_keeps_qa_off_the_builders_configured_company(api):
-    """Dev 627: the builder's ticket run had no usage record, so provenance was unknown, and every QA bot looked alike."""
+def test_unknown_builder_provenance_prefers_qa_off_the_builders_configured_company_even_when_busier(api):
+    """The builder's ticket run has no usage record, so no QA bot is eligible. The bot off the builder's configured
+    company still goes first, though it holds an open check and the same-company bot holds none."""
     team(api)
     task = qa_ticket(api, built=False)
     set_pool(api, task, "In QA", ["rev-c", "rev-a"])
+    busy(api, "rev-a")
     to_qa(api, task)
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_builder_makers_is_what_its_runs_ran_on_and_the_configured_company_only_without_a_known_run(api):
+    """The builder is configured on Anthropic. With no known run its companies are that one; once its run on the ticket
+    is known to have fallen back to OpenAI, they are OpenAI alone."""
+    team(api)
+    task = qa_ticket(api, built=False)
+    with api.app.state.store.transaction() as c:
+        ticket = H.task(c, task["id"])
+        assert check_pools.builder_makers(c, ticket) == {"anthropic"}
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider,runtime) "
+                  "VALUES(?,0,'gpt-6-sol','openai','codex')", ("builder-" + task["id"],))
+        assert check_pools.builder_makers(c, ticket) == {"openai"}
 
 
 def test_reviews_still_take_a_same_company_reviewer_when_none_other_is_free(api):
@@ -511,3 +522,111 @@ def test_reviews_still_take_a_same_company_reviewer_when_none_other_is_free(api)
     with api.app.state.store.transaction() as c:
         H.task_update(c, "bot:cpo", task["id"], step="Review 1")
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"], "family is a preference for reviews"
+
+
+def _save_other_company(api, task, step, rule):
+    """Save the whole type the way Settings > Tasks does, with one step's flow sent back in full and its
+    `other_company` set to `rule` (None clears it)."""
+    kind = get(api, "task-types/" + task["type_id"])["type"]
+    steps = []
+    for s in kind["steps"]:
+        row = {k: s[k] for k in ("id", "name", "status")}
+        if s["name"] == step:
+            flow = {k: v for k, v in (s.get("flow") or {}).items() if k != "other_company"}
+            row["flow"] = {**flow, **({"other_company": rule} if rule else {})}
+        steps.append(row)
+    return api.post("/api/v2/task-types/" + task["type_id"], headers=headers(), json={"steps": steps})
+
+
+def set_other_company(api, task, step, rule):
+    r = _save_other_company(api, task, step, rule)
+    assert r.status_code == 200, r.text
+    return r.json()["type"]
+
+
+def test_require_keeps_the_builders_company_off_a_qa_check_until_another_company_frees_up(api):
+    """With `require`, rev-c (the builder's company) is free but never given the QA check, so the check waits with
+    that reason; rev-a, of another company, takes it when its own check finishes."""
+    team(api)
+    task = qa_ticket(api)
+    set_pool(api, task, "In QA", ["rev-c", "rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    held = busy(api, "rev-a")
+    to_qa(api, task)
+    assert checks(api, task) == [], "rev-c is free, but it runs on the builder's company"
+    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
+    assert wait["title"] == "QA: PR #412"
+    assert wait["reason"].endswith("the rest run on the builder's model company"), wait["reason"]
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-a", held["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_a_same_company_bot_that_frees_up_does_not_take_a_require_check(api):
+    """`require` holds on the way out too: rev-c finishing its own check leaves the waiting QA check waiting, and
+    rev-a, of another company, takes it when it frees up."""
+    team(api)
+    task = qa_ticket(api)
+    set_pool(api, task, "In QA", ["rev-c", "rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    held_c, held_a = busy(api, "rev-c"), busy(api, "rev-a")
+    to_qa(api, task)
+    assert checks(api, task) == [] and get(api, "tasks/" + task["id"])["task"]["check_waits"]
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-c", held_c["id"], status="done", note="VERDICT: approve")
+    assert checks(api, task) == [], "a bot of the builder's company frees up and is not given the check"
+    assert len(get(api, "tasks/" + task["id"])["task"]["check_waits"]) == 1
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-a", held_a["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_require_on_a_review_step_keeps_the_builders_company_off_the_review(api):
+    team(api)
+    task = qa_ticket(api)
+    set_pool(api, task, "Review 1", ["rev-c", "rev-a"], limit=1)
+    set_other_company(api, task, "Review 1", "require")
+    held = busy(api, "rev-a")
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="Review 1")
+    assert checks(api, task) == []
+    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
+    assert wait["title"] == "Review 1: PR #412" and "builder's model company" in wait["reason"]
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-a", held["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_other_company_prefer_gives_a_same_company_bot_the_check_when_no_other_is_free(api):
+    team(api)
+    task = qa_ticket(api)
+    set_pool(api, task, "In QA", ["rev-c"])
+    set_other_company(api, task, "In QA", "prefer")
+    to_qa(api, task)
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"]
+    assert get(api, "tasks/" + task["id"])["task"]["check_waits"] == []
+
+
+def test_other_company_is_prefer_or_require_and_only_on_a_check_step(api):
+    team(api)
+    task = qa_ticket(api)
+    for step, rule in (("In QA", "maybe"), ("In Progress", "require")):
+        r = _save_other_company(api, task, step, rule)
+        assert r.status_code == 422 and "other_company" in r.text, (step, rule, r.text)
+
+
+def test_the_other_company_rule_is_saved_shown_and_cleared_without_touching_the_rest_of_the_flow(api):
+    team(api)
+    task = qa_ticket(api)
+    kind = set_other_company(api, task, "In QA", "require")
+    step = next(s for s in kind["steps"] if s["name"] == "In QA")
+    assert step["flow"]["other_company"] == "require" and step["flow"]["check"] == "qa"
+    assert step["flow"]["on_fail"] == "QA Fixes", "the rest of the flow is sent back as it was"
+    kind = set_pool(api, task, "In QA", ["rev-c"])
+    assert next(s for s in kind["steps"] if s["name"] == "In QA")["flow"]["other_company"] == "require", \
+        "saving the type without a flow for the step keeps the rule"
+    kind = set_other_company(api, task, "In QA", "prefer")
+    assert next(s for s in kind["steps"] if s["name"] == "In QA")["flow"]["other_company"] == "prefer"
+    kind = set_other_company(api, task, "In QA", None)
+    step = next(s for s in kind["steps"] if s["name"] == "In QA")
+    assert "other_company" not in step["flow"] and step["flow"]["on_fail"] == "QA Fixes"
