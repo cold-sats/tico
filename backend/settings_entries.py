@@ -42,7 +42,7 @@ _RULE_NAMES = {
     "health_monitor_reports": ("Health monitor reports", "direct", ""),
     "stale_review": ("Review stale tasks", "direct", ""),
     "topic_fresh": ("Keep topics fresh", "direct", ""),
-    "stall_triage": ("Quiet task triage", "direct", ""),
+    "stall_triage": ("Stalled task check", "direct", ""),
 }
 _RULE_WHERE = {"health_monitor_reports": ("Settings > Health > Health monitor", _card("health")),
                "stale_review": (RULES + " > What Tico runs on its own", _card("system", "set-system-card")),

@@ -281,6 +281,19 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 #chat-composer .p-chips:empty{display:none}
 #chat-composer .p-pill{order:2}
 #chat-composer .p-menu{top:auto;bottom:calc(100% + 6px)}
+/* Send and its caret: how the next message reaches the bot. The menu (shared with a task's send) opens upward, one row
+   per way, Defer's durations as small chips under it, Set as goal apart. */
+.p-sendbox{position:relative;flex:none;display:inline-flex;align-items:center}
+.p-way{width:34px;padding:0;justify-content:center;touch-action:manipulation}
+.p-way[hidden]{display:none}
+.p-way:disabled{opacity:.45;cursor:default}
+/* The font ships expand_more only: turned over, it points the way the menu opens. */
+.p-way .nav-icon{width:18px;height:18px;font-size:18px;transform:rotate(180deg)}
+.p-menu.p-ways{width:max-content;min-width:200px;max-width:calc(100vw - 32px);max-height:none}
+.p-menu.p-ways>button{min-height:34px;border:0}
+.p-ways .p-for{display:flex;flex-wrap:wrap;gap:4px;padding:0 4px 4px 9px}
+.p-menu.p-ways .p-for button{width:auto;min-width:34px;height:34px;justify-content:center;padding:0 8px;border:1px solid var(--line);border-radius:17px;font-size:var(--t-sm);font-variant-numeric:tabular-nums}
+.p-menu.p-ways .p-for button[aria-checked="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
 /* Chat owns the viewport: chrome and composer stay visible while only history scrolls. */
 #main.chat-layout{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:0;overflow:hidden;padding-bottom:max(var(--s3),env(safe-area-inset-bottom))}
 /* On desktop the body grid sizes the row (the app nudge may sit above); 100vh here would push the composer below the fold. */
@@ -321,7 +334,7 @@ body:has(#app-nudge:not([hidden])) #main.bot-split-layout>#bot-top{margin-top:8p
   #chat-composer .p-text{grid-column:-4;grid-row:1;order:0;flex:none;width:100%;height:36px;padding:6px 4px}
   #chat-composer .p-attach{grid-column:-5;grid-row:1;width:36px;height:36px;padding:0;justify-content:center}
   #chat-composer .p-go{grid-column:-2;grid-row:1;margin:0}
-  #chat-composer .p-send-icon{grid-column:-2;grid-row:1}
+  #chat-composer .p-send-icon,#chat-composer .p-sendbox{grid-column:-2;grid-row:1}
   /* The bot you're chatting with, left of the chat bar; a tap opens the switcher */
   #chat-composer .p-bot{display:inline-flex;grid-column:1;grid-row:1;width:36px;height:36px;padding:0;border:0;background:none;border-radius:50%;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
   #chat-composer .p-go button{height:36px}

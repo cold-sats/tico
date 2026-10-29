@@ -4,7 +4,7 @@
 // fold's steps and "Stopping…"; someone who may not read the bot's runs is told why its steps are hidden. On a person's
 // task the bot that asked it answers: your message shows the bot chat's pending line (Sent, Queued, "<Bot> is working",
 // then the reply, or Reply failed), and the composer says before sending when no bot will get it. Where a bot gets the
-// comment, the send says how it arrives (steer, queue or goal), and the choice is kept per task.
+// comment, the send says how it arrives (steer, queue, defer or goal), and the choice is kept per task.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -245,18 +245,23 @@ async function answered(viewport, shot) {
   } finally { await browser.close(); }
 }
 
-// The send says how a comment reaches its bot: steer (the default), queue, or goal where its session can take one. The
-// choice is kept per task, a goal the session cannot take falls back to steer, and a task with no bot keeps the arrow.
+// The send says how a comment reaches its bot: Steer, Queue, Defer <duration>, or Set as goal apart. With no pick nothing
+// is sent and the button shows the server's default; a pick is kept per task under a new key (the first version's
+// "queue" meant Defer), a bot-filed task's plain comment defers and an @mention queues it, and a task with no bot keeps
+// the arrow.
 async function deliveryChoice(viewport, shot) {
   const browser = await launch();
   try {
     const page = await browser.newPage({viewport, serviceWorkers: 'block'});
+    // A pick saved with the old meaning ("queue" = do not wake) is ignored.
+    await page.addInitScript(() => { try { localStorage.setItem('hub.task.delivery', '[["t-plan","queue"]]'); } catch {} });
     const errors = [];
     const plan = {id: 't-plan', title: 'Plan the launch', owner: 'human:ana', requester: 'bot:lead', status: 'open',
       lane: 'company', version: 1, created: at(30), updated: at(5), conversation_id: 'r-plan'};
     const said = [{id: 'p1', conversation_id: 'r-plan', from_actor: 'bot:lead', kind: 'say', body: 'What should launch first?', created: at(20)}];
     const sent = [], posted = [];
-    let to = {bot: 'lead', wakes: true, mention: []}, choices = {default: 'steer', steer: true, steers: true, goal: true};
+    let to = {bot: 'lead', wakes: true, mention: []};
+    let choices = {default: 'queue', default_for: null, steer: true, queue: true, steers: true, goal: true};
     page.on('pageerror', e => errors.push(e.message));
     await page.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -276,7 +281,8 @@ async function deliveryChoice(viewport, shot) {
         const body = JSON.parse(req.postData() || '{}');
         posted.push(body);
         sent.push({id: 'p' + (sent.length + 2), conversation_id: 'r-plan', from_actor: 'human:ana', to_actor: 'bot:lead', kind: 'say', body: body.text, created: at(0)});
-        return json({comment: sent.at(-1), comments: [...said, ...sent], woke: false});
+        const way = body.delivery && body.delivery !== 'goal' ? body.delivery : 'queue';
+        return json({comment: sent.at(-1), comments: [...said, ...sent], woke: false, sent_as: {delivery: way, until: null}});
       }
       if (p === '/api/v2/tasks/t-plan')
         return json({task: plan, events: [], can_comment: true, children: [], comment_to: to, comment_delivery: choices, comments: [...said, ...sent], execution: null});
@@ -287,101 +293,93 @@ async function deliveryChoice(viewport, shot) {
     await page.waitForFunction(() => typeof taskModalShow === 'function' && S.emps?.length);
     await page.evaluate(t => taskModalShow(t), plan);
     const modal = page.locator('#task-modal'), main = modal.locator('[data-task-main]'), caret = modal.locator('[data-task-caret]');
-    const menu = modal.locator('[data-task-menu]'), hint = modal.locator('[data-task-chat-to]');
+    const menu = modal.locator('[data-task-menu]');
+    const ways = () => menu.locator('[data-deliver]').evaluateAll(xs => xs.map(x => x.dataset.deliver));
+    const send = async text => {
+      await modal.locator('textarea').fill(text);
+      await main.click();
+      await modal.locator('.task-comments', {hasText: text}).waitFor();
+      return posted.at(-1);
+    };
     await modal.locator('.task-comments', {hasText: 'What should launch first?'}).waitFor();
 
-    // Steer is the default and says what it does; the caret offers the other two, opening upward and inside the width.
-    assert.equal(await main.innerText(), 'Steer');
-    assert.equal(await hint.innerText(), 'Steer: reaches Head of Engineering now.');
-    assert.ok(await caret.isVisible(), 'a bot gets the split send');
-    // Nothing picked, so nothing is sent: the server reads the comment, and the default is what the button shows.
-    await modal.locator('textarea').fill('Which is first?');
-    await main.click();
-    await modal.locator('.task-comments', {hasText: 'Which is first?'}).waitFor();
-    assert.equal('delivery' in posted.at(-1), false);
+    // No pick (the old key is ignored): the button shows the server's default and the comment carries no delivery.
+    assert.equal(await main.innerText(), 'Queue');
+    assert.deepEqual(await send('Which is first?'), {text: 'Which is first?', public: false});
+    assert.equal(await page.evaluate(() => localStorage.getItem('hub.task.delivery.v2')), null);
+
+    // The menu: Steer, Queue, Defer and its durations (24h by default), then Set as goal apart; upward, inside the width,
+    // every target at least 34 px.
     await caret.click();
-    assert.deepEqual(await menu.locator('button').allInnerTexts(), ['Queue', 'Set as goal']);
+    assert.deepEqual(await ways(), ['steer', 'queue', 'defer:24h', 'defer:30m', 'defer:1h', 'defer:4h', 'defer:24h', 'defer:2d', 'defer:7d', 'defer:never', 'goal']);
+    assert.equal(await menu.locator('.sep + [data-deliver="goal"]').count(), 1, 'Set as goal sits below a separator');
     const box = await menu.boundingBox(), arrow = await caret.boundingBox();
     assert.ok(box.y + box.height <= arrow.y, 'the menu opens upward, over the thread');
     assert.ok(box.x >= 0 && box.x + box.width <= viewport.width, `the menu fits the ${viewport.width} px width`);
-    if (shot) { await page.waitForTimeout(300); await page.screenshot({path: shot}); }   // past the menu's fade-in
-
-    // Choosing a way keeps the draft and only sets the way; the comment goes queued, and the choice stays for this task.
-    await menu.locator('[data-deliver="queue"]').click();
-    assert.equal(await menu.isHidden(), true);
-    assert.equal(await main.innerText(), 'Queue');
-    assert.equal(await hint.innerText(), "Queue: saved for Head of Engineering's next turn on this task.");
-    assert.equal(await page.evaluate(() => localStorage.getItem('hub.task.delivery')), '[["t-plan","queue"]]');
-    await modal.locator('textarea').fill('Billing first, then the docs.');
-    await main.click();
-    await modal.locator('.task-comments', {hasText: 'Billing first, then the docs.'}).waitFor();
-    assert.deepEqual(posted.at(-1), {text: 'Billing first, then the docs.', public: false, delivery: 'queue'});
-
-    // A goal is sent as the goal of the task's session, and the menu then offers steer and queue.
-    await caret.click();
-    assert.deepEqual(await menu.locator('button').allInnerTexts(), ['Steer', 'Set as goal']);
-    await menu.locator('[data-deliver="goal"]').click();
-    assert.equal(await main.innerText(), 'Set as goal');
-    assert.match(await hint.innerText(), /^Set as goal: Head of Engineering works toward this text/);
-    await modal.locator('textarea').fill('Finish the billing migration.');
-    await main.click();
-    await modal.locator('.task-comments', {hasText: 'Finish the billing migration.'}).waitFor();
-    assert.equal(posted.at(-1).delivery, 'goal');
-
-    // A session that cannot take a goal: the goal choice reads as steer, the menu offers only queue, and Escape closes the
-    // menu without closing the task.
-    choices = {default: 'steer', steer: true, steers: false, goal: false};
-    await reread(page);
-    await hint.filter({hasText: 'or after its running turn'}).waitFor();
-    assert.equal(await main.innerText(), 'Steer');
-    assert.equal(await hint.innerText(), 'Steer: reaches Head of Engineering now, or after its running turn if its harness cannot steer.');
-    await caret.click();
-    assert.deepEqual(await menu.locator('button').allInnerTexts(), ['Queue']);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no sideways scroll');
+    await menu.evaluate(m => Promise.all(m.getAnimations().map(a => a.finished)));       // past the menu's pop-in
+    const small = await menu.locator('button').evaluateAll(bs => bs.map(b => b.getBoundingClientRect()).filter(r => r.height < 34 || r.width < 34).map(r => `${r.width}x${r.height}`));
+    assert.deepEqual(small, [], 'every menu target is at least 34 px');
+    if (shot) await page.screenshot({path: shot});
+    // Escape closes the menu, not the task.
     await page.keyboard.press('Escape');
     assert.equal(await menu.isHidden(), true);
     assert.equal(await modal.isVisible(), true, 'Escape in the menu leaves the task open');
 
-    // Someone not on the task may not steer its bot: the send is Queue, the server's default, with nothing else to pick.
-    choices = {default: 'queue', steer: false, steers: false, goal: false};
-    await reread(page);
-    await hint.filter({hasText: 'Queue:'}).waitFor();
-    assert.equal(await main.innerText(), 'Queue');
-    assert.equal(await caret.isHidden(), true);
+    // Queue picked: sent as queue, and kept for this task under the new key.
+    await caret.click();
+    await menu.locator('[data-deliver="queue"]').click();
+    assert.equal(await menu.isHidden(), true);
+    assert.equal((await send('Billing first, then the docs.')).delivery, 'queue');
+    assert.equal(await page.evaluate(() => localStorage.getItem('hub.task.delivery.v2')), '[["t-plan","queue"]]');
 
-    // A participant's plain comment waits for the bot's next turn, and nothing is picked: the send carries no delivery,
-    // so an @mention of the bot that filed the task wakes it as the server reads the text. The button says so first.
-    await page.evaluate(() => localStorage.removeItem('hub.task.delivery'));
-    choices = {default: 'queue', steer: true, steers: true, goal: true};
+    // Defer 4h: the button shows the duration, the comment carries it, and the pick stays for the next one.
+    await caret.click();
+    await menu.locator('.p-for [data-deliver="defer:4h"]').click();
+    assert.equal(await main.innerText(), 'Defer 4h');
+    assert.deepEqual(await send('After lunch is fine.'), {text: 'After lunch is fine.', public: false, delivery: 'defer', defer_for: '4h'});
+    assert.equal(await main.innerText(), 'Defer 4h');
+    // A press outside closes the menu.
+    await caret.click();
+    await modal.locator('.task-comments').click({position: {x: 5, y: 5}});
+    assert.equal(await menu.isHidden(), true);
+
+    // Set as goal goes as the goal of the task's session.
+    await caret.click();
+    await menu.locator('[data-deliver="goal"]').click();
+    assert.equal((await send('Finish the billing migration.')).delivery, 'goal');
+
+    // A task the bot filed: a plain comment defers 24h, an @mention of the bot flips it to queue; nothing is picked, so
+    // nothing is sent and the server reads the text.
+    await page.evaluate(() => localStorage.removeItem('hub.task.delivery.v2'));
+    choices = {default: 'defer', default_for: '24h', steer: true, queue: true, steers: true, goal: false};
     to = {bot: 'lead', wakes: false, mention: ['lead']};
     await reread(page);
-    await hint.filter({hasText: 'Queue: saved'}).waitFor();
-    assert.equal(await main.innerText(), 'Queue');
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-task-main]').textContent === 'Defer 24h');
     await modal.locator('textarea').fill('Billing first; @lead, is the API page in?');
-    await hint.filter({hasText: 'Steer: reaches'}).waitFor();
-    assert.equal(await main.innerText(), 'Steer');
+    assert.equal(await main.innerText(), 'Queue');
     await main.click();
     await modal.locator('.task-comments', {hasText: 'Billing first; @lead'}).waitFor();
     assert.equal('delivery' in posted.at(-1), false);
-    // A way the person picks is sent, and the @mention does not change it: the menu keeps the draft and sets the way.
-    await modal.locator('textarea').fill('Also the API page, @lead.');
-    assert.equal(await main.innerText(), 'Steer');
+    assert.equal(await main.innerText(), 'Defer 24h', 'the empty box is back to the default');
+
+    // A reader who may not wake the bot only defers.
+    choices = {default: 'defer', default_for: 'never', steer: false, queue: false, steers: false, goal: false};
+    await reread(page);
+    await modal.locator('textarea').fill('@lead too');
+    assert.match(await main.innerText(), /^Defer/);
     await caret.click();
-    await menu.locator('[data-deliver="queue"]').click();
-    assert.equal(await main.innerText(), 'Queue');
-    await main.click();
-    await modal.locator('.task-comments', {hasText: 'Also the API page, @lead.'}).waitFor();
-    assert.equal(posted.at(-1).delivery, 'queue');
+    assert.deepEqual((await ways()).filter(w => !w.startsWith('defer')), []);
+    await page.keyboard.press('Escape');
+    await modal.locator('textarea').fill('');
 
     // A task with no bot keeps the plain arrow, and its comment carries no delivery.
     to = {bot: null, wakes: false, mention: []}; choices = null;
     await reread(page);
-    await hint.filter({hasText: 'No bot gets this message'}).waitFor();
+    await modal.locator('[data-task-chat-to]').filter({hasText: 'No bot gets this message'}).waitFor();
     assert.equal(await caret.isHidden(), true);
     assert.ok(await main.isVisible(), 'the plain arrow stays');
-    await modal.locator('textarea').fill('Anyone around?');
-    await main.click();
-    await modal.locator('.task-comments', {hasText: 'Anyone around?'}).waitFor();
-    assert.equal('delivery' in posted.at(-1), false);
+    assert.equal('delivery' in (await send('Anyone around?')), false);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 }

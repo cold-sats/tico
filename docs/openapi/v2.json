@@ -28517,6 +28517,34 @@
             "minLength": 1,
             "title": "Text"
           },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "steer",
+                  "queue",
+                  "defer"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
+          },
+          "defer_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(never|[1-9][0-9]{0,5}[mhd])$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer For"
+          },
           "refs": {
             "additionalProperties": true,
             "type": "object",
@@ -28675,12 +28703,21 @@
               "null"
             ],
             "enum": [
-              "steer",
               "queue",
+              "defer",
               null
             ]
           },
+          "default_for": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "steer": {
+            "type": "boolean"
+          },
+          "queue": {
             "type": "boolean"
           },
           "steers": {
@@ -28692,7 +28729,9 @@
         },
         "required": [
           "default",
+          "default_for",
           "goal",
+          "queue",
           "steer",
           "steers"
         ],
@@ -28724,6 +28763,9 @@
           },
           "goal": {
             "type": "object"
+          },
+          "sent_as": {
+            "$ref": "#/components/schemas/SentAs"
           }
         },
         "required": [
@@ -34761,6 +34803,10 @@
           "held": {
             "type": "string",
             "description": "On a send: a bot's message to a bot held for that bot's next run, and how to wake it now (backend/bot_to_bot.py)"
+          },
+          "sent_as": {
+            "$ref": "#/components/schemas/SentAs",
+            "description": "On a send to a bot: the way it went (steer, queue or defer) and a defer's deadline (backend/delivery.py)"
           }
         },
         "required": [
@@ -34870,6 +34916,34 @@
             "type": "boolean",
             "title": "Needs Action",
             "default": false
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "steer",
+                  "queue",
+                  "defer"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
+          },
+          "defer_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(never|[1-9][0-9]{0,5}[mhd])$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer For"
           }
         },
         "additionalProperties": false,
@@ -38043,6 +38117,30 @@
         "type": "object",
         "title": "SeatUpdate"
       },
+      "SentAs": {
+        "type": "object",
+        "properties": {
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "steer",
+              "queue",
+              "defer"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "delivery",
+          "until"
+        ],
+        "additionalProperties": true
+      },
       "ServiceKeyCreate": {
         "properties": {
           "label": {
@@ -40747,6 +40845,7 @@
                 "enum": [
                   "steer",
                   "queue",
+                  "defer",
                   "goal"
                 ]
               },
@@ -40755,6 +40854,18 @@
               }
             ],
             "title": "Delivery"
+          },
+          "defer_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(never|[1-9][0-9]{0,5}[mhd])$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer For"
           }
         },
         "additionalProperties": false,
@@ -40965,6 +41076,34 @@
             "type": "boolean",
             "title": "Next Run",
             "default": false
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "steer",
+                  "queue",
+                  "defer"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery"
+          },
+          "defer_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(never|[1-9][0-9]{0,5}[mhd])$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defer For"
           },
           "request_id": {
             "anyOf": [

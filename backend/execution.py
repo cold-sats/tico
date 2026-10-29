@@ -3385,6 +3385,13 @@ class Execution:
             bot_to_bot.continue_backlog(c, row["bot"])
             if notes:
                 H.event(c, H.KEEPER, "note.carried", aid, {"bot": row["bot"], "notes": [n["id"] for n in notes]})
+        # What was deferred to this turn (backend/delivery.py): the session's comments and messages, which its room's
+        # history holds, and the deferred tasks and notes above. Their deadlines are met.
+        from . import delivery
+        deferred = delivery.summary(
+            delivery.carried(c, row["bot"], aid, [conv["id"], (task or {}).get("conversation_id")],
+                             [item["id"] for item in carried], [item["id"] for item in notes]),
+            tasks=len(carried), notes=len(notes))
         from .views import roster
         people = roster(c)
         inbox = P.inbox_person(row["bot"], people)
@@ -3396,7 +3403,7 @@ class Execution:
         if chat_goal and chat_goal["bot"] != row["bot"]:
             # Another bot's turn in the room (the requester answering) works without the owner's goal.
             chat_goal = None
-        return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
+        return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid, "deferred": deferred,
                             # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
                             "login_class": login_class(c, task, msg, routine),
                             "recovery": {"resume_session": restart_reported(c, row["attempt_id"]) or cut_by_update(c, row["attempt_id"])
@@ -3986,6 +3993,8 @@ class Execution:
         candidates = c.execute("SELECT m.*,j.id AS job_id FROM jobs j JOIN messages m ON m.id=j.message_id "
                              "JOIN conversations cv ON cv.id=m.conversation_id "
                              "WHERE j.bot=? AND j.state='queued' AND coalesce(json_extract(m.refs_json,'$.command'),0)!=1 "
+                             # Queued, not steered: it goes in right after the turn (backend/delivery.py).
+                             "AND coalesce(json_extract(m.refs_json,'$.delivery'),'')<>'queue' "
                              # A run the claim holds is not taken into a running turn until its wait ends, as the
                              # claim would not start it either.
                              "AND (j.held=0 OR (j.hold_reason=? AND j.hold_until<=?)) "
