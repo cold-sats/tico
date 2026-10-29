@@ -608,7 +608,10 @@ def test_other_company_prefer_gives_a_same_company_bot_the_check_when_no_other_i
 
 
 def task_model(api, slug, model, harness):
-    """Give `slug` a task model: the model a task filed to it, a check included, runs on."""
+    """Give `slug` a task model: the model a task filed to it, a check included, runs on. Both companies are on, as a
+    task model needs."""
+    from backend.tests.test_check_models import company
+    company(api, "anthropic", "openai")
     with api.app.state.store.transaction() as c:
         config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0])
         config["task_model"] = {"model": model, "harness": harness}
@@ -622,7 +625,7 @@ def test_require_goes_by_the_task_model_a_check_runs_on_not_the_bots_own_model(a
     team(api)
     task = qa_ticket(api)
     task_model(api, "rev-a", "claude-haiku-5-5", "claude")
-    task_model(api, "rev-c", "gpt-6-sol", "codex")
+    task_model(api, "rev-c", "gpt-6.1-sol", "codex")
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO turns(id,bot,started,finished) VALUES('chat','rev-c',?,?)", (H.now(), H.now()))
         c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
@@ -643,7 +646,7 @@ def test_a_task_model_that_cannot_run_counts_the_bots_own_model_for_require(api)
     back to its own model, on Anthropic like the builder: a required check waits for rev-a instead."""
     team(api)
     task = qa_ticket(api)
-    task_model(api, "rev-c", "gpt-6-sol", "codex")
+    task_model(api, "rev-c", "gpt-6.1-sol", "codex")
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE runners SET readiness_json=? WHERE id='r1'",
                   (json.dumps({"schema_version": 1, "bots": {}, "runtimes": {"codex": {"installed": False}}}),))
@@ -662,7 +665,7 @@ def test_a_recent_task_on_its_own_model_says_nothing_about_where_a_check_runs(ap
     given to it runs on, is OpenAI, so a required check goes to it."""
     team(api)
     task = qa_ticket(api)
-    task_model(api, "rev-c", "gpt-6-sol", "codex")
+    task_model(api, "rev-c", "gpt-6.1-sol", "codex")
     own = busy(api, "rev-c")
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO task_run_models(task_id,runtime,model,harness) VALUES(?,'claude','claude-haiku-5-5',"
@@ -676,6 +679,50 @@ def test_a_recent_task_on_its_own_model_says_nothing_about_where_a_check_runs(ap
     set_other_company(api, task, "In QA", "require")
     to_qa(api, task)
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"]
+
+
+def test_a_task_model_held_at_its_usage_limit_counts_the_bots_own_model_for_require(api):
+    """rev-c's OpenAI task model is held at a usage limit, so a check given to it would run on its own model, on
+    Anthropic like the builder: a required check waits for rev-a. rev-a's task model on Anthropic is not installed on
+    its computer, so its check would run on its own model, on OpenAI, and it takes the check when it frees up."""
+    from backend import login_holds
+    team(api)
+    task = qa_ticket(api)
+    task_model(api, "rev-c", "gpt-6.1-sol", "codex")
+    task_model(api, "rev-a", "claude-haiku-5-5", "claude")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET readiness_json=? WHERE id='r1'", (json.dumps({"schema_version": 1, "bots": {},
+                  "runtimes": {"codex": {"installed": True}, "claude": {"installed": False}}}),))
+        login_holds.record(c, "r1", login_holds.canonical(c, "r1", "", "codex"), "codex", H.now(),
+                           reset=H.shift(H.now(), hours=2))
+    set_pool(api, task, "In QA", ["rev-c", "rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    held = busy(api, "rev-a")
+    to_qa(api, task)
+    assert checks(api, task) == [], "rev-c's check would run on the builder's company"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-a", held["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_a_recent_check_on_a_check_model_says_nothing_about_a_bot_with_no_task_model(api):
+    """rev-a runs on OpenAI with no task model; its last check ran on Anthropic because it had a check model. A
+    required check for an Anthropic build still goes to it."""
+    team(api)
+    task = qa_ticket(api)
+    own = busy(api, "rev-a")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO task_check_models(task_id,runtime,model,harness,effort,role,created_by) "
+                  "VALUES(?,'claude','claude-haiku-5-5','claude','','review','bot:rev-a')", (own["id"],))
+        c.execute("UPDATE tasks SET status='done' WHERE id=?", (own["id"],))
+        c.execute("INSERT INTO turns(id,bot,started,finished,task_id) VALUES('checked','rev-a',?,?,?)",
+                  (H.now(), H.now(), own["id"]))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('checked',0,'claude-haiku-5-5','anthropic')")
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
 
 
 def test_other_company_is_prefer_or_require_and_only_on_a_check_step(api):

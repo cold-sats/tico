@@ -218,18 +218,21 @@ def online(c, slug):
 
 
 def _task_model(c, slug):
-    """(config, task model or None, whether it can run): the bot's config, and the task model a task filed to it runs
-    on. A check is a task the bot owns, so it runs on the bot's task model whenever the bot gives its tasks their own
-    sessions, and on the bot's own model when the task model cannot run on its computer (backend/task_models.py
-    `pick`, `readiness`)."""
+    """(config, task model or None): the bot's config, and the task model a task filed to it runs on. A check is a task
+    the bot owns, so it runs on the bot's task model whenever the bot gives its tasks their own sessions, unless that
+    model cannot run on the bot's computer now (retired, not installed or signed in, held at a usage limit): then on
+    the bot's own model, as backend/task_models.py `pick` falls back."""
     from clients import sessions
     from . import task_models
     from .shared_bots import follow
     row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
     config = follow(c, slug, H._json(row["config_json"], {}) or {}) if row else {}
-    keyed = sessions.session_key(config, slug, "check", None).startswith("task:")
-    task = task_models.of(config) if keyed else None
-    return config, task, bool(task) and task_models.readiness(c, slug, task).get("can_run") is not False
+    task = task_models.of(config) if sessions.session_key(config, slug, "check", None).startswith("task:") else None
+    if task:
+        runner = c.execute("SELECT runner_id FROM assignments WHERE bot=?", (slug,)).fetchone()
+        if task_models.why_not(c, None, slug, task, runner[0] if runner else None):
+            task = None
+    return config, task
 
 
 def _company(names):
@@ -237,44 +240,40 @@ def _company(names):
     return next((found for found in map(providers.author_provider, names) if found), "")
 
 
-def _own(c, config):
-    """The model company of the bot's own model, '' when its config names none Tico knows."""
+def maker(c, slug):
+    """The model company a task filed to the bot runs on (`anthropic`, `openai`, ...): its task model's when it has
+    one that can run, else its own model's; '' when its config names none Tico knows."""
     from . import providers
+    config, task = _task_model(c, slug)
+    if task:
+        return _company((task["model"], task["runtime"]))
     runtime, model = providers.bot_choice(c, None, config)
     return _company((model, config.get("model"), runtime, config.get("runtime")))
 
 
-def maker(c, slug):
-    """The model company a task filed to the bot runs on (`anthropic`, `openai`, ...): its task model's when it has
-    one that can run, else its own model's; '' when its config names none Tico knows."""
-    config, task, ready = _task_model(c, slug)
-    return _company((task["model"], task["runtime"])) if ready else _own(c, config)
-
-
 RECENT_TURNS = 3
-TASK_TURNS_READ = 20
+TURNS_READ = 20
 
 
 def _recent_turns(c, slug, task):
-    """The bot's last few finished turns. With a task model, only its turns on tasks that run on that model: its other
-    turns run on its own model, and a task with a model of its own or a check model ran on that, neither of which a
-    check filed to it does."""
+    """The bot's last few finished turns that ran where a check filed to it would: none on a task with a model of its
+    own or a check model, which ran on that, and with a task model, only its turns on tasks, since its other turns run
+    on its own model."""
     from . import task_run_models
-    if not task:
-        return [r[0] for r in c.execute("SELECT id FROM turns WHERE bot=? AND finished IS NOT NULL ORDER BY finished DESC "
-                                        "LIMIT ?", (slug, RECENT_TURNS))]
-    rows = c.execute("SELECT id,task_id FROM turns WHERE bot=? AND finished IS NOT NULL AND task_id IS NOT NULL "
-                     "ORDER BY finished DESC LIMIT ?", (slug, TASK_TURNS_READ)).fetchall()
-    return [r[0] for r in rows if not task_run_models.of(c, r[1]) and not H.check_model(c, r[1])][:RECENT_TURNS]
+    rows = c.execute("SELECT id,task_id FROM turns WHERE bot=? AND finished IS NOT NULL"
+                     + (" AND task_id IS NOT NULL" if task else "")
+                     + " ORDER BY finished DESC LIMIT ?", (slug, TURNS_READ)).fetchall()
+    return [r[0] for r in rows
+            if not (r[1] and (task_run_models.of(c, r[1]) or H.check_model(c, r[1])))][:RECENT_TURNS]
 
 
 def makers(c, slug, known_only=False):
-    """Every model company a checker may run on: the one a task filed to it runs on (`maker`), its own model's too
-    while its task model cannot run (the check would fall back to it), and what its last few runs actually ran on (a
-    bot whose model is not signed in runs on its fallback, which is the company that would do the check). A run with
-    an unknown segment makes the answer empty, or with `known_only` adds nothing, leaving what is known."""
+    """Every model company a checker may run on: the one a task filed to it runs on (`maker`), and what its last few
+    such runs actually ran on (a bot whose model is not signed in runs on its fallback, which is the company that would
+    do the check). A run with an unknown segment makes the answer empty, or with `known_only` adds nothing, leaving
+    what is known."""
     from .usage_records import ran_on
-    config, task, ready = _task_model(c, slug)
+    _, task = _task_model(c, slug)
     recent = ran_on(c, _recent_turns(c, slug, task)).values()
     found = set()
     for run in recent:
@@ -282,9 +281,7 @@ def makers(c, slug, known_only=False):
         if not known_only and (not segments or any(not segment.get("family") for segment in segments)):
             return set()
         found.update(segment["family"] for segment in segments if segment.get("family"))
-    configured = {_company((task["model"], task["runtime"])), _own(c, config)} if task and not ready \
-        else {maker(c, slug)}
-    return (found | configured) - {""}
+    return (found | {maker(c, slug)}) - {""}
 
 
 def builder_makers(c, ticket):

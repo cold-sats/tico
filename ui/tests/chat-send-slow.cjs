@@ -16,8 +16,9 @@ const launch = {
   // The bug was seen in mobile Safari: the hosted job installs WebKit, so the abort path gets a Safari-engine receipt.
   webkit: () => webkit.launch({headless: true}),
 };
-// TICO_UI_ENGINES=chromium runs one engine where WebKit's system libraries are missing.
-const engines = (process.env.TICO_UI_ENGINES || 'chromium,webkit').split(',');
+// One engine per run, so each fits the browser runner's time per script: Chromium here, WebKit from
+// chat-send-slow-webkit.cjs. TICO_UI_ENGINES names others, comma-separated.
+const engines = (process.env.TICO_UI_ENGINES || 'chromium').split(',');
 
 async function check(engine) {
   const browser = await launch[engine]();
