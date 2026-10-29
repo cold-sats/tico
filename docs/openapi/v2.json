@@ -35923,6 +35923,26 @@
           },
           "can_delete": {
             "type": "boolean"
+          },
+          "pinned": {
+            "type": "array",
+            "description": "The places it is pinned that the caller may open",
+            "items": {
+              "type": "object",
+              "properties": {
+                "place": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "place"
+              ],
+              "additionalProperties": true
+            }
           }
         },
         "required": [

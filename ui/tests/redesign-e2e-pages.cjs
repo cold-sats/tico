@@ -1,7 +1,7 @@
 // Pages and Library › Files on a real hub (docs/pages.md): the Engineering Lead published a weekly page that replaced
 // an older one, a launch plan on Dana's task and a signup funnel CSV (seed `pages`). Library › Files lists them, a kind
 // filter and a search narrow it, a page opens full size with Tico's status line, a replaced page links on, the task
-// shows its pages at the top, the search box finds a file by its words, and the owner deletes a page for good. This hub
+// shows the pages pinned to it at the top, the search box finds a file by its words, and the owner deletes a page for good. This hub
 // has no visual address, so pages are Open cards; one framed page (its address faked) takes the height it reports,
 // cut at a card's size. Phone, then desktop.
 const assert = require('node:assert/strict');
@@ -71,15 +71,20 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   await replaced.click();
   await page.waitForFunction(id => location.hash === '#/page/' + id, weekly.file_id, {timeout: t(5000)});
 
-  // The task shows its pages at the top, the replaced one left out; a card opens its page.
+  // A page filed on the task is pinned to its top; the old weekly, filed there too, is left out as replaced. A card
+  // opens its page, which says where it is pinned.
   await go(page, '#/task/' + launch.task_id);
   const cards = page.locator('.task-pages .pg-card');
-  await page.waitForFunction(() => document.querySelectorAll('.task-pages .pg-card').length === 2, null, {timeout: t(10000)})
-    .catch(() => assert.fail(`${tag}: two page cards on the task (${JSON.stringify(page.errors)})`));
-  assert.deepEqual((await cards.locator('.pg-open-title').allInnerTexts()).sort(), ['Engineering weekly', 'Launch plan']);
+  await cards.first().waitFor({timeout: t(10000)})
+    .catch(() => assert.fail(`${tag}: a page card on the task (${JSON.stringify(page.errors)})`));
+  assert.deepEqual(await cards.locator('.pg-open-title').allInnerTexts(), ['Launch plan']);
   await shot(page, `${tag}-04-task`);
   await cards.locator('a.pg-open', {hasText: 'Launch plan'}).click();
   await page.waitForFunction(id => location.hash === '#/page/' + id, launch.file_id, {timeout: t(5000)});
+  const pinned = page.locator('#pg-view .pg-pinned a');
+  await pinned.waitFor({timeout: t(5000)});
+  assert.equal(await pinned.innerText(), 'Q3 launch');
+  assert.equal(await pinned.getAttribute('href'), '#/task/' + launch.task_id);
 
   // The search box finds files by their words.
   await page.locator(phone ? '#mobile-search' : '#search-open').click();

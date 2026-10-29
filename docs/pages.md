@@ -16,7 +16,7 @@ other file.
 - **The same path again** adds a version of the same page.
 - **`--cadence`** says how often the bot means to update it: `none`, `daily`, `weekly` or `monthly`.
 - **`--as-of`** is the date the data is from, when that differs from the publish date.
-- **`--task`** files the page on a task: it shows as a card at the top of that task, for whoever can see the task.
+- **`--task`** files the page on a task and pins it to the top of that task, for whoever can see the task.
   Without it, the page belongs to the turn's task or conversation, as a file would; `--scope bot` makes it
   bot-wide.
 - **`--replaces`** names an older page of the same bot that this one takes over. The older page then says
@@ -48,7 +48,9 @@ Tico draws one line above every page, as a card and at full size. The page canno
   computer or a phone.
 - **The full view** has the page's versions (an older one opens in place) and, for whoever may manage it,
   **Archive**. The owner also has **Delete for good** ([Files](files.md#deleting-a-file-for-good)).
-- **A task** shows its pages as cards at the top.
+- **A task** shows the pages pinned to it as cards at the top, a replaced page left out.
+- **Pinned** to the Dashboard, a team page or a bot's sidebar ([Overview](overview.md)), a page shows as a card there.
+  The full view lists where it is pinned, among the places the reader may open.
 
 Pages show inline when the install has a visual address (`TICO_VISUAL_ORIGIN`) or Tico file hosting
 ([Visuals in replies](visuals.md#self-hosting)). Without either, a page is an **Open** card with its title and status
@@ -67,7 +69,7 @@ Stable v2 (`docs/openapi/v2.json`, tag **Pages**):
 | Call | What it does |
 |---|---|
 | `POST /api/v2/pages` | Publish: raw HTML with the fields in the query, or JSON with `name` and `text` or `content_base64` |
-| `GET /api/v2/pages/{file_id}` | One page: `file_id, title, bot, bot_name, version, updated, updated_by, cadence, as_of, stale_days, replaced_by, archived, task_id, src` |
+| `GET /api/v2/pages/{file_id}` | `page`: `file_id, title, bot, bot_name, version, updated, updated_by, cadence, as_of, stale_days, replaced_by, archived, task_id, src`; `pinned`: where it is pinned |
 | `GET /api/v2/pages?ids=a,b` | Up to 50 pages in that order, leaving out any the caller may not read |
 | `GET /api/v2/pages?bot=&task=` | Pages newest first, paged with `limit` and `cursor` |
 | `PATCH /api/v2/pages/{file_id}` | `cadence`, `as_of`, `replaced_by`, `archived` |

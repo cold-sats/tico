@@ -157,9 +157,10 @@ PAGE_HTML = ('<!doctype html><html><head><title>{title}</title></head><body styl
 
 @seed("pages")
 def pages(world):
-    """The Engineering Lead's pages and files, published during one turn on Dana's task "Q3 launch": a weekly page that
-    replaced an older one (data from Oct 27), a launch plan filed on the task (its top card), and a signup funnel
-    CSV bot-wide, so Library › Files has pages, data and a search hit inside a CSV."""
+    """The Engineering Lead's pages and files, published during one turn on Dana's task "Q3 launch": an older weekly
+    page filed on the task and a bot-wide weekly page that replaced it (data from Oct 27), a launch plan filed on the
+    task, and a signup funnel CSV bot-wide, so Library › Files has pages, data and a search hit inside a CSV. A page
+    filed on the task is pinned to its top; the replaced one is left out there."""
     from .harness import DANA
     made = _ok(world.api("post", "/api/v2/tasks", {"title": "Q3 launch", "body": "Plan the Q3 launch.",
                                                     "owner": "engineering-lead"}, who=DANA), "task")
@@ -169,7 +170,7 @@ def pages(world):
         def page(name, title, text, bar, **fields):
             body = {"name": name, "title": title, "text": PAGE_HTML.format(title=title, text=text, bar=bar), **fields}
             return _ok(world.api("post", "/api/v2/pages", body, who=token), name)["page"]["file_id"]
-        old = page("weekly-old.html", "Engineering weekly (old)", "Last month's numbers.", 90, scope="bot",
+        old = page("weekly-old.html", "Engineering weekly (old)", "Last month's numbers.", 90, task=task,
                    cadence="weekly")
         page("weekly.html", "Engineering weekly", "Shipped 14 changes; review time fell to 6 hours.", 240,
              scope="bot", cadence="weekly", as_of="2026-10-27", replaces=old)

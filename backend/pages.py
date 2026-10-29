@@ -15,6 +15,7 @@ from datetime import date
 from fastapi import Request
 from pydantic import Field
 
+from . import cards
 from . import models as M
 from . import names
 from . import visuals
@@ -90,13 +91,12 @@ class Pages:
 
     # ------------------------------------------------------------------ reads
     def src(self, c, who, row, version):
-        """A fresh visual address for this version, as a message's visual gets one (visuals.for_reader), or None when
-        this install can't show pages inline: the page is then an Open card."""
+        """A fresh visual address for this version, as a message's visual gets one (visuals.src_for: a visual
+        address, or Tico file hosting), or None when this install can't show pages inline: the page is then an Open
+        card."""
         if row["archived"] or row["locator"] != "tico_blob":
             return None
-        message = {"refs": {"attachments": [{"file_id": row["id"], "version": int(version), "kind": "page"}]}}
-        shown = visuals.for_reader(self.app, self.store.settings, c, who, [message])[0]
-        return shown["refs"]["attachments"][0].get("src")
+        return visuals.src_for(self.app, self.store.settings, c, who, row["id"], version)
 
     def view(self, c, who, row, page, cache, names_=None):
         """The contract's page read: what the status line and a card need."""
@@ -144,7 +144,8 @@ class Pages:
                 raise Problem("not_found", "Page not found", 404)
             # What the full view offers this reader: Archive for its managers, Delete for the owner.
             return {"page": self.view(c, who, r, self.page_of(r), {}), "can_manage": self.may_manage(c, who, r),
-                    "can_delete": who.role == "owner"}
+                    "can_delete": who.role == "owner",
+                    "pinned": cards.pinned_places(cards.Ctx(c, self.auth, who, self.store.settings), fid)}
 
     def many(self, who, ids):
         """Up to 50 pages at once, in the order asked, leaving out the ones `who` may not read."""
@@ -204,6 +205,7 @@ class Pages:
         cadence = check_cadence(fields["cadence"]) if fields.get("cadence") else None
         as_of = check_as_of(fields.get("as_of"))
         replaces = str(fields.get("replaces") or "").strip()
+        task = str(fields.get("task") or "").strip()
         cleaned, unembedded = visuals.clean(data, "page", base=False)
         if len(cleaned) > visuals.LIMITS["page"]:
             raise Problem("file_refused", "A page is at most 10 MB", 422)
@@ -226,11 +228,25 @@ class Pages:
                 c.execute("UPDATE pages SET replaced_by=?,updated=? WHERE file_id=?", (row["id"], now, old["id"]))
                 self.files.activity(c, old["id"], "bot:" + row["bot"], "modified", now=now,
                                     detail={"replaced_by": row["id"]})
+            if task and row["task_id"] == task:
+                self.pin_to_task(c, row, task)
             return {"page": self.view(c, who, row, c.execute("SELECT * FROM pages WHERE file_id=?",
                                                               (row["id"],)).fetchone(), {}),
                     "unembedded": unembedded}
         return self.files.publish(request, who, fields, cleaned, extra=extra,
                                   extra_body={"cadence": cadence or "", "as_of": as_of or "", "replaces": replaces})
+
+    @staticmethod
+    def pin_to_task(c, row, task):
+        """A page published with --task is pinned at the top of that task, by its bot, once. A task place never
+        widens who reads the page (backend/cards.py WIDENING)."""
+        place, item = "task:" + task, "page:" + row["id"]
+        count = c.execute("SELECT count(*) FROM pins WHERE place=?", (place,)).fetchone()[0]
+        if count >= cards.PLACE_MAX or c.execute("SELECT 1 FROM pins WHERE place=? AND item=?", (place, item)).fetchone():
+            return
+        c.execute("INSERT INTO pins(id,place,item,position,size,made_by,created) VALUES(?,?,?,?,?,?,?)",
+                  (H.new_id(), place, item, count, "medium", "bot:" + row["bot"], H.now()))
+        cards.file_activity(c, row["id"], "bot:" + row["bot"], "pinned", place)
 
     def may_manage(self, c, who, row):
         """The maintainer bot, the owner, bot administrators and the people above the bot on the org chart archive

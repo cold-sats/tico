@@ -75,3 +75,5 @@ a.pg-open:hover{background:var(--hover);text-decoration:none}
   .lf-frow select{flex:none;max-width:150px}
   .pg-ver{max-width:110px}
 }
+.pg-pinned{margin:10px 0 0;color:var(--muted);font-size:var(--t-sm)}
+.pg-pinned a{color:var(--accent-quiet)}

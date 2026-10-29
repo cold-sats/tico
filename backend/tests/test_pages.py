@@ -89,6 +89,29 @@ def test_a_replaced_page_names_its_replacement_only_to_readers_who_may_see_it(ap
     assert page(api, other, name="f.html", replaces=old).status_code == 404
 
 
+def test_a_page_filed_on_a_task_is_pinned_to_its_top_and_says_where_it_is_pinned(api):
+    _, attempt = turn(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Q3 launch", "body": "x", "private": True}, token="ben-test")
+    made = page(api, attempt, name="launch.html", task=task["id"])
+    assert made.status_code == 200, made.text
+    fid = made.json()["page"]["file_id"]
+    page(api, attempt, name="launch.html", task=task["id"], data=HTML + b"<p>v2</p>")      # a new version: one pin
+    place = api.get("/api/v2/places/task:" + task["id"], headers=headers("ben-test")).json()
+    assert [(p["item"], p["page"]["version"]) for p in place["pins"]] == [("page:" + fid, 2)]
+    assert read(api, fid, "ben-test").json()["pinned"] == [{"place": "task:" + task["id"], "label": "Q3 launch"}]
+    assert read(api, fid, "cara-test").status_code == 404                                   # a private task's page
+
+
+def test_latest_pages_lists_current_pages_only(api):
+    _, attempt = turn(api)
+    old = page(api, attempt).json()["page"]["file_id"]
+    new = page(api, attempt, name="weekly-2.html", data=HTML + b"<p>v2</p>", replaces=old).json()["page"]["file_id"]
+    publish(api, attempt, name="notes.html", text="<p>not a page</p>")          # an HTML file, never published as a page
+    pins = api.get("/api/v2/places/dashboard", headers=headers("ben-test")).json()["pins"]
+    latest = next(p["card"]["data"] for p in pins if p["card"]["template"] == "latest_pages")
+    assert [p["file_id"] for p in latest["pages"]] == [new]
+
+
 def test_archiving_hides_a_page_from_lists_and_search_until_its_bot_publishes_a_change(api):
     _, attempt = turn(api)
     fid = page(api, attempt).json()["page"]["file_id"]

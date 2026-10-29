@@ -22,7 +22,8 @@ function pageStatusHTML(p) {
   const by = String(p.updated_by || '');
   const who = by.startsWith('bot:') ? pageBotName({bot: by.slice(4), bot_name: p.updated_by_name}) : p.updated_by_name || pageBotName(p);
   const parts = [stale ? `Not updated in ${p.stale_days} day${p.stale_days === 1 ? '' : 's'}`
-    : `Updated ${esc(ago(p.updated))}${who ? ' by ' + esc(who) : ''}`, 'v' + Number(p.version)];
+    : `Updated ${esc(ago(p.updated))}${who ? ' by ' + esc(who) : ''}`];
+  if (Number.isInteger(p.version)) parts.push('v' + p.version);
   if (p.cadence && p.cadence !== 'none') parts.push(esc(p.cadence));
   if (p.as_of) parts.push('data from ' + esc(pageDay(p.as_of)));
   return `<div class="pg-status${stale ? ' pg-stale' : ''}" title="${esc(fmt(p.updated))}">${parts.join(' · ')}</div>`;
@@ -31,7 +32,8 @@ function pageStatusHTML(p) {
 // ----------------------------------------------------------------- the card
 // The approved address a page frames from, or null for an Open card. Tico file hosting's desktop check
 // (visualPageSrc, ui/app/visual-cards.js) applies where that build has it.
-const pageSrc = p => typeof visualPageSrc === 'function' ? visualPageSrc(p.src) : visualSrc({src: p.src});
+// visualPageSrc (ui/app/visual-cards.js): null when this window can't frame it, e.g. an older desktop app.
+const pageSrc = p => p.src ? visualPageSrc(p.src) : null;
 function pageFrame(p, src, height) {
   const f = document.createElement('iframe');
   f.className = 'page-frame';
@@ -102,6 +104,7 @@ async function pageFullView(id) {
   }
   if (PG !== state) return;
   state.page = read.page; state.can = {manage: !!read.can_manage, del: !!read.can_delete};
+  state.pinned = read.pinned || [];
   state.shown = read.page.version;
   pageFullDraw(state);
   get(`/v2/files/${encodeURIComponent(id)}/versions`).then(v => {
@@ -113,9 +116,15 @@ async function pageFullView(id) {
 function pageFullDraw(state) {
   const root = $('#pg-view');
   if (!root) return;
-  root.innerHTML = `<header class="pg-head"></header><div class="pg-body"></div>`;
+  const pinned = state.pinned.map(x => `<a href="${esc(pagePlaceHref(x.place))}">${esc(x.label)}</a>`).join(' · ');
+  root.innerHTML = `<header class="pg-head"></header><div class="pg-body"></div>${pinned ? `<p class="pg-pinned">Pinned to ${pinned}</p>` : ''}`;
   pageFullHead(state);
   pageFullBody(state);
+}
+// A pin's place (backend/cards.py) as the app's address.
+function pagePlaceHref(place) {
+  const [kind, ...rest] = String(place).split(':'), id = encodeURIComponent(rest.join(':'));
+  return kind === 'dashboard' ? OVERVIEW : kind === 'team' ? '#/team/' + id : kind === 'bot' ? '#/bot/' + id : '#/task/' + id;
 }
 function pageFullHead(state) {
   const p = state.page, head = $('#pg-view .pg-head');
@@ -184,11 +193,12 @@ function taskPagesAdopt(d, task) {
   const id = String(task.id);
   if (d.tpEl && d.tpEl.dataset.task === id) { slot.replaceWith(d.tpEl); return; }
   d.tpEl = slot; slot.dataset.task = id;
-  get(`/v2/pages?task=${encodeURIComponent(id)}&limit=3`).then(r => {
+  // The pages pinned to the task (a page published with --task pins itself there), in their order.
+  get('/v2/places/' + encodeURIComponent('task:' + id)).then(r => {
     if (d.tpEl !== slot) return;
-    const pages = (r.pages || []).filter(p => !p.replaced_by);   // a replaced page links on; its successor shows
-    slot.hidden = !pages.length;
-    slot.replaceChildren(...pages.map(p => window.pageCard(p, {size: 'medium'})));
+    const pins = (r.pins || []).filter(x => x.page && !x.page.replaced_by && !x.page.archived);   // a replaced page links on
+    slot.hidden = !pins.length;
+    slot.replaceChildren(...pins.map(x => window.pageCard(x.page, {size: x.size || 'medium'})));
   }).catch(() => {});
 }
 
