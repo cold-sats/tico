@@ -78,8 +78,14 @@ export type AssistantActionResult = {
 };
 
 export type AssistantMessage = {
+  page?: AssistantPage | null;
   place?: "updates" | null;
   text: string;
+};
+
+export type AssistantPage = {
+  path: string;
+  title?: string;
 };
 
 export type AssistantReadBack = {
