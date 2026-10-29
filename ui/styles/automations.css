@@ -49,22 +49,28 @@
 .au-tbl-t{width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--t-base)}
 .au-tbl-t th{position:sticky;top:0;z-index:1;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--bg);color:var(--muted);font-size:var(--t-label);font-weight:500;letter-spacing:var(--track-caps);text-transform:uppercase;text-align:left;white-space:nowrap}
 .au-tbl-t td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
-.au-tbl-t th.au-tt{width:18%}
-.au-tbl-t th.au-to{width:150px}
+.au-tbl-t th.au-tt{width:15%}
+.au-tbl-t th.au-to{width:64px}
 .au-tbl-t th.au-cl{width:78px}
 .au-tbl-t th.au-cx{width:64px}
 .au-tbl-t th.au-cs{width:104px;padding-right:0}
 .au-tbl-t th.au-n{width:58px}
-.au-tbl-t th.au-n:last-child{width:74px}
+.au-tbl-t th.au-cc{width:74px}
 .au-tbl-t th.au-cw{width:84px}
 .au-tbl-t th.au-cst{width:92px}
 .au-tbl-t th.au-why{width:24%}
 .au-tbl-t th.au-out{width:20%}
-/* a narrow table folds Owner and Next to nothing (the Owner filter still has them), and a run's Steps and Time; folded,
-   not removed, so a group row's colspan still matches the columns */
-@container (max-width:1000px){
-  .au-tbl-t th.au-to,.au-tbl-t th.au-cx{width:0}
-  .au-tbl-t .au-to,.au-tbl-t .au-cx{padding:0;border-left:0;font-size:0}
+/* a narrow table beside BotOps folds Next (and a run's Steps and Time) to nothing, then Cost; folded, not removed, so a
+   group row's colspan still matches the columns. A phone keeps them all and scrolls sideways instead. */
+@media (min-width:761px){
+  @container (max-width:1000px){
+    .au-tbl-t th.au-cx{width:0}
+    .au-tbl-t .au-cx{padding:0;font-size:0}
+  }
+  @container (max-width:760px){
+    .au-tbl-t th.au-cc{width:0}
+    .au-tbl-t .au-cc{padding:0;font-size:0}
+  }
 }
 .au-row,.au-arow{cursor:pointer}
 .au-row:hover td,.au-arow:hover td{background:var(--surface)}
@@ -113,7 +119,9 @@
 /* a narrow pane puts the spend limit and Flow/Runs on a second row, as a phone does, so the name stays whole */
 @media (min-width:761px){.au-c{container-type:inline-size}}
 @container (max-width:640px){.au-c .au-hd{flex-wrap:wrap}.au-c .au-hd2{order:10;flex-basis:100%}.au-hd2 .au-sp-phone{display:block;flex:1}}
-.au-hd{display:flex;align-items:center;flex-wrap:nowrap;gap:8px 10px;padding:10px 20px;min-height:53px;border-bottom:1px solid var(--line)}
+.au-hd{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;padding:10px 20px;min-height:53px;border-bottom:1px solid var(--line)}
+/* a long name keeps its line and the controls wrap after it; why a built-in has no switch goes on a line of its own */
+.au-hd>.au-lock{order:20;flex-basis:100%}
 .au-hd:empty{border:0;padding:0;min-height:0}
 .au-name{margin:0;font-size:var(--t-lg);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .au-own{display:inline-flex;align-items:center;gap:6px;min-width:0;overflow:hidden;color:var(--muted);font-size:var(--t-sm);white-space:nowrap}
@@ -312,7 +320,7 @@ button.au-chip:hover{background:var(--surface2)}
   .au-ctl .au-sp,.au-sel{display:none}
   /* the table scrolls sideways in its own box; the page scrolls down */
   .au-tbl{flex:none;overflow-x:auto;overflow-y:visible;padding-bottom:76px}
-  .au-tbl-t{min-width:760px}
+  .au-tbl-t{min-width:820px}
   .au-crumb{padding:8px 12px 0}
   .au-hd{padding:8px 12px;border:0;flex-wrap:wrap}
   .au-botbtn{display:inline-flex}

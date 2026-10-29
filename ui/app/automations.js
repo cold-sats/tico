@@ -180,12 +180,14 @@ const auMayPause = a => a.can_pause ?? !!a.can_edit;
 function auSwitch(on, label, attrs = '') {
   return `<input type="checkbox" role="switch" class="people-switch au-sw" aria-label="${esc(label)}"${on ? ' checked' : ''} ${attrs}>`;
 }
-// The header's on/off: the switch for whoever may pause it; a built-in says why there is none.
+// The header's on/off: the switch for whoever may pause it, else whether it is off.
 function auHeadSwitch(a, name) {
   if (auMayPause(a)) return auSwitch(a.enabled !== false, name + ' on', 'data-on-cur');
-  return (a.enabled === false ? `<span class="pill${a.paused ? ' waiting' : ''}">${a.paused ? 'Paused' : 'Off'}</span>` : '')
-    + (a.builtin ? '<span class="au-lock"><span class="nav-icon" aria-hidden="true">lock</span>Built-in: can’t be turned off</span>' : '');
+  return a.enabled === false ? `<span class="pill${a.paused ? ' waiting' : ''}">${a.paused ? 'Paused' : 'Off'}</span>` : '';
 }
+// Why a built-in has no switch, on its own line under the name so the name stays whole.
+const auHeadLock = a => a.builtin && !auMayPause(a)
+  ? '<span class="au-lock"><span class="nav-icon" aria-hidden="true">lock</span>Built-in: can’t be turned off</span>' : '';
 function auDrawHead() {
   const hd = AU.root.querySelector('.au-hd'), a = AU.cur;
   AU.root.querySelector('.au-crumb').innerHTML = AU.id ? `<a class="au-up" href="${AUTOMATIONS}"><span class="nav-icon" aria-hidden="true">chevron_left</span>Automations</a>` : '';
@@ -205,7 +207,8 @@ function auDrawHead() {
       <div class="au-seg" role="tablist" aria-label="View">${seg}</div>
     </div>
     <button class="au-chip au-ver" type="button" data-versions aria-label="Versions, v${a.version}">v${esc(a.version)}</button>
-    <button class="au-icon au-more" type="button" aria-label="Options" aria-haspopup="menu" data-more><span class="nav-icon" aria-hidden="true">more_horiz</span></button>` : ''}`;
+    <button class="au-icon au-more" type="button" aria-label="Options" aria-haspopup="menu" data-more><span class="nav-icon" aria-hidden="true">more_horiz</span></button>
+    ${auHeadLock(a)}` : ''}`;
 }
 
 function auDrawPane() {

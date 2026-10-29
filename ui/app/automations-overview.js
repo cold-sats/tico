@@ -151,6 +151,8 @@ function auPill(a) {
     + (st === 'paused' ? '<span class="pill waiting">Paused</span>' : st === 'off' ? '<span class="pill">Off</span>' : '');
 }
 const AU_DOTS = {ok: 'ok', empty: 'ok', skipped: 'ok', failed: 'fail', waiting: 'wait'};
+// On a phone (auPhone, automations.js) the table's columns come in another order: redraw when the width crosses over.
+matchMedia('(max-width:760px)').addEventListener?.('change', () => { if (AU?.root && document.body.contains(AU.root)) auDrawTable(); });
 
 function auTableHTML() {
   const st = AU.stats, n = st?.n || 0, zero = Array.from({length: n || 12}, () => ({ok: 0, failed: 0}));
@@ -168,25 +170,31 @@ function auTableHTML() {
   const label = k => AU.group === 'trigger' ? auIcon(AU_KIND_ICONS[k] || 'bolt') + esc(AU_KIND_WORDS[k] || auCap(k))
     : personCircle(auActorName(k), 16) + esc(auActorName(k));
   const money = c => c >= 0.005 ? esc(auMoney(c)) : '<span class="muted">—</span>';
-  const tr = ({a, s}) => {
-    const lr = a.last_run, next = a.enabled !== false && a.next_run ? auAge(a.next_run, true) : '';
-    return `<tr class="au-row${a.enabled === false ? ' off' : ''}" data-row="${esc(a.id)}">
-      <td class="au-tn"><div><a href="${auHref(a.id)}">${auIcon(AU_KIND_ICONS[auKind(a)] || 'bolt')}<span class="au-nm">${esc(a.name || 'Untitled')}</span></a>${auPill(a)}</div></td>
-      <td class="au-tt" title="${esc(auTrigLine(a))}">${esc(auTrigLine(a))}</td>
-      <td class="au-to"><span>${personCircle(auActorName(a.owner), 16)}<span>${esc(auActorName(a.owner))}</span></span></td>
-      <td class="au-cl">${lr ? `<span class="au-lr"><span class="au-dot ${AU_DOTS[lr.status] || 'idle'}" role="img" aria-label="${esc(AU_RUN_STATUS[lr.status] || lr.status)}"></span>${esc(auAge(lr.started))}</span>` : '<span class="muted">—</span>'}</td>
-      <td class="au-cx muted">${next ? (next === 'now' ? 'due' : 'in ' + esc(next)) : '—'}</td>
-      <td class="au-cs">${auSpark(s.buckets || zero)}</td>
-      <td class="au-n">${s.runs ? s.runs.toLocaleString() : '<span class="muted">0</span>'}</td>
-      <td class="au-n${s.failed ? ' au-bad' : ' muted'}">${s.failed || '—'}</td>
-      <td class="au-n">${money(s.cost)}</td></tr>`;
+  // Each column: its class (widths and folding in automations.css), heading and cell. A phone leads with what is read
+  // first (name, last run, runs, failed) and scrolls sideways for the rest.
+  const cols = {
+    name: ['au-tn', 'Name', ({a}) => `<div><a href="${auHref(a.id)}">${auIcon(AU_KIND_ICONS[auKind(a)] || 'bolt')}<span class="au-nm">${esc(a.name || 'Untitled')}</span></a>${auPill(a)}</div>`],
+    trigger: ['au-tt', 'Trigger', ({a}) => esc(auTrigLine(a))],
+    owner: ['au-to', 'Owner', ({a}) => `<span title="${esc(auActorName(a.owner))}" aria-label="${esc(auActorName(a.owner))}">${personCircle(auActorName(a.owner), 18)}</span>`],
+    last: ['au-cl', 'Last run', ({a}) => a.last_run ? `<span class="au-lr"><span class="au-dot ${AU_DOTS[a.last_run.status] || 'idle'}" role="img" aria-label="${esc(AU_RUN_STATUS[a.last_run.status] || a.last_run.status)}"></span>${esc(auAge(a.last_run.started))}</span>` : '<span class="muted">—</span>'],
+    next: ['au-cx muted', 'Next', ({a}) => { const next = a.enabled !== false && a.next_run ? auAge(a.next_run, true) : ''; return next ? (next === 'now' ? 'due' : 'in ' + esc(next)) : '—'; }],
+    trend: ['au-cs', 'Last ' + AU.range, ({s}) => auSpark(s.buckets || zero)],
+    runs: ['au-n au-cn', 'Runs', ({s}) => s.runs ? s.runs.toLocaleString() : '<span class="muted">0</span>'],
+    failed: ['au-n au-cf', 'Failed', ({s}) => s.failed || '—'],
+    cost: ['au-n au-cc', 'Cost', ({s}) => money(s.cost)],
   };
+  const order = auPhone() ? ['name', 'last', 'runs', 'failed', 'trigger', 'owner', 'next', 'trend', 'cost']
+    : ['name', 'trigger', 'owner', 'last', 'next', 'trend', 'runs', 'failed', 'cost'];
+  const cell = (k, r) => {
+    const [cls, , html] = cols[k], extra = k === 'failed' ? (r.s.failed ? ' au-bad' : ' muted') : '';
+    return `<td class="${cls}${extra}"${k === 'trigger' ? ` title="${esc(auTrigLine(r.a))}"` : ''}>${html(r)}</td>`;
+  };
+  const tr = r => `<tr class="au-row${r.a.enabled === false ? ' off' : ''}" data-row="${esc(r.a.id)}">${order.map(k => cell(k, r)).join('')}</tr>`;
   const body = rows.length ? groups.map(g => (AU.group === 'none' ? '' :
-    `<tr class="au-grp${AU.closed.has(g.k) ? ' closed' : ''}" data-agrp="${esc(g.k)}" role="button" tabindex="0" aria-expanded="${!AU.closed.has(g.k)}"><td colspan="9">${auIcon('expand_more', 'au-chev')}${label(g.k)}<span class="au-fn">${g.rows.length}</span></td></tr>`)
+    `<tr class="au-grp${AU.closed.has(g.k) ? ' closed' : ''}" data-agrp="${esc(g.k)}" role="button" tabindex="0" aria-expanded="${!AU.closed.has(g.k)}"><td colspan="${order.length}">${auIcon('expand_more', 'au-chev')}${label(g.k)}<span class="au-fn">${g.rows.length}</span></td></tr>`)
     + (AU.closed.has(g.k) && AU.group !== 'none' ? '' : g.rows.map(tr).join(''))).join('')
-    : `<tr><td colspan="9" class="muted au-pad">${(AU.list || []).length ? 'No automations match these filters' : 'No automations'}</td></tr>`;
-  return `<table class="au-tbl-t"><thead><tr><th>Name</th><th class="au-tt">Trigger</th><th class="au-to">Owner</th><th class="au-cl">Last run</th><th class="au-cx">Next</th><th class="au-cs">Last ${AU.range}</th>
-    <th class="au-n">Runs</th><th class="au-n">Failed</th><th class="au-n">Cost</th></tr></thead><tbody>${body}</tbody></table>
+    : `<tr><td colspan="${order.length}" class="muted au-pad">${(AU.list || []).length ? 'No automations match these filters' : 'No automations'}</td></tr>`;
+  return `<table class="au-tbl-t"><thead><tr>${order.map(k => `<th class="${cols[k][0].replace(' muted', '')}">${cols[k][1]}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>
     ${st?.error ? `<p class="err au-pad">${esc(st.error)}</p>` : ''}`;
 }
 
@@ -213,7 +221,7 @@ function auAllHTML() {
   const rows = (r?.rows || []).filter(x => shown.has(x.automation_id));
   const kindOf = id => auKind((AU.list || []).find(a => a.id === id) || {});
   const table = rows.length ? `<table class="au-tbl-t au-all"><thead><tr><th class="au-cw">When</th><th class="au-cst">Status</th><th>Automation</th><th class="au-why">Started by</th><th class="au-out">Outcome</th>
-      <th class="au-n au-cx">Steps</th><th class="au-n au-cx">Time</th><th class="au-n">Cost</th></tr></thead><tbody>
+      <th class="au-n au-cx">Steps</th><th class="au-n au-cx">Time</th><th class="au-n au-cc">Cost</th></tr></thead><tbody>
       ${rows.map(x => `<tr class="au-arow" role="button" tabindex="0" data-arun="${esc(x.id)}" data-aid="${esc(x.automation_id)}">
         <td class="muted" title="${esc(fmt(x.started))}">${esc(auAge(x.started) === 'now' ? 'now' : auAge(x.started) + ' ago')}</td>
         <td><span class="pill ${AU_RUN_PILLS[x.status] || ''}">${esc(AU_RUN_STATUS[x.status] || auCap(x.status))}</span></td>
@@ -221,7 +229,7 @@ function auAllHTML() {
         <td class="au-why" title="${esc(x.started_by || '')}">${esc(x.started_by || '')}</td>
         <td class="au-out${x.status === 'failed' ? ' au-bad' : ''}" title="${esc(x.outcome || '')}">${esc(x.outcome || '')}${x.count > 1 ? ` <span class="muted">×${x.count}</span>` : ''}</td>
         <td class="au-n au-cx muted">${x.step_count ?? '—'}</td><td class="au-n au-cx muted">${esc(auDur(x)) || '—'}</td>
-        <td class="au-n muted">${x.cost ? esc(auMoney(x.cost)) : '—'}</td></tr>`).join('')}</tbody></table>`
+        <td class="au-n au-cc muted">${x.cost ? esc(auMoney(x.cost)) : '—'}</td></tr>`).join('')}</tbody></table>`
     : `<p class="muted au-pad">${!r || r.loading ? 'Loading…' : r.error ? '' : 'No runs in the last ' + AU.range}</p>`;
   return auChartHTML() + table
     + (r?.next ? `<div class="au-more"><button class="ghost" type="button" data-all-more${r.loading ? ' disabled' : ''}>${r.loading ? 'Loading…' : 'More'}</button></div>` : '')

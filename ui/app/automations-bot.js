@@ -104,7 +104,7 @@ function auBotMount(host) {
   host.querySelector('.au-bf').append(composer.el);
   // New without waiting on BotOps (it may not reply): a blank automation, off, opened in the editor.
   const blank = document.createElement('button');
-  Object.assign(blank, {type: 'button', className: 'linkish au-blank', textContent: 'Blank', hidden: !!AU.id});
+  Object.assign(blank, {type: 'button', className: 'linkish au-blank', textContent: 'Blank', hidden: !auNewScreen()});
   blank.onclick = () => void auBlank(blank);
   host.querySelector('.au-bf').append(blank);
   props.addEventListener('click', e => {
@@ -121,7 +121,9 @@ function auBotMount(host) {
   })();
 }
 
-// After each route: the phone's Back, and the open automation's proposals.
+// Blank belongs to New (#/automations/bot) only, not to BotOps beside the list or a flow.
+const auNewScreen = () => !AU.id && AU.view === 'bot';
+// After each route: the phone's Back, Blank, and the open automation's proposals.
 function auBotSync() {
   if (!AU?.bot) return;
   const back = AU.root.querySelector('[data-bot-back]');
@@ -130,7 +132,7 @@ function auBotSync() {
   const fab = AU.root.querySelector('.au-botbtn');
   if (fab) fab.href = auHref(AU.id, 'bot');
   const blank = AU.root.querySelector('.au-blank');
-  if (blank) blank.hidden = !!AU.id;
+  if (blank) blank.hidden = !auNewScreen();
   void auBotProposals();
 }
 // The viewer's own, off, weekdays at 9 in their zone, no steps: POST /v2/automations, then open it.

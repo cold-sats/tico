@@ -316,12 +316,28 @@ def stats(c, who, rng="1h"):
                            "GROUP BY automation_id, b", (since[:23], width, since, json.dumps(list(seen)))):
             add(r["automation_id"], r["b"], r["n"], r["f"] or 0, r["cost"])
     if jobs and H._has_table(c, "system_runs"):
-        start = H.parse_ts(since)
-        for r in c.execute("SELECT job, started, ok, cost_usd FROM system_runs WHERE started>=? "
+        start, step = H.parse_ts(since), timedelta(seconds=width)
+        for r in c.execute("SELECT job, started, first_started, runs, ok, cost_usd FROM system_runs WHERE started>=? "
                            "AND job IN (SELECT value FROM json_each(?))", (since, json.dumps(list(jobs)))):
             at = H.parse_ts(r["started"])
-            add(jobs[r["job"]], (at - start) / timedelta(seconds=width) if at else n - 1, 1, 0 if r["ok"] else 1,
-                r["cost_usd"])
+            if not at:
+                add(jobs[r["job"]], n - 1, 1, 0 if r["ok"] else 1, r["cost_usd"])
+                continue
+            # A folded row stands for `runs` quiet repeats between first_started and started (its latest): they are
+            # spread evenly over that time and only those inside the range count. A row from before first_started
+            # was kept counts once, at started.
+            first, k = H.parse_ts(r["first_started"] or ""), max(int(r["runs"] or 1), 1)
+            if not first or first >= at or k == 1:
+                times = [at]
+            else:
+                times = [first + (at - first) * i / (k - 1) for i in range(k)]
+            buckets = {}
+            for t in times:
+                if t >= start:
+                    b = int((t - start) / step)
+                    buckets[b] = buckets.get(b, 0) + 1
+            for b, m in buckets.items():
+                add(jobs[r["job"]], b, m, 0 if r["ok"] else m, (r["cost_usd"] or 0) * m / len(times))
     totals = {"runs": 0, "failed": 0, "cost": 0.0, "buckets": [{"ok": 0, "failed": 0} for _ in range(n)]}
     for s in per.values():
         s["cost"] = round(s["cost"], 6)
