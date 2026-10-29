@@ -270,6 +270,10 @@ class Scheduler:
         from . import quiet_work
         with locked("quiet_work") as c:
             quiet_work.due(c, stamp(at), failures)
+        # Deferred items whose deadline came: one run per session carries them (backend/delivery.py).
+        from . import delivery
+        with locked("deferred") as c:
+            delivery.due(c, stamp(at), failures)
         from . import assigned_start
         if not self.store.settings.rehearsal:
             unstarted = []

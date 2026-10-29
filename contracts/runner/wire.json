@@ -92,6 +92,7 @@
         "mailboxes": {"type": "array", "items": {"type": "string"}},
         "next_run": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
         "notes": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "deferred": {"type": "string", "x-note": "The prompt's block on what was deferred to this turn: its count line (\"Deferred since your last turn: 2 comments, 1 task\"), then the deferred comments and messages themselves, one a line, a bounded page; empty when nothing; an older server omits it."},
         "credential_vault": {"type": "boolean"},
         "gateway": {"type": "boolean"},
         "continue_thread": {"type": "string"},

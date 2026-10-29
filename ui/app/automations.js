@@ -208,7 +208,7 @@ function auDrawHead() {
     </div>
     <button class="au-chip au-ver" type="button" data-versions aria-label="Versions, v${a.version}">v${esc(a.version)}</button>
     <button class="au-icon au-more" type="button" aria-label="Options" aria-haspopup="menu" data-more><span class="nav-icon" aria-hidden="true">more_horiz</span></button>
-    ${auHeadLock(a)}` : ''}`;
+    ${auHeadLock(a)}${auWarn(a)}` : ''}`;
 }
 
 function auDrawPane() {

@@ -470,6 +470,16 @@ def carried_lends(method, path):
     return bool(path) and any(m == method and p.fullmatch(path) for m, p in CARRIED)
 
 
+# A manager bot's report, made, archived or restored by BotOps on the manager's ask (backend/report_managers.py).
+LIFECYCLE = _routes(("POST", r"bots"), ("POST", rf"bots/{_S}/archive"), ("POST", rf"bots/{_S}/restore"))
+
+
+def lifecycle_call(method, path):
+    """Whether this call creates, archives or restores a bot: the routes a manager bot's ask may reach through BotOps."""
+    path, method = normalize(path), str(method).upper()
+    return bool(path) and any(m == method and p.fullmatch(path) for m, p in LIFECYCLE)
+
+
 def admin_only(method, path):
     path = normalize(path)
     return bool(path) and any(m == str(method).upper() and p.fullmatch(path) for m, p in ADMIN_ONLY)

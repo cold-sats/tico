@@ -76,11 +76,17 @@ def compact_at(config):
 
 
 # The fields a manager bot changes on its report (report_managers.SCOPES). Anyone who manages the bot may undo them.
-REPORT_UNDO = ("model", "task_model", "identity")
+REPORT_UNDO = ("model", "task_model", "identity", report_managers.LIFECYCLE)
 # A page of the settings history is at most this many bytes of JSON as it is sent, names included, counted in UTF-8 (an
 # emoji is four bytes, not one character). A change past that starts the next page (`next_before`); one bigger than a
 # page on its own is sent without its values (`truncated`), so the page still moves on past it.
 HISTORY_PAGE_BYTES = 256 * 1024
+
+
+def _lifecycle_state(c, bot):
+    """A bot's state for a `lifecycle` change, or None when there is no such bot."""
+    row = H.bot(c, bot)
+    return {"state": row["state"]} if row else None
 
 
 class SettingsAdmin:
@@ -330,6 +336,62 @@ class SettingsAdmin:
         from .onboarding import read_cards
         return next((card["name"] for card in read_cards(self.settings) if card["template"] == template), template)
 
+    def create_report(self, c, who, body):
+        """A manager bot's new report, made by BotOps on the manager's ask (`Auth.report_lifecycle`). It is made as a
+        member's bot under the person above the manager, so the same rules hold as for a member: that person's limit,
+        the computers that take members' bots, and their credentials. It reports to the manager and nothing else."""
+        manager = H.actor_id(who.actor)
+        if body.template:
+            raise Problem("template", "A manager bot's new report starts without a template; ask BotOps for one", 422)
+        if body.reports_to not in (None, "", manager, "bot:" + manager):
+            raise Problem("forbidden", f"{manager} makes only its own reports: this one must report to {manager}", 403)
+        if not body.slug:
+            body = body.model_copy(update={"slug": self.pick_slug(c, body.display_name)})
+        if not self.auth.report_lifecycle(c, who, body.slug, "create", parent=manager):
+            raise Problem("forbidden", "A manager bot adds a report only by asking BotOps, and only while its "
+                          "managing is on", 403)
+        self._report_cap(c, who, "create", f"add a report, {body.display_name},")
+        person = report_managers.person_above(c, manager)
+        if not person:
+            raise Problem("forbidden", f"No person manages {manager}, so no one can add a report under it", 403)
+        created = self._report_act(c, who, body.slug, "create", lambda: self.create_bot(
+            c, self.auth.identity_for_actor(c, person), body.model_copy(update={"reports_to": manager})))
+        return created
+
+    def _report_cap(self, c, who, op, what):
+        """Refuse a manager bot's create, archive or restore once this week's team limit is used up (report_managers.CAPS).
+        The refusal is a Needs you task for the person above the manager, so BotOps relays it and does not retry."""
+        manager = H.actor_id(who.actor)
+        used, limit = report_managers.cap_used(c, manager, op, H.now()), report_managers.cap_limit(c, op)
+        if used < limit:
+            return
+        name = (H.bot(c, manager) or {}).get("display_name") or manager
+        person = report_managers.person_above(c, manager)
+        title = f"{name} is at its weekly limit: asked to {what}"
+        # The first paragraph is the ask itself (one or two plain sentences, under 40 words): the task lint reads only that.
+        # The refusal rolls the write back, so the ask rides on it (`ask`) and the route files it after the rollback.
+        body = (f"{name} has made {used} of its {limit} report changes this week. Decide this yourself in Settings, or raise "
+                "the limit in the team rules.\n\n" f"It asked BotOps to {what}. The count covers the last seven days.")
+        refusal = Problem("report_cap", f"{name} has made its {limit} of these changes this week, so BotOps asked "
+                          f"{H.person_name(c, H.actor_id(person)) or 'the person above it'} to decide. Do not ask again this week.",
+                          429)
+        if person:
+            refusal.ask = {"actor": who.actor, "title": title, "body": body, "person": person}
+        raise refusal
+
+    def _report_act(self, c, who, bot, op, do):
+        """Run `do()` for a manager bot's change to its report: recorded as a `lifecycle` change on the report with via
+        `report_manager`, and an event naming the manager. The change is the person's own when BotOps is the one asked."""
+        before = _lifecycle_state(c, bot)
+        token = H.VIA.set(report_managers.VIA)
+        try:
+            result = do()
+            self.record(c, who.actor, bot, report_managers.LIFECYCLE, before, _lifecycle_state(c, bot))
+        finally:
+            H.VIA.reset(token)
+        H.event(c, who.actor, report_managers.EVENT, bot, {"op": op, "manager": H.actor_id(who.actor)})
+        return result
+
     def create_bot(self, c, who, body):
         CA.gate(c, who.actor, "bots", "add a bot")
         self.validate_template(body.template)
@@ -557,9 +619,16 @@ class SettingsAdmin:
                                          else "The Task Manager" if bot == "task-manager"
                                          else "The " + strategy_bot.name(c))
                           + " is built in to every team and cannot be archived or deleted; you can pause or rename it", 409)
-        self._manager(c, who, bot)
+        lifecycle = self.auth.report_lifecycle(c, who, bot, "archive")
+        if not lifecycle:
+            self._manager(c, who, bot)
         if self._config(c, bot)["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
+        if lifecycle:
+            if body.successor:
+                raise Problem("forbidden", "A manager bot archives its report without a successor", 403)
+            self._report_cap(c, who, "archive", f"archive {bot}")
+            return self._report_act(c, who, bot, "archive", lambda: archive_bot(c, who.actor, bot, "", revoke_agent=True))
         if body.successor:
             self._manager(c, who, body.successor)
         return archive_bot(c, who.actor, bot, body.successor or "", revoke_agent=getattr(body, "revoke_agent", True))
@@ -567,17 +636,32 @@ class SettingsAdmin:
     def restore(self, c, who, bot):
         """Bring an archived bot back: to the status it had when it was archived (active, paused or planned),
         else planned. Its routines and computer are not restored; an active bot is placed the way any is."""
-        CA.gate(c, who.actor, "bots", f"bring back {bot}")
+        lifecycle = self.auth.report_lifecycle(c, who, bot, "restore")
+        if not lifecycle:
+            CA.gate(c, who.actor, "bots", f"bring back {bot}")
         row = H.bot(c, bot)
         if not row:
             raise Problem("not_found", "Bot not found", 404)
-        self._manager(c, who, bot)
+        if not lifecycle:
+            self._manager(c, who, bot)
         if row["state"] != "archived":
             raise Problem("not_archived", "This bot is not archived", 409)
         previous = c.execute("SELECT detail_json FROM events WHERE action='bot.archived' AND target=? "
                              "ORDER BY ts DESC LIMIT 1", (bot,)).fetchone()
         status = (_json(previous["detail_json"], {}) or {}).get("previous") if previous else None
         status = status if status in ("active", "paused", "planned") else "planned"
+        if lifecycle:
+            # The person above the manager brings it back, as their own change: BotOps' ask only chose the report.
+            self._report_cap(c, who, "archive", f"restore {bot}")
+            person = report_managers.person_above(c, H.actor_id(who.actor))
+            if not person:
+                raise Problem("forbidden", "No person manages this manager bot, so no one can bring a report back", 403)
+            person = self.auth.identity_for_actor(c, person)
+            return self._report_act(c, who, bot, "restore", lambda: self._restored(c, person, bot, status))
+        return self._restored(c, who, bot, status)
+
+    def _restored(self, c, who, bot, status):
+        """The restore once its status is chosen: the bot's status back, its shared room and the event."""
         self.update_bot(c, who, bot, M.BotDefinitionUpdate(status=status, expected_revision=self._config(c, bot)["revision"]))
         shared_bots.cascade_restore(c, who.actor, bot)
         H.event(c, who.actor, "bot.restored", bot, {"status": status})
@@ -760,6 +844,8 @@ class SettingsAdmin:
             return {"model": declared.get("model") or row.get("model") or "",
                     "runtime": runtime, "harness": resolve_harness(declared, runtime),
                     "effort": declared.get("reasoning_effort") or row.get("effort") or ""}
+        if field == report_managers.LIFECYCLE:
+            return _lifecycle_state(c, bot)
         if field == "fallback":
             return normalize_fallback((_json(config["config_json"], {}) or {}).get("fallback"))
         if field == "task_model":
@@ -1241,6 +1327,16 @@ class SettingsAdmin:
             return turn_budgets.set_bot(self, c, who, bot, SimpleNamespace(
                 model_fields_set=set(turn_budgets.KEYS), expected_revision=body.expected_revision,
                 **{key: (before or {}).get(key) for key in turn_budgets.KEYS}), undo_change_id=change_id)
+        if change["field"] == report_managers.LIFECYCLE:
+            # A manager bot's create or restore is undone by archiving the bot; its archive, by restoring it.
+            if not before or before.get("state") == "archived":
+                self.archive(c, who, bot, SimpleNamespace(expected_revision=body.expected_revision, successor="",
+                                                          revoke_agent=True))
+            else:
+                self.restore(c, who, bot)
+            c.execute("UPDATE settings_changes SET undone_by=?,undone_at=? WHERE id=?", (who.actor, H.now(), change_id))
+            H.event(c, who.actor, "settings.undo", bot, {"change": change_id, "field": change["field"]})
+            return {"undone": True, "bot": bot, "field": change["field"], "revision": config["revision"] + 1}
         if change["field"] == "task_model":
             return self.set_task_model(c, who, bot, SimpleNamespace(
                 task_model=SimpleNamespace(harness=before.get("harness") or None, model=before.get("model") or None,

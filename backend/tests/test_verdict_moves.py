@@ -429,7 +429,7 @@ def test_a_green_head_the_gate_refuses_stays_and_the_builder_hears_what_clears_i
     verdict(api, check(api, task), "changes")
     hook(api, "pull_request", pr_event("synchronize", head={"sha": NEW}))
     _suite(api, "github-actions", "completed", "success", sha=NEW)
-    assert step(api, task) == "Blocked", "no receipt at the new head keeps the ticket blocked"
+    assert step(api, task) == "Review 1 Fixes", "no receipt at the new head holds the ticket where it is"
     with api.app.state.store.read() as c:
         told = c.execute("SELECT body FROM messages WHERE conversation_id=? AND json_extract(refs_json,'$.review_gate') "
                          "IS NOT NULL", (task["conversation_id"],)).fetchall()
@@ -466,7 +466,7 @@ def test_a_failed_check_at_a_review_step_is_a_builder_hand_off(api):
 
 @pytest.mark.parametrize("hold", ["own subtask", "ask"])
 def test_a_verdict_given_while_the_ticket_was_held_moves_it_once_the_hold_clears(api, hold):
-    """A person's open subtask holds the ticket in Blocked while its review is out: her own check-titled one, or an
+    """A person's open subtask holds the ticket at its step while its review is out: her own check-titled one, or an
     ask its builder put to her. Once she finishes it, the ticket is back at Review 1, not On Deck, and the verdict
     given meanwhile moves it on."""
     task = ticket(api)
@@ -480,9 +480,10 @@ def test_a_verdict_given_while_the_ticket_was_held_moves_it_once_the_hold_clears
             ask = H.task_create(c, "human:ana", "Security: confirm the vendor contract", "Confirm it.", "human:ana",
                                 parent_id=task["id"], lint=False)
             H.task_update(c, "bot:cpo", task["id"], status="waiting", note="Waiting on the vendor contract.")
-    assert step(api, task) == "Blocked"
+    held_at = step(api, task)
+    assert held_at == "Review 1", "a held ticket keeps the step it is in"
     verdict(api, review, "changes")
-    assert step(api, task) == "Blocked", "a held ticket is not at the check's step: the verdict moves nothing yet"
+    assert step(api, task) == held_at, "a held ticket is not at the check's step: the verdict moves nothing yet"
     with api.app.state.store.transaction() as c:
         c.execute("DELETE FROM jobs")
         H.task_update(c, "human:ana", ask["id"], status="done", note="Yes, it is signed.")
@@ -512,9 +513,9 @@ def test_a_private_review_is_not_replayed_into_its_wider_parent_when_a_hold_clea
                       note="Is the vendor contract signed?")
         ask = next(H.task(c, i) for i in H.TR.child_ids(c, task["id"])
                    if H.task(c, i)["owner"] == "human:ana")
-    assert step(api, task) == "Blocked"
+    assert step(api, task) == "Review 1"
     verdict(api, review, "changes")
-    assert step(api, task) == "Blocked"
+    assert step(api, task) == "Review 1"
     with api.app.state.store.transaction() as c:
         H.task_update(c, "human:ana", ask["id"], status="done", note="Yes, it is signed.")
         history = H.task_history(c, task["id"])

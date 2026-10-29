@@ -686,7 +686,9 @@ SCHEMAS = {
                        "description": "On a structured ask: all review answers, oldest first. On a bot reply: handled message ids"},
                    woke={"type": "boolean", "description": "On a send: false when the message was held (see `held`)"},
                    held={"type": "string", "description": "On a send: a bot's message to a bot held for that bot's next "
-                         "run, and how to wake it now (backend/bot_to_bot.py)"}),
+                         "run, and how to wake it now (backend/bot_to_bot.py)"},
+                   sent_as=ref("SentAs") | {"description": "On a send to a bot: the way it went (steer, queue or defer) "
+                                            "and a defer's deadline (backend/delivery.py)"}),
     "Execution": obj({"job_id": "s", "message_id": "s", "bot": "s", "attempt_id": "n", "state": "s", "label": "s", "text": "s"},
                      required=["job_id", "message_id", "bot", "attempt_id", "state", "label", "text", "parts"],
                      parts=items(obj({"kind": {"enum": ["progress", "reply", "tool"]}, "text": "s", "at": "s"})) | {
@@ -897,8 +899,15 @@ SCHEMAS = {
                              "the model catalog, when every counted segment agrees; null is unknown (mixed, Cursor "
                              "auto, OpenRouter, an unlisted model, nothing counted). Never the bot's configured model."}}),
     "TaskRun": obj({"run": "s", "bot": "s", "started": "n", "finished": "n", "outcome": "n", "ran_on": ref("RanOn")}),
-    "CommentDelivery": obj({"default": {"type": ["string", "null"], "enum": ["steer", "queue", None]},
-                            "steer": "b", "steers": "b", "goal": "b"}, required=["default", "steer", "steers", "goal"]),
+    # How a reader's comment reaches the task's bot (backend/delivery.py): the default way and a default defer's
+    # deadline, whether they may steer or queue (wake it), whether its harness takes a steer, and whether they may set
+    # the goal.
+    "CommentDelivery": obj({"default": {"type": ["string", "null"], "enum": ["queue", "defer", None]},
+                            "default_for": "n", "steer": "b", "queue": "b", "steers": "b", "goal": "b"},
+                           required=["default", "default_for", "steer", "queue", "steers", "goal"]),
+    # The way a send went (backend/delivery.py): steer, queue or defer, and a defer's deadline (null: none).
+    "SentAs": obj({"delivery": {"type": "string", "enum": ["steer", "queue", "defer"]}, "until": "n"},
+                  required=["delivery", "until"]),
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
                        "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "can_set_run_model": "b",
                        "mover": "b", "runs": items(ref("TaskRun")),
@@ -927,7 +936,7 @@ SCHEMAS = {
     # `warning`: the bot it went to is paused or quarantined; the comment is kept and runs when it is back.
     # `held`: a bot's comment to a bot waits for that bot's next run; it says how to wake it now.
     "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b", "delivered": "b",
-                          "warning": "s", "held": "s", "goal": "o"},
+                          "warning": "s", "held": "s", "goal": "o", "sent_as": ref("SentAs")},
                          required=["comment", "comments", "woke"]),
     "InboundTaskResult": obj({"task": {"oneOf": [obj({"id": "s"}), {"type": "null"}]}, "created": "b", "changed": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
@@ -1445,6 +1454,9 @@ SCHEMAS.update({
                        "next_run": {"type": ["string", "null"]}, "pending": "i", "warning": "s",
                        "kind": {"type": "string", "description": "The trigger as the overview groups it; system for "
                                 "Tico's own jobs"},
+                       "problems": {"type": "array", "description": "Wake rules that name a step their task type "
+                                    "does not have (they never fire until changed): rule id, the step named and why",
+                                    "items": obj({"rule": "s", "step": "s", "why": "s"})},
                        "paused": {"type": "boolean", "description": "Off because the run guard paused it"},
                        "schedule": {"type": "string", "description": "A system job's schedule in words"}},
                       required=["id", "can_edit"]),

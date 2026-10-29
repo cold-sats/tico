@@ -31,6 +31,7 @@
     "task_id": null
    },
    "credential_vault": false,
+   "deferred": "",
    "gateway": false,
    "generation": 1,
    "history": [

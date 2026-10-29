@@ -7,8 +7,11 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
 `hub_` dropped: `hub message send` is `hub_message_send`, `hub bot go-live` is `hub_bot_go_live`.
 
     hub whoami
-    hub message send <bot|human> "<text>" [--fyi] [--conversation ID] [--ref task:ID ...] [--steer] [--needs-action]
-                                           --fyi: expects no reply, takes no conversation or references
+    hub message send <bot|human> "<text>" [--fyi] [--conversation ID] [--ref task:ID ...] [--steer | --queue |
+                    --defer [30m|4h|2d|never]] [--needs-action]
+                                           --fyi: expects no reply, takes no conversation or references; to a bot,
+                                           --steer goes into its running turn, --queue right after it, --defer with
+                                           its next turn (at the latest after the time given)
     hub message list                       what waits for you
     hub message mark-read <message-id>     an external agent's own delivery
     hub message redact <message-id> [--label L]   take a secret (read from stdin) out of a message
@@ -18,7 +21,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            its next_before reads it. The run's prompt names it
     hub question ask <bot> [<bot>...] "<question>" --wait 60
     hub question answer <message-id> "<text>" [--unknown "needs X"] [--on-behalf-of turn]
-    hub note create <bot> "<text>" [--text-file f]  a quiet note: wakes nobody; the bot's next run reads it
+    hub note create <bot> "<text>" [--text-file f] [--defer 4h]  a deferred message: wakes nobody; the bot's next
+                                           run reads it (with --defer, a run starts by then if none came)
     hub note list [--to me|X] [--from me|X] [--since 24h|ISO] [--waiting]   notes, newest first
     hub note delete <id>                   take back a note no run has carried yet
     hub task create --owner <bot|human> --title "..." [--body "..."|--body-file f] [--due D] [--parent ID]
@@ -26,7 +30,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     nothing written
     hub task model <id> [<model>] [--effort E] [--harness H] [--clear]
                                            the model this task's runs use; --clear puts it back on the bot's task model
-                    [--next-run]           for a bot: no wake; its next run carries the task
+                    [--defer [24h|2d|never]]  for a bot: a deferred task, no wake; its next run carries it, and
+                                           one starts by the time given (24h when none; --next-run is the old name)
                                            blocked on a person? --owner <person> --parent <your task>
                                            for a person, the body's first paragraph is the ask (as --note below)
     hub task ask <id> "<question>"
@@ -40,8 +45,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--if-no-answer "Yes" --default-kind reversible|send|spend|delete] [--by D]
                                            what you do if they don't answer: a reversible step goes ahead
                                            after the team's days (3); asks expire after 14 days
-    hub task comment <id> "<text>" [--steer | --queue | --goal]   on the record with your name
-                                           --steer reaches its bot now, --queue at its next turn, --goal sets its goal
+    hub task comment <id> "<text>" [--steer | --queue | --defer [30m|4h|2d|never] | --goal]   on the record
+                                           with your name. --steer goes into its bot's running turn, --queue right
+                                           after it, --defer with its next turn on the task (at the latest 24h, or
+                                           the time given), --goal sets its goal
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote
     hub task ask-resolve <id> <question-id> [--quote "<their words>"]
@@ -71,6 +78,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task wait <id> --on task:<id>|pr:<url>|release:<tag>
                                            wait on a task, a PR merging or a release; one wake when it happens
     hub task snooze <id> --until DATE      set it aside until DATE: off the lists and quiet until then
+    hub task later <id> --after ID|--at DATE|--next-run|--handled
+                                           a deferred task this run carried and will not do now: when to pick it up
+                                           (`hub task defer` is the old name)
     hub task unsnooze <id>                 bring a snoozed task back now
     hub task waive-qa <id> --head SHA --reason "..."
                                            a person waives a Dev ticket's In QA step for that exact head; a waiver,
@@ -471,7 +481,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                                            when the report runs (business = hourly, weekdays 08:00 to 18:00)
     hub task-manager run                   run the department check now
     hub task-manager bot on|off            turn the Task Manager bot itself on or off (the owner)
-    hub stall-triage [--on|--off]          quiet task triage: Decide reads a quiet task's last messages before its stall check
+    hub stall-triage [--on|--off]          stalled task check: Decide reads a quiet task's last messages before its stall check
                                            stays silent (the owner or an admin; on by default)
     hub service-key create --label "Billing backend"
                                            the owner or an admin: a key another system uses to file, update and close
@@ -502,6 +512,7 @@ then that person (docs/how-it-works.md, "Calling the API from a script").
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -636,6 +647,40 @@ def cmd_task_dry_run(args, who):
 
 
 # ----------------------------------------------------------------------------- parser
+DEFER_FOR = re.compile(r"^(never|[1-9][0-9]{0,5}[mhd])$")
+
+
+def defer_for(word):
+    """A defer's deadline (backend/delivery.py): 30m, 4h, 2d or never. Empty is the default deadline."""
+    if word and not DEFER_FOR.match(word):
+        raise argparse.ArgumentTypeError("a defer is 30m, 4h, 2d or never")
+    return word
+
+
+def delivery_flags(s, *, steer=True, goal=False, steer_help=None):
+    """How a send reaches its bot (backend/delivery.py): --steer, --queue or --defer [time], at most one. --defer sets
+    `defer_for` ('' for the default deadline); the others set `delivery`."""
+    ways = s.add_mutually_exclusive_group()
+    if steer:
+        ways.add_argument("--steer", dest="delivery", action="store_const", const="steer",
+                          help=steer_help or "into the bot's running turn now (right after it if its harness can't steer)")
+    ways.add_argument("--queue", dest="delivery", action="store_const", const="queue",
+                      help="right after the bot's current turn there, or now if it is idle")
+    ways.add_argument("--defer", dest="defer_for", nargs="?", const="", type=defer_for, metavar="30m|4h|2d|never",
+                      help="wake nobody: it goes in with the bot's next turn there, at the latest after this time")
+    if goal:
+        ways.add_argument("--goal", dest="delivery", action="store_const", const="goal",
+                          help="make the text the goal of the task's bot session (plain text, no files)")
+    return ways
+
+
+def delivery_of(args):
+    """{delivery, defer_for} for a request body from delivery_flags' arguments; {} when none was given."""
+    if getattr(args, "defer_for", None) is not None:
+        return {"delivery": "defer", **({"defer_for": args.defer_for} if args.defer_for else {})}
+    return {"delivery": args.delivery} if getattr(args, "delivery", None) else {}
+
+
 def quiet_hours(word):
     """0 to 24, whole hours."""
     try:
@@ -740,8 +785,10 @@ def parser():
     s.add_argument("--fyi", action="store_true", help="an fyi: it expects no reply, and takes no conversation or references")
     s.add_argument("--conversation")
     s.add_argument("--ref", action="append")
-    s.add_argument("--steer", action="store_true",
-                   help="with --ref task:<id> you requested: write this into its owner's running turn on that task")
+    ways = delivery_flags(s, steer=False)
+    ways.add_argument("--steer", action="store_true",
+                      help="into the bot's running turn now; with --ref task:<id> you requested, into its owner's "
+                           "running turn on that task")
     s.add_argument("--visual", action="append", metavar="PATH",
                    help="a picture, SVG, HTML page, video or audio to show with it (a file in your checkout, or ID@VERSION "
                         "already in Tico); repeat for more")
@@ -776,13 +823,15 @@ def parser():
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.set_defaults(fn="question answer")
 
-    note = sub.add_parser("note", help="a quiet note for a bot: no run now, its next run reads it").add_subparsers(dest="sub")
-    s = note.add_parser("create", help="leave a bot a quiet note: no run now, its next run reads it")
+    note = sub.add_parser("note", help="a deferred message for a bot: no run now, its next run reads it").add_subparsers(dest="sub")
+    s = note.add_parser("create", help="leave a bot a deferred message: no run now, its next run reads it")
     s.add_argument("to")
     s.add_argument("text", nargs="?", default="")
     s.add_argument("--text-file", dest="text_file")
+    s.add_argument("--defer", dest="defer_for", type=defer_for, metavar="30m|4h|2d|never",
+                   help="start a run by this time if none carried it (never when omitted)")
     s.set_defaults(fn="note create")
-    s = note.add_parser("list", help="quiet notes, newest first: left for you and by you")
+    s = note.add_parser("list", help="deferred messages (notes), newest first: left for you and by you")
     s.add_argument("--to")
     s.add_argument("--from", dest="sender")
     s.add_argument("--since", help="an ISO time, or 24h / 3d")
@@ -932,6 +981,7 @@ def parser():
     s.add_argument("text")
     s.add_argument("--conversation", dest="conversation_id")
     s.add_argument("--command", action="store_true")
+    delivery_flags(s)
     s.add_argument("--visual", action="append", metavar="PATH",
                    help="a picture, SVG, HTML page, video or audio to show with it (a file in your checkout, or ID@VERSION "
                         "already in Tico); repeat for more")
@@ -1041,8 +1091,10 @@ def parser():
     s.add_argument("--top", action="store_true", help="put it at the top of the owner's queue")
     s.add_argument("--link", action="append", help="a URL to attach (a pull request, an issue, a document)")
     s.add_argument("--goal", help="the goal this task serves (hub goal list); optional")
-    s.add_argument("--next-run", "--quiet", dest="next_run", action="store_true",
-                   help="for a bot: do not wake it; its next run, whatever starts it, carries this task")
+    ways = delivery_flags(s, steer=False)
+    # The older words for --defer, kept: a deferred task with the default deadline.
+    ways.add_argument("--next-run", "--quiet", dest="next_run", action="store_true",
+                      help="the older name for --defer")
     s.add_argument("--dry-run", dest="dry_run", action="store_true",
                    help="print the checks a create would fail and write nothing")
     s.add_argument("--request-id", dest="request_id",
@@ -1176,13 +1228,7 @@ def parser():
     choices.add_argument("--ask", help="JSON file containing structured questions")
     choices.add_argument("--choices", help="comma-separated options, each \"LABEL -> WHAT HAPPENS\" (a question to a "
                                            "person needs the what-happens line)")
-    delivery = s.add_mutually_exclusive_group()
-    delivery.add_argument("--steer", dest="delivery", action="store_const", const="steer",
-                          help="reach the task's bot now; a running turn takes it in if its harness can steer")
-    delivery.add_argument("--queue", dest="delivery", action="store_const", const="queue",
-                          help="wait for the task's bot to take its next turn on this task")
-    delivery.add_argument("--goal", dest="delivery", action="store_const", const="goal",
-                          help="make the text the goal of the task's bot session (plain text, no files)")
+    delivery_flags(s, goal=True)
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.add_argument("--needs-action", dest="needs_action", action="store_true", help="a bot's message to a bot waits for that bot's next run; this wakes it now")
     s.set_defaults(fn="task comment")
@@ -1358,7 +1404,9 @@ def parser():
     s.add_argument("--until", required=True,
                    help="ISO-8601 date (the start of that day, Pacific) or date-time with a zone")
     s.set_defaults(fn="task snooze")
-    s = task.add_parser("defer", help="a quiet task carried into this run that you will not do now: say when it is "
+    # `defer` is its older name: a date makes it a snooze-like hold, not a delivery (backend/delivery.py).
+    s = task.add_parser("later", aliases=["defer"],
+                        help="a deferred task carried into this run that you will not do now: say when it is "
                         "picked up again (it gets one run of its own then); with none, your next run is handed it again")
     s.add_argument("id")
     when = s.add_mutually_exclusive_group(required=True)
@@ -1366,7 +1414,7 @@ def parser():
     when.add_argument("--at", help="at this time: ISO-8601 date-time with a zone, or a date (start of day, Pacific)")
     when.add_argument("--next-run", action="store_true", help="with your next run, whatever starts it")
     when.add_argument("--handled", action="store_true", help="this run is done with it for now (nothing to resume)")
-    s.set_defaults(fn="task defer")
+    s.set_defaults(fn="task later")
     s = task.add_parser("unsnooze", help="bring a snoozed task back now; its owner bot is woken once")
     s.add_argument("id")
     s.set_defaults(fn="task unsnooze")
@@ -2848,7 +2896,7 @@ def parser():
     s = manager.add_parser("bot", help="turn the Task Manager bot itself on or off")
     s.add_argument("state", choices=["on", "off"])
     s.set_defaults(fn="task-manager bot")
-    s = sub.add_parser("stall-triage", help="quiet task triage: Decide reads a quiet task before its stall check stays silent (docs/tasks.md)")
+    s = sub.add_parser("stall-triage", help="stalled task check: Decide reads a quiet task before its stall check stays silent (docs/tasks.md)")
     on = s.add_mutually_exclusive_group()
     on.add_argument("--on", dest="on", action="store_true", default=None, help="switch it on")
     on.add_argument("--off", dest="on", action="store_false", help="switch it off; leave both out to read the switch")

@@ -72,6 +72,7 @@ CLI_TOOL_ALIASES = {
     "hub_task_show": ("hub_task_show", "hub_task_show_many"),      # `hub task show a b c` is one read
     "hub_market_size_accept": ("hub_market_size_decide",), "hub_market_size_reject": ("hub_market_size_decide",),
     "hub_market_size_params": ("hub_market_size_decide",),
+    "hub_task_defer": ("hub_task_later",),     # `hub task defer` is the older name of `hub task later`
 }
 
 
@@ -81,6 +82,21 @@ def _s(description, **extra):
 
 
 TASK_ID = {"type": "string", "description": "Task id: the full id, or its first 8 or more characters (`short_id` in hub_task_list)"}
+# How a send reaches its bot (backend/delivery.py), the same words on every send.
+DELIVERY = {"type": "string", "enum": ["steer", "queue", "defer"],
+            "description": "To a bot: steer goes into its running turn now (right after it if its harness can't "
+                           "steer), queue right after its current turn there (or now if idle), defer wakes nobody and "
+                           "goes in with its next turn there, at the latest after defer_for"}
+DEFER_FOR = {"type": "string", "pattern": "^(never|[1-9][0-9]{0,5}[mhd])$",
+             "description": "With defer: the latest it waits, 30m, 4h, 2d or never"}
+
+
+def _delivery(args):
+    """The request's delivery fields. A defer_for alone (the hub CLI's --defer) is a defer."""
+    way = args.get("delivery") or ("defer" if args.get("defer_for") is not None else None)
+    if not way:
+        return {}
+    return {"delivery": way, **({"defer_for": args["defer_for"]} if way == "defer" and args.get("defer_for") else {})}
 
 
 def tool(name, description, properties, required=(), *, writes=False, local=False):
@@ -205,7 +221,8 @@ def _uploaded(made):
        "visuals": VISUALS,
        "needs_action": {"type": "boolean", "default": False,
                         "description": "To a bot: wake it now. Without this a bot's message to a bot waits for that "
-                        "bot's next run, whatever starts it"}},
+                        "bot's next run, whatever starts it"},
+       "delivery": DELIVERY, "defer_for": DEFER_FOR},
       required=("to", "text"), writes=True)
 def message_send(api, args):
     # Free text a person reads: an s3:// URI becomes its view URL first (clients/s3links.py); a command goes verbatim.
@@ -219,7 +236,7 @@ def _message_send(api, args):
         return assistant_send(api, args)
     if args.get("fyi"):
         return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "notice",
-                                     "conversation_id": None, "refs": {},
+                                     "conversation_id": None, "refs": {}, **_delivery(args),
                                      **({"needs_action": True} if args.get("needs_action") else {})}, key=_key(args))
     attachments, local = _visuals(api, args.get("visuals"), lambda index, name, data: _uploaded(api.request(
         "POST", "/api/v2/files/uploads?name=" + quote(name, safe=""), raw=data, key=_key(args, ":visual:" + index))))
@@ -228,7 +245,7 @@ def _message_send(api, args):
                                  "in_reply_to": args.get("in_reply_to"),
                                  "refs": _refs(args.get("refs")),
                                  **({"attachments": attachments} if attachments else {}),
-                                 **({"command": True} if args.get("command") else {}),
+                                 **({"command": True} if args.get("command") else {}), **_delivery(args),
                                  **({"needs_action": True} if args.get("needs_action") else {})}, key=_key(args))
     if local and isinstance(sent, dict):
         sent = {**sent, "visuals_local": local}
@@ -251,7 +268,8 @@ def chat_goal(api, args):
 @tool("hub_chat_send", "Send a message or a headless slash command to a bot.",
       {"to": _s("The bot"), "text": _s("The message or command"),
        "conversation_id": _s("Continue this conversation"),
-       "command": {"type": "boolean", "default": False}, "visuals": VISUALS}, required=("to", "text"), writes=True)
+       "command": {"type": "boolean", "default": False}, "visuals": VISUALS,
+       "delivery": DELIVERY, "defer_for": DEFER_FOR}, required=("to", "text"), writes=True)
 def chat_send(api, args):
     return message_send(api, args)
 
@@ -299,17 +317,17 @@ def meeting_delete(api, args):
     return _as_person(api).post(f"meetings/{args['id']}/delete", {}, key=_key(args))
 
 
-@tool("hub_note_create", "Leave a bot a quiet note: it wakes nobody, asks nothing, and the bot's next run "
-      "reads it in the same prompt as whatever woke it.",
-      {"to": _s("The bot: a slug or `bot:<slug>`"), "text": _s("What it should know")},
+@tool("hub_note_create", "Leave a bot a deferred message (a note): it wakes nobody, asks nothing, and the bot's next "
+      "run reads it in the same prompt as whatever woke it. With defer_for, a run starts by then if none came.",
+      {"to": _s("The bot: a slug or `bot:<slug>`"), "text": _s("What it should know"), "defer_for": DEFER_FOR},
       required=("to", "text"), writes=True)
 def note(api, args):
-    body = {"to": args["to"], "text": args["text"]}
+    body = {"to": args["to"], "text": args["text"], **({"defer_for": args["defer_for"]} if args.get("defer_for") else {})}
     links = s3links.apply(api, body, ("text",))
     return s3links.annotate(api.post("notes", body, key=_key(args))["note"], links)
 
 
-@tool("hub_note_list", "Quiet notes, newest first: the ones left for you and the ones you left.",
+@tool("hub_note_list", "Deferred messages (notes), newest first: the ones left for you and the ones you left.",
       {"to": _s("Only notes to this bot (`me` for you)"), "from": _s("Only notes from this bot"),
        "since": _s("ISO time"), "waiting": {"type": "boolean", "default": False}})
 def notes(api, args):
@@ -317,7 +335,7 @@ def notes(api, args):
                    waiting="true" if args.get("waiting") else None)
 
 
-@tool("hub_note_delete", "Take back a quiet note you left, before any run has carried it.",
+@tool("hub_note_delete", "Take back a deferred message (note) you left, before any run has carried it.",
       {"id": _s("The note id")}, required=("id",), writes=True)
 def unnote(api, args):
     return api.post(f"notes/{args['id']}/cancel", {}, key=_key(args))["note"]
@@ -599,7 +617,11 @@ def tag_update(api, args):
                  "description": "URLs to attach: a pull request, an issue, a document"},
        "goal_id": _s("The goal this task serves (hub_goal_list); optional"),
        "next_run": {"type": "boolean", "default": False,
-                    "description": "For a bot owner: do not wake it; its next run carries this task"},
+                    "description": "The older name for delivery defer: a deferred task"},
+       "delivery": {"type": "string", "enum": ["queue", "defer"],
+                    "description": "For a bot owner: queue wakes it (the default); defer is a deferred task that wakes "
+                                   "nobody, which its next run carries, and starts a run by defer_for (24h)"},
+       "defer_for": DEFER_FOR,
        "roles": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}},
                  "description": "Who is on it by role, {role: [people or bots]}: each role named replaces that role's people, [] clears one, "
                                 "a role not named stays. A role is a short name the team chooses (developer, reviewer, qa); one person may hold several"},
@@ -622,6 +644,7 @@ def task_create(api, args):
     for field in ("qa", "change_paths", "qa_not_checkable_live", "blocker"):
         if args.get(field) is not None:
             body[field] = args[field]
+    body.update(_delivery(args))
     if args.get("private") is not None:
         body["private"] = args["private"]
     roles = _roles(api, args)
@@ -712,7 +735,7 @@ def task_waive_qa(api, args):
     return api.post(f"tasks/{args['id']}/qa-waiver", {"head": args["head"], "reason": args["reason"]}, key=_key(args))
 
 
-@tool("hub_task_defer", "A quiet (next-run) task carried into this run that you will not do now: say when it is "
+@tool("hub_task_later", "A deferred task carried into this run that you will not do now: say when it is "
       "picked up again, and it gets one run of its own then. Exactly one of `after` (when that task is done or closed), "
       "`at` (a time), `next_run` (with your next run), or `handled` (this run is done with it for now). With none, "
       "and without working it, your next run is handed it again. The task's own bot, or a person.",
@@ -721,8 +744,8 @@ def task_waive_qa(api, args):
        "next_run": {"type": "boolean", "description": "Pick it up with your next run, whatever starts it"},
        "handled": {"type": "boolean", "description": "This run is done with it for now; nothing to resume"}},
       required=("id",), writes=True)
-def task_defer(api, args):
-    return api.post(f"tasks/{args['id']}/defer", {"after": args.get("after"), "at": args.get("at"),
+def task_later(api, args):
+    return api.post(f"tasks/{args['id']}/later", {"after": args.get("after"), "at": args.get("at"),
                                                    "next_run": bool(args.get("next_run")),
                                                    "handled": bool(args.get("handled"))}, key=_key(args))
 
@@ -1066,15 +1089,17 @@ def task_type_delete(api, args):
        "needs_action": {"type": "boolean", "default": False,
                         "description": "To a bot: wake it now. Without this a bot's message to a bot waits for that "
                         "bot's next run, whatever starts it"},
-       "delivery": {"type": "string", "enum": ["steer", "queue", "goal"],
-                    "description": "What the comment does to the task's bot. steer: reach it now, folded into a running "
-                    "turn if its harness can steer. queue: wait for its next turn on this task. goal: make the text the "
-                    "goal of its task session (no attachments or visuals; not public, not a question). Omitted, the "
-                    "comment wakes the bot as it always has."}},
+       "delivery": {"type": "string", "enum": ["steer", "queue", "defer", "goal"],
+                    "description": "How the comment reaches the task's bot. steer: into its running turn now (right "
+                    "after it if its harness can't steer). queue: right after its current turn on this task, or now. "
+                    "defer: wakes nobody; its next turn on this task reads it, at the latest after defer_for (24h). "
+                    "goal: make the text the goal of its task session (no attachments or visuals; not public, not a "
+                    "question). Omitted, the task's default applies."},
+       "defer_for": DEFER_FOR},
       required=("id", "text"), writes=True)
 def task_comment(api, args):
-    body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id", "needs_action",
-                                 "delivery") if k in args}
+    body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id", "needs_action") if k in args}
+    body.update({"delivery": "goal"} if args.get("delivery") == "goal" else _delivery(args))
     local = []
     if args.get("visuals"):
         added, local = _visuals(api, args["visuals"], lambda index, name, data: _uploaded(_posted_file(
@@ -3135,7 +3160,8 @@ def inbox_send(api, args):
 
 @tool("hub_bot_update", "Change a bot's settings (reports to, name, description, status) with your own rights. "
       "BotOps acts as the person who asked, citing their message. "
-      "A manager bot changes only its direct report's name and description.",
+      "A manager bot changes only its direct reports: their model, task model, name and description. Creating, archiving "
+      "or restoring a report goes through BotOps the same way, within the weekly limit.",
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
        "description": _s("New description"), "template": _s("Correct the template metadata; use hub_template_list"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
@@ -4574,7 +4600,7 @@ def task_manager_run(api, args):
     return _as_person(api).call("POST", "system-routines/task_manager_report/run", {}, _key(args))
 
 
-@tool("hub_stall_triage", "Quiet task triage: before a stall check stays silent on a quiet task nothing has changed on, Tico "
+@tool("hub_stall_triage", "Stalled task check: before a stall check stays silent on a quiet task nothing has changed on, Tico "
       "Decide reads its last six messages and sets the wait they name, closes the task if it is finished, or lets one wake "
       "through if it is stuck. On by default; the owner or an admin switches it. Omit `on` to read the switch.",
       {"on": {"type": "boolean", "description": "true switches it on, false off; leave out to read"}}, writes=True)
@@ -5801,6 +5827,9 @@ RENAMED_TOOLS = {
     "hub_rule_set": "hub_automation_update", "hub_rule_update": "hub_automation_update",
     "hub_rule_delete": "hub_automation_update",
 }
+# Older names a call still runs under, unlisted. `hub_task_defer` says when a carried task is picked up again (a
+# hold, not a delivery): `defer` is the delivery word now (backend/delivery.py).
+CALL_ALIASES = {"hub_task_defer": "hub_task_later"}
 RENAMED_PREFIXES = (("hub_docs_", "hub_doc_"), ("hub_files_", "hub_file_"), ("hub_meetings_", "hub_meeting_"),
                     ("hub_status_", "hub_bot_status_"), ("hub_people_", "hub_human_"), ("hub_person_", "hub_human_"),
                     ("hub_tools_", "hub_tool_"), ("hub_batch_", "hub_needs_you_"), ("hub_listen_", "hub_listening_"),
@@ -5928,6 +5957,7 @@ class Protocol:
                 if source == "market":
                     args["market"] = True
                 name = "hub_doc_search"
+        name = CALL_ALIASES.get(name, name)
         entry = BY_NAME.get(name)
         if not entry and (new := renamed_to(name)):
             return self._tool_error(rid, {"error": "renamed", "detail": f"`{name}` was renamed `{new}` in Tico 0.2.21.",

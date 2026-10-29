@@ -491,7 +491,8 @@ def install_media(app, store, auth, mutate, send_message, task_create, review_pr
         human_only(who)
         body, uploads = await form(request, M.ChatCreate, blobs, store)
         def work(c):
-            message = send_message(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs))
+            message = send_message(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs,
+                                                           delivery=body.delivery, defer_for=body.defer_for))
             return {"conversation": H.conversation(c, message["conversation_id"]),
                     "message": chat_uploads(c, who, bot, message, uploads, body.titles)}
         return await asyncio.to_thread(write, request, body, uploads, work)

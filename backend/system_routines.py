@@ -8,7 +8,7 @@ reschedules (`control`). The trigger/action catalog (TRIGGERS, ACTIONS) is share
 searched the same way.
 
 `CONTROLS` holds what a person may change: on/off and a schedule preset for the six jobs that use AI or reach people,
-and the Topic changed and Quiet task triage switches. Stale ticket review, Topic changed and Quiet task triage keep their on/off in the team rules
+and the Topic changed and Stalled task check switches. Stale ticket review, Topic changed and Stalled task check keep their on/off in the team rules
 (backend/team_rules.py), so the value they had in Settings > General carries over; the rest live here in
 `registry_metadata` CONFIG_KEY. An owner or admin changes them; Health scan only the owner. `due` is when a job's
 preset says it runs again, read by the scheduler and the job's next run alike. Run now runs a job once, through the same
@@ -256,7 +256,7 @@ JOBS = [
         HOUSEKEEPING, "Every 30 seconds", 30, records=False, then=("sync_meetings",)),
     Job("doc_sync", "Document sync", "Refreshes linked documents from their sources.",
         HOUSEKEEPING, "Every few seconds", 5, records=False, then=("sync_docs",)),
-    Job("stall_triage", "Quiet task triage",
+    Job("stall_triage", "Stalled task check",
         "Before a stall check stays silent on a quiet task nothing has changed on, Decide reads its last messages: "
         "if it waits on someone it sets that wait, if it is finished it closes it, if it is stuck one wake goes through.",
         CHECKS, "When it happens", ai=True, control=True, labels=("stall-triage",), records=False, when="quiet_task",

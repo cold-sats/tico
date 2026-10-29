@@ -29,7 +29,7 @@ from . import built_on
 from . import agents, app_delivery, batch, external_sync, inbox_isolation, lifecycle, mcp_oauth, recruiting, harness_actions, model_login, oidc, personal_tokens, views
 from . import outcome_stats
 from . import start_places
-from . import ask_ingest, strategy_bot, invites, owner_link
+from . import ask_ingest, delivery, strategy_bot, invites, owner_link
 from . import login_holds
 from . import step_age
 from . import bot_stops, turn_budgets, proposals, task_caps
@@ -1354,6 +1354,15 @@ def create_app(settings=None):
             refs["command"] = True
         if body.needs_action:
             refs["needs_action"] = True
+        if wrong := delivery.check(body.delivery, body.defer_for):
+            raise Problem("delivery", wrong, 422)
+        if body.delivery and body.kind == "ask":
+            raise Problem("delivery", "A question always wakes the one it is for: send it without a delivery", 422)
+        # How it reaches a bot (backend/delivery.py). With none named a message goes as it always has: a person's
+        # steers, a bot's goes as bot-to-bot messages do (backend/bot_to_bot.py).
+        way = body.delivery
+        if to.startswith("bot:") and way in ("steer", "queue") and who.role == "bot":
+            refs["needs_action"] = True
         if in_assistant_room:
             refs["assistant"] = True           # the server's mark: this turn acts for the person
         conversation_id = body.conversation_id
@@ -1369,8 +1378,27 @@ def create_app(settings=None):
         lifecycle.refuse_send(c, who, to, H.conversation(c, conversation_id) if conversation_id else None)
         privacy.require_destination(c, who, to, conversation_id, refs,
                                     H.message(c, body.in_reply_to) if body.in_reply_to else None)
+        # Ride-along: a defer while the bot has a turn going in this chat goes in right after that turn.
+        if way == "defer" and to.startswith("bot:") and who.role != "bot" and conversation_id \
+                and delivery.running_in_session(c, H.actor_id(to), [conversation_id]):
+            way = "queue"
+        if to.startswith("bot:") and way == "queue":
+            refs["delivery"] = "queue"           # after the bot's running turn, not into it (execution.inputs)
+        if to.startswith("bot:") and way == "defer":
+            refs["quiet"] = True                 # no job: the session's next turn, or its deadline, takes it
         message = H.say(c, who.actor, to, body.text, conversation_id=conversation_id,
                         kind=body.kind, refs=refs, in_reply_to=body.in_reply_to, wait_s=body.wait_s)
+        due = None
+        if to.startswith("bot:") and way == "defer":
+            if who.role == "bot":
+                # A bot's deferred message rides with the recipient's next run of any kind, as a waiting
+                # bot-to-bot message does: its own DM may not see another turn.
+                task_ref = refs.get("task") if isinstance(refs.get("task"), str) else None
+                held_note = bot_to_bot.hold(c, message, H.task(c, task_ref) if task_ref else None)
+                due = delivery.defer(c, to, "note", held_note["id"], defer_for=body.defer_for)
+            else:
+                due = delivery.defer(c, to, "message", message["id"], conversation_id=message["conversation_id"],
+                                     defer_for=body.defer_for)
         from .chat_goals import current as current_chat_goal
         goal = current_chat_goal(c, message["conversation_id"])
         # Added to the stored references, so the marks H.say set (a bot_to_bot hold, quiet) stay (Dev 328).
@@ -1398,6 +1426,9 @@ def create_app(settings=None):
             message = {**message, "warning": note}
         if held := bot_to_bot.held_reason(message):
             message = {**message, "woke": False, "held": held}
+            way = "defer"
+        if to.startswith("bot:"):
+            message = {**message, "sent_as": delivery.sent_as(way or "steer", due)}
         return message
 
     # Liveness reads the database on its own two threads: when slow handlers hold every worker in the shared
@@ -2702,7 +2733,8 @@ def create_app(settings=None):
         def work(c):
             cleared = topic_change.apply(c, settings, who, bot, topic)
             message = send(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs, command=body.command,
-                                                   attachments=body.attachments))
+                                                   attachments=body.attachments, delivery=body.delivery,
+                                                   defer_for=body.defer_for))
             if cleared:
                 message = topic_change.record(c, who, message, topic)
             onboarding.start_setup(c, who, bot)
@@ -3071,7 +3103,8 @@ def create_app(settings=None):
             if not target:
                 raise Problem("recipient", "This conversation has no other recipient", 422)
             return {"message": send(c, who, M.MessageCreate(to=target, text=body.text, conversation_id=cid, refs=body.refs,
-                                                            command=body.command, attachments=body.attachments))}
+                                                            command=body.command, attachments=body.attachments,
+                                                            delivery=body.delivery, defer_for=body.defer_for))}
         return mutate(request, body, work)
 
     @app.post("/api/v2/messages/{mid}/answer")
@@ -3279,7 +3312,10 @@ def create_app(settings=None):
             to = auth.target(c, who, body.to, need="write")
             auth.require_bot_contact(c, who, to, kind="note")
             lifecycle.refuse_send(c, who, to, what="a note")
-            return {"note": note_view(H.note_create(c, who.actor, to, body.text), c)}
+            # A note is a deferred message to the bot's next run of any kind; `defer_for` wakes it by then.
+            made = H.note_create(c, who.actor, to, body.text)
+            due = delivery.defer(c, made["to_actor"], "note", made["id"], defer_for=body.defer_for)
+            return {"note": {**note_view(made, c), "sent_as": delivery.sent_as("defer", due)}}
         return mutate(request, body, work)
 
     @app.get("/api/v2/notes")
@@ -3435,10 +3471,10 @@ def create_app(settings=None):
                                       auth=auth, people=True)
 
     def comment_to(c, who, row):
-        """Who a plain comment from this reader reaches (H.task_comment, H.comment_wakes): `bot`, the bot it goes to,
-        or None when no bot will get it; `wakes`, whether it starts that bot's turn now rather than waiting for its
-        next run on the task; `mention`, the @names that would wake it anyway for this reader, each checked against
-        the same rule (names_a_filer counts only for someone who may direct the task). None for a bot reader."""
+        """Who a plain comment from this reader reaches (H.task_comment, H.comment_way): `bot`, the bot it goes to,
+        or None when no bot will get it; `wakes`, whether it wakes that bot (queue) rather than waiting for its next
+        turn on the task (defer); `mention`, the @names that would queue it anyway for this reader, each checked
+        against the same rule. None for a bot reader."""
         if who.role == "bot":
             return None
         target = H.comment_target(c, who.actor, row)
@@ -3446,29 +3482,31 @@ def create_app(settings=None):
             return {"bot": None, "wakes": False, "mention": []}
         moves = mover(c, who)
         wakes = H.comment_wakes(c, who.actor, row, "", mover=moves)
-        mention = [] if wakes else [n for n in H.filer_handles(c, row)
+        mention = [] if wakes else [n for n in H.bot_handles(c, row)
                                     if H.comment_wakes(c, who.actor, row, "@" + n, mover=moves)]
         return {"bot": H.actor_id(target), "wakes": wakes, "mention": mention}
 
     def delivery_choices(c, who, row):
-        """What a comment's `delivery` can do for this reader on this task (docs/tasks.md): `default`, the choice
-        a comment with none named gets (steer when it wakes its bot, queue when not; null when no bot is on the task);
-        `steer`, whether the reader may steer (chat_goals.may_direct); `steers`, whether that bot's harness writes a
-        steer into its running turn; `goal`, whether the reader may set the task session's goal (chat_goals.own_room
-        and chat_goals.may_set). None for a bot reader."""
+        """How this reader's comment can reach the task's bot (docs/tasks.md, backend/delivery.py): `default`, the way
+        a comment with none named goes (queue or defer; null when no bot is on the task) and `default_for`, a default
+        defer's deadline (24h, never); `steer` and `queue`, whether the reader may wake the bot (chat_goals.may_direct;
+        anyone may defer); `steers`, whether that bot's harness writes a steer into its running turn; `goal`, whether
+        the reader may set the task session's goal (chat_goals.own_room and chat_goals.may_set). None for a bot
+        reader."""
         if who.role == "bot":
             return None
         target = H.comment_target(c, who.actor, row)
         if not H.is_bot(target):
-            return {"default": None, "steer": False, "steers": False, "goal": False}
-        moves = mover(c, who)
-        wakes = H.comment_wakes(c, who.actor, row, "", mover=moves)
+            return {"default": None, "default_for": None, "steer": False, "queue": False, "steers": False,
+                    "goal": False}
+        way, defer_for = H.comment_way(c, who.actor, row, "", mover=mover(c, who))
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(target),)).fetchone()
         config = json.loads(config[0] or "{}") if config else {}
         from .harnesses import steers
         from .chat_goals import may_direct, may_set, own_room
-        return {"default": "steer" if wakes else "queue", "steer": may_direct(c, who, row),
-                "steers": steers(config, config.get("runtime")),
+        directs = may_direct(c, who, row)
+        return {"default": way, "default_for": defer_for if way == "defer" else None, "steer": directs,
+                "queue": directs, "steers": steers(config, config.get("runtime")),
                 "goal": own_room(c, row) and may_set(c, auth, who, row["conversation_id"])}
 
     def task_runs(c, who, tid, limit=200):
@@ -3503,6 +3541,16 @@ def create_app(settings=None):
         private they are its requester, so its two parties are the bot and them."""
         source = who
         actual_bot = source.task_actor or (source.actor if source.role == "bot" else "")
+        # A new task has no turn to steer. Defer is a deferred task (`next_run`, the older word for it); queue, as
+        # omitted, wakes its bot.
+        if body.delivery == "steer":
+            raise Problem("delivery", "A new task has no running turn to steer: send it with queue or defer", 422)
+        if wrong := delivery.check(body.delivery, body.defer_for):
+            raise Problem("delivery", wrong, 422)
+        if body.next_run and body.delivery == "queue":
+            raise Problem("delivery", "next_run is delivery defer: send one or the other", 422)
+        if body.delivery == "defer" and not body.next_run:
+            body = body.model_copy(update={"next_run": True})
         if body.from_private:
             pass                        # company-visible, its words checked (task_privacy.from_private)
         elif privacy.private_execution(c, who):
@@ -3649,6 +3697,10 @@ def create_app(settings=None):
                             qa_not_checkable_live=body.qa_not_checkable_live,
                             quiet_notice=bool(joins) or bool(gate and gate["acts"]), from_private=bool(kept))
         c.execute("UPDATE tasks SET acceptance_json=? WHERE id=?", (encode(body.acceptance_criteria), row["id"]))
+        due = None
+        if body.next_run and H.is_bot(owner):
+            # A deferred task waits for its bot's next run, and starts one by its deadline (24h unless named).
+            due = delivery.defer(c, owner, "task", row["id"], task_id=row["id"], defer_for=body.defer_for)
         if run_model:
             task_run_models.set_choice(c, who.actor, row["id"], run_model, note="Set when the task was filed")
         task_caps.record(c, row["id"], who.actor, owner)     # a send, counted against the sender's cap for this owner
@@ -3721,6 +3773,7 @@ def create_app(settings=None):
         note = " ".join(filter(None, (usage_limits.warning(c, owner) or bot_stops.warning(c, owner) or H.setup_hold(c, owner),
                                       *own_subtask, joined)))
         return {"task": task_view(H.task(c, row["id"]), c, visible_sql=auth.task_sql(c, who), who=who),
+                **({"sent_as": delivery.sent_as("defer", due)} if body.next_run and H.is_bot(owner) else {}),
                 **({"readback": readback} if readback else {}),
                 **({"joined": {"task": joins["id"], "title": joins["title"], "owner": joins["owner"]}} if joins else {}),
                 **ask_ingest.reply(gate),
@@ -4144,11 +4197,12 @@ def create_app(settings=None):
             return {"task": task_view(after, c, visible_sql=auth.task_sql(c, who), who=who)}
         return mutate(request, body, work)
 
-    @app.post("/api/v2/tasks/{tid}/defer")
+    @app.post("/api/v2/tasks/{tid}/later")
+    @app.post("/api/v2/tasks/{tid}/defer")           # its older name, kept for clients from before Steer, Queue, Defer
     def task_defer(request: Request, tid: str, body: M.TaskDefer):
-        """Say when a quiet task a run carried (or one still waiting for a run) is picked up again: after another task
-        is done, at a time, or with the next run; or that the run handled it (backend/quiet_work.py). The task's own
-        bot, or a person."""
+        """Say when a deferred task a run carried (or one still waiting for a run) is picked up again: after another
+        task is done, at a time, or with the next run; or that the run handled it (backend/quiet_work.py). The task's
+        own bot, or a person (`hub task later`)."""
         def work(c):
             who = request.state.identity
             task_id = auth.resolve_task(c, who, tid)
@@ -4209,15 +4263,17 @@ def create_app(settings=None):
 
     @app.post("/api/v2/tasks/{tid}/comments")
     def task_comment(request: Request, tid: str, body: M.TaskComment):
-        """A comment on a task. It wakes the bot on the task when the comment is meant for it
-        (H.comment_wakes); anyone else's is saved for the bot's next turn on the task. `delivery` overrides that:
-        steer wakes the bot now, queue never does, goal sets the task session's goal to the text
-        (chat_goals.set_goal). A bot's question to a person passes ask ingest first (backend/ask_ingest.py): sent
-        back, it is withdrawn as soon as it is asked."""
+        """A comment on a task. `delivery` says how it reaches the task's bot (backend/delivery.py): steer into its
+        running turn, queue right after it, defer to its next turn on the task (at the latest `defer_for`, 24h), or
+        goal: the task session's goal becomes the text (chat_goals.set_goal). Omitted, H.comment_way decides. A bot's
+        question to a person passes ask ingest first (backend/ask_ingest.py): sent back, it is withdrawn as soon as it
+        is asked."""
         who = request.state.identity
         if body.delivery and (body.ask or (body.needs_action and body.delivery != "steer")):
             raise Problem("delivery", "A question always wakes the one it is for, and needs_action is steer: send it "
                           "without a delivery, or with steer", 422)
+        if wrong := delivery.check(body.delivery, body.defer_for):
+            raise Problem("delivery", wrong, 422)
         if body.delivery == "goal" and (body.attachments or body.public):
             raise Problem("delivery", "A goal is the comment's text: send it without files or as a public comment",
                           422)
@@ -4250,43 +4306,59 @@ def create_app(settings=None):
             # A goal is the comment's text, so it is not turned into a question to anyone.
             people = [] if ask or who.role == "bot" or body.delivery == "goal" \
                 else H.mentioned_people(c, body.text, row, who.actor)
-            # Steer reaches the bot on the task (a bot's steer is its needs_action); with no bot on the task it is a
-            # plain comment. Queue and goal never wake it: a goal's own control does (set_goal below).
+            # Steer and queue wake the bot on the task (a bot's is its needs_action); with no bot on the task the
+            # comment is plain. Defer and goal do not: a goal's own control does (set_goal below).
             target = H.comment_target(c, who.actor, row)
-            steered = body.delivery == "steer" and H.is_bot(target)
-            if steered and who.role != "bot" and not may_direct(c, who, row):
-                raise Problem("delivery", "Only someone on this task can steer its bot: send it with queue, or "
-                              "@name the bot that filed it", 403)
+            to_bot = H.is_bot(target)
+            if body.delivery in ("steer", "queue") and to_bot and who.role != "bot" and not may_direct(c, who, row):
+                raise Problem("delivery", "Only someone on this task can wake its bot: send it with defer", 403)
             if body.delivery == "goal" and who.role != "bot" and not may_direct(c, who, row):
-                raise Problem("delivery", "Only someone on this task can set its goal: send it with queue", 403)
+                raise Problem("delivery", "Only someone on this task can set its goal: send it with defer", 403)
             # A goal is set in the task's own room only. In a chat the task was filed into, the goal is the chat's
             # (chat_goals.own_room), so nothing is saved and no control is queued or cancelled there.
             if body.delivery == "goal" and not own_room(c, row):
                 raise Problem("delivery", "This task has no room of its own: send it with steer or queue", 409)
-            if steered:
-                wakes_bot = True
-            elif body.delivery:
-                wakes_bot = False
-            else:
-                wakes_bot = H.is_bot(target) and H.comment_wakes(c, who.actor, row, body.text, mover=moves)
-            if people and not wakes_bot:
-                ask, people = H.mention_ask(body.text, people[0]), people[1:]
-            if body.delivery in ("queue", "goal"):
-                wake = False
-            elif steered:
-                wake = True
+            defer_for = body.defer_for
+            if body.delivery in ("steer", "queue", "defer"):
+                way = body.delivery
+            elif body.delivery == "goal":
+                way = None
             elif ask:
-                wake = who.role == "bot" or H.task_participant(c, who.actor, row) or moves
+                way = "steer" if who.role == "bot" or H.task_participant(c, who.actor, row) or moves else "defer"
+            elif who.role == "bot" and body.needs_action:
+                way = "steer"
             else:
-                wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves) or (
-                    who.role == "bot" and body.needs_action)
+                way, defer_for = H.comment_way(c, who.actor, row, body.text, mover=moves)
+            directs = who.role == "bot" or may_direct(c, who, row)
+            if way == "defer" and to_bot and not ask and not directs:
+                # A deadline wakes the bot as a steer would, so it takes the same right. Someone off the task defers
+                # with none: their comment waits for the bot's next turn here.
+                if body.defer_for not in (None, delivery.NEVER):
+                    raise Problem("delivery", "Only someone on this task can give its bot a deadline: send it with "
+                                  "defer and no defer_for", 403)
+                defer_for = delivery.NEVER
+            # Ride-along: a defer someone chose while the bot works this task goes in right after that turn, if they
+            # may wake it. A default defer (a plain comment on a bot-filed task, or from outside it) keeps its deadline.
+            rides = body.delivery == "defer" and directs
+            if way == "defer" and to_bot and not ask and rides and delivery.running_in_session(
+                    c, H.actor_id(target), [row["conversation_id"]], task_id):
+                way = "queue"
+            if people and not (to_bot and way in ("steer", "queue")):
+                ask, people = H.mention_ask(body.text, people[0]), people[1:]
+            wake = way in ("steer", "queue")
             extra = {"attachments": attached, "files": [a["ref"] for a in attached]} if attached else {}
-            if body.needs_action or (steered and who.role == "bot"):
+            if body.needs_action or (who.role == "bot" and body.delivery in ("steer", "queue")):
                 extra["needs_action"] = True
+            if way == "queue" and to_bot:
+                extra["delivery"] = "queue"      # after the bot's running turn, not into it (execution.inputs)
             # Judged against the plate before the question is on it.
             gate = ask_ingest.apply(c, ingest) if ingest and ask else None
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask, public=body.public, approval_id=body.approval_id,
                                  extra_refs=extra or None)
+            due = None
+            if way == "defer" and to_bot and not ask:
+                due = delivery.defer(c, target, "comment", msg["id"], conversation_id=msg["conversation_id"],
+                                     task_id=task_id, defer_for=defer_for)
             goal = None
             if body.delivery == "goal":
                 # The task session's goal, set as a chat's is (chat_goals.set_goal): its /goal control wakes the bot.
@@ -4308,7 +4380,10 @@ def create_app(settings=None):
             msg = next(m for m in comments if m["id"] == msg["id"])
             held = H.held_note(c, msg.get("to_actor"))
             waits = bot_to_bot.held_reason(msg)
+            if bot_to_bot.held_reason(msg):
+                way, due = "defer", None             # a bot's plain comment to a bot waits for its next run
             return {"comment": msg, "comments": comments, **H.comment_delivery(c, msg, copies, since=mark),
+                    **({"sent_as": delivery.sent_as(way, due)} if to_bot and way else {}),
                     **({"warning": held} if held else {}), **({"held": waits} if waits else {}),
                     **({"visuals": report} if report else {}), **({"goal": goal} if goal else {}),
                     **ask_ingest.reply(gate)}
@@ -4718,17 +4793,31 @@ def create_app(settings=None):
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 
+    def report_mutate(request, body, work):
+        """`mutate` for a change to a manager bot's report: a refusal over the week's limit still files its Needs you ask
+        for the person above, which the refusal's rollback would take with it (settings_admin._report_cap)."""
+        try:
+            return mutate(request, body, work)
+        except Problem as exc:
+            ask = getattr(exc, "ask", None)
+            if exc.code == "report_cap" and ask:
+                store.write(request.state.identity, lambda c: H.task_create(
+                    c, ask["actor"], ask["title"], ask["body"], ask["person"]))
+            raise
+
     @app.post("/api/v2/bots")
     def create_bot(request: Request, body: M.BotDefinitionCreate):
         who = request.state.identity
         def work(c):
+            if who.role == "bot" and who.via == "botops":
+                return settings_admin.create_report(c, who, body)     # a manager bot's report, asked of BotOps
             created = settings_admin.create_bot(c, who, body)
             if body.template:
                 # Adding from the catalog after onboarding is the same handoff to BotOps.
                 created.update(onboarding.attach_template(c, who, created["slug"], body.template,
                                                           body.instructions))
             return created
-        return mutate(request, body, work)
+        return report_mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/onboarded")
     def bot_onboarded(request: Request, bot: str, body: M.OnboardingComplete):
@@ -4829,14 +4918,16 @@ def create_app(settings=None):
     def archive_bot(request: Request, bot: str, body: M.BotArchive):
         who = request.state.identity
         def work(c):
-            acting = delegated_identity(c, who, body.on_behalf_of) if body.on_behalf_of else who
+            # A manager bot's ask is already BotOps acting as that bot (act_for_requester), not a person's request to find.
+            acting = who if who.role == "bot" and who.via == "botops" else (
+                delegated_identity(c, who, body.on_behalf_of) if body.on_behalf_of else who)
             result = settings_admin.archive(c, acting, bot, body)
             rooms.archive_shared_room(c, acting.actor, bot)
             if acting is not who:
                 H.event(c, who.actor, "bot.archive_delegated", bot,
                         {"on_behalf_of": acting.actor, "message_id": body.on_behalf_of, "successor": body.successor})
             return result
-        return mutate(request, body, work)
+        return report_mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/restore")
     def restore_bot(request: Request, bot: str, body: M.Empty):
@@ -4847,7 +4938,7 @@ def create_app(settings=None):
             if rooms.thread_mode(c, bot) == rooms.SHARED:
                 rooms.sync_shared_room(c, auth, bot, actor=who.actor, create=True)
             return result
-        return mutate(request, body, work)
+        return report_mutate(request, body, work)
 
     # A person's request lends their rights for as long as the task it created (or that cites it) is open, up to
     # botops_act.LEND_MAX_DAYS after they last spoke on it, and never again once someone else reopens it. A chat
@@ -5279,11 +5370,29 @@ def create_app(settings=None):
                 return False
         return bool(row and row["owner"] == "bot:" + BOTOPS)
 
+    def manager_asker(c, who):
+        """The manager bot whose chat message to BotOps started this run, as the identity BotOps acts as for a report's
+        create, archive or restore (`Auth.report_lifecycle`): its actor is the manager and `via` is "botops", so its own
+        token, which has no `via`, is never mistaken for it. None when a bot did not ask."""
+        turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
+                         (who.attempt_id,)).fetchone() if who.attempt_id else None
+        msg = H.message(c, turn["message_id"]) if turn else None
+        if (not msg or msg.get("deleted_at") or msg["to_actor"] != "bot:" + BOTOPS or msg["kind"] not in ("say", "answer")
+                or not H.is_bot(msg["from_actor"])):
+            return None
+        return replace(who, actor=msg["from_actor"], role="bot", via="botops", task_actor="")
+
     def act_for_requester(request, ref):
         """Apply the requester's identity before the route checks its normal permissions."""
         who = request.state.identity
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
+        if botops_act.lifecycle_call(request.method, request.url.path) and ref in ("turn", "default", ""):
+            # A manager bot's report: BotOps acts as that manager, which the lifecycle routes check (Auth.report_lifecycle).
+            with store.read() as c:
+                asker = manager_asker(c, who)
+            if asker is not None:
+                return None, asker
         # Runs on an executor thread: the delegation record is read back here and set again for the route.
         token = H.DELEGATION.set(None)
         try:

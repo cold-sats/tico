@@ -115,7 +115,7 @@ The product favours getting going fast, and the owner tightens it later. Setting
 | **People may let their Assistant decide their approvals** | each person may turn on "My assistant can decide approvals for me" in Settings > General; their own Assistant then approves or declines approvals addressed to them on their words in its chat, recorded and undoable ([Assistant](assistant.md#letting-it-decide-your-approvals)) | approving is the person's click on a card again, whatever their own setting |
 | **BotOps changes providers and limits without asking** (`botops_direct`) | BotOps changes the AI providers and raises spending limits for the person who asked, with their rights | a provider change, or a limit raised or removed, is a Confirm card in that person's BotOps chat; lowering a limit stays direct |
 | **BotOps manages every bot** (`botops_manages_bots`) | in its own runs (the daily update, or a routine the owner set for BotOps) BotOps manages every bot but the built-in ones: their Tools, repositories, contact and Instructions, with write access to each bot's repository in its GitHub token (below) | BotOps in its own runs changes only itself |
-| **Managers change their direct reports** (`managers_manage_reports`) | a bot changes its direct reports' model, task model, name and description, as itself, unless that manager's own switch is off ([Managers and their reports](#managers-and-their-reports)) | no bot changes a report's model, task model, name or description, whatever the bots' own switches say |
+| **Managers change their direct reports** (`managers_manage_reports`) | a bot changes its direct reports' model, task model, name and description, as itself, unless that manager's own switch is off; BotOps creates, archives and restores a report for it, within `report_creates_per_week` and `report_archives_per_week` ([Managers and their reports](#managers-and-their-reports)) | no bot changes a report's model, task model, name or description, or creates, archives or restores it, whatever the bots' own switches say |
 | **Admins store credentials** | Admins are credential administrators | only the owner (and `TICO_CREDENTIAL_ADMINS`) stores credentials |
 | **Members store credentials for their bots** | anyone on the team stores a credential for a bot they own or manage, granted to that bot | only credential administrators store credentials |
 | **Admins see SQL** | Admins open the SQL page | the SQL page is the owner's |
@@ -291,8 +291,10 @@ manager:
 - its **task model** (`POST /api/v2/bots/{bot}/task-model`, the bot editor; there is no hub or MCP command for it);
 - its **name and description** (`POST /api/v2/bots/{bot}/definition`, `hub bot update`, MCP `hub_bot_update`).
 
-It does not change the report's instructions, status, place on the team chart (`reports_to`), owners, access, computer, or
-whether it is created or archived. A manager reaches only the bots directly under it, and `Auth.report_manager` decides that.
+It does not change the report's instructions, status, place on the team chart (`reports_to`), owners, access or computer.
+Its instructions are changed by a **next-run task** the manager files for the report, which the report does when it next runs.
+Creating, archiving and restoring a report are asked of BotOps (below). A manager reaches only the bots directly under it, and
+`Auth.report_manager` decides that.
 It does not widen `Auth.bot_manager`: a manager bot owns nothing it did not own before.
 
 Two switches turn it off, and the owner's comes first:
@@ -301,6 +303,20 @@ Two switches turn it off, and the owner's comes first:
   the owner changes it; BotOps can only propose a change, as a Confirm card the owner taps;
 - the manager's own **Manages its reports** switch (`manages_reports`, in its bot editor), on by default. A person who manages that
   bot sets it, and the bot cannot set its own.
+
+**Creating, archiving and restoring a report.** The manager bot cannot do these with its own token: it asks BotOps in a chat
+message, and BotOps acts for it (`Auth.report_lifecycle`). BotOps tells the two apart by `via`: a manager's own token has none,
+and BotOps' ask has `via: botops` with the manager as its actor. Only these routes are reached that way: create (`POST
+/api/v2/bots`, with `reports_to` the manager), archive and restore (`POST /api/v2/bots/{bot}/archive` and `/restore`), for a
+bot that reports to the manager now. Templates, the built-in bots and support sessions are never made this way. The same two
+switches must be on. Each change is recorded as a `lifecycle` change with `via: report_manager` and can be undone.
+
+A manager makes **3 creates and 3 archives** (restores count as archives) each rolling seven days. The limits are the team
+rules `report_creates_per_week` and `report_archives_per_week` (0 to 50 each; the owner sets them, and they are the same for
+every manager). The count is the manager's `bot.report_lifecycle` events of the last seven days, so there is no separate counter to reset. Over the limit, the request is refused
+with `report_cap`, and a Needs-you task goes to the person the manager reports up to (`report_managers.person_above`), asking
+them to decide. A person who is neither the report's operator nor one of its owners, but sits above it on the chart, cannot
+restore an archived report: the chart leaves archived bots out (`Auth.manages`), so the owner or the operator restores it.
 
 Routines follow both. A routine owned by a report can be changed by a bot above it only while every bot on the team chart from
 the report's manager up to that caller has both switches on (`automations.may_change`).

@@ -665,7 +665,7 @@ def _quiet_work_checks(c):
                             f"{bot} was handed the next-run task {name} at {item['since'][:16]} UTC (run "
                             f"{str(item['run'] or '')[:8]}) and has not worked it since, with no time set to pick it "
                             "up again.",
-                            f"{bot}: work it, or say when to pick it up (hub task defer {task['id']} --after <task> | "
+                            f"{bot}: work it, or say when to pick it up (hub task later {task['id']} --after <task> | "
                             "--at <time>). Anyone may press Run now on it to give it a run of its own."))
     return out
 

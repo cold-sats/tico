@@ -461,7 +461,7 @@ class Builder(Bot):
         for task_id, what in list(self.owed.items()):
             del self.owed[task_id]
             task, pr = w.task(task_id), w.pr_of(task_id)
-            if w.step_of(task) != w.board.hold_step or not pr or w.prs[pr]["merged"]:
+            if not task.get("blocked_since") or not pr or w.prs[pr]["merged"]:
                 continue   # moved on meanwhile: nothing left to put right
             if what == "push":
                 self.push(task, pr, clean=True)

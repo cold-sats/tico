@@ -42,7 +42,7 @@ _RULE_NAMES = {
     "health_monitor_reports": ("Health monitor reports", "direct", ""),
     "stale_review": ("Review stale tasks", "direct", ""),
     "topic_fresh": ("Keep topics fresh", "direct", ""),
-    "stall_triage": ("Quiet task triage", "direct", ""),
+    "stall_triage": ("Stalled task check", "direct", ""),
 }
 _RULE_WHERE = {"health_monitor_reports": ("Settings > Health > Health monitor", _card("health")),
                "stale_review": (RULES + " > What Tico runs on its own", _card("system", "set-system-card")),
@@ -57,7 +57,13 @@ TEAM_RULES = [
     for key, (name, kind, why) in _RULE_NAMES.items()
 ] + [S("team.rules.go_ahead_days", "Days a bot waits before it goes ahead", PEOPLE + " > Team rules", "owner",
        "confirm", "PUT", "access/rules", "go_ahead_days", "int", _card("people"), "access#rules.go_ahead_days",
-       words="wait days go ahead")]
+       words="wait days go ahead"),
+    S("team.rules.report_creates_per_week", "Reports a manager may create a week", PEOPLE + " > Team rules", "owner",
+      "confirm", "PUT", "access/rules", "report_creates_per_week", "int", _card("people"), "access#rules.report_creates_per_week",
+      words="report create limit week"),
+    S("team.rules.report_archives_per_week", "Reports a manager may archive or restore a week", PEOPLE + " > Team rules", "owner",
+      "confirm", "PUT", "access/rules", "report_archives_per_week", "int", _card("people"), "access#rules.report_archives_per_week",
+      words="report archive limit week")]
 
 _USD = "hourly_usd, daily_usd, weekly_usd, monthly_usd"
 

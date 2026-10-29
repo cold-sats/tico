@@ -145,6 +145,12 @@ function auSpark(b, w = 84, h = 18) {
       + (hf ? `<rect x="${x}" y="${h - hf}" width="${wd}" height="${hf}" rx="1" fill="var(--fail)"/>` : '');
   }).join('')}</svg>`;
 }
+// A wake rule that names a step its type does not have never fires: one short line, on the row and in the detail.
+function auWarn(a) {
+  const steps = [...new Set((a.problems || []).map(p => p.step))];
+  return steps.length ? `<span class="au-warn"><span class="nav-icon" aria-hidden="true">warning</span>`
+    + `${esc('Names a step its type does not have: ' + steps.join(', '))}</span>` : '';
+}
 function auPill(a) {
   const st = auState(a);
   return (a.pending ? '<span class="pill">Pending</span>' : '')
@@ -173,7 +179,7 @@ function auTableHTML() {
   // Each column: its class (widths and folding in automations.css), heading and cell. A phone leads with what is read
   // first (name, last run, runs, failed) and scrolls sideways for the rest.
   const cols = {
-    name: ['au-tn', 'Name', ({a}) => `<div><a href="${auHref(a.id)}">${auIcon(AU_KIND_ICONS[auKind(a)] || 'bolt')}<span class="au-nm">${esc(a.name || 'Untitled')}</span></a>${auPill(a)}</div>`],
+    name: ['au-tn', 'Name', ({a}) => `<div><a href="${auHref(a.id)}">${auIcon(AU_KIND_ICONS[auKind(a)] || 'bolt')}<span class="au-nm">${esc(a.name || 'Untitled')}</span></a>${auPill(a)}</div>${auWarn(a)}`],
     trigger: ['au-tt', 'Trigger', ({a}) => esc(auTrigLine(a))],
     owner: ['au-to', 'Owner', ({a}) => `<span title="${esc(auActorName(a.owner))}" aria-label="${esc(auActorName(a.owner))}">${personCircle(auActorName(a.owner), 18)}</span>`],
     last: ['au-cl', 'Last run', ({a}) => a.last_run ? `<span class="au-lr"><span class="au-dot ${AU_DOTS[a.last_run.status] || 'idle'}" role="img" aria-label="${esc(AU_RUN_STATUS[a.last_run.status] || a.last_run.status)}"></span>${esc(auAge(a.last_run.started))}</span>` : '<span class="muted">—</span>'],

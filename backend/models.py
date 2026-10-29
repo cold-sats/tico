@@ -68,6 +68,10 @@ class VisualRef(Contract):
 
 
 Attachment = Annotated[StrictStr, Field(pattern=r"^[^@]+@[1-9][0-9]*$")] | VisualRef
+# How a send reaches its bot (backend/delivery.py): steer into its running turn, queue right after it, or defer to its
+# next turn there, waking it at the latest after `defer_for` (`<n>m`, `<n>h`, `<n>d` or `never`).
+Delivery = Literal["steer", "queue", "defer"]
+DeferFor = Annotated[str, Field(pattern=r"^(never|[1-9][0-9]{0,5}[mhd])$")]
 
 
 class MessageCreate(Contract):
@@ -83,11 +87,16 @@ class MessageCreate(Contract):
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
     # A bot's message to a bot waits for that bot's next run unless it needs action now (backend/bot_to_bot.py).
     needs_action: bool = False
+    # Omitted: a person's message to a bot is queued; a bot's follows bot_to_bot as before.
+    delivery: Delivery | None = None
+    defer_for: DeferFor | None = None
 
 
 class ChatCreate(Contract):
     command: bool = False
     text: Text
+    delivery: Delivery | None = None
+    defer_for: DeferFor | None = None
     refs: dict = Field(default_factory=dict)
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
     # With files uploaded alongside (POST /api/v2/uploads/chat/{bot}): each one's caption, in upload order.
@@ -203,8 +212,11 @@ class TaskCreate(Contract):
     blocker: TaskBlocker | None = None
     top: bool = False
     links: list[str] = Field(default_factory=list, max_length=20)
-    # Wait for the owner's next run instead of starting one (a bot owner only).
+    # Wait for the owner's next run instead of starting one (a bot owner only): the same as delivery defer.
     next_run: bool = False
+    # A new task is queued or deferred, never steered (422); defer is a deferred task, due within `defer_for` (24h).
+    delivery: Delivery | None = None
+    defer_for: DeferFor | None = None
     request_id: ID | None = None
     type: ID | None = None
     step: str | None = Field(default=None, max_length=200)
@@ -233,9 +245,11 @@ class TaskRunModel(Contract):
 
 
 class NoteCreate(Contract):
-    """A quiet note: something for a bot's next run to know, asking nothing (backend/hubdb.py)."""
+    """A deferred message: something for a bot's next run to know, asking nothing (backend/hubdb.py). It wakes the bot
+    after `defer_for` if no run carried it by then; never when omitted."""
     to: ID
     text: Text
+    defer_for: DeferFor | None = None
 
 
 class TaskUpdate(Contract):
@@ -494,9 +508,11 @@ class TaskComment(Contract):
     text: Text
     ask: ReviewAsk | None = None
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
-    # What the comment does on the task (docs/tasks.md): steer reaches its bot now, queue waits for the bot's next
-    # turn on the task, goal makes the task session's goal the text. Omitted, the wake rule decides as before.
-    delivery: Literal["steer", "queue", "goal"] | None = None
+    # How the comment reaches the task's bot (docs/tasks.md): steer into its running turn, queue right after it, defer
+    # to its next turn on the task (at the latest `defer_for`, 24h), or goal: the task session's goal becomes the text.
+    # Omitted, the comment default decides (H.comment_way).
+    delivery: Literal["steer", "queue", "defer", "goal"] | None = None
+    defer_for: DeferFor | None = None
 
 
 class TaskAskResolve(Contract):
@@ -2066,6 +2082,8 @@ class AccessRules(Contract):
     stall_triage: bool | None = None
     managers_manage_reports: bool | None = None
     go_ahead_days: Annotated[int, Field(strict=True, ge=1, le=14)] | None = None
+    report_creates_per_week: Annotated[int, Field(strict=True, ge=0, le=50)] | None = None
+    report_archives_per_week: Annotated[int, Field(strict=True, ge=0, le=50)] | None = None
 
 
 class AccessAllowUpdate(Contract):

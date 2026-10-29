@@ -93,8 +93,8 @@
 .task-chat .task-pill .p-send-icon{margin-bottom:1px}
 .task-chat .task-pill [data-task-chat-status]:empty,.task-chat .task-pill [data-task-chat-to]:empty{display:none}
 .task-chat .task-pill [data-task-chat-status],.task-chat .task-pill [data-task-chat-to]{font-size:var(--t-sm);padding:0 12px}
-/* The send, split when a bot gets the comment: the way it reaches the bot in words, and a caret for the other ways.
-   The menu opens upward, over the thread. */
+/* The send, split when a bot gets the comment: the way it reaches the bot in words, and a caret for the ways
+   (ui/styles/chat.css .p-ways). The menu opens upward, over the thread. */
 .task-chat .task-send{position:relative;display:inline-flex;align-items:center;flex:none}
 .task-chat .task-send .p-send-goal{border-radius:17px 0 0 17px}
 .task-chat .task-send .task-send-caret{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:26px;height:34px;margin-bottom:1px;padding:0;border:0;border-radius:0 17px 17px 0;background:var(--accent);color:var(--accent-ink);cursor:pointer;touch-action:manipulation;box-shadow:inset 1px 0 0 color-mix(in srgb,var(--accent-ink) 28%,transparent)}
@@ -105,5 +105,5 @@
 .task-chat .task-send .task-send-caret .nav-icon{width:18px;height:18px;font-size:18px;transform:rotate(180deg)}
 .task-chat .task-send .p-menu{top:auto;bottom:calc(100% + 8px);right:0;min-width:168px}
 .task-chat .task-send .p-menu button{border:0}
-@media (max-width:760px){.task-chat .task-pill .p-text{font-size:16px}}
+@media (max-width:760px){.task-chat .task-pill .p-text{font-size:16px}.task-chat .task-send .task-send-caret{width:34px}}
 @media (min-width:761px){#task-modal.thread[open]{width:min(680px,calc(100vw - 32px));height:min(86vh,900px)}}
