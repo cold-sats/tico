@@ -1446,6 +1446,22 @@ def beside_open_work(monkeypatch):
     monkeypatch.setattr(execution, 'held_back', lambda *args, **kwargs: (1, ['Another task']))
 
 
+def test_a_folded_request_that_is_unsafe_to_retry_keeps_its_run_out_of_the_update_s_one_choice(api, monkeypatch):
+    """One choice settles every request folded into a run, so the run's line is only as safe as its least safe
+    request: a folded comment whose message used an approval keeps the run off Try again and out of the group."""
+    from backend import execution
+    first, second = busy_folded_run(api)
+    safe = {'safe': True, 'starts': 1, 'update': True, 'outside': [], 'consumed': 0, 'fallback_unknown': False}
+    monkeypatch.setattr(execution, 'retry_facts', lambda c, job, started, finished: {
+        **safe, **({'safe': False, 'consumed': 1} if job['id'] == second['id'] else {})})
+    line = update_line(api)
+    assert [j['id'] for j in line['jobs']] == [first['id'], second['id']]
+    assert (line['cause'], line['retry'], line['update_group']) == ('update', False, False)
+    monkeypatch.setattr(execution, 'retry_facts', lambda c, job, started, finished: safe)
+    line = update_line(api)
+    assert (line['retry'], line['update_group']) == (True, True)
+
+
 def test_a_choice_saved_while_the_bot_is_busy_shows_on_its_stopped_run_line(api, monkeypatch):
     """Dev 561: Try again on a Needs you line while the bot's lane is busy saves the choice and leaves the run held, so
     a refreshed card listed it as undecided and a second click was refused (409). Each folded request carries the

@@ -910,6 +910,16 @@ def stopped_rows(c, who, auth, bot, limit=5):
             attempts[a["id"]] = a
     rows, by_run = [], {}
 
+    def judged(job, attempt):
+        # Each request folded into a run is judged on its own facts (its starts, the approvals its message used), and
+        # the run's line is only as safe as its least safe request, since one choice settles them all.
+        facts = retry_facts(c, job, attempt["started"] if attempt else None, attempt["finished"] if attempt else None)
+        return facts, {"retry": bool(facts["safe"] and facts["starts"] <= 1),
+                       # One choice for every run the update stopped, unless this one recorded a named outside action
+                       # or used an approval: those stay a choice of their own.
+                       "update_group": bool(facts["update"] and not facts["outside"] and not facts["consumed"]
+                                            and not facts["fallback_unknown"])}
+
     def handle(job):
         key = (job["id"], job["attempt_id"])
         return {"id": job["id"], "attempt_id": job["attempt_id"],
@@ -923,20 +933,17 @@ def stopped_rows(c, who, auth, bot, limit=5):
         if key in by_run:
             if by_run[key] is not None:
                 by_run[key]["jobs"].append(handle(job))
+                _, flags = judged(job, attempts.get(row["attempt_id"]) if row["attempt_id"] else None)
+                by_run[key].update({k: by_run[key][k] and v for k, v in flags.items()})
             continue
         if len(rows) >= limit:
             by_run[key] = None
             continue
         attempt = attempts.get(row["attempt_id"]) if row["attempt_id"] else None
-        facts = retry_facts(c, job, attempt["started"] if attempt else None, attempt["finished"] if attempt else None)
+        facts, flags = judged(job, attempt)
         cause = stop_cause(attempt, update=facts["update"])
         by_run[key] = {"title": task["title"] if task else "A chat request" if seen else None,
-                       "cause": cause, "why": STOP_WHY[cause], "routine": cause in ROUTINE_STOPS,
-                       "retry": bool(facts["safe"] and facts["starts"] <= 1),
-                       # One choice for every run the update stopped, unless this one recorded a named outside action
-                       # or used an approval: those stay a choice of their own.
-                       "update_group": bool(facts["update"] and not facts["outside"] and not facts["consumed"]
-                                            and not facts["fallback_unknown"]),
+                       "cause": cause, "why": STOP_WHY[cause], "routine": cause in ROUTINE_STOPS, **flags,
                        "at": attempt["finished"] if attempt else None,
                        "jobs": [handle(job)]}
         rows.append(by_run[key])
