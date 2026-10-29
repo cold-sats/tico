@@ -8,9 +8,6 @@ below word for word as its notes.
 
 ## [Unreleased]
 
-### Changed
-- **On a ticket, a comment wakes a bot only when it @mentions it.** A person's comment on an engineering ticket that names no bot on it waits for the bot's next turn on the ticket, with no deadline, whoever filed, owns or waits on the ticket. A Steer or Queue picked in the send menu still wakes it ([Comments](docs/tasks.md)).
-
 ## [0.4.15] - 2026-10-27
 
 ### Fixed
