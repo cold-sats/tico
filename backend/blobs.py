@@ -24,6 +24,11 @@ EARLIER_RETRY = 300
 Target = collections.namedtuple("Target", "generation settings sources s3")
 
 
+# Bytes written here this recently are never purged (backend/file_library.py `drain`): every writer stores the bytes
+# first and adds their `blobs` row in a later write, and a copy or a move lands them again after a purge looked.
+FRESH_SECONDS = 120
+
+
 class Blobs:
     def __init__(self, settings, s3=None):
         self.bucket = settings.blob_bucket
@@ -38,6 +43,8 @@ class Blobs:
             self._sources.selected = self._sources.kind
         self._write_failed = False
         self._write_error = ""
+        # digest -> when this server last wrote or found those bytes (FRESH_SECONDS); `purging` holds the same lock.
+        self._fresh, self._fresh_lock = {}, threading.Lock()
         self._write_lock = threading.Lock()
         self._health_lock = threading.RLock()
         self._probe_lock = threading.Lock()
@@ -157,6 +164,21 @@ class Blobs:
     def location(self):
         return self.bucket + ("/" + self.settings.blob_prefix if self.settings.blob_prefix else "")
 
+    def touch(self, digest):
+        """Mark `digest` as just written: a purge waits for it (FRESH_SECONDS)."""
+        now = time.monotonic()
+        with self._fresh_lock:
+            if len(self._fresh) > 50_000:
+                self._fresh = {d: t for d, t in self._fresh.items() if now - t < FRESH_SECONDS}
+            self._fresh[digest] = now
+
+    @contextlib.contextmanager
+    def purging(self, digest):
+        """While held, no write marks bytes as fresh: yields whether `digest` was written too recently to purge."""
+        with self._fresh_lock:
+            seen = self._fresh.get(digest)
+            yield seen is not None and time.monotonic() - seen < FRESH_SECONDS
+
     def put_staged(self, stream, digest, size, content_type="application/octet-stream"):
         """The multipart parser already hashed and spooled this stream."""
         with self._refused():
@@ -234,6 +256,13 @@ class Blobs:
         # on receipt and keeps that checksum (`holds_whole`).
         # Reads may use an unselected source; writes must wait for the probe.
         # Keep one identity for every part and cleanup even if a later check switches it.
+        self.touch(digest)
+        try:
+            self._upload_once(stream, digest, size, content_type, small_body, rate_limit, stop, at, whole)
+        finally:
+            self.touch(digest)
+
+    def _upload_once(self, stream, digest, size, content_type, small_body, rate_limit, stop, at, whole):
         with self._write_lock:
             if at is not None and at.generation != self._generation:
                 raise Problem("storage_changed", "Where new files go changed; the file was not copied", 409)
@@ -330,6 +359,13 @@ class Blobs:
                 and head.get("ChecksumSHA256") == base64.b64encode(bytes.fromhex(digest)).decode())
 
     def _local(self, source, digest):
+        self.touch(digest)
+        try:
+            return self._local_once(source, digest)
+        finally:
+            self.touch(digest)
+
+    def _local_once(self, source, digest):
         path = self.directory / self.key(digest)
         path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         fd, temporary = tempfile.mkstemp(prefix=".upload-", dir=path.parent)
@@ -462,6 +498,8 @@ class Blobs:
                 break
             try:
                 path = self.directory / self.key(row["digest"])
+                if not path.is_file():            # a deleted file's bytes, removed since the list was read
+                    continue
                 with path.open("rb") as source:
                     if hashlib.file_digest(source, "sha256").hexdigest() != row["digest"]:
                         raise Problem("blob_integrity", "Local file failed its integrity check", 503)
@@ -621,6 +659,37 @@ class Blobs:
             if hashlib.sha256(data).hexdigest() != digest:
                 raise Problem("blob_integrity", "Stored file failed its integrity check", 503)
         return data
+
+
+    def purge(self, digest, kind=None):
+        """Remove `digest`'s bytes from every place this server reads them from: this computer's disk, the place new
+        files go to and each earlier place, with Tico file hosting's cleaned copy of a page or SVG (`kind`). Only for
+        bytes no row needs any more (backend/file_library.py `drain`). Raises, naming each place that refused, so the
+        caller tries again; a place that does not hold them is fine."""
+        key = self.key(digest)
+        (self.directory / key).unlink(missing_ok=True)
+        with self._write_lock:
+            places = [(self.settings, self._sources, self._s3), *((p, s, None) for p, s in self._earlier)]
+        failed = []
+        for place, sources, client in places:
+            if not place.blob_bucket:
+                continue
+            keys = [self.s3_key(digest, place)]
+            found = self.edge
+            if kind and found and location_of(place) == found["location"] \
+                    and getattr(self, "visual_ancestors", None) is not None:
+                from .tico_storage import _visual, _visual_key
+                path = _visual(digest, kind, self.visual_ancestors)[0]
+                keys.append(_visual_key(place, path))
+                self._edge_seen.pop((found["location"], path), None)
+            try:
+                s3 = client if client is not None else sources.client_for(sources.kind)
+                for each in keys:
+                    s3.delete_object(Bucket=place.blob_bucket, Key=each)
+            except Exception as exc:
+                failed.append(f"{location_of(place)}: {type(exc).__name__}")
+        if failed:
+            raise RuntimeError("could not remove the bytes from " + ", ".join(failed))
 
 
 def register(c, who, digest, size, name, content_type="application/octet-stream"):

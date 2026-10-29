@@ -231,6 +231,8 @@ DO = _routes(
     # checks); the computer removes it once the bot is idle.
     ("POST", rf"tasks/{_S}/worktrees(/attach)?"), ("DELETE", rf"tasks/{_S}/links/{_S}"),
     ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
+    # A page's cadence, data date, replacement, archive or restore: the route checks the person may manage its bot.
+    ("PATCH", rf"pages/{_S}"),
     ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
     ("POST", rf"meetings/{_S}/delete"), ("POST", "meetings/granola/sync"),
     ("POST", rf"meetings/{_S}/review"), ("POST", "meetings/review"), ("POST", "meetings/settings"),
@@ -292,6 +294,8 @@ CONFIRM = _routes(
     ("POST", rf"(goal-proposals|proposals)/{_S}/decide"),
     ("POST", r"support/tickets"),
     ("PATCH", rf"files/{_S}"),
+    # Deleting a file for good removes its bytes: always the owner's own tap.
+    ("DELETE", rf"files/{_S}"),
     ("PUT", r"directory"), ("POST", r"directory/sync"), ("POST", r"directory/preview"),
     ("POST", r"slack/disconnect"), ("POST", r"github/app/disconnect"),
     # Picking a seat's candidate makes a bot (recruiting._may_hire: only on the person's own confirmation).
@@ -313,7 +317,7 @@ ADMIN_ONLY = _routes(
 # Tico, and a computer's one-time code (shown on the card once they tap, never in BotOps' answer).
 ALWAYS = _routes(("POST", r"access/owner"), ("POST", r"system/update"), ("POST", r"enrollments"))
 # Owner-only: a member or an admin is told so at once, not handed a card that fails (the Gateway connection included).
-OWNER_ONLY = _routes(("POST", r"access/owner")) + GATEWAY
+OWNER_ONLY = _routes(("POST", r"access/owner"), ("DELETE", rf"files/{_S}")) + GATEWAY
 # Team rules that set BotOps' own powers: a change to one of them is always the person's own tap.
 OWN_POWER_RULES = ("botops_direct", "botops_manages_bots", "managers_manage_reports")
 RULES = re.compile(API + r"access/rules")

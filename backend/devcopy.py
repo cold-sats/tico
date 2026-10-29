@@ -79,6 +79,8 @@ EMPTY = (
     "automation_inboxes", "automation_effects", "automation_holds", "automation_turn_answers", "redesign_migrations",
     # Task cap counts are today's sends; the caps themselves are kept.
     "task_cap_sends", "task_cap_log",
+    # A hard delete's queue of bytes still to remove from storage: the copy never deletes from the source's stores.
+    "blob_purges",
 )
 # Definitions `--keep-automations` keeps (out of EMPTY, or unclassified): never their queues, deliveries or secrets.
 AUTOMATIONS = ("schedules", "schedule_config", "task_rules", "triggers", "webhooks", "automations",
@@ -95,7 +97,7 @@ KEEP = frozenset((
     "bot_task_tabs", "bot_tool_requests", "cards", "pin_places", "pins", "bot_transition_checkpoints", "bot_transitions", "bots", "ceo_actions",
     "ask_ingest_items", "ask_ingest_settings", "ceo_merges", "changes", "chat_goals",
     "cloud_migrations", "company_events", "company_profile", "connector_snapshots", "conversations", "doc_sources", "doc_versions", "docs",
-    "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
+    "document_versions", "documents", "external_documents", "file_deletions", "external_sections", "external_snapshot_docs",
     "external_snapshots", "external_versions", "feed_sources", "feed_updates", "flight_db", "flight_events",
     "flight_process", "flight_requests",
     "flight_slow", "flight_sql", "provenance_clock", "goal_asks", "goal_checkins", "goal_events", "goal_kpis", "goal_proposals", "goals",
@@ -107,7 +109,7 @@ KEEP = frozenset((
     "main_pushes", "market_citations", "market_edges", "market_entities", "market_entity_keys", "market_events",
     "market_evidence", "market_figures", "market_insights", "market_sizes", "market_sources", "market_watches", "market_briefings", "market_turn_sources", "media_assets", "media_control", "meeting_brain", "meeting_comments",
     "meeting_items", "meeting_versions", "meetings", "message_assets", "message_links", "message_links_dirty",
-    "message_links_seen", "notes", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
+    "message_links_seen", "notes", "pages", "runner_load_samples", "perf_overloads", "perf_points", "perf_usage", "preferences", "rate_limits",
     "recording_source_refs", "recording_transcripts", "redesign_migrated", "redesign_migration_accepts", "refusals", "registry_metadata", "repositories", "rule_suggestions", "rules", "run_backoff", "runners",
     "seats", "service_health", "settings_changes", "slack_channels", "slack_digests", "slack_reads", "stale_judged",
     "stale_suggestions", "stall_triage", "storage_moves", "strategy_bets", "strategy_events", "strategy_versions",

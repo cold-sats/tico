@@ -23,6 +23,7 @@ from . import models as M
 from .auth import Identity
 from .blobs import register
 from .store import H, Problem, encode, repo_url
+from . import file_library
 from . import read_cache
 from . import task_privacy as privacy
 from clients import bot_files as BF
@@ -57,7 +58,7 @@ CREATE TRIGGER IF NOT EXISTS bot_file_versions_no_delete BEFORE DELETE ON bot_fi
 """
 
 # pinned / unpinned: a page put on or taken off a place (backend/cards.py), with the place in its detail.
-ACTIONS = ("created", "modified", "published", "promoted", "archived", "link_updated", "pinned", "unpinned")
+ACTIONS = ("created", "modified", "published", "promoted", "archived", "link_updated", "pinned", "unpinned", "deleted")
 LIST_MAX = 100
 
 
@@ -396,8 +397,10 @@ class Files:
             return fields, data
         return dict(query), raw
 
-    def publish(self, request, who, fields, data, *, imported=False):
-        """Bytes into the blob store, then one idempotent transaction that lists them."""
+    def publish(self, request, who, fields, data, *, imported=False, extra=None, extra_body=None):
+        """Bytes into the blob store, then one idempotent transaction that lists them. `extra(c, row, changed)` adds
+        to the same write (a page's row, backend/pages.py) and its answer; `extra_body` is what it adds to the
+        request a retry must repeat."""
         fields = {k: (v if isinstance(v, (str, int, bool)) else "") for k, v in fields.items()}
         failed = str(fields.get("sync") or "") == "failed"
         with self.store.read() as c:
@@ -425,7 +428,7 @@ class Files:
             blob = self.blobs.put(data, mime)
         body = {**{k: fields.get(k, "") for k in ("bot", "path", "title", "task", "scope", "attempt", "commit", "source")},
                 "name": name, "digest": digest, "identity": identity, "etag": str(fields.get("etag") or ""),
-                "sync": "failed" if failed else ""}
+                "sync": "failed" if failed else "", **(extra_body or {})}
 
         def work(c):
             scope, task, conversation, attempt = self.target(c, who, bot, fields)
@@ -444,7 +447,14 @@ class Files:
                 commit=str(fields.get("commit") or "")[:64] if re.fullmatch(r"[0-9a-f]{7,64}", str(fields.get("commit") or "")) else "",
                 repo_path=relative, explicit_title=bool(fields.get("title")))
             H.event(c, actor, "file.publish", row["id"], {"bot": bot, "version": row["current_version"], "size": len(data)})
-            return {"file": self.brief(c, row), "created": created, "changed": changed, "synced": True}
+            if changed:
+                file_library.index(c, row["id"], row["current_version"], row["title"], file_library.extract(mime, data))
+            elif fields.get("title"):
+                file_library.retitle(c, row["id"], row["title"])
+            result = {"file": self.brief(c, row), "created": created, "changed": changed, "synced": True}
+            if extra:
+                result.update(extra(c, row, changed) or {})
+            return result
         return self.write(request, who, body, work)
 
     def write(self, request, who, body, work):
@@ -480,7 +490,8 @@ class Files:
             now = H.now()
             if body.file and not body.url:
                 row = c.execute("SELECT * FROM bot_files WHERE id=?", (body.file,)).fetchone()
-                if not row or row["bot"] != bot or row["locator"] != "remote_link" or not self.visible(c, who, row, {}):
+                if (not row or row["bot"] != bot or row["locator"] != "remote_link" or row["state"] == "deleted"
+                        or not self.visible(c, who, row, {})):
                     raise Problem("not_found", "That link is not one of yours", 404)
                 scope, task, conversation = row["scope"], row["task_id"], row["conversation_id"]
                 identity, url, kind, provider = row["identity"], row["url"], row["kind"], row["provider"]
@@ -500,6 +511,7 @@ class Files:
             if not created:
                 fields["archived"] = 0
             c.execute("UPDATE bot_files SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?", (*fields.values(), row["id"]))
+            file_library.index(c, row["id"], 0, fields.get("title") or row["title"], url)
             self.activity(c, row["id"], actor, "created" if created else "link_updated", attempt=attempt, task=task, now=now)
             H.event(c, actor, "file.link", row["id"], {"bot": bot})
             return {"file": self.brief(c, c.execute("SELECT * FROM bot_files WHERE id=?", (row["id"],)).fetchone()),
@@ -556,7 +568,7 @@ class Files:
                     H.event(c, who.actor, "task.file_archived", task["task_id"], {"file": fid})
                 return {"file": {"id": fid, "archived": True}}
             row = c.execute("SELECT * FROM bot_files WHERE id=?", (fid,)).fetchone()
-            if not row or not self.visible(c, who, row, {}):
+            if not row or row["state"] == "deleted" or not self.visible(c, who, row, {}):
                 raise Problem("not_found", "File not found", 404)
             actor, now = who.actor, H.now()
             if who.role == "bot":
@@ -589,6 +601,8 @@ class Files:
                 return {"file": self.brief(c, row)}
             fields["last_activity_at"] = now
             c.execute("UPDATE bot_files SET " + ",".join(k + "=?" for k in fields) + " WHERE id=?", (*fields.values(), fid))
+            if "title" in fields:
+                file_library.retitle(c, fid, fields["title"])
             if body.promote:
                 self.activity(c, fid, actor, "promoted", task=row["task_id"], now=now, detail={"from": row["scope"]})
             elif body.archived:
@@ -747,6 +761,10 @@ class Files:
 def install_files(app, store, auth, blobs, mutate):
     files = Files(app, store, auth, blobs, mutate)
     app.state.files = files
+    # Before media.py's GET /api/v2/files/{bid}, which would otherwise take /api/v2/files/search.
+    file_library.install_library(app, store, auth, files)
+    from .pages import install_pages
+    install_pages(app, store, auth, files)
     upload_doc = {"requestBody": {"required": True, "content": {
         "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
         "application/json": {"schema": {"type": "object", "properties": {

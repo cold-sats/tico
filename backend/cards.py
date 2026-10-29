@@ -124,8 +124,9 @@ def monday(at=None):
 class Ctx:
     """One reader's request: the org chart and what they may read, each worked out once however many cards ask."""
 
-    def __init__(self, c, auth, who, settings=None, task_view=None):
+    def __init__(self, c, auth, who, settings=None, task_view=None, pages=None):
         self.c, self.auth, self.who, self.settings, self.task_view = c, auth, who, settings, task_view
+        self.pages = pages          # backend/pages.py Pages: a pinned page's full read (status line, src)
         self._memo = {}
 
     def memo(self, key, make):
@@ -329,11 +330,13 @@ def automation_runs(ctx, s):
 
 
 def pages_for(ctx, team="", limit=5):
-    """The newest pages the reader may read, a team's bots' only when `team` is set."""
+    """The newest current pages (backend/pages.py) the reader may read, a team's bots' only when `team` is set: not
+    archived, not deleted, not replaced by a newer page."""
     from . import files as F
     bots = ctx.team_bots(team) if team else None
-    rows = ctx.c.execute("SELECT * FROM bot_files WHERE mime LIKE 'text/html%' AND archived=0 "
-                         "ORDER BY last_activity_at DESC, id DESC LIMIT ?", (PAGE_SCAN,)).fetchall()
+    rows = ctx.c.execute("SELECT f.* FROM pages p JOIN bot_files f ON f.id=p.file_id WHERE p.archived=0 "
+                         "AND p.replaced_by IS NULL AND f.archived=0 AND f.state<>'deleted' "
+                         "ORDER BY f.last_activity_at DESC, f.id DESC LIMIT ?", (PAGE_SCAN,)).fetchall()
     rows = [r for r in rows if bots is None or r["bot"] in bots]
     F.prime_visible(ctx.c, rows)
     cache = ctx.memo("file_cache", dict)
@@ -349,6 +352,47 @@ def pages_for(ctx, team="", limit=5):
 def page_brief(row):
     return {"file_id": row["id"], "title": row["title"], "bot": row["bot"], "updated": row["last_activity_at"],
             "archived": bool(row["archived"])}
+
+
+def page_read(ctx, row, files_cache):
+    """A pinned page as pageCard draws it: the contract's page read (status line fields and a fresh src)."""
+    pages = ctx.pages
+    found = pages.rows(ctx.c, [row["id"]]).get(row["id"]) if pages is not None else None
+    if not found:
+        return page_brief(row)
+    return {**page_brief(row), **pages.view(ctx.c, ctx.who, found, pages.page_of(found), files_cache)}
+
+
+def page_row(c, fid):
+    """A page's file, or None for anything that is not a page (or was deleted for good)."""
+    return c.execute("SELECT f.* FROM pages p JOIN bot_files f ON f.id=p.file_id WHERE p.file_id=? "
+                     "AND f.state<>'deleted'", (fid,)).fetchone()
+
+
+PLACE_WORDS = {"dashboard": "Dashboard"}
+
+
+def pinned_places(ctx, fid):
+    """Where a page is pinned, as the places the reader may open: [{place, label}], the Dashboard first."""
+    from . import names
+    out = []
+    for (place,) in ctx.c.execute("SELECT DISTINCT place FROM pins WHERE item=? ORDER BY place", ("page:" + fid,)):
+        try:
+            kind, ident = parse(ctx, place)
+        except Problem:
+            continue
+        if not may_view(ctx, kind, ident):
+            continue
+        if kind == "dashboard":
+            label = "Dashboard"
+        elif kind == "team":
+            label = ctx.groups[ident].get("name") or ident
+        elif kind == "bot":
+            label = names.lookup(ctx.c, {"bot:" + ident}).get("bot:" + ident) or ident
+        else:
+            label = (H.task(ctx.c, ident) or {}).get("title") or "Task"
+        out.append({"place": place, "label": label})
+    return sorted(out, key=lambda p: p["place"] != "dashboard")
 
 
 def latest_pages(ctx, s):
@@ -496,10 +540,10 @@ def pin_view(ctx, pin, files_cache):
     if kind == "card":
         row = card_row(ctx.c, ident)
         return {**out, "card": card_view(ctx, row)} if row else None
-    row = ctx.c.execute("SELECT * FROM bot_files WHERE id=?", (ident,)).fetchone()
+    row = page_row(ctx.c, ident)
     if not row or not F.file_visible(ctx.c, ctx.auth, ctx.who, row, files_cache):
         return None
-    return {**out, "page": page_brief(row)}
+    return {**out, "page": page_read(ctx, row, files_cache)}
 
 
 def place_view(ctx, place):
@@ -568,7 +612,7 @@ def check_item(ctx, kind, item):
         return
     if what != "page":
         raise bad("An item is page:<file id> or card:<id>")
-    row = ctx.c.execute("SELECT * FROM bot_files WHERE id=?", (ident,)).fetchone()
+    row = page_row(ctx.c, ident)
     if not row or not F.file_visible(ctx.c, ctx.auth, who, row, ctx.memo("file_cache", dict)):
         raise Problem("not_found", "No such page", 404)
     if who.role == "bot" and row["bot"] != H.actor_id(who.actor):
@@ -698,7 +742,7 @@ def readable_item(ctx, item):
     from . import files as F
     if not item.startswith("page:"):
         return True
-    row = ctx.c.execute("SELECT * FROM bot_files WHERE id=?", (item[5:],)).fetchone()
+    row = page_row(ctx.c, item[5:])
     return bool(row) and F.file_visible(ctx.c, ctx.auth, ctx.who, row, ctx.memo("file_cache", dict))
 
 
@@ -824,7 +868,7 @@ def install(app, store, auth, mutate, settings, task_view):
     def context(c, request):
         who = request.state.identity
         auth.domain(who)
-        return Ctx(c, auth, who, settings, task_view)
+        return Ctx(c, auth, who, settings, task_view, getattr(app.state, "pages", None))
 
     @app.get("/api/v2/places/{place}")
     def place_show(request: Request, place: str):

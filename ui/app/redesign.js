@@ -41,7 +41,8 @@ function redesignNav() {
   libRow.append(library, libToggle);
   const subs = document.createElement('div'); subs.className = 'rd-lib'; subs.id = 'rd-lib';
   const tools = link('tools', RD_TOOLS, 'api', 'Tools');   // ui/app/redesign-library.js
-  subs.append(...[pick('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), tools].filter(Boolean));
+  const files = link('files', RD_FILES, 'folder_shared', 'Files');   // ui/app/pages.js
+  subs.append(...[pick('a[data-nav="docs"]'), files, pick('a[data-nav="meetings"]'), tools].filter(Boolean));
   if (strategyLink) { strategyLink.setAttribute('href', MARKET_ROUTE); strategyLink.querySelector('.nav-icon').textContent = RD_NAV_ICONS.strategy; }
   const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), strategyLink,
     pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), pick('#nav-assistant'), automations, libRow, subs,
@@ -75,6 +76,7 @@ function redesignNavCurrent(nav) {
   const r = S.route || '';
   if (nav === 'automations') return rdUnder(r, RD_AUTOMATIONS);
   if (nav === 'tools') return rdUnder(r, RD_TOOLS);
+  if (nav === 'files') return rdUnder(r, RD_FILES);
   if (nav === 'strategy') return rdUnder(r, '#/strategy');
   return false;
 }
@@ -100,6 +102,7 @@ function redesignRoute(r) {
     return true;
   }
   if (rdToolsRoute(r)) return true;
+  if (pagesRoute(r)) return true;   // Library › Files and #/page/<id> (ui/app/pages.js)
   if (rdUnder(r, RD_GOALS)) { pageGoals(); return true; }
   if (rdUnder(r, RD_ORG)) { pageRdOrg(); return true; }
   if (rdUnder(r, RD_BUDGET)) { pageBudget(); return true; }
@@ -112,6 +115,7 @@ function redesignRoute(r) {
 function redesignAfterRoute() {
   if (!rdUnder(S.route || '', RD_AUTOMATIONS)) window.automationsStop?.();
   if (!rdUnder(S.route || '', RD_TOOLS)) rdToolsStop();
+  pagesStop(S.route || '');
   rdLibSync();
   syncStrategyBot();
 }
