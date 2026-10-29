@@ -6,7 +6,8 @@ is still at that step, moves the ticket as Tico (`after_verdict` marks it, `afte
 attempt is recorded):
 - approve or pass -> the step's `on_pass`; when that is the merge, the builder is woken to merge once CI is green;
 - changes, fail, or a check finished with no verdict (its comments are the feedback) -> the step's `on_fail`, and the
-  builder is woken once, with the verdict and the head.
+  builder is woken once, with the verdict and the head. A pass at a head that one of those already stands on at the
+  step goes there too: a later round at the same head clears nothing (`_verdict_at`).
 Tico never merges: the builder does, woken once per head (`merge_wake`). The merge moves the ticket to the type's
 `on_merge` step from any earlier step (`merged`), and green CI on a new head at a step with `after_green` moves it on
 to its next check (`checks_done`). A ticket entering a step whose `skip_tag` it carries goes on to the step's
@@ -193,6 +194,8 @@ def after_capture(c, check_id, head, attempt_id):
     # alongside the verdict for audit, including fallback runs and unknown provenance.
     if verdict not in GOOD:
         out = _failed(c, ticket, step, verdict, head)
+    elif (standing := _verdict_at(c, ticket, step, head)) not in GOOD:
+        out = _failed(c, ticket, step, standing, head, passed=verdict)
     else:
         out = _passed(c, ticket, step, f"{name} gave {verdict} at head {head}")
     out["eligibility"] = eligible  # Historical field name; this is provenance, not a gate.
@@ -227,17 +230,18 @@ def resumed(c, task_id):
     return after_capture(c, last["id"], head, attempt["id"]) if attempt else None
 
 
-def _failed(c, ticket, step, verdict, head):
+def _failed(c, ticket, step, verdict, head, passed=None):
     """A check at `step` gave `verdict`, not good, at `head`: the ticket moves to the step's `on_fail`, and the builder
-    hears of it on that hand-off."""
+    hears of it on that hand-off. `passed` is a pass at the same head that the failure still stands against."""
     name = step["name"]
     gave = "no verdict (its comments are the feedback)" if verdict == NO_VERDICT else verdict
     target = F.step(c, F.of(step).get("on_fail"))
     moved = bool(target) and move(c, ticket, target, f"{name} gave {verdict} at {head[:12]}")
+    said = (f"{name} gave {passed} at head {head}, but {name} already gave {gave} at that head, and only a new head "
+            "clears it" if passed else f"{name} gave {gave} at head {head}")
     return {"moved": target["name"] if moved else None, "handoff": "verdict", "quiet": False,
-            "say": (f"Tico moved this ticket to {target['name']}: {name} gave {gave} at head {head}." if moved else
-                    f"{name} gave {gave} at head {head}" + (f"; Tico could not move this ticket to {target['name']}."
-                                                           if target else "."))}
+            "say": (f"Tico moved this ticket to {target['name']}: {said}." if moved else
+                    said + (f"; Tico could not move this ticket to {target['name']}." if target else "."))}
 
 
 def _passed(c, ticket, step, why):
@@ -292,7 +296,7 @@ def delivery(c, check):
 def _verdict_at(c, row, step, head):
     """The verdict the checks at `step` hold against `head` (lowered), or None when none judged that head. A fail,
     changes or comments wins over any pass on the same head, newer or not: a failed head is cleared by a fix at a new
-    head, not by a later round at the same one (docs/tasks.md, `timeout_hours`)."""
+    head, not by a later round at the same one, as a failed CI attempt or test receipt is (docs/tasks.md)."""
     head = str(head or "").lower()
     given = [_verdict(check) for check in _checks(c, row, step) if _verdict(check)
              and head.startswith(str(check.get("verdict_head") or _judged_head(c, check) or "-").lower())]
@@ -313,8 +317,8 @@ def _skipped(c, row, step, head):
 
 def merge_ready(c, row):
     """(pull request, head) when the merge is next from the ticket's step (its `on_pass`, or `after_green` on a new
-    head), the step's last check approved the head it is at now (or it is skipped) and CI is green on it. None
-    otherwise."""
+    head) and CI is green on the head it is at now. On `on_pass`, the step's checks must have approved that head or its
+    round was skipped there, and none may have failed it. None otherwise."""
     step = F.step(c, row.get("step_id"))
     flow = F.of(step)
     if not step or F.MERGE not in (flow.get("on_pass"), flow.get("after_green")):
@@ -325,12 +329,8 @@ def merge_ready(c, row):
         return None
     pr, head = prs[0], _head(prs[0])
     if flow.get("on_pass") == F.MERGE:
-        if _skipped(c, row, step, head):
-            return pr, head
-        last = next((t for t in reversed(_checks(c, row, step)) if _verdict(t)), None)
-        if not last or _verdict(last) not in GOOD or not head.startswith(str(last.get("verdict_head") or "-").lower()):
-            return None
-        return pr, head
+        # The same verdict the timeout and the skipped round read: a pass after a fail at this head clears nothing.
+        return (pr, head) if _skipped(c, row, step, head) or _verdict_at(c, row, step, head) in GOOD else None
     judged = _judged_by(c, row, step)
     return (pr, head) if judged and not head.startswith(judged) else None
 

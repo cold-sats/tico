@@ -351,13 +351,15 @@ class Builder(Bot):
 
     def keeps(self, task, judged, pr):
         """Whether the builder leaves the judged head as it is: an approval with nothing to fix (`hold_approved`),
-        or a fail it disputes, once per ticket, by sending the same head back to the check (`dispute_fail`). Each
-        style draws from the generator only when the scenario sets it."""
+        or a fail it disputes, once per ticket, by sending the same head back to the check (`dispute_fail`). A pass
+        at a head a fail still stands on is no approval: the builder pushes a fix. Each style draws from the generator
+        only when the scenario sets it."""
         w = self.world
         if not judged or str(judged.get("verdict_head") or "") != w.prs[pr]["head"] or w.ci_state(pr) == "failing":
             return False
         if judged["verdict"] in ("approve", "pass"):
-            return bool(self.style.get("hold_approved")) and self.chance("hold_approved") and "held"
+            standing = w.failed_at(task["id"], w.check_step(judged), w.prs[pr]["head"])
+            return bool(self.style.get("hold_approved")) and not standing and self.chance("hold_approved") and "held"
         if self.style.get("dispute_fail") and task["id"] not in self.disputed and self.chance("dispute_fail"):
             self.disputed.add(task["id"])
             return "disputed"

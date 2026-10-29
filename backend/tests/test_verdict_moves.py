@@ -696,6 +696,51 @@ def test_a_later_pass_at_a_failed_head_does_not_let_a_timed_out_round_clear_the_
     assert [m["refs"][V.HANDOFF] for m in builder_jobs(api) if m["refs"].get(V.HANDOFF)] == ["verdict"]
 
 
+def test_a_pass_at_a_head_a_fail_stands_on_goes_to_qa_fixes_and_only_a_new_head_clears_it(api):
+    """QA failed the head, the builder sent the ticket back to In QA without a push, and a new QA round passed the same
+    head. The fail still stands there: the ticket goes to QA Fixes and the builder is not woken to merge. A fix at a new
+    head, passed, does clear it."""
+    task = ticket(api, step="In QA")
+    _suite(api, "github-actions", "completed", "success", sha=HEAD)
+    verdict(api, check(api, task, "QA: PR #412"), "fail")
+    assert step(api, task) == "QA Fixes"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+        c.execute("DELETE FROM jobs")
+    verdict(api, check(api, task, "QA: PR #412"), "pass")
+    assert step(api, task) == "QA Fixes"
+    woke = builder_jobs(api)
+    assert [m["refs"].get(V.HANDOFF) for m in woke] == ["verdict"], woke
+    assert woke[0]["refs"]["verdict"] == "pass" and "only a new head clears it" in woke[0]["body"], woke[0]
+    with api.app.state.store.read() as c:
+        assert V.merge_ready(c, H.task(c, task["id"])) is None
+    hook(api, "pull_request", pr_event("synchronize", head={"sha": NEW}))
+    _suite(api, "github-actions", "completed", "success", sha=NEW)
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+        c.execute("DELETE FROM jobs")
+    verdict(api, check(api, task, "QA: PR #412"), "pass", head=NEW)
+    assert step(api, task) == "In QA", "Tico does not merge; the builder does"
+    merges = [m for m in builder_jobs(api) if m["refs"].get(V.HANDOFF) == "merge"]
+    assert len(merges) == 1 and merges[0]["refs"]["pr_head"] == NEW, merges
+
+
+def test_a_timed_out_round_after_a_fail_and_a_later_pass_clears_nothing_when_on_fail_has_no_target(api):
+    """With no step to send a failed head to, the fail stays where it was given, and a later pass at that head does not
+    clear it. A round that then times out at the head clears nothing either: the merge is not woken."""
+    task = ticket(api, step="In QA")
+    flow(api, task, "In QA", on_fail=None)
+    _suite(api, "github-actions", "completed", "success", sha=HEAD)
+    verdict(api, check(api, task, "QA: PR #412"), "fail")
+    verdict(api, check(api, task, "QA: PR #412"), "pass")
+    check(api, task, "QA: PR #412")
+    with api.app.state.store.transaction() as c:
+        assert V.timeouts(c, H.shift(H.now(), hours=24 * 7)) == [task["id"]]
+        assert V.merge_ready(c, H.task(c, task["id"])) is None
+    assert step(api, task) == "In QA"
+    assert not [m for m in builder_jobs(api) if m["refs"].get(V.HANDOFF) == "merge"], builder_jobs(api)
+
+
 def test_a_finished_suite_with_no_check_run_keeps_its_failure(api, monkeypatch):
     """Only a suite still waiting to start is left out: one GitHub finished as failed, runs or none, still fails."""
     from backend import github as G

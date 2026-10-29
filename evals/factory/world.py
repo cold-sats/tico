@@ -530,17 +530,26 @@ class World:
 
     def cleared(self, task_id):
         """Whether Tico let the ticket pass its current step without a check: a skip tag, or a round skipped at a head
-        no check failed. A round that timed out at a failed head is recorded as skipped too, but sends the ticket to
-        the step's on_fail (backend/verdict_moves.py `timeouts`), so it clears nothing."""
+        no check at the step failed. A round that timed out at a failed head is recorded as skipped too, but sends the
+        ticket to the step's on_fail (backend/verdict_moves.py `timeouts`), so it clears nothing."""
         entered = self.step_entered_at(task_id) or ""
         for e in self.sql("SELECT field, new FROM task_events WHERE task_id=? AND ts>=? "
                           "AND field IN ('step_skipped','round_skipped')", (task_id, entered)):
             step_id, _, head = str(e["new"] or "").partition(":")
             step = self.sql("SELECT name FROM task_steps WHERE id=?", (step_id,))
-            failed = [c for c in self.checks(task_id) if step and self.check_step(c) == step[0]["name"]
-                      and c.get("verdict") and c["verdict"] not in ("approve", "pass")
-                      and head.lower().startswith(str(c.get("verdict_head") or "-").lower())]
-            if e["field"] == "step_skipped" or not failed:
+            if e["field"] == "step_skipped" or not (step and self.failed_at(task_id, step[0]["name"], head)):
+                return True
+        return False
+
+    def failed_at(self, task_id, step, head):
+        """Whether a check at `step` gave `head` a fail, changes or comments (a check done with none). Such a verdict
+        stands over a pass at the same head: only a new head clears it (backend/verdict_moves.py `_verdict_at`)."""
+        head = str(head or "").lower()
+        for c in self.checks(task_id):
+            if self.check_step(c) != step or not head.startswith(str(c.get("verdict_head") or "-").lower()):
+                continue
+            verdict = c.get("verdict") or ("comments" if c["status"] == "done" else "")
+            if verdict and verdict not in ("approve", "pass"):
                 return True
         return False
 

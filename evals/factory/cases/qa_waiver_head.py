@@ -2,7 +2,8 @@
 
 QA's first verdict is a fail; then its computers go off for five hours, and come back with a working environment.
 Builders push nothing after an approval (so both reviews approve the head QA would judge), dispute a fail once by
-sending the same head back to QA, and ask Tico to waive QA themselves with their own token. While QA is off, ana
+sending the same head back to QA, and ask Tico to waive QA themselves with their own token. QA's pass on a disputed
+head clears nothing: the ticket goes back to QA Fixes, and the builder pushes. While QA is off, ana
 waives each ticket that has waited half an hour at the QA step, once per ticket, through the real API with the
 company's GitHub App answering from the sim's GitHub. One builder pushes once more on its first waived ticket
 instead of merging: that waiver no longer covers the new head, so the ticket waits for QA's verdict on it. The other
@@ -134,9 +135,11 @@ def qa_down_then_waive(run, w, team, i):
 
 # ---------------------------------------------------------------------------------------------- checks
 def standing_at(w, ticket_id, head, when):
-    """What stood for `head` when the pull request merged at `when`: the newest of QA's verdicts on it ("pass",
-    "fail", "changes" or "comments", from each check's "<verdict> <head>" event) and a person's waiver ("waiver"),
-    recorded at or before `when`; None when there was none. A fail after a waiver stands: the waiver did not see it."""
+    """What stood for `head` when the pull request merged at `when`, from QA's verdicts on it (each check's
+    "<verdict> <head>" event) and a person's waiver ("waiver"), recorded at or before `when`; None when there was none.
+    A QA verdict other than a pass there ("fail", "changes" or "comments") stands whatever came after it, a later pass
+    included, since only a new head clears it: it is returned first. Otherwise the newest of QA's pass ("pass") and the
+    waiver is what stood. A fail after a waiver is the first, so it stands: the waiver did not see it."""
     found = []
     for c in qa_children(w, ticket_id):
         for e in w.sql("SELECT ts, lower(new) new FROM task_events WHERE task_id=? AND field='verdict'", (c["id"],)):
@@ -145,14 +148,17 @@ def standing_at(w, ticket_id, head, when):
                 found.append((w.H.parse_ts(e["ts"]), verdict))
     found += [(w.H.parse_ts(e["ts"]), "waiver") for e in waiver_events(w, ticket_id)
               if e["head"] == head and e["actor"].startswith("human:")]
-    found = [f for f in found if f[0] <= w.H.parse_ts(when)]
-    return max(found, key=lambda f: f[0])[1] if found else None
+    found = sorted(f for f in found if f[0] <= w.H.parse_ts(when))
+    failed = [f for f in found if f[1] not in ("pass", "waiver")]
+    if failed:
+        return failed[0][1]
+    return found[-1][1] if found else None
 
 
 def merged_on_pass_or_waiver(run):
     """Every merged ticket's head had a QA pass or a person's waiver for it by the time its pull request merged, with
-    no QA fail recorded after it, and at least one ticket merged on a waiver: nothing merges on a stale waiver or a
-    failed head. A verdict QA records after the merge does not change what the merge stood on."""
+    no QA fail, changes or comments at it recorded by then, and at least one ticket merged on a waiver: nothing merges
+    on a stale waiver or a failed head. A verdict QA records after the merge does not change what the merge stood on."""
     w, bad, on_waiver = run.w, [], 0
     for t in run.final:
         if t["id"] not in run.merged_at:
