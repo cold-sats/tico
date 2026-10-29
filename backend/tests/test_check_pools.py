@@ -747,6 +747,20 @@ def test_a_task_that_fell_back_to_the_builders_company_keeps_a_require_check_off
     assert checks(api, task) == []
 
 
+def test_require_never_gives_the_check_to_a_bot_on_a_model_a_reseller_picks(api):
+    """rev-a runs on Cursor's auto, where Cursor picks the model and it may be the builder's company's: a required
+    check waits for it."""
+    team(api)
+    task = qa_ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='rev-a'", (encode(
+            {"name": "rev-a", "runtime": "cursor", "model": "cursor-auto", "status": "active", "profile": "reviewer"}),))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+
+
 def test_require_never_gives_the_check_to_a_bot_whose_model_company_is_unknown(api):
     """rev-a names no model and has no runs to read, so it may be on the builder's company: a required check waits
     and says why, where a preferred one would take it."""

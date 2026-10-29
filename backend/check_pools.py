@@ -234,9 +234,14 @@ def _task_model(c, slug):
     return config, task, not task_models.why_not(c, None, slug, task, runner[0] if runner else None)
 
 
-def _company(names):
+def _company(model, runtime):
+    """The named model's maker from Tico's catalog, or with no model named, the runtime's; '' for a model the catalog
+    does not list (a harness can run another maker's model) or one a reseller picks (Cursor auto, OpenRouter), as
+    usage_records.family reads a run."""
     from . import providers
-    return next((found for found in map(providers.author_provider, names) if found), "")
+    from .usage_records import RESELLERS
+    found = (providers.MODEL_BY_ID.get(model) or {}).get("provider") if model else providers.runtime_provider(runtime)
+    return "" if not found or found in RESELLERS else found
 
 
 def maker(c, slug):
@@ -245,9 +250,9 @@ def maker(c, slug):
     from . import providers
     config, task, runs = _task_model(c, slug)
     if runs:
-        return _company((task["model"], task["runtime"]))
+        return _company(task["model"], task["runtime"])
     runtime, model = providers.bot_choice(c, None, config)
-    return _company((model, config.get("model"), runtime, config.get("runtime")))
+    return _company(model or config.get("model") or "", runtime or config.get("runtime") or "")
 
 
 RECENT_TURNS = 3
