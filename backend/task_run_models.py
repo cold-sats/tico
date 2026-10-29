@@ -6,6 +6,7 @@ and a bot never does, not even on its own task."""
 from . import ceo_acts
 from . import hubdb as H
 from . import providers
+from . import shared_bots
 from .harnesses import runtime_of
 
 
@@ -20,11 +21,13 @@ def of(c, task_id):
 
 def stamped(model, effort="", harness=""):
     """A routine step's choice as the save kept it, not checked again: a model retired since is not run on, and the turn
-    falls back saying why (task_models.why_not). Its harness is the one named, else the model's first."""
+    falls back saying why (task_models.why_not). Its effort is the one named, else the model's default, as
+    task_models.choice_of gives it; its harness is the one named, else the model's first."""
     row = providers.MODEL_BY_ID.get(model) or {}
-    harness = str(harness or "").strip() or str(next(iter(row.get("harnesses") or ()), "") or "")
+    harness = str(harness or "").strip().lower() or str(next(iter(row.get("harnesses") or ()), "") or "")
+    effort = str(effort or "").strip().lower() or str(row.get("default_effort") or "")
     return {"harness": harness, "runtime": runtime_of(harness) or str(row.get("runtime") or ""), "model": model,
-            "reasoning_effort": str(effort or "")}
+            "reasoning_effort": effort}
 
 
 def _label(choice):
@@ -59,7 +62,9 @@ def moved(c, actor, task_id):
 
 
 def may_set(c, auth, who, bot):
-    """Whether `who` may set the model `bot`'s tasks run on: whoever may manage the bot (Auth.bot_manager, the rule
-    settings_admin applies to the bot's own model), never a bot, whatever it manages, and never the CEO Bot, acting
-    for a person or itself: a model stays the person's at every level (the "cost" gate settings_admin runs first)."""
-    return who.role != "bot" and not ceo_acts.is_ceo(who.actor) and bool(auth.bot_manager(c, who, bot))
+    """Whether `who` may set the model `bot`'s tasks run on: whoever may manage the bot whose model that is
+    (Auth.bot_manager, the rule settings_admin applies to the bot's own model; a branch's is its original's), never a
+    bot, whatever it manages, and never the CEO Bot, acting for a person or itself: a model stays the person's at every
+    level (the "cost" gate settings_admin runs first)."""
+    return (who.role != "bot" and not ceo_acts.is_ceo(who.actor)
+            and bool(auth.bot_manager(c, who, shared_bots.model_bot(c, bot))))

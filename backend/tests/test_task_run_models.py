@@ -6,9 +6,11 @@ its run opens, which a routine nobody with that right has approved neither turns
 import contextlib
 import json
 
-from backend import ceo_acts, task_run_models
+import pytest
+
+from backend import ceo_acts, providers, task_run_models
 from backend.store import H
-from backend.tests.test_api import api, assign, claim, get, headers, post  # noqa: F401  (api is a fixture)
+from backend.tests.test_api import api, assign, claim, get, headers, post, runner  # noqa: F401  (api is a fixture)
 from backend.tests.test_check_models import finish, heartbeat
 from backend.tests.test_task_models import ops_on_sonnet, set_task_model, task_turn
 
@@ -303,3 +305,97 @@ def test_a_tasks_own_model_falling_back_to_the_bots_task_model_starts_a_side_ses
     finish(api, machine, turn, HAIKU_RAN)
     ran = get(api, "tasks/" + mine["id"])["runs"][0]["ran_on"]
     assert ran["task_model"]["source"] == "fallback" and "grok-4.6" in ran["task_model"]["note"]
+
+
+def test_a_routine_step_without_an_effort_runs_at_its_models_default_effort(api):
+    machine = ops_on_sonnet(api)
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops", "prompt": "Run the audit.",
+            "model": "claude-haiku-5-5", "harness": "claude"}
+    aid = post(api, "automations", {"name": "Haiku audit", "owner": "bot:ops",
+                                    "trigger": {"type": "event", "name": "x.y"}, "steps": [step]})["id"]
+    post(api, f"automations/{aid}/run", {})
+    turn = claim(api, machine)
+    # Haiku's own default effort, not the harness's: the claimed turn names it, and so does the task.
+    assert (turn["config"]["model"], turn["config"]["reasoning_effort"]) == ("claude-haiku-5-5", "medium")
+    finish(api, machine, turn, {"model": "claude-haiku-5-5", "runtime": "claude", "harness": "claude",
+                                "effort": "medium", "billing": "api"})
+    assert get(api, "tasks/" + turn["task"]["id"])["run_model"]["reasoning_effort"] == "medium"
+
+
+@pytest.mark.parametrize("gone", ["retired", "removed"])
+def test_a_routine_whose_stamped_model_has_since_gone_still_pauses_and_renames(api, monkeypatch, gone):
+    ops_on_sonnet(api)
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops", "prompt": "Run the audit.", **HAIKU}
+    aid = post(api, "automations", {"name": "Haiku audit", "owner": "bot:ops",
+                                    "trigger": {"type": "event", "name": "x.y"}, "steps": [step]})["id"]
+    if gone == "retired":
+        monkeypatch.setitem(providers.MODEL_BY_ID["claude-haiku-5-5"], "deprecated", True)
+    else:
+        monkeypatch.delitem(providers.MODEL_BY_ID, "claude-haiku-5-5")
+    # The model is kept as it was saved, so turning the routine off and renaming it saves; nothing about it changed.
+    assert patch(api, f"automations/{aid}", {"enabled": False})["enabled"] is False
+    assert patch(api, f"automations/{aid}", {"name": "Audit"})["name"] == "Audit"
+    assert get(api, f"automations/{aid}")["steps"][0]["model"] == "claude-haiku-5-5"
+
+
+def test_a_routine_step_changed_to_a_retired_model_is_still_refused(api, monkeypatch):
+    ops_on_sonnet(api)
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops", "prompt": "Run the audit.", **HAIKU}
+    aid = post(api, "automations", {"name": "Haiku audit", "owner": "bot:ops",
+                                    "trigger": {"type": "event", "name": "x.y"}, "steps": [step]})["id"]
+    monkeypatch.setitem(providers.MODEL_BY_ID["claude-sonnet-5-5"], "deprecated", True)
+    patch(api, f"automations/{aid}", {"steps": [{**step, "model": "claude-sonnet-5-5", "effort": "high"}]},
+          expected=422)
+    assert get(api, f"automations/{aid}")["steps"][0]["model"] == "claude-haiku-5-5"
+
+
+def branch_computer_ready(api, computer, bot):
+    """A computer of a branch's person, signed in to Claude, with the branch's bot ready on it."""
+    post(api, "runners/heartbeat", {
+        "version": "test", "platform": "test", "capabilities": ["task_lanes_v2", "session_roots_v1"],
+        "readiness": {"schema_version": 1, "runtimes": {"claude": {"installed": True, "authenticated": "ready"}},
+                      "bots": {bot: {"runtime": "claude", "ready": True}}}}, token=computer["token"])
+
+
+def share_ops_with_branches(api):
+    post(api, "bots/ops/definition", {"shared": True, "expected_revision": get(api, "bots/ops")["revision"]})
+
+
+def test_a_branch_task_takes_its_own_model_from_whoever_may_change_the_originals(api):
+    ops_on_sonnet(api)
+    share_ops_with_branches(api)
+    # Ben manages ops without operating it, so he may hold a branch of it; Cara manages neither.
+    hers = runner(api, "ben", "Ben's Mac")
+    post(api, "bots/ops/copies", {"runner_id": hers["runner_id"]}, token="ben-test")
+    post(api, "bots/ops/copies", {"runner_id": runner(api, "cara", "Cara's Mac")["runner_id"]}, token="cara-test")
+    mine = post(api, "tasks", {"owner": "ops", "title": "Tidy the changelog", "body": "Sort the entries."}, "ben-test")
+    assert mine["owner"] == "bot:ops-ben"
+    # Ben manages ops, so his branch's task takes the model; the branch itself keeps following ops.
+    own_model(api, mine["id"], HAIKU, token="ben-test")
+    assert get(api, "tasks/" + mine["id"], "ben-test")["run_model"]["model"] == "claude-haiku-5-5"
+    assert get(api, "bots/ops-ben", "ben-test")["task_model"] is None
+    # Cara's branch is not ops' manager's: her task's model is refused, and it stays unset.
+    theirs = post(api, "tasks", {"owner": "ops", "title": "Tidy the README", "body": "Sort it."}, "cara-test")
+    assert theirs["owner"] == "bot:ops-cara"
+    own_model(api, theirs["id"], HAIKU, token="cara-test", expected=403)
+    assert get(api, "tasks/" + theirs["id"], "cara-test")["run_model"] is None
+    # The branch's computer runs the task on the task's model.
+    branch_computer_ready(api, hers, "ops-ben")
+    turn = claim(api, hers, "ops-ben")
+    assert turn["task"]["id"] == mine["id"]
+    assert (turn["config"]["model"], turn["config"]["reasoning_effort"]) == ("claude-haiku-5-5", "low")
+    finish(api, hers, turn, HAIKU_RAN)
+    assert get(api, "tasks/" + mine["id"], "ben-test")["runs"][0]["ran_on"]["segments"][0]["model"] == \
+        "claude-haiku-5-5"
+
+
+def test_a_routine_step_on_a_branch_needs_the_originals_managers_to_set_its_model(api):
+    ops_on_sonnet(api)
+    share_ops_with_branches(api)
+    post(api, "bots/ops/copies", {"runner_id": runner(api, "cara", "Cara's Mac")["runner_id"]}, token="cara-test")
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops-cara", "prompt": "Run the audit.", **HAIKU}
+    # Cara may not set ops' model, branch or not: her routine waits for a manager of ops, as one on ops does.
+    draft = post(api, "automations", {"name": "Haiku audit", "owner": "human:cara",
+                                      "trigger": {"type": "event", "name": "x.y"}, "steps": [step]},
+                 token="cara-test")
+    assert draft["pending"] == 1 and get(api, f"automations/{draft['id']}")["enabled"] is False

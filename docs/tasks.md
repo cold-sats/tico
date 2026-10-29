@@ -634,10 +634,12 @@ bot's task model. `hub_task_create`, `hub_task_model` and `POST /api/v2/tasks/{i
 the same. `hub bot task-model` and `hub_bot_task_model` read or set the bot's task model. `GET /api/v2/tasks/{id}` shows
 the task's own choice as `run_model`.
 
-Whoever may change the bot's model may change a task's model. A bot never does, not even on its own task. A run uses
-the task's own model first, then the bot's task model, then the bot's own model; a review or check subtask keeps its
-check model. A task that changes owner loses its own model, however it moves: its history records the clear, and the
-new owner's bot runs it on that bot's task model.
+Whoever may change the bot's model may change a task's model. A bot never does, not even on its own task. On a
+[branch](creating-bots.md#branches) that is whoever may change the original's model, since the branch follows it; the
+task's choice is the task's own and leaves the branch's definition as it is. A run uses the task's own model first,
+then the bot's task model, then the bot's own model; a review or check subtask keeps its check model. A task that
+changes owner loses its own model, however it moves: its history records the clear, and the new owner's bot runs it on
+that bot's task model.
 
 ## Snoozing a task
 

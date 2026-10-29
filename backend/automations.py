@@ -411,9 +411,10 @@ def _owner_known(c, owner):
     return ident in (views.roster(c).get("org_groups") or {})
 
 
-def _checked(c, flow, settings=None, access=True):
+def _checked(c, flow, settings=None, access=True, saved=None):
     """The flow as saved: its shape, its owner and group on the team, and (with `access`) what it reads is its
-    owner's: the inbox it hears and the Assistant it runs on."""
+    owner's: the inbox it hears and the Assistant it runs on. `saved` is the flow a change is made to: its steps' models
+    are checked only where the change adds or alters them."""
     try:
         flow = F.check(flow)
     except F.Invalid as exc:
@@ -421,7 +422,7 @@ def _checked(c, flow, settings=None, access=True):
     if flow.get("wakes"):   # a converted "What wakes" automation: only edits its wake rules can carry out
         from .redesign_migration import check_wakes
         check_wakes(flow)
-    _checked_run_models(flow)
+    _checked_run_models(flow, _stamps(saved) if saved else frozenset())
     for ref in (flow["owner"], flow.get("group")):
         if ref and not _owner_known(c, ref):
             raise Problem("invalid", f"{ref} is not on the team", 422)
@@ -471,18 +472,25 @@ def _run_model_steps(steps):
         yield from _run_model_steps((step.get("otherwise") or {}).get("steps"))
 
 
+def _stamp(step):
+    """What one stamping step sets on its task: (step id, bot, model, effort, harness)."""
+    return (step.get("id"), step.get("bot"), step.get("model"), step.get("effort"), step.get("harness"))
+
+
 def _stamps(flow):
-    """What each stamping step sets on its task: (step id, bot, model, effort, harness). A change to one is a change to
-    the model its task runs on, so the rights are checked on the ones a save adds or alters."""
-    return {(step.get("id"), step.get("bot"), step.get("model"), step.get("effort"), step.get("harness"))
-            for step in _run_model_steps(flow.get("steps"))}
+    """What each stamping step sets on its task. A change to one is a change to the model its task runs on, so the
+    rights are checked on the ones a save adds or alters."""
+    return {_stamp(step) for step in _run_model_steps(flow.get("steps"))}
 
 
-def _checked_run_models(flow):
+def _checked_run_models(flow, kept=frozenset()):
     """Each step's model, effort and harness are checked the way a bot's task model is (task_models.choice_of): a model
     the catalog has and that is not retired, a harness that runs it, an effort it takes. An effort or harness needs a
-    model to be picked for."""
+    model to be picked for. A stamp the saved flow already has (`kept`) is not checked again: its model may have been
+    retired or taken off the catalog since, and the routine still pauses, renames and saves its other changes."""
     for step in _run_model_steps(flow.get("steps")):
+        if _stamp(step) in kept:
+            continue
         where = f"Step {step.get('id')}"
         if not step.get("model"):
             raise Problem("invalid", f"{where} needs a model to pick an effort or harness for it", 422)
@@ -1743,7 +1751,8 @@ def install(app, store, auth, mutate):
             # What it reads is checked when that changes; pausing or renaming one whose owner lost access still works.
             merged = {**before_cap, **changes}
             flow = _checked(c, merged, store.settings,
-                            access=any(merged.get(k) != before.get(k) for k in ("trigger", "steps", "owner")))
+                            access=any(merged.get(k) != before.get(k) for k in ("trigger", "steps", "owner")),
+                            saved=before)
             if before.get("readonly"):
                 # Tico's own rules, shown read-only: the top of the org may pause or resume it, and nothing else.
                 if who.role != "owner" or set(changes) - {"enabled"}:
@@ -1900,7 +1909,7 @@ def install(app, store, auth, mutate):
             draft = pending and not before["enabled"] and not c.execute(
                 "SELECT 1 FROM automation_versions WHERE automation_id=? AND status='active'", (aid,)).fetchone()
             flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"]),
-                                **({"enabled": True} if draft else {})}, store.settings)
+                                **({"enabled": True} if draft else {})}, store.settings, saved=before)
             _require(c, who, flow, "restore this version")
             # A draft's row already holds the steps its pending version turns on, so nothing of it counts as kept.
             blocked = _stamp_blocked(c, auth, who, flow, before if _approved(c, row) else None)

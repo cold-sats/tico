@@ -1226,19 +1226,19 @@ class SettingsAdmin:
                 target[k] == current.get(k) for k in ("harness", "model", "reasoning_effort"))):
             raise Problem("unchanged", "That task model is already selected", 409)
         saved = task_run_models.set_choice(c, who.actor, task_id, target)
-        declared = _json(self._config(c, bot)["config_json"], {}) or {}
+        declared = shared_bots.follow(c, bot, _json(self._config(c, bot)["config_json"], {}) or {})
         readiness = task_models.readiness(c, bot, target) if target else None
         warning = task_models.warning(c, self.settings, bot, declared, target) if target else ""
         return {"task": task_id, "run_model": saved, "readiness": readiness, "warning": warning}
 
     def _task_run_rights(self, c, who, bot, what):
         """Who may set the model a task of `bot`'s runs on: whoever may change the bot's model (the same gate and check
-        as set_task_model). A bot never does, not even on its own task."""
+        as set_task_model). A bot never does, not even on its own task. A branch's model is its original's, so its
+        tasks answer to the original's managers; the task's choice does not change the branch's definition."""
         CA.gate(c, who.actor, "cost", what)
         if who.role == "bot":
             raise Problem("forbidden", "A bot does not choose the model its tasks run on", 403)
-        self._manager(c, who, bot)
-        shared_bots.refuse_copy(c, bot)
+        self._manager(c, who, shared_bots.model_bot(c, bot))
 
     def task_run_choice(self, c, who, bot, what, model, effort=None, harness=None, current=None):
         """A task's own model, checked the way a bot's task model is (task_models.choice_of), for `who` to set on a
