@@ -63,7 +63,6 @@ const chat = over => ({available: true, state: 'active', can_turn_on: false, roo
       await page.locator('#main .asst-learned').click();
       await page.locator('#learned-company').waitFor();
       assert.equal(new URL(page.url()).hash, '#/assistant/learned', 'owner: the link opens the page');
-      assert.equal(await page.locator('#nav-assistant').getAttribute('aria-current'), 'page', 'owner: the chat tab stays current');
       assert.match(await page.locator('.learned-head').innerText(), /Chief reads this before every reply/, 'owner: names the CEO Bot');
       assert.doesNotMatch(await page.locator('#main').innerText(), /Assistant/, 'owner: no Assistant wording');
       const personal = page.locator('#learned-personal'), company = page.locator('#learned-company');

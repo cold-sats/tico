@@ -127,8 +127,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     const row = owner => page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont)`);
     assert.equal(await row('bot:sales').locator('.gt-goal').count(), 0, 'no goal: nothing written');
     assert.equal(await page.locator('#goal-tree [data-owner="bot:goal-manager"]').count(), 0, 'its built-in goals are hidden, and no line of its own');
-    assert.equal(await page.locator('#nav-assistant').getAttribute('href'), '#/assistant');
-    assert.equal(await page.locator('#nav-botops').getAttribute('href'), '#/bot/botops');
+    assert.equal(await page.locator('#nav-assistant, #nav-botops').count(), 0, 'Ask is the way in to both');
     await page.locator('.gm-form textarea').fill('Change the revenue goal');
     await page.locator('.gm-form button').click();
     await page.locator('[data-gm-thread]', {hasText: 'Updated the goal.'}).waitFor();

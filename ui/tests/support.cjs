@@ -119,9 +119,12 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
       await page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
       return {page, ctx, errors, calls, hq};
     };
-    // The ? (or the phone's ? tab) opens Support; it is ready once the box (or the "turned off" line) shows.
-    const openSupport = async (page, via = '#help-open') => {
-      await page.locator(via).click();
+    // Ask (or the phone's Ask tab), then Tico support in its + menu, opens Support; it is ready once the box (or the
+    // "turned off" line) shows.
+    const openSupport = async (page, via = '#ask-fab') => {
+      if (await page.locator('#ask-panel').isHidden()) await page.locator(via).click();
+      await page.locator('#ask-add').click();
+      await page.locator('#ask-support').click();
       await page.locator('#support-pop[open] [data-compose]:not([hidden]) [name=message], #support-pop[open] [data-off]:not([hidden])').first().waitFor();
       await page.waitForFunction(() => !document.querySelector('#support-pop [data-connection]')?.textContent);
     };
@@ -198,34 +201,34 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     await box.fill('Draft kept while closed');
     await page.keyboard.press('Escape');
     await pop.waitFor({state: 'hidden'});
-    assert.equal((await active(page)).id, 'help-open', 'focus back on the ?');
+    assert.equal((await active(page)).id, 'ask-add', 'focus back on the +');
     await openSupport(page);
     assert.equal(await box.inputValue(), 'Draft kept while closed');
     // A click outside closes it, and so does ✕.
     await page.mouse.click(1300, 300);
     await pop.waitFor({state: 'hidden'});
-    assert.equal((await active(page)).id, 'help-open');
+    assert.equal((await active(page)).id, 'ask-add');
     await openSupport(page);
     await pop.getByRole('button', {name: 'Close'}).click();
     await pop.waitFor({state: 'hidden'});
-    assert.equal((await active(page)).id, 'help-open');
+    assert.equal((await active(page)).id, 'ask-add');
     assert.equal(await page.evaluate(() => location.hash), '#/tasks', 'nothing behind it changed');
 
     // A reply arrives while it is closed: a count on the ? and the toast, which opens the pop-up on that request.
-    const help = page.locator('#help-open');
+    const help = page.locator('#ask-fab'), item = page.locator('#ask-support');
     assert.equal(await help.getAttribute('data-support-unread'), null);
-    assert.equal(await help.getAttribute('aria-label'), 'Support');
+    assert.equal(await item.getAttribute('aria-label'), 'Tico support');
     v.hq.reply = true;
     await page.evaluate(() => window.supportPoll());
     assert.equal(await help.getAttribute('data-support-unread'), '1');
     assert.equal(await help.evaluate(el => getComputedStyle(el, '::after').content), '"1"');
-    assert.equal(await help.getAttribute('aria-label'), 'Support, 1 new reply');
+    assert.equal(await item.getAttribute('aria-label'), 'Tico support, 1 new reply');
     const replied = page.locator('.toast', {hasText: 'Tico support replied.'});
     await replied.getByRole('button', {name: 'Open'}).click();
     await pop.locator('.support-msg.staff').waitFor();
-    await page.waitForFunction(() => !document.querySelector('#help-open')?.hasAttribute('data-support-unread'));
+    await page.waitForFunction(() => !document.querySelector('#ask-fab')?.hasAttribute('data-support-unread'));
     assert.ok(v.calls.includes('POST tickets/sup_1/read'));
-    assert.equal(await help.getAttribute('aria-label'), 'Support');
+    assert.equal(await item.getAttribute('aria-label'), 'Tico support');
     assert.match(await pop.locator('.support-msg.staff .support-who').innerText(), /^Tico support/);
     assert.match(await pop.locator('.support-msg.staff').innerText(), /Try the latest release/);
     assert.equal(await pop.locator('.support-msg.staff img').count(), 0);
@@ -275,7 +278,7 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     // A phone: the ? tab opens a bottom sheet, nothing sideways.
     await page.setViewportSize({width: 390, height: 844});
     await page.waitForFunction(() => document.getAnimations().every(a => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity), null, {timeout: t(5000)});
-    await openSupport(page, '#mobile-support');
+    await openSupport(page, '#mobile-ask');
     const sheet = await pop.boundingBox();
     assert.ok(sheet.x === 0 && sheet.width === 390 && Math.abs(sheet.y + sheet.height - 844) < 2, `a bottom sheet (${JSON.stringify(sheet)})`);
     assert.ok(sheet.height > 844 * 0.8, 'fills most of the screen');
@@ -291,9 +294,9 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
       el.dispatchEvent(new TouchEvent('touchend', {bubbles: true, touches: [], changedTouches: at(320)}));
     });
     await pop.waitFor({state: 'hidden'});
-    assert.equal((await active(page)).id, 'mobile-support');
+    assert.equal((await active(page)).id, 'mobile-ask');
     // The trash asks first; saying no keeps the request.
-    await openSupport(page, '#mobile-support');
+    await openSupport(page, '#mobile-ask');
     const trash = pop.getByRole('button', {name: 'Delete request'});
     v.hq.confirm = false;
     await trash.click();
@@ -316,13 +319,13 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
       {id: 'sup_c', created: at(400), status: 'answered', message: 'Answered question', messages: [reply(1, 50), reply(2, 5)], sent: {}},
       {id: 'sup_d', created: at(2), status: 'gone', message: 'Removed question', messages: [], sent: {}},
     ]});
-    await v.page.waitForFunction(() => document.querySelector('#help-open')?.getAttribute('data-support-unread') === '3');
+    await v.page.waitForFunction(() => document.querySelector('#ask-fab')?.getAttribute('data-support-unread') === '3');
     assert.ok(!v.calls.some(c => c.endsWith('/read')), 'nothing is read until a conversation is shown');
     await openSupport(v.page);
     const vpop = v.page.locator('#support-pop');
     assert.equal(await vpop.locator('[data-title]').innerText(), 'Answered question');
     assert.equal(await vpop.locator('[data-status]').innerText(), 'Answered');
-    await v.page.waitForFunction(() => document.querySelector('#help-open')?.getAttribute('data-support-unread') === '1');
+    await v.page.waitForFunction(() => document.querySelector('#ask-fab')?.getAttribute('data-support-unread') === '1');
     assert.equal(await vpop.locator('[data-mine]').innerText(), 'Your requests (4)', 'every request in the list');
     // Access off on the server says so in words, under the open request.
     assert.equal(await vpop.locator('[data-view] [data-access]').innerText(), 'Support access is turned off on this server.');
@@ -494,23 +497,23 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
       {id: 'sup_b', created: at(90), status: 'open', message: 'Question B', messages: [], sent: {}}]});
     await openSupport(v.page);
     assert.equal(await v.page.locator('#support-pop [data-title]').innerText(), 'Question A');
-    await v.page.waitForFunction(() => !document.querySelector('#help-open')?.hasAttribute('data-support-unread'));
+    await v.page.waitForFunction(() => !document.querySelector('#ask-fab')?.hasAttribute('data-support-unread'));
     await v.page.keyboard.press('Escape');
     v.hq.tickets.find(x => x.id === 'sup_a').messages.push(reply(2, 2));
     v.hq.tickets.find(x => x.id === 'sup_b').messages.push(reply(1, 1));
     await v.page.evaluate(() => window.supportPoll());
-    await v.page.waitForFunction(() => document.querySelector('#help-open')?.getAttribute('data-support-unread') === '2');
+    await v.page.waitForFunction(() => document.querySelector('#ask-fab')?.getAttribute('data-support-unread') === '2');
     const reads = () => v.calls.filter(c => c.endsWith('/read'));
     const before = reads().length;
     await v.page.evaluate(() => window.supportOpen({list: true}));
     await v.page.locator('#support-pop[open] [data-list]:not([hidden])').waitFor();
     await v.page.waitForTimeout(300);
     assert.deepEqual(reads().slice(before), [], 'Your requests reads nothing');
-    assert.equal(await v.page.locator('#help-open').getAttribute('data-support-unread'), '2');
+    assert.equal(await v.page.locator('#ask-fab').getAttribute('data-support-unread'), '2');
     await v.page.keyboard.press('Escape');
     await v.page.locator('.toast', {hasText: 'Tico support replied.'}).last().getByRole('button', {name: 'Open'}).click();
     await v.page.waitForFunction(() => document.querySelector('#support-pop [data-title]')?.textContent === 'Question B');
-    await v.page.waitForFunction(() => document.querySelector('#help-open')?.getAttribute('data-support-unread') === '1');
+    await v.page.waitForFunction(() => document.querySelector('#ask-fab')?.getAttribute('data-support-unread') === '1');
     await v.page.waitForTimeout(300);
     assert.deepEqual(reads().slice(before), ['POST tickets/sup_b/read'], "B's reply reads only B");
     assert.deepEqual(v.errors, []);
@@ -600,10 +603,10 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     // A phone in the dark theme: no Talk to us anywhere, the ? tab in its place; reviewing and editing the
     // diagnostics still works in the sheet.
     v = await visit({viewport: {width: 390, height: 844}, theme: 'dark'});
-    assert.deepEqual(await v.page.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Team', 'Search', 'Tasks', 'Updates', 'Support', 'More']);
+    assert.deepEqual(await v.page.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Team', 'Search', 'Ask', 'Tasks', 'Updates', 'More']);
     assert.equal(await v.page.getByText('Talk to us').count(), 0);
-    assert.equal(await v.page.locator('#mobile-support .mobile-nav-icon').innerText(), 'help');
-    await openSupport(v.page, '#mobile-support');
+    assert.equal(await v.page.locator('#mobile-ask .mobile-nav-icon').innerText(), 'auto_awesome');
+    await openSupport(v.page, '#mobile-ask');
     assert.deepEqual(await active(v.page), {id: 'support-message', name: 'message', inPop: true});
     const dark = await v.page.locator('#support-pop').evaluate(el => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]);
     assert.notDeepEqual(dark[0], 'rgb(255, 255, 255)', 'the dark theme reaches the pop-up');
@@ -629,7 +632,7 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     v = await visit({viewport: {width: 390, height: 844}, keyboard: true, seed: [{id: 'sup_9', created: at(30), status: 'answered', message: 'Roadmap suggestions go to an archived bot.', sent: {},
       messages: [reply(1, 25), {id: 2, created: at(20), from: 'person', body: 'Still there on 0.3.54.'},
         {id: 3, created: at(10), from: 'staff', body: 'The setting now decides who gets suggestions.\n\nAfter that, it is safe to turn public roadmap suggestions back on. Reply here if anything still goes to the archived bot.'}]}]});
-    await openSupport(v.page, '#mobile-support');
+    await openSupport(v.page, '#mobile-ask');
     const kpop = v.page.locator('#support-pop'), kbox = kpop.locator('[data-compose] [name=message]');
     await kbox.focus();
     assert.ok(parseFloat(await kbox.evaluate(el => getComputedStyle(el).fontSize)) >= 16, 'the box is at least 16 px: no zoom on focus');
@@ -676,7 +679,7 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     // Closed and opened again while zoomed: the same.
     await v.page.keyboard.press('Escape');
     await kpop.waitFor({state: 'hidden'});
-    await openSupport(v.page, '#mobile-support');
+    await openSupport(v.page, '#mobile-ask');
     await sheetIs(844 - SHEET, 844, 'reopened while zoomed');
     // The keyboard comes up while already zoomed: the space above it, on the bottom of the page.
     await v.page.evaluate(() => window.__keys(229, 100, 2));
@@ -720,14 +723,18 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     v = await visit({theme: 'dark', seed: [{id: 'sup_5', created: at(30), status: 'answered', message: 'Can bots share a computer?', sent: {},
       messages: [reply(1, 20), {id: 2, created: at(10), from: 'person', body: 'Thanks, and two?'}]}]});
     assert.equal(await v.page.getByText('Talk to us').count(), 0, 'no Talk to us in the sidebar');
-    await v.page.locator('#help-open').focus();
+    await v.page.locator('#ask-fab').focus();
+    await v.page.keyboard.press('Enter');
+    await v.page.locator('#ask-add').focus();
+    await v.page.keyboard.press('Enter');
+    await v.page.waitForFunction(() => document.activeElement?.id === 'ask-support');
     await v.page.keyboard.press('Enter');
     await v.page.locator('#support-pop[open]').waitFor();
     await v.page.waitForFunction(() => document.activeElement?.id === 'support-message');
     await v.page.waitForTimeout(300);
     await v.page.screenshot({path: '/tmp/tico-support-desktop-dark.png'});
     await v.page.keyboard.press('Escape');
-    assert.equal((await active(v.page)).id, 'help-open');
+    assert.equal((await active(v.page)).id, 'ask-add');
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 
@@ -922,7 +929,7 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     assert.equal(await offPop.locator('[data-whats-new]').isVisible(), true);
     assert.equal((await active(v.page)).inPop, true, 'focus is in the pop-up');
     await v.page.keyboard.press('Escape');
-    assert.equal((await active(v.page)).id, 'help-open');
+    assert.equal((await active(v.page)).id, 'ask-add');
     // Report this is not offered: an error toast has nothing to report to.
     await v.page.waitForFunction(() => !window.supportOn());
     await v.page.evaluate(() => toast('Could not save', true));

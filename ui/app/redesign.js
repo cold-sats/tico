@@ -44,8 +44,8 @@ function redesignNav() {
   subs.append(...[pick('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), tools].filter(Boolean));
   if (strategyLink) { strategyLink.setAttribute('href', MARKET_ROUTE); strategyLink.querySelector('.nav-icon').textContent = RD_NAV_ICONS.strategy; }
   const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), strategyLink,
-    pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), pick('#nav-assistant'), automations, libRow, subs,
-    pick('#nav-botops'), pick('#nav-pins')].filter(Boolean);
+    pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), automations, libRow, subs,
+    pick('#nav-pins')].filter(Boolean);
   const rest = before.filter(el => !order.includes(el) && !subs.contains(el));
   nav.append(...order, ...rest);
   rdLibSync();

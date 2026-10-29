@@ -280,8 +280,8 @@ The wizard is done once, by the owner. Everything after it is per human, so a te
 joins later gets the same help without the owner doing anything.
 
 ```
-wizard  ->  tour (once)  ->  "Talk to BotOps" line
-             replay: ?        until a bot of your own exists
+wizard  ->  tour (once)  ->  "Ask to add or edit your bots" line
+             replay: account  until a bot of your own exists
 ```
 
 ### The tour
@@ -290,14 +290,14 @@ Six spotlight steps: Updates, Tasks, your bots (the team list), Docs, Strategy, 
 on, **Skip** or **Esc** closes it, and focus stays inside it. On a phone it opens the navigation drawer
 and shows the same steps. It never opens over the wizard: the owner starts it with **Show me around** on the screen after Create, or it opens
 by itself once on their next visit (anyone else: their first visit). It can be replayed
-from **?** (How Tico works) with **Take the tour**. That it was seen is kept per human.
+from the account menu with **Take the tour**. That it was seen is kept per human.
 
 ### Bots
 
 There is no checklist, no card above any page and no card in the sidebar. While there are no bots of your own (the Create your
-first bot step is not done), one line of muted text sits under the team list: "Talk to BotOps to add or edit your bots",
-with **BotOps** linking to its chat (`#/bot/botops`). It shows only to humans who may add bots (the owner and bot administrators,
-`can_build`), and has nothing to close. Asking BotOps in chat is how a bot is added (`playbooks/build-me-a-bot.md`); connecting
+first bot step is not done), one line of muted text sits under the team list: "Ask to add or edit your bots",
+with **Ask** opening the Assistant panel over the page. It shows only to humans who may add bots (the owner and bot administrators,
+`can_build`), and has nothing to close. Asking the Assistant (it hands the request to BotOps) is how a bot is added (`playbooks/build-me-a-bot.md`); connecting
 an external agent you already have is the **Connect an external agent** button in the sidebar footer.
 
 ### An empty Market page

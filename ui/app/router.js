@@ -59,6 +59,7 @@ function route() {
   if (!/^#\/computers\/[^/?]+\/performance$/.test(S.route)) perfStop();
   if (!(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { if (UPD) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; } updcStop(); }
   if (!S.route.startsWith('#/bot/')) botStopped();
+  askSync();          // Ask's button: away on the Assistant page and in setup (ui/app/ask-panel.js)
   renderTree();
   if (redesignRoute(S.route)) { /* Strategy's tabs, Automations, Connections and the old addresses that moved (ui/app/redesign.js) */ }
   else if (S.route === NOTES || S.route === RECORDINGS || S.route.startsWith(RECORDINGS + '?')) {

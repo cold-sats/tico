@@ -53,7 +53,7 @@ const PAGES = [
   {name: 'settings-health', route: '#/settings', tab: 'health', ready: 'Failed runs'},
   {name: 'devices', route: '#/settings', tab: 'devices', ready: "Ana's MacBook"},
   {name: 'support', route: '#/updates', ready: 'Reply', steps: async page => {
-    await page.click(page.viewportSize().width < 600 ? '#mobile-support' : '#help-open');
+    await page.evaluate(() => window.supportOpen());
     await page.locator('#support-pop[open] [data-compose] [name=message], #support-pop[open] [data-off]:not([hidden])').first().waitFor();
     await page.waitForTimeout(300);
   }},

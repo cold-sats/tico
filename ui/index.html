@@ -77,6 +77,7 @@
 <link rel="stylesheet" href="/tico/ui/styles/redesign-strategy.css">
 <link rel="stylesheet" href="/tico/ui/styles/strategy-budget.css">
 <link rel="stylesheet" href="/tico/ui/styles/redesign-library.css">
+<link rel="stylesheet" href="/tico/ui/styles/ask.css">
 <!-- bundle:css:end -->
 </head>
 <body>
@@ -101,8 +102,6 @@
     <a class="nav-link" href="#/welcome" data-nav="welcome" id="nav-welcome" hidden><span class="nav-icon" aria-hidden="true">check_circle</span>Finish setup</a>
     <a class="nav-link" href="#/updates" data-nav="updates"><span class="nav-icon" aria-hidden="true">dynamic_feed</span>Updates<span class="nav-badge" data-upd-badge hidden></span></a>
     <a class="nav-link" href="#/tasks" data-nav="tasks"><span class="nav-icon" aria-hidden="true">task_alt</span>Tasks</a>
-    <a class="nav-link" id="nav-assistant" href="#/bot/coo" data-nav="assistant" hidden><span class="nav-icon" aria-hidden="true">assistant</span><span data-nav-name>Assistant</span></a>
-    <a class="nav-link" id="nav-botops" href="#/bot/botops" data-nav="botops" hidden><span class="nav-icon" aria-hidden="true">smart_toy</span>BotOps</a>
     <!-- The Librarian's settings are on the Docs page (ui/docs-page.js), not beside Docs here. -->
     <a class="nav-link" href="#/docs" data-nav="docs"><span class="nav-icon" aria-hidden="true">docs</span>Docs</a>
     <a class="nav-link" href="#/strategy" data-nav="strategy"><span class="nav-icon" aria-hidden="true">strategy</span>Strategy</a>
@@ -119,7 +118,7 @@
       </div>
       <div class="section-body" id="nav-organisation" data-section-body="organisation">
         <ul class="tree" id="tree"><li class="empty">Loading…</li></ul>
-        <p class="gs-org-hint" id="gs-org-hint" hidden>Talk to <a href="#/bot/botops">BotOps</a> to add or edit your bots</p>
+        <p class="gs-org-hint" id="gs-org-hint" hidden><a href="#/assistant" data-ask-open>Ask</a> to add or edit your bots</p>
       </div>
     </section>
     <section class="side-section" id="nav-inboxes-section" hidden>
@@ -155,7 +154,6 @@
         </nav>
       </div>
       <button class="help-link" id="connect-agent" type="button" hidden aria-label="Connect an external agent" title="Connect an external agent: Grok, Dots, Muse or any MCP agent"><span class="nav-icon" aria-hidden="true">power</span></button>
-      <button class="help-link" id="help-open" type="button" aria-haspopup="dialog" aria-label="Support" title="Support">?</button>
     </div>
   </footer>
 </aside>
@@ -167,12 +165,29 @@
   <div id="app-nudge" hidden><span class="app-nudge-text"></span><a class="app-nudge-get" href="/download/mac">Download</a><button type="button" class="app-nudge-close" aria-label="Not now">✕</button></div>
 </div>
 <main id="main"></main>
+<button class="ask-fab" id="ask-fab" type="button" aria-controls="ask-panel" aria-expanded="false" aria-label="Assistant" hidden><span class="nav-icon" aria-hidden="true">auto_awesome</span></button>
+<section class="ask-panel" id="ask-panel" role="dialog" aria-labelledby="ask-title" hidden>
+  <header class="ask-head"><span class="nav-icon ask-mark" aria-hidden="true">auto_awesome</span><h2 id="ask-title">Assistant</h2>
+    <span class="ask-sees" data-ask-sees hidden><span class="nav-icon" aria-hidden="true">visibility</span><span data-ask-sees-name></span></span>
+    <button type="button" class="ask-ib" id="ask-add" aria-haspopup="menu" aria-expanded="false" aria-label="Add to this chat" title="Add to this chat"><span class="nav-icon" aria-hidden="true">add</span></button>
+    <a class="ask-full" href="#/assistant">Show chat</a>
+    <button type="button" class="ask-ib" data-ask-close aria-label="Close"><span class="nav-icon" aria-hidden="true">close</span></button></header>
+  <div class="ask-menu" data-ask-menu role="menu" hidden>
+    <button type="button" role="menuitem" id="ask-support">Tico support<span>Free</span></button>
+    <button type="button" role="menuitem" id="ask-manage">Tico team<span>Full management</span></button></div>
+  <div class="ask-members" data-ask-members hidden><span class="muted">In this chat</span>
+    <button type="button" class="ask-member" data-ask-ticket>Tico support</button>
+    <button type="button" class="ask-ib ask-drop" data-ask-drop aria-label="Remove Tico support from this chat"><span class="nav-icon" aria-hidden="true">close</span></button></div>
+  <div class="ask-thread" data-ask-thread role="log" tabindex="0"></div>
+  <div class="ask-form"></div>
+  <p class="err" data-ask-error role="alert" hidden></p>
+</section>
 <nav id="mobile-nav" aria-label="Mobile navigation">
   <button class="mobile-nav-item" id="mobile-org" type="button" data-nav="org" aria-label="Switch bot" aria-haspopup="menu" aria-expanded="false" aria-controls="org-fan"><span class="mobile-nav-icon" aria-hidden="true">account_tree</span><span class="mobile-nav-label">Team</span></button>
   <button class="mobile-nav-item" id="mobile-search" type="button" data-nav="search" aria-label="Search" aria-haspopup="dialog"><span class="mobile-nav-icon" aria-hidden="true">search</span><span class="mobile-nav-label">Search</span></button>
+  <button class="mobile-nav-item mobile-ask" id="mobile-ask" type="button" aria-controls="ask-panel" aria-expanded="false" aria-label="Assistant"><span class="mobile-ask-mark"><span class="mobile-nav-icon" aria-hidden="true">auto_awesome</span></span><span class="mobile-nav-label">Ask</span><span class="nav-badge" data-support-badge aria-hidden="true" hidden></span></button>
   <a class="mobile-nav-item" href="#/tasks" data-nav="tasks"><span class="mobile-nav-icon" aria-hidden="true">task_alt</span><span class="mobile-nav-label">Tasks</span></a>
   <a class="mobile-nav-item" href="#/updates" data-nav="updates"><span class="mobile-nav-icon" aria-hidden="true">dynamic_feed</span><span class="mobile-nav-label">Updates</span><span class="nav-badge" data-upd-badge hidden></span></a>
-  <button class="mobile-nav-item" id="mobile-support" type="button" aria-haspopup="dialog" aria-label="Support"><span class="mobile-nav-icon" aria-hidden="true">help</span><span class="mobile-nav-label">Support</span><span class="nav-badge" data-support-badge aria-hidden="true" hidden></span></button>
   <button class="mobile-nav-item" id="mobile-more" type="button" data-nav="more" aria-label="Open more navigation" aria-controls="side" aria-expanded="false"><span class="mobile-nav-icon" aria-hidden="true">menu</span><span class="mobile-nav-label">More</span></button>
 </nav>
 <div id="org-fan" class="org-fan" role="menu" aria-label="Switch bot" hidden><ul class="org-fan-list"></ul></div>
@@ -306,6 +321,7 @@
 <script src="/tico/ui/app/welcome.js"></script>
 <script src="/tico/ui/app/updates.js"></script>
 <script src="/tico/ui/app/updates-chat.js"></script>
+<script src="/tico/ui/app/ask-panel.js"></script>
 <script src="/tico/ui/app/goals.js"></script>
 <script src="/tico/ui/app/automations.js"></script>
 <script src="/tico/ui/app/automations-flow.js"></script>
