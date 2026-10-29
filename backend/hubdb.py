@@ -3842,17 +3842,26 @@ def steps_only(conn, row):
     return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
+def own_blocked_step(role, step):
+    """Whether a step is Tico's own Blocked column, where its holds land: the waiting step named Blocked on an
+    engineering type, which `task_blocked.ensure_steps` places there. A team's waiting step of that name on any other
+    board is its column for parked work."""
+    return role == "engineering" and step.get("name") == "Blocked" and step.get("status") == "waiting"
+
+
 def declared_hold(conn, actor, row, step, step_id):
-    """A move by hand into a waiting step declares a hold, which never reopens by itself: the owner's move to the
-    Blocked step, or a person's move into a waiting step the team made, its column for parked work."""
+    """A move by hand into a waiting step declares a hold, which never reopens by itself: the owner's move into a
+    waiting step, or a person's move into a waiting step the team made, its column for parked work. Tico's own Blocked
+    step is left out, since a hold Tico finds lands there without a person."""
     if step is None:
         return False
-    chosen = _one(conn, "SELECT name,status FROM task_steps WHERE id=?", (step_id,)) or {}
+    chosen = _one(conn, "SELECT s.name,s.status,ty.role FROM task_steps s JOIN task_types ty ON ty.id=s.type_id "
+                        "WHERE s.id=?", (step_id,)) or {}
     if step not in (step_id, chosen.get("name")):
         return False        # a hold put it elsewhere than the step it was moved to
     if actor == row.get("owner"):
         return True
-    return is_human(actor) and chosen.get("status") == "waiting" and chosen.get("name") != "Blocked"
+    return is_human(actor) and chosen.get("status") == "waiting" and not own_blocked_step(chosen.get("role"), chosen)
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *, skip_step_wake=()):

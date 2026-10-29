@@ -146,3 +146,40 @@ def test_a_person_parks_a_bots_own_ticket_in_a_teams_waiting_step_without_a_note
     with api.app.state.store.transaction() as c:
         row = H.task(c, parked['id'])
         assert (row['step_id'], row['status'], row['blocked_kind']) == (step, 'waiting', 'manual')
+
+
+def test_a_person_moving_a_bots_ticket_into_a_teams_blocked_step_on_a_content_board_holds_it_by_hand(api):
+    with api.app.state.store.transaction() as c:
+        typ = H.type_create(c, H.KEEPER, 'Content', [{'name': 'Drafting', 'status': 'doing'},
+                                                     {'name': 'Blocked', 'status': 'waiting'}])
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the guide', 'body': 'Write it.',
+                               'type': typ['id'], 'step': 'Drafting'})
+    blocker = post(api, 'tasks', {'owner': 'cmo', 'title': 'Ship the dependency', 'body': 'Build it.'})
+    with api.app.state.store.transaction() as c:
+        TR.relate(c, H.KEEPER, task['id'], blocker['id'], 'blocked_by')
+        step = next(s['id'] for s in H.type_get(c, typ['id'])['steps'] if s['name'] == 'Blocked')
+    # The blocker is open while the person parks the ticket: only the manual hold keeps it there once it finishes.
+    assert move(api, task, 'Blocked').status_code == 200
+    with api.app.state.store.transaction() as c:
+        row = H.task(c, task['id'])
+        assert (row['step_id'], row['status'], row['blocked_kind']) == (step, 'waiting', 'manual')
+        H.task_update(c, H.KEEPER, blocker['id'], status='done')
+        assert (H.task(c, task['id'])['step_id'], H.task(c, task['id'])['status']) == (step, 'waiting')
+        H.sweep_stranded(c, H.shift(H.now(), hours=H.STRANDED_GRACE_HOURS + 1))
+        assert (H.task(c, task['id'])['step_id'], H.task(c, task['id'])['status']) == (step, 'waiting')
+
+
+def test_an_upgrade_holds_a_bots_ticket_already_in_a_teams_blocked_step_on_a_content_board(api):
+    with api.app.state.store.transaction() as c:
+        typ = H.type_create(c, H.KEEPER, 'Content', [{'name': 'Drafting', 'status': 'doing'},
+                                                     {'name': 'Blocked', 'status': 'waiting'}])
+    task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Draft the guide', 'body': 'Write it.',
+                               'type': typ['id'], 'step': 'Drafting'})
+    with api.app.state.store.transaction() as c:
+        step = next(s['id'] for s in H.type_get(c, typ['id'])['steps'] if s['name'] == 'Blocked')
+        # Parked before the upgrade: in the team's Blocked step, with no hold recorded.
+        c.execute("UPDATE tasks SET status='waiting', step_id=? WHERE id=?", (step, task['id']))
+        H.migrate(c)
+        assert H.task(c, task['id'])['blocked_kind'] == 'manual'
+        H.sweep_stranded(c, H.shift(H.now(), hours=H.STRANDED_GRACE_HOURS + 1))
+        assert (H.task(c, task['id'])['step_id'], H.task(c, task['id'])['status']) == (step, 'waiting')

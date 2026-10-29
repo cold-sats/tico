@@ -59,12 +59,13 @@ def backfill(c):
     for row in H._rows(c.execute(
             "SELECT t.* FROM tasks t JOIN task_types ty ON ty.id=t.type_id LEFT JOIN task_steps s ON s.id=t.step_id "
             "WHERE t.status='waiting' AND t.blocked_since IS NULL AND coalesce(ty.role,'')<>? "
-            "AND (ty.role='engineering' OR s.status='waiting' AND s.name<>'Blocked')", (PRODUCT,))):
-        step = H._one(c, 'SELECT name,status FROM task_steps WHERE id=?', (row.get('step_id'),))
+            "AND (ty.role='engineering' OR s.status='waiting')", (PRODUCT,))):
+        step = H._one(c, 'SELECT s.name,s.status,ty.role FROM task_steps s JOIN task_types ty ON ty.id=s.type_id '
+                         'WHERE s.id=?', (row.get('step_id'),))
         H._set_status(c, H.KEEPER, row, 'waiting', note=row.get('note') or 'Waiting on a hold')
         previous = step['status'] if step and step['status'] != 'waiting' else 'open'
         c.execute('UPDATE tasks SET blocked_from_status=? WHERE id=?', (previous, row['id']))
-        if step and step['status'] == 'waiting' and step['name'] != 'Blocked':
+        if step and step['status'] == 'waiting' and not H.own_blocked_step(step['role'], step):
             c.execute("UPDATE tasks SET blocked_kind='manual',blocked_reason=? WHERE id=?",
                       (f"In {step['name']}"[:1000], row['id']))
 
