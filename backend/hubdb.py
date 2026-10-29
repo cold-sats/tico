@@ -742,8 +742,8 @@ CREATE TABLE IF NOT EXISTS compact_first(
 """
 
 # The Strategy Bot's merged asks (backend/strategy_merge.py): each original item in a person's Needs you that one
-# Strategy Bot item stands for, and what became of it. An install that has the old table gets it renamed before the
-# migrations run (`_rename_strategy_tables`), so this creates the table only on a new install.
+# Strategy Bot item stands for, and what became of it. An install that has the old table gets the table and its rows
+# before the migrations run (`_move_strategy_rows`), so this creates the table only on a new install.
 STRATEGY_MERGES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategy_merges (
   merged_into TEXT NOT NULL, original TEXT NOT NULL, person TEXT NOT NULL, asker TEXT NOT NULL,
@@ -756,7 +756,7 @@ CREATE INDEX IF NOT EXISTS strategy_merges_person ON strategy_merges(person, cre
 
 # The Strategy Bot log (backend/strategy_acts.py): each decision it made alone at level 3, or each thing it proposed
 # because it stays the owner's, and its Undo. Every task event one decision (or its Undo) wrote carries its action id.
-# As for STRATEGY_MERGES_SCHEMA, an install with the old table gets it renamed first.
+# As for STRATEGY_MERGES_SCHEMA, an install with the old table gets the table and its rows first.
 STRATEGY_ACTIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS strategy_actions (
   id TEXT PRIMARY KEY, created TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
@@ -1105,37 +1105,42 @@ def ensure_market_reads(conn):
         conn.execute("RELEASE market_read_indexes")
 
 
-def _rename_strategy_tables(conn):
-    """Move each table the Strategy Bot had under its old name to its new one, before the migrations below create the
-    new name empty. The old table is looked for again under the write lock, so two servers starting together move it
-    once. When both names are there, an older release reopened the file and wrote to the old one since, so its rows
-    are the newer: they are copied in over any of the same key, and the old table goes, so the log and merges read
-    every row as it last was. The indexes take the new names on the table."""
-    def tables():
-        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    for old, new, schema, old_indexes in (
-            ("ceo_merges", "strategy_merges", STRATEGY_MERGES_SCHEMA, ("ceo_merges_original", "ceo_merges_person")),
-            ("ceo_actions", "strategy_actions", STRATEGY_ACTIONS_SCHEMA, ("ceo_actions_created",))):
-        if old not in tables():
+# The Strategy Bot's tables, each under the name an older release gives it. That release, reopened on the file after a
+# rollback, counts the migrations that make its tables as run, so for one release the old tables stay here, empty.
+STRATEGY_TABLES = (("ceo_merges", "strategy_merges", STRATEGY_MERGES_SCHEMA),
+                   ("ceo_actions", "strategy_actions", STRATEGY_ACTIONS_SCHEMA))
+
+
+def _move_strategy_rows(conn):
+    """Move the Strategy Bot's rows from each table under its old name to the one under its new name, before the
+    migrations run. Rows under the old name were written by an older release since the last move, so they are the
+    newer: they replace any of the same key, and an Undo done then stays done. The old table stays, empty. What is
+    left to move is looked at again under the write lock, so two servers starting together move the rows once."""
+    def pending(old, new):
+        found = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return old in found and (new not in found or conn.execute(f"SELECT 1 FROM {old} LIMIT 1").fetchone())
+    for old, new, schema in STRATEGY_TABLES:
+        if not pending(old, new):
             continue
         conn.execute("BEGIN IMMEDIATE")
         try:
-            found = tables()
-            if old in found and new in found:
+            if pending(old, new):
+                _apply(conn, schema)
                 kept = {row[1] for row in conn.execute(f"PRAGMA table_info({new})")}
                 columns = ",".join(row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept)
                 conn.execute(f"INSERT OR REPLACE INTO {new}({columns}) SELECT {columns} FROM {old}")
-                conn.execute(f"DROP TABLE {old}")
-            elif old in found:
-                conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
-            for index in old_indexes:
-                conn.execute(f"DROP INDEX IF EXISTS {index}")
-            if old in found:
-                _apply(conn, schema)        # its CREATE TABLE is a no-op now; its indexes take the new names
+                conn.execute(f"DELETE FROM {old}")
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
+
+
+def _keep_old_strategy_tables(conn):
+    """Make each old-named table a new install never had, with the columns of the new one (STRATEGY_TABLES)."""
+    for old, new, _ in STRATEGY_TABLES:
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (new,)).fetchone()[0]
+        conn.execute(re.sub(r'^CREATE TABLE (IF NOT EXISTS )?("?)\w+\2', f"CREATE TABLE IF NOT EXISTS {old}", sql))
 
 
 def migrate(conn, adopt_legacy=False):
@@ -1148,7 +1153,7 @@ def migrate(conn, adopt_legacy=False):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == 0 and not adopt_legacy:
         _refuse_foreign(conn)
-    _rename_strategy_tables(conn)
+    _move_strategy_rows(conn)
     from .flight import begin
     for i in range(version, len(MIGRATIONS)):
         done = begin(conn)
@@ -1169,6 +1174,7 @@ def migrate(conn, adopt_legacy=False):
             raise
         finally:
             done()
+    _keep_old_strategy_tables(conn)
     ensure_market_reads(conn)
     # Cloud added explicit room scopes after the original local schema. Keep old local
     # databases usable without relying on SQLite's unsupported ADD COLUMN IF NOT EXISTS.

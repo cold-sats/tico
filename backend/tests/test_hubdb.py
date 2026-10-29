@@ -1263,11 +1263,12 @@ OLD_STRATEGY_TABLES = {
 
 
 class StrategyTableNames(HubCase):
-    """An install from before the rename keeps its Strategy Bot rows: `_rename_strategy_tables` renames the tables
-    before the migrations would create empty ones under the new names."""
+    """An install from before the rename keeps its Strategy Bot rows: `_move_strategy_rows` moves them to the new
+    tables before the migrations run, and the old tables stay, empty, for an older release reopened after a rollback."""
 
     def back_to_old_names(self, new):
         old, indexes = OLD_STRATEGY_TABLES[new]
+        self.conn.execute(f"DROP TABLE {old}")      # the empty one a new install keeps for an older release
         for index in indexes:
             self.conn.execute(f"DROP INDEX {index}")
         self.conn.execute(f"ALTER TABLE {new} RENAME TO {old}")
@@ -1289,15 +1290,12 @@ class StrategyTableNames(HubCase):
         self.conn.execute(f"PRAGMA user_version={first}")
         self.conn.commit()
         H.migrate(self.conn)
-        tables = self.names()
-        self.assertLessEqual({"strategy_actions", "strategy_merges"}, tables)
-        self.assertFalse({"ceo_actions", "ceo_merges"} & tables)
         self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM strategy_actions")], ["a1"])
         self.assertEqual([r[0] for r in self.conn.execute("SELECT merged_into FROM strategy_merges")], ["t1"])
-        indexes = self.names("index")
+        for old in ("ceo_actions", "ceo_merges"):
+            self.assertEqual(self.conn.execute(f"SELECT count(*) FROM {old}").fetchone()[0], 0)
         self.assertLessEqual({"strategy_actions_created", "strategy_merges_original", "strategy_merges_person"},
-                             indexes)
-        self.assertFalse({"ceo_actions_created", "ceo_merges_original", "ceo_merges_person"} & indexes)
+                             self.names("index"))
         self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], len(H.MIGRATIONS))
 
     def test_a_second_start_changes_nothing(self):
@@ -1310,7 +1308,7 @@ class StrategyTableNames(HubCase):
         self.assertEqual(self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id").fetchall(), before)
         self.assertEqual(before[0][0], "a1")
 
-    def test_when_both_names_exist_the_old_rows_join_the_new_table_and_the_old_one_goes(self):
+    def test_when_both_names_exist_the_old_rows_join_the_new_table_and_the_old_one_empties(self):
         """An older release reopened the file and wrote to the old table since: its rows join the new one, and where
         both have the same id the old row, the later, wins (an Undo done then stays done)."""
         self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
@@ -1326,4 +1324,20 @@ class StrategyTableNames(HubCase):
         H.migrate(self.conn)
         self.assertEqual([tuple(r) for r in self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id")],
                          [("a1", "done"), ("new", "undone")])
-        self.assertNotIn("ceo_actions", self.names())
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM ceo_actions").fetchone()[0], 0)
+
+    def test_an_older_release_reopened_on_a_new_install_finds_its_tables_and_its_rows_come_back(self):
+        """A file this release made has the old-named tables too, so an older release, whose migrations count as run,
+        writes its log and merges there after a rollback; the next start of this release moves them."""
+        for old, new, _ in H.STRATEGY_TABLES:
+            columns = [r[1] for r in self.conn.execute(f"PRAGMA table_info({new})")]
+            self.assertEqual([r[1] for r in self.conn.execute(f"PRAGMA table_info({old})")], columns)
+        self.conn.execute("INSERT INTO ceo_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
+                          (H.now(), "bot:goal-manager"))
+        self.conn.execute("INSERT INTO ceo_merges(merged_into,original,person,asker,created) "
+                          "VALUES('t1','t2','human:ana','bot:coo',?)", (H.now(),))
+        self.conn.commit()
+        H.migrate(self.conn)
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM strategy_actions")], ["a1"])
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT merged_into FROM strategy_merges")], ["t1"])
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM ceo_actions").fetchone()[0], 0)
