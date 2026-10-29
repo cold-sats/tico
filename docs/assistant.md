@@ -7,14 +7,22 @@ middle of the tab bar opens it as a sheet. The panel names the page it sees, and
 page, so "this" and "here" mean what you are looking at. **Show chat** in the panel opens it
 as a page of its own (`#/assistant`): the assistant's name, then the same thread and composer as a bot's chat, with a
 few things to ask while it is empty. The **Assistant** tab, first on your own page (`#/person/<you>`), opens the same
-page, and so does **Ask the Assistant…** at the bottom of search (⌘K), with your words in the box. An Assistant's room
+page. An Assistant's room
 takes text only, so the composer has no attach button (the owner's CEO Bot chat takes files: [CEO Bot](ceo-bot.md)). There is no BotOps or Assistant row in the rail: you ask the Assistant, and it hands BotOps whatever needs BotOps
 (below). BotOps' own chat is still at `#/bot/botops`. These built-ins stay out of the team chart and Goals tree; Settings > Bots still manages all four.
 It works on a phone too.
 
 The **+** in the panel loops in help: **Tico support** (free) or **Tico team** (full management of your company).
-Either opens a support request over the page; an open request shows in the panel as a member of the chat, with its new
-replies, until its **×** takes it out (the request itself stays in Support).
+Either opens Support over the page for a request. While a request is open it is a member of the chat: its messages flow
+in with the Assistant's, by time, as green bubbles (yours on the right), and a reply seen there is read. Tap
+**Tico support** at the top to see only that conversation; the box then writes to support, and another tap shows the
+whole chat again. Its **×** takes it out of the panel (the request itself stays in Support).
+
+What waits on you from elsewhere comes at the end of the chat as cards: a Confirm card BotOps (or another bot) left in
+its own chat, with its Confirm and Cancel, and up to three bots' questions to you from Needs you. A question with two to
+six picks is answered with a tap, any other with a line of words (a question with several picks at once links to its
+task). You can also just tell the Assistant: "tell BotOps yes" answers BotOps' open question in your words (`hub
+question answer --on-behalf-of turn`, below). A Confirm card always needs your own tap.
 
 ## BotOps through the Assistant
 

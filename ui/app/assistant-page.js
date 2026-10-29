@@ -13,15 +13,7 @@
 // (/v2/uploads/assistant/messages). Their own Assistant chats from before stay readable under "Earlier chats".
 // "What it has learned" at the top opens ui/app/learned.js.
 const ASSISTANT_HINTS = ["What's waiting on me?", 'Find the launch plan', 'How do I add a bot?'];
-let ASSISTANT_PILL = null, ASSISTANT_DRAFT = '', ASSISTANT_LOAD = 0;
-// "Ask the Assistant…" in search: the words go into the box, now if the page is open, else when it opens.
-function assistantPrefill(text) {
-  const box = ASSISTANT_PILL?.el?.isConnected ? pq(ASSISTANT_PILL, '.p-text') : null;
-  if (!box) { ASSISTANT_DRAFT = text; return; }
-  box.value = text;
-  box.dispatchEvent(new Event('input'));
-  box.focus();
-}
+let ASSISTANT_PILL = null, ASSISTANT_LOAD = 0;
 // `files`: the server says this chat is the CEO Bot's (GET /v2/assistant `ceo`), the only one whose uploads it takes.
 function assistantPill(files) {
   const slug = myChatBot();
@@ -73,7 +65,6 @@ async function pageAssistant() {
   const files = !!d.ceo && d.bot === slug, P = assistantPill(files), thread = $('#conv-thread');
   $('#chat-composer').append(P.el);
   if (files) chatDropZone($('#pane-chat'), P);
-  if (ASSISTANT_DRAFT) { assistantPrefill(ASSISTANT_DRAFT); ASSISTANT_DRAFT = ''; }
   bindChatSwipe(thread);
   thread.addEventListener('click', ev => { const b = ev.target.closest('[data-hint]'); if (b) assistantSend(P, b.dataset.hint); });
   void v2ChatLoad(slug, {conv: {id: d.room_id}, messages: d.messages, execution: d.execution, nextBefore: d.next_before,

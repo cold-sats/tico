@@ -41,6 +41,23 @@
 .ask-members[hidden]{display:none}
 .ask-member{border:0;background:transparent;color:var(--ink);font:inherit;font-weight:600;cursor:pointer;padding:2px 4px;border-radius:6px}
 .ask-member:hover{background:var(--surface2)}
+.ask-member[aria-pressed="true"]{background:var(--ask-green);color:#fff}
+/* Tico support in the chat: green bubbles, the person's on the right, support's on the left. */
+.ask-panel{--ask-green:#15803d}
+.ask-sup{max-width:85%;margin:4px 0;display:flex;flex-direction:column;gap:2px}
+.ask-sup.you{align-self:flex-end;align-items:flex-end}
+.ask-sup.them{align-self:flex-start}
+.ask-sup-who{font-size:var(--t-xs);color:var(--muted)}
+.ask-sup-body{padding:7px 12px;border-radius:18px;white-space:pre-wrap;overflow-wrap:anywhere}
+.ask-sup.you .ask-sup-body{background:var(--ask-green);color:#fff;border-bottom-right-radius:6px}
+.ask-sup.them .ask-sup-body{background:color-mix(in srgb,var(--ask-green) 20%,var(--surface));color:var(--ink);border-bottom-left-radius:6px}
+/* What waits on the person: a bot's question, answered here. */
+.ask-card{margin:8px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface2);display:flex;flex-direction:column;gap:6px}
+.ask-card-who{font-size:var(--t-xs);font-weight:600;color:var(--muted)}
+.ask-card-q{overflow-wrap:anywhere}
+.ask-picks{display:flex;flex-wrap:wrap;gap:6px}
+.ask-reply{display:flex;gap:6px}
+.ask-reply input{flex:1;min-width:0}
 .ask-drop{margin-left:auto;width:28px;height:28px;flex-basis:28px}
 .ask-drop{font-size:13px}
 .ask-thread{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;padding:8px 12px;display:flex;flex-direction:column}

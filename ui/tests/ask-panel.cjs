@@ -1,14 +1,16 @@
 // Ask (ui/app/ask-panel.js): the person's chat bot on every page. On a computer the button at the bottom left (or ⌘J)
 // opens a panel that names the page it sees and sends it with the message; on a phone the Ask tab opens a sheet and
-// closes it again. The + loops in Tico support or the Tico team (Support, ui/support.js), and an open request shows as
-// in this chat until its × takes it out. No BotOps or Assistant rows in the rail. Fixtures only.
+// closes it again. The + loops in Tico support or the Tico team (Support, ui/support.js); an open request's messages
+// flow into the chat as green bubbles, its name shows only them (the box then writes to support), and its × takes it
+// out. A Confirm card BotOps left in its own chat and a bot's question come at the end as cards, answered here. No
+// BotOps or Assistant rows in the rail. Fixtures only.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 
-const now = new Date().toISOString();
+const now = new Date().toISOString(), ago = min => new Date(Date.now() - min * 60000).toISOString();
 const msg = (id, from, body) => ({id, from_actor: from, body, refs: {}, created: now, kind: 'say'});
 
 async function open(browser, viewport, state) {
@@ -30,7 +32,12 @@ async function open(browser, viewport, state) {
     if (p === '/api/v2/tasks') return json({tasks: []});
     if (p === '/api/v2/conversations/room1/snapshot') return json({messages: state.messages, execution: null, has_more: false, next_before: null});
     if (p === '/api/v2/assistant' && method === 'GET') return json({available: true, state: 'active', bot: 'coo', name: 'Assistant',
-      can_turn_on: false, room_id: 'room1', messages: state.messages, has_more: false, next_before: null, execution: null, actions: {}, pending: []});
+      can_turn_on: false, room_id: 'room1', messages: state.messages, has_more: false, next_before: null, execution: null, actions: {},
+      pending: state.card?.status === 'pending' ? [state.card] : []});
+    if (p === '/api/v2/assistant/actions/act9' && method === 'GET') return json({action: state.card});
+    if (p === '/api/v2/assistant/actions/act9/confirm') { state.decided.push('act9'); state.card.status = 'done'; return json({action: state.card}); }
+    if (p === '/api/v2/needs-you') return json({actor: 'human:ben', count: state.needs.length, version: 'v' + state.needs.length, items: state.needs});
+    if (p === '/api/v2/messages/m9/answer') { state.answers.push(JSON.parse(route.request().postData()).text); state.needs = []; return json({ok: true}); }
     if (p === '/api/v2/assistant/messages') {
       const body = JSON.parse(route.request().postData());
       state.sent.push(body);
@@ -39,7 +46,14 @@ async function open(browser, viewport, state) {
       state.messages.push(user, bot);
       return json({message: user, reply: bot, fast: true});
     }
-    if (p === '/api/v2/support/tickets') return json({enabled: true, tickets: state.tickets, unread: state.tickets.filter(t => t.unread).length});
+    const ticket = p.match(/^\/api\/v2\/support\/tickets\/([^/]+)\/(messages|read)$/), listing = () => json({enabled: true, tickets: state.tickets, unread: state.tickets.filter(t => t.unread).length});
+    if (ticket) {
+      const t = state.tickets.find(x => x.id === ticket[1]);
+      if (ticket[2] === 'read') { state.read.push(t.id); t.unread = false; }
+      else t.messages.push({body: JSON.parse(route.request().postData()).message, from: 'you', created: new Date().toISOString()});
+      return json(t);
+    }
+    if (p === '/api/v2/support/tickets' || p === '/api/v2/support/tickets/refresh') return listing();
     if (p === '/api/v2/support/compose') return json({email: 'ben@example.test', diagnostics: {}});
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json(unrouted(p));
@@ -53,7 +67,12 @@ async function open(browser, viewport, state) {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
     // A computer.
-    let state = {messages: [], sent: [], tickets: [{id: 'sup_1', status: 'answered', unread: true, title: 'Board will not load', messages: []}]};
+    let state = {messages: [msg('a1', 'human:ben', 'Where is the launch plan?'), msg('a2', 'bot:coo', 'In Docs.')], sent: [], read: [], decided: [], answers: [],
+      tickets: [{id: 'sup_1', status: 'answered', unread: true, title: 'Board will not load', message: 'Board will not load', created: ago(30),
+                 messages: [{body: 'Try a hard reload.', from: 'staff', created: ago(20)}]}],
+      card: {id: 'act9', summary: 'Add Cara as an admin', method: 'POST', path: '/api/v2/people', status: 'pending', result: null,
+             description: 'Add Cara as an admin', diff: [], body: {}, proposed_via: 'botops'},
+      needs: [{kind: 'ask', id: 'm9', created: now, ask: {id: 'm9', from_actor: 'bot:botops', to_actor: 'human:ben', body: 'Which inbox should the bot answer?', created: now, refs: {}}}]};
     let {page, errors} = await open(browser, {width: 1280, height: 900}, state);
     assert.equal(await page.locator('#nav-assistant, #nav-botops, #help-open, #mobile-support').count(), 0, 'no BotOps, Assistant or ? in the rail');
     const fab = page.locator('#ask-fab'), panel = page.locator('#ask-panel');
@@ -66,11 +85,41 @@ async function open(browser, viewport, state) {
     await box.waitFor();
     await page.waitForFunction(() => document.activeElement?.matches('#ask-panel .p-text'));
     assert.equal(await panel.locator('[data-ask-sees-name]').innerText(), await page.locator('#main h1, #main h2').first().innerText(), 'sees the page');
-    // An open request is in this chat, with its new reply; its × takes it out.
-    const members = panel.locator('[data-ask-members]');
-    assert.match(await members.innerText(), /Tico support · 1 new/);
+    // An open request is in this chat: support's messages flow in as green bubbles, after the older chat, and are read.
+    const members = panel.locator('[data-ask-members]'), thread = panel.locator('[data-ask-thread]');
+    await members.waitFor();
+    await panel.locator('.ask-sup.them', {hasText: 'Try a hard reload.'}).waitFor();
+    assert.equal(await panel.locator('.ask-sup.you .ask-sup-body').first().innerText(), 'Board will not load');
+    await page.waitForFunction(() => document.querySelector('#ask-panel [data-ask-ticket]')?.textContent === 'Tico support');
+    assert.deepEqual(state.read, ['sup_1'], 'a reply seen here is read');
+    // What waits on Ben from elsewhere: BotOps' Confirm card, confirmed here, and a bot's question, answered here.
+    const card = thread.locator('[data-action-host="act9"]');
+    await card.getByRole('button', {name: 'Confirm'}).click();
+    await page.waitForFunction(() => !document.querySelector('#ask-panel [data-action-host="act9"] [data-confirm]'));
+    assert.deepEqual(state.decided, ['act9']);
+    const question = thread.locator('.ask-card', {hasText: 'Which inbox should the bot answer?'});
+    assert.match(await question.innerText(), /BotOps asks/);
+    await question.getByRole('textbox', {name: 'Answer BotOps'}).fill('support@acme.test');
+    await question.getByRole('button', {name: 'Send'}).click();
+    await question.waitFor({state: 'detached'});
+    assert.deepEqual(state.answers, ['support@acme.test']);
+    // Its name shows only support, and the box then writes to it; again shows the whole chat.
+    const chip = panel.locator('[data-ask-ticket]');
+    await chip.click();
+    assert.equal(await chip.getAttribute('aria-pressed'), 'true');
+    assert.equal(await thread.locator('.bubble').count(), 0, 'only Tico support');
+    assert.equal(await box.getAttribute('placeholder'), 'Message Tico support');
+    await box.fill('Still blank after a reload');
+    await box.press('Enter');
+    await panel.locator('.ask-sup.you', {hasText: 'Still blank after a reload'}).waitFor();
+    assert.equal(state.sent.length, 0, 'not sent to the Assistant');
+    await chip.click();
+    assert.equal(await chip.getAttribute('aria-pressed'), 'false');
+    await thread.locator('.bubble', {hasText: 'In Docs.'}).waitFor();
+    // Its × takes it out of the chat.
     await panel.getByRole('button', {name: 'Remove Tico support from this chat'}).click();
     assert.equal(await members.isHidden(), true);
+    assert.equal(await panel.locator('.ask-sup').count(), 0);
     // A message goes with the page it was asked from; a link to Support in the reply opens Support over the page.
     await box.fill('The board will not load');
     await box.press('Enter');
@@ -102,7 +151,7 @@ async function open(browser, viewport, state) {
     await page.close();
 
     // A phone: the Ask tab opens a sheet over the page, above the tab bar, and closes it.
-    state = {messages: [], sent: [], tickets: []};
+    state = {messages: [], sent: [], read: [], decided: [], answers: [], tickets: [], card: null, needs: []};
     ({page, errors} = await open(browser, {width: 390, height: 844}, state));
     const tab = page.locator('#mobile-ask');
     assert.equal(await page.locator('#mobile-nav .mobile-nav-label').nth(2).innerText(), 'Ask');

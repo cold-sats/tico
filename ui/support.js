@@ -600,6 +600,26 @@
   }
   window.supportState = () => ({enabled: state.enabled, unread: state.unread,
                                  open: state.tickets.filter(t => !ended(t)).map(t => ({id: t.id, unread: !!t.unread}))});
+  // Ask's panel (ui/app/ask-panel.js) shows an open request's messages in its chat, writes to it and reads its replies.
+  window.supportTicket = id => state.tickets.find(t => t.id === id) || null;
+  window.supportReply = async (id, message) => {
+    const next = await call('POST', `/support/tickets/${encodeURIComponent(id)}/messages`, {message, diagnostics: ''});
+    stateRevision++;
+    state.tickets = [next, ...state.tickets.filter(t => t.id !== next.id)];
+    mark(); if (isOpen()) render(); schedule();
+    return next;
+  };
+  window.supportRead = async id => {
+    const revision = stateRevision;
+    try {
+      const next = await call('POST', `/support/tickets/${encodeURIComponent(id)}/read`);
+      if (revision !== stateRevision) return;
+      stateRevision++;
+      state.tickets = state.tickets.map(x => x.id === next.id ? next : x);
+      state.unread = state.tickets.reduce((n, x) => n + (x.unread || 0), 0);
+      toasted = state.unread; mark();
+    } catch (_) { /* unread until it is seen again */ }
+  };
   window.supportStart = (message, kind = 'support') => {
     starting = {message, kind};
     void open({fresh: true});

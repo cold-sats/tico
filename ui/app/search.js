@@ -31,36 +31,28 @@ function searchRank(entry, q) {
   if (entry.temp && 'temporary'.startsWith(q) && q.length >= 3) return 3;   // "temp" finds the flagged bots
   return -1;
 }
-// "Ask the Assistant..." closes every list: the words typed go to your private Assistant chat, prefilled
-// (ui/app/assistant-page.js), so anything the names above do not answer is one Enter away.
-function searchAsk(q) {
-  return S.me?.id ? [{kind: 'assistant', label: 'Ask the Assistant…', alias: 'assistant', ask: q.trim(), icon: 'auto_awesome',
-    href: ASSISTANT}] : [];
-}
 function searchResults(q) {
-  const raw = q;
   q = q.trim().toLowerCase();
   const all = searchEntries();
-  if (!q) return [...all.filter(e => e.kind === 'page'), ...searchAsk(raw)];
-  return [...all.map(e => [searchRank(e, q), e]).filter(([r]) => r >= 0)
-    .sort((a, b) => a[0] - b[0] || a[1].label.localeCompare(b[1].label)).slice(0, 14).map(([, e]) => e), ...searchAsk(raw)];
+  if (!q) return all.filter(e => e.kind === 'page');
+  return all.map(e => [searchRank(e, q), e]).filter(([r]) => r >= 0)
+    .sort((a, b) => a[0] - b[0] || a[1].label.localeCompare(b[1].label)).slice(0, 14).map(([, e]) => e);
 }
 let SEARCH_SEL = 0;
 function searchRender() {
   const list = $('#search-results'), q = $('#search-input').value;
   const rows = searchResults(q);
   SEARCH_SEL = Math.min(SEARCH_SEL, Math.max(0, rows.length - 1));
-  list.innerHTML = rows.length ? rows.map((e, i) => `<li role="option" data-href="${esc(e.href)}"${e.kind === 'assistant' ? ` data-ask="${esc(e.ask)}"` : ''} aria-selected="${i === SEARCH_SEL}">${
+  list.innerHTML = rows.length ? rows.map((e, i) => `<li role="option" data-href="${esc(e.href)}" aria-selected="${i === SEARCH_SEL}">${
       e.avatar || `<span class="nav-icon" aria-hidden="true">${esc(e.icon)}</span>`}<span>${e.html || esc(e.label)}</span><span class="search-kind">${
       e.kind === 'page' ? 'page' : e.kind === 'bot' ? 'bot' : esc(e.alias || 'human')}</span></li>`).join('')
     : `<li class="search-empty">Nothing named “${esc(q.trim())}”.</li>`;
   list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
 }
-function searchGo(href, ask) {
+function searchGo(href) {
   if (!href) return;
   $('#search-modal').close();
   setDrawer(false);
-  if (ask !== undefined) assistantPrefill(ask);
   location.hash = href;
 }
 function searchOpen() {
