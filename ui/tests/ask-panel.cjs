@@ -72,7 +72,9 @@ async function open(browser, viewport, state) {
                  messages: [{body: 'Try a hard reload.', from: 'staff', created: ago(20)}]}],
       card: {id: 'act9', summary: 'Add Cara as an admin', method: 'POST', path: '/api/v2/people', status: 'pending', result: null,
              description: 'Add Cara as an admin', diff: [], body: {}, proposed_via: 'botops'},
-      needs: [{kind: 'ask', id: 'm9', created: now, ask: {id: 'm9', from_actor: 'bot:botops', to_actor: 'human:ben', body: 'Which inbox should the bot answer?', created: now, refs: {}}}]};
+      needs: [{kind: 'ask', id: 'm9', created: now, ask: {id: 'm9', from_actor: 'bot:botops', to_actor: 'human:ben', body: 'Which inbox should the bot answer?', created: now, refs: {}}},
+              {kind: 'question', id: 't4', created: now, ask: {id: 'q4', from_actor: 'bot:coo', to_actor: 'human:ben', body: 'Two launch questions', created: now,
+               refs: {questions: [{question: 'Launch day?', options: [{label: 'Mon'}, {label: 'Tue'}]}, {question: 'Price?', options: [{label: '$9'}, {label: '$19'}]}]}}}]};
     let {page, errors} = await open(browser, {width: 1280, height: 900}, state);
     assert.equal(await page.locator('#nav-assistant, #nav-botops, #help-open, #mobile-support').count(), 0, 'no BotOps, Assistant or ? in the rail');
     const fab = page.locator('#ask-fab'), panel = page.locator('#ask-panel');
@@ -97,6 +99,10 @@ async function open(browser, viewport, state) {
     await card.getByRole('button', {name: 'Confirm'}).click();
     await page.waitForFunction(() => !document.querySelector('#ask-panel [data-action-host="act9"] [data-confirm]'));
     assert.deepEqual(state.decided, ['act9']);
+    // Several structured questions are answered on the task, not with a line of words.
+    const several = thread.locator('.ask-card[data-ask-q="t4"]');
+    assert.equal(await several.locator('a[href="#/task/t4"]').count(), 1);
+    assert.equal(await several.locator('form').count(), 0);
     const question = thread.locator('.ask-card', {hasText: 'Which inbox should the bot answer?'});
     assert.match(await question.innerText(), /BotOps asks/);
     await question.getByRole('textbox', {name: 'Answer BotOps'}).fill('support@acme.test');

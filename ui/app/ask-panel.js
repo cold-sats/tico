@@ -139,7 +139,7 @@ function askSupportRows(t) {
   return [bubble(t.message, false, t.created), ...(t.messages || []).map(m => bubble(m.body, m.from === 'staff', m.created))];
 }
 // Bots' questions to this person (Needs you), the first few: one pick of two to six answered with a tap, any other
-// question with a line of words; several picks at once open the task.
+// question with a line of words; several picks at once, or several questions, open the task.
 function askQuestions() {
   const me = myActor();
   return (S.v2?.needs || []).filter(it => ['question', 'ask'].includes(it.kind) && it.ask?.to_actor === me
@@ -148,7 +148,8 @@ function askQuestions() {
 function askQuestionHTML(it) {
   const q = it.kind === 'question' ? qcardQuestion(it) : null, who = qcardAsker(it.ask.from_actor);
   const body = `<div class="ask-card-who">${esc(who)} asks</div><div class="ask-card-q">${esc(plainActors(q ? q.question : it.ask.body))}</div>`;
-  const answer = q?.multi ? `<a href="#/task/${encodeURIComponent(it.id)}">Answer</a>`
+  const structured = it.kind === 'question' && (it.ask.refs?.questions || []).length;
+  const answer = q?.multi || (structured && !q) ? `<a href="#/task/${encodeURIComponent(it.id)}">Answer</a>`
     : q ? `<div class="ask-picks">${q.options.map((o, i) => `<button type="button" class="ghost" data-ask-pick="${i}">${esc(o.label)}</button>`).join('')}</div>`
     : `<form class="ask-reply" data-ask-reply><input name="text" maxlength="4000" autocomplete="off" placeholder="Answer ${esc(who)}" aria-label="Answer ${esc(who)}"><button type="submit" class="ghost">Send</button></form>`;
   return `<div class="ask-card" data-ask-q="${esc(it.id)}">${body}${answer}</div>`;
@@ -204,7 +205,7 @@ async function askLoad(chat) {
     const html = rows.join('') || (only ? '<p class="muted">No messages yet.</p>' : `<div class="ask-empty">${ASSISTANT_HINTS.map(h =>
       `<button class="ghost" type="button" data-ask-hint="${esc(h)}">${esc(h)}</button>`).join('')}</div>`);
     // A reply from support seen here is read, as in Support itself.
-    const seen = ticket?.unread && chat.open && document.hasFocus() ? ticket.id + ':' + (ticket.messages || []).length : '';
+    const seen = ticket?.unread && chat.open && !$('#ask-panel').hidden && document.hasFocus() ? ticket.id + ':' + (ticket.messages || []).length : '';
     if (seen && seen !== readFor) { readFor = seen; void window.supportRead?.(ticket.id); }
     if (html === rendered) return;
     stickScroll(thread).update(() => {
