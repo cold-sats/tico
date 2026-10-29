@@ -138,9 +138,12 @@ def view(c, row, who=None, detail=False, chart=None, jobs=None):
         flow["steps"] = _with_questions(flow["steps"])
     last = c.execute("SELECT id, status, started, finished FROM automation_runs WHERE automation_id=? "
                      "ORDER BY started DESC LIMIT 1", (row["id"],)).fetchone()
+    from . import redesign_migration
     out = {"id": row["id"], **flow, "version": row["version"], "created": row["created"],
            "created_by": row["created_by"], "updated": row["updated"], "last_run": dict(last) if last else None,
-           "kind": AO.kind_of(flow)}
+           "kind": AO.kind_of(flow),
+           # Wake rules that name a step their type does not have: they never fire until one is changed.
+           "problems": redesign_migration.wake_problems(c, row["id"], flow) if flow.get("wakes") else []}
     if flow["trigger"]["type"] == "schedule":
         out["next_run"] = row["next_due"] or _iso(_due(flow["trigger"], datetime.now(timezone.utc)))
     if flow.get("enabled") is False:
@@ -443,17 +446,18 @@ def _owner_known(c, owner):
     return ident in (views.roster(c).get("org_groups") or {})
 
 
-def _checked(c, flow, settings=None, access=True, saved=None):
+def _checked(c, flow, settings=None, access=True, saved=None, aid=None, wake_steps=True):
     """The flow as saved: its shape, its owner and group on the team, and (with `access`) what it reads is its
     owner's: the inbox it hears and the Assistant it runs on. `saved` is the flow a change is made to: its steps' models
-    are checked only where the change adds or alters them."""
+    are checked only where the change adds or alters them. `aid` is the automation it is saved as, and `wake_steps`
+    False leaves a converted wake rule's step names unchecked (the redesign's own writes move rules as they were)."""
     try:
         flow = F.check(flow)
     except F.Invalid as exc:
         raise Problem("invalid", str(exc), 422)
     if flow.get("wakes"):   # a converted "What wakes" automation: only edits its wake rules can carry out
         from .redesign_migration import check_wakes
-        check_wakes(flow)
+        check_wakes(flow, c if wake_steps else None, saved, aid)
     _checked_run_models(flow, _stamps(saved) if saved else frozenset())
     for ref in (flow["owner"], flow.get("group")):
         if ref and not _owner_known(c, ref):
@@ -1849,7 +1853,7 @@ def install(app, store, auth, mutate):
             merged = {**before_cap, **changes}
             flow = _checked(c, merged, store.settings,
                             access=any(merged.get(k) != before.get(k) for k in ("trigger", "steps", "owner")),
-                            saved=before)
+                            saved=before, aid=aid)
             if before.get("readonly"):
                 # Tico's own rules, shown read-only: the top of the org may pause or resume it, and nothing else.
                 if who.role != "owner" or set(changes) - {"enabled"}:
@@ -2012,7 +2016,7 @@ def install(app, store, auth, mutate):
             draft = pending and not before["enabled"] and not c.execute(
                 "SELECT 1 FROM automation_versions WHERE automation_id=? AND status='active'", (aid,)).fetchone()
             flow = _checked(c, {**{k: v for k, v in before.items() if k not in VERSIONED}, **json.loads(old["flow_json"]),
-                                **({"enabled": True} if draft else {})}, store.settings, saved=before)
+                                **({"enabled": True} if draft else {})}, store.settings, saved=before, aid=aid)
             _require(c, who, flow, "restore this version")
             # A draft's row already holds the steps its pending version turns on, so nothing of it counts as kept.
             blocked = _stamp_blocked(c, auth, who, flow, before if _approved(c, row) else None)

@@ -475,7 +475,7 @@ def _budgets(c, done):
 def _save(c, who, flow):
     from . import automations
     aid = (WAKES_PREFIX if flow.get("wakes") else "auto_mig_") + H.new_id()
-    checked = automations._checked(c, flow)
+    checked = automations._checked(c, flow, wake_steps=False)
     via = "migration" if not who.via else f"{who.via}, migration"
     automations._save(c, who.actor, aid, checked, None, via=via)
     return aid
@@ -490,8 +490,8 @@ def _adopt(c, who, flow):
     if row and row["deleted_at"]:
         c.execute("UPDATE automations SET deleted_at=NULL WHERE id=?", (aid,))
     via = "migration" if not who.via else f"{who.via}, migration"
-    automations._save(c, who.actor, aid, automations._checked(c, flow), automations.flow_of(row) if row else None,
-                      via=via)
+    automations._save(c, who.actor, aid, automations._checked(c, flow, wake_steps=False),
+                      automations.flow_of(row) if row else None, via=via)
     return aid
 
 
@@ -862,7 +862,8 @@ def adopt(c, kind, ident):
             while step["id"] in taken:
                 step["id"] = f"r{start + n + 1}x{H.new_id()[:4]}"
             taken.add(step["id"])
-        automations._save(c, who.actor, row["id"], automations._checked(c, after), flow, via="cutover, migration")
+        automations._save(c, who.actor, row["id"], automations._checked(c, after, wake_steps=False), flow,
+                          via="cutover, migration")
         for rid in ids:
             c.execute("DELETE FROM rules WHERE id=?", (rid,))
             _mark(c, "wake_rule", rid, mid, row["id"])
@@ -887,7 +888,8 @@ def drop_wake_rules(c, scope_kind, scope_id, created_by):
             continue
         gone += len(flow["steps"]) - len(keep)
         if keep:
-            automations._save(c, who.actor, row["id"], automations._checked(c, {**flow, "steps": keep}), flow,
+            kept = {**flow, "steps": keep}
+            automations._save(c, who.actor, row["id"], automations._checked(c, kept, wake_steps=False), flow,
                               via="profile")
         else:
             c.execute("UPDATE automations SET deleted_at=?, enabled=0 WHERE id=?", (_now(), row["id"]))
@@ -919,7 +921,8 @@ def rename_steps(c, type_id, lower):
                         source["when"]["step"] = moved(source["when"]["step"])
         if after != flow:
             who = who or system_who(c)
-            automations._save(c, who.actor, row["id"], automations._checked(c, after), flow, via="steps renamed")
+            automations._save(c, who.actor, row["id"], automations._checked(c, after, saved=flow, aid=row["id"]),
+                              flow, via="steps renamed")
 
 
 def wake_rules_by(c, scope_kind, scope_id, created_by):
@@ -1014,15 +1017,93 @@ def wake_rules_of(aid, flow):
     return out
 
 
-def check_wakes(flow):
+def _steps_of(c, type_id):
+    """A task type's steps in board order, as (id, name)."""
+    return [(r[0], r[1]) for r in c.execute("SELECT id, name FROM task_steps WHERE type_id=? ORDER BY position, id",
+                                            (type_id,))]
+
+
+def _named(when):
+    """The step values a rule's `when` names (one name or id, or a list of them), or None when it names no step."""
+    if "step" not in when:
+        return None
+    value = when["step"]
+    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
+
+
+def _missing_steps(c, scope, when):
+    """[(value, step names)] for each step a type-scoped rule names that its type does not have. A step is matched as
+    rules.py matches it: by name or by id, ignoring case. A rule scoped to a team, department or bot names no one
+    type's steps, so nothing is checked for it."""
+    named = _named(when)
+    if named is None or scope.get("scope_kind") != "type":
+        return []
+    steps = _steps_of(c, scope.get("scope_id") or "")
+    known = {str(s).lower() for ident, name in steps for s in (ident, name)}
+    return [(value, [name for _, name in steps]) for value in named if value.lower() not in known]
+
+
+def _missing_why(value, names):
+    return f'The wake rule names step "{value}", which its task type does not have. Its steps are: ' \
+           f'{", ".join(names) or "none"}. Use one of those names, or its id.'
+
+
+def wake_problems(c, aid, flow):
+    """The wake rules of one "What wakes" automation that name a step its type does not have: [{rule, step, why}].
+    Read for every automation payload, so a rule that stopped working says so; nothing here raises."""
+    try:
+        rows = wake_rules_of(aid, flow)
+    except ValueError:
+        return []
+    return [{"rule": row["id"], "step": value, "why": _missing_why(value, names)}
+            for row in rows for value, names in _missing_steps(c, flow.get("wakes") or {}, _json(row["when_json"], {}))]
+
+
+def check_wakes(flow, c=None, saved=None, aid=None):
     """On save (automations._checked): a "What wakes" automation is refused (422) when an edit is one its wake rules
-    cannot carry out, rather than saved to show one thing and do another."""
+    cannot carry out, rather than saved to show one thing and do another. With `c`, a rule that names a step its type
+    does not have is refused too, with the type's real steps; a rule that already named that missing step in `saved`
+    (the version it changes) is not, so an unrelated edit does not trip over a rule that is already flagged."""
     if not flow.get("wakes") or flow.get("readonly"):
         return
     try:
-        wake_rules_of("check", flow)
+        rows = wake_rules_of(aid or "check", flow)
     except ValueError as exc:
         raise Problem("invalid", f"A What wakes automation holds wake rules: {exc}", 422)
+    if c is None:
+        return
+    kept = set()
+    if saved and aid and saved.get("wakes"):
+        try:
+            kept = {(row["id"], value.lower()) for row in wake_rules_of(aid, saved)
+                    for value, _ in _missing_steps(c, saved["wakes"], _json(row["when_json"], {}))}
+        except ValueError:
+            kept = set()
+    for row in rows:
+        for value, names in _missing_steps(c, flow["wakes"], _json(row["when_json"], {})):
+            if (row["id"], value.lower()) not in kept:
+                raise Problem("invalid", _missing_why(value, names), 422)
+
+
+def wakes_naming(c, type_id, steps):
+    """The wake rules of a type's "What wakes" automations that name one of `steps` ([(id, name)], say the steps a save
+    deletes), as "<automation name>: <step>" strings. A rule names a step by its name or its id."""
+    named = {str(s).lower() for step in steps for s in step}
+    try:
+        found = _wakes_of(c, "type", type_id)
+    except Exception:   # sqlite3.OperationalError: a database from before the automations table
+        return []
+    out = []
+    for row, flow in found:
+        try:
+            rules = wake_rules_of(row["id"], flow)
+        except ValueError:      # not readable as wake rules: nothing it shows can run
+            continue
+        for rule in rules:
+            for value in _named(_json(rule["when_json"], {})) or []:
+                if value.lower() in named:
+                    out.append(f"{row['name']}: {value}")
+    return out
 
 
 def wake_rows(c, event=None):

@@ -3703,6 +3703,11 @@ def _type_steps(conn, actor, type_id, steps):
     for ident in removed:
         if in_use(ident):
             refuse(conn, actor, "in-use", "Move tasks off this step before deleting it, including tasks in the trash")
+    from . import redesign_migration
+    named = redesign_migration.wakes_naming(conn, type_id, [(i, existing[i]["name"]) for i in removed])
+    if named:
+        refuse(conn, actor, "in-use", "Change or delete these wake rules first, they name a step being deleted: "
+                                      + "; ".join(named))
     for ident in removed:
         conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
     # Temporary names let retained steps swap names without dropping referenced rows.
