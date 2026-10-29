@@ -630,6 +630,28 @@ class Auth:
         parent = row["reports_to"] or (declared or {}).get("reports_to") or ""
         return parent == me and report_managers.manages(c, me)
 
+    def report_lifecycle(self, c, who, slug, op, parent=""):
+        """Whether BotOps, acting for a manager bot on its own ask, may `op` (create, archive or restore) `slug` as that
+        manager's direct report. `who` is that acting identity: the manager's actor with `via` "botops", which only
+        BotOps' ask makes (app.py `manager_asker`). The manager's own token has no `via` and never passes. For a create,
+        `parent` is the new bot's `reports_to`, which must be the manager; for the others, `slug` must report to it now.
+        Both switches must be on (report_managers.manages). Never for a person, for a built-in bot, or for a support session."""
+        if (op not in report_managers.LIFECYCLE_OPS or who.role != "bot" or who.via != "botops" or who.via_token
+                or who.support or not str(who.actor).startswith("bot:") or self.system_bot(slug)):
+            return False
+        me = H.actor_id(who.actor)
+        if op == "create":
+            if H.actor_id(parent) != me:
+                return False
+        else:
+            row = c.execute("SELECT reports_to,config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
+            if not row:
+                return False
+            declared = json.loads(row["config_json"]) if row["config_json"] else {}
+            if H.actor_id(row["reports_to"] or declared.get("reports_to") or "") != me:
+                return False
+        return report_managers.manages(c, me)
+
     @staticmethod
     def member_bot_row(c, slug):
         """The same as `member_bot`, from the database alone (Health has no Auth): the creator's role."""

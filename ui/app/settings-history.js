@@ -14,6 +14,7 @@ function settingsValue(field, value) {
   if (field === 'task_model') return value?.model ? settingsChoiceLabel(value.harness || value.runtime, value.model, value.reasoning_effort) : 'Same as bot';
   if (field === 'identity') return [value?.display_name, value?.description].filter(Boolean).join(' · ') || 'blank';
   if (field === 'manages_reports') return value ? 'On' : 'Off';
+  if (field === 'lifecycle') return value?.state ? `${value.state[0].toUpperCase()}${value.state.slice(1)}` : 'Not made';
   if (field === 'compact_at') return SETTINGS_COMPACT_AT.find(([size]) => size === value)?.[1] || String(value);
   if (field === 'placement') return value?.label ? `${value.label} · ${settingsPersonName(value.operator)}` : 'not assigned';
   if (field === 'definition') return [value?.display_name, value?.status,
@@ -98,7 +99,7 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
     const field = {owners:'who it works for',access:'access',model:'model',placement:'computer',fallback:'fallback',
       compact_at:'compact at',wake_preset:'wakes',profile:'profile',keep_tasks_going:'keep tasks going',
       turns_at_once:'Turns at once',definition:'setup',task_model:'task model',identity:'name and description',
-      manages_reports:'manages its reports'}[change.field] || change.field;
+      manages_reports:'manages its reports', lifecycle:'archive or restore'}[change.field] || change.field;
     // A change too big for a page comes without its values (backend/settings_admin.py `truncated`).
     const what = change.truncated ? 'Too big to show here.'
       : change.field === 'definition' ? settingsDefinitionChange(change.before, change.after)

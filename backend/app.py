@@ -4718,17 +4718,31 @@ def create_app(settings=None):
                     # Tico updating itself, shown beside the status line
                     "updating": updating(c)}
 
+    def report_mutate(request, body, work):
+        """`mutate` for a change to a manager bot's report: a refusal over the week's limit still files its Needs you ask
+        for the person above, which the refusal's rollback would take with it (settings_admin._report_cap)."""
+        try:
+            return mutate(request, body, work)
+        except Problem as exc:
+            ask = getattr(exc, "ask", None)
+            if exc.code == "report_cap" and ask:
+                store.write(request.state.identity, lambda c: H.task_create(
+                    c, ask["actor"], ask["title"], ask["body"], ask["person"]))
+            raise
+
     @app.post("/api/v2/bots")
     def create_bot(request: Request, body: M.BotDefinitionCreate):
         who = request.state.identity
         def work(c):
+            if who.role == "bot" and who.via == "botops":
+                return settings_admin.create_report(c, who, body)     # a manager bot's report, asked of BotOps
             created = settings_admin.create_bot(c, who, body)
             if body.template:
                 # Adding from the catalog after onboarding is the same handoff to BotOps.
                 created.update(onboarding.attach_template(c, who, created["slug"], body.template,
                                                           body.instructions))
             return created
-        return mutate(request, body, work)
+        return report_mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/onboarded")
     def bot_onboarded(request: Request, bot: str, body: M.OnboardingComplete):
@@ -4829,14 +4843,16 @@ def create_app(settings=None):
     def archive_bot(request: Request, bot: str, body: M.BotArchive):
         who = request.state.identity
         def work(c):
-            acting = delegated_identity(c, who, body.on_behalf_of) if body.on_behalf_of else who
+            # A manager bot's ask is already BotOps acting as that bot (act_for_requester), not a person's request to find.
+            acting = who if who.role == "bot" and who.via == "botops" else (
+                delegated_identity(c, who, body.on_behalf_of) if body.on_behalf_of else who)
             result = settings_admin.archive(c, acting, bot, body)
             rooms.archive_shared_room(c, acting.actor, bot)
             if acting is not who:
                 H.event(c, who.actor, "bot.archive_delegated", bot,
                         {"on_behalf_of": acting.actor, "message_id": body.on_behalf_of, "successor": body.successor})
             return result
-        return mutate(request, body, work)
+        return report_mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/restore")
     def restore_bot(request: Request, bot: str, body: M.Empty):
@@ -4847,7 +4863,7 @@ def create_app(settings=None):
             if rooms.thread_mode(c, bot) == rooms.SHARED:
                 rooms.sync_shared_room(c, auth, bot, actor=who.actor, create=True)
             return result
-        return mutate(request, body, work)
+        return report_mutate(request, body, work)
 
     # A person's request lends their rights for as long as the task it created (or that cites it) is open, up to
     # botops_act.LEND_MAX_DAYS after they last spoke on it, and never again once someone else reopens it. A chat
@@ -5279,11 +5295,29 @@ def create_app(settings=None):
                 return False
         return bool(row and row["owner"] == "bot:" + BOTOPS)
 
+    def manager_asker(c, who):
+        """The manager bot whose chat message to BotOps started this run, as the identity BotOps acts as for a report's
+        create, archive or restore (`Auth.report_lifecycle`): its actor is the manager and `via` is "botops", so its own
+        token, which has no `via`, is never mistaken for it. None when a bot did not ask."""
+        turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
+                         (who.attempt_id,)).fetchone() if who.attempt_id else None
+        msg = H.message(c, turn["message_id"]) if turn else None
+        if (not msg or msg.get("deleted_at") or msg["to_actor"] != "bot:" + BOTOPS or msg["kind"] not in ("say", "answer")
+                or not H.is_bot(msg["from_actor"])):
+            return None
+        return replace(who, actor=msg["from_actor"], role="bot", via="botops", task_actor="")
+
     def act_for_requester(request, ref):
         """Apply the requester's identity before the route checks its normal permissions."""
         who = request.state.identity
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
+        if botops_act.lifecycle_call(request.method, request.url.path) and ref in ("turn", "default", ""):
+            # A manager bot's report: BotOps acts as that manager, which the lifecycle routes check (Auth.report_lifecycle).
+            with store.read() as c:
+                asker = manager_asker(c, who)
+            if asker is not None:
+                return None, asker
         # Runs on an executor thread: the delegation record is read back here and set again for the route.
         token = H.DELEGATION.set(None)
         try:
