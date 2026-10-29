@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS settings_changes(
  transition_id TEXT REFERENCES bot_transitions(id), created TEXT NOT NULL,
  undone_by TEXT, undone_at TEXT);
 CREATE INDEX IF NOT EXISTS settings_changes_created ON settings_changes(created);
+CREATE INDEX IF NOT EXISTS settings_changes_bot ON settings_changes(bot,created);
 CREATE TABLE IF NOT EXISTS session_epochs(
  conversation_id TEXT PRIMARY KEY REFERENCES conversations(id), epoch INTEGER NOT NULL DEFAULT 0, updated TEXT NOT NULL);
 -- Moved by every clear or reset of one bot: a bot's direct chats share its one `bot` thread

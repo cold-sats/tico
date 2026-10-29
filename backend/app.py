@@ -6524,9 +6524,10 @@ def create_app(settings=None):
         return mutate(request, body, lambda c: settings_admin.cancel(c, request.state.identity, transition_id))
 
     @app.get("/api/v2/settings/history")
-    def settings_history(request: Request, limit: int = 100):
-        with store.read() as c:
-            return settings_admin.history(c, request.state.identity, limit)
+    def settings_history(request: Request, limit: int = 100, bot: str = "", before: str = ""):
+        # One snapshot for the bots and the changes, so the people and bot rules it reads are computed once for it.
+        with store.read_transaction() as c:
+            return settings_admin.history(c, request.state.identity, limit, bot=bot, before=before)
 
     @app.post("/api/v2/settings/history/{change_id}/undo")
     def undo_setting(request: Request, change_id: str, body: M.SettingsUndo):

@@ -58,6 +58,10 @@ def compact_at(config):
 
 # The fields a manager bot changes on its report (report_managers.SCOPES). Anyone who manages the bot may undo them.
 REPORT_UNDO = ("model", "task_model", "identity")
+# A page of the settings history carries at most this many bytes of before and after values, and each row's other fields
+# count HISTORY_ROW_BYTES more; a change past that starts the next page (`next_before`).
+HISTORY_PAGE_BYTES = 256 * 1024
+HISTORY_ROW_BYTES = 512
 
 
 class SettingsAdmin:
@@ -1025,26 +1029,41 @@ class SettingsAdmin:
         H.event(c, who.actor, "bot.transition_cancelled", transition["bot"], {"transition": transition_id})
         return self.get(c, who, transition_id)
 
-    def history(self, c, who, limit=100):
-        """The owner sees every change and every transition. A person who manages a bot sees only the changes its manager
-        bots made to it (via `report_manager`), and no transitions. Anyone else sees none."""
+    def history(self, c, who, limit=100, bot="", before=""):
+        """One page of the settings changes the caller may see, newest first, and `next_before` for the page after it.
+        The owner sees every change, and every transition on the first page. A person who manages a bot sees only the
+        changes its manager bots made to the bots they manage (via `report_manager`), and no transitions. Anyone else
+        sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes."""
         if who.role not in ("owner", "human"):
-            raise Problem("forbidden", "Only the owner, or a person who manages the bot, sees its settings changes", 403)
+            raise Problem("forbidden", "Only the owner, or a person who manages the bot, sees its settings changes",
+                          403)
         owner = who.role == "owner"
         limit = max(1, min(int(limit), 200))
-        changes, managed = [], {}
-        if owner:
-            rows = c.execute("SELECT * FROM settings_changes ORDER BY created DESC LIMIT ?", (limit,))
-        else:
-            rows = c.execute("SELECT * FROM settings_changes WHERE via=? ORDER BY created DESC", (report_managers.VIA,))
-        for row in rows:
-            if len(changes) >= limit:
-                break
+        # The bots first: a caller who manages none reads no change at all, and anyone else reads only theirs.
+        bots = None if owner and not bot else self._history_bots(c, who, bot)
+        rows = []
+        if bots is None or bots:
+            where, args = [], []
             if not owner:
-                if row["bot"] not in managed:
-                    managed[row["bot"]] = bool(self.auth.bot_manager(c, who, row["bot"]))
-                if not managed[row["bot"]]:
-                    continue
+                where.append("via=?")
+                args.append(report_managers.VIA)
+            if bots is not None:
+                where.append(f"bot IN ({','.join('?' * len(bots))})")
+                args.extend(bots)
+            if before:
+                where.append("(created,id) < (SELECT created,id FROM settings_changes WHERE id=?)")
+                args.append(before)
+            sql = "SELECT * FROM settings_changes" + (" WHERE " + " AND ".join(where) if where else "")
+            rows = c.execute(sql + " ORDER BY created DESC, id DESC LIMIT ?", (*args, limit + 1)).fetchall()
+        page, used = [], 0
+        for row in rows[:limit]:
+            weight = len(row["before_json"]) + len(row["after_json"]) + HISTORY_ROW_BYTES
+            if page and used + weight > HISTORY_PAGE_BYTES:
+                break
+            page.append(row)
+            used += weight
+        changes = []
+        for row in page:
             value = dict(row)
             value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
             try:
@@ -1052,16 +1071,28 @@ class SettingsAdmin:
             except (ValueError, Problem, TypeError, KeyError):
                 # A field an older release wrote, or a bot deleted since: history still shows it.
                 current = None
-            # The owner's own list, and a change a manager bot made to its report (anyone who manages the bot may undo it).
-            owners_undo = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access", "profile")
+            # The owner's own list, and a change a manager bot made to its report (anyone who manages the bot may
+            # undo it).
+            owners_undo = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access",
+                                            "profile")
                            # A profile change from a bot that had none has nothing to go back to (undo: 409).
                            and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
             value["can_undo"] = bool(not row["undone_at"] and current == value["after"]
                                      and ((owner and owners_undo) or self._report_undo(row)))
             changes.append(value)
-        transitions = [] if not owner else [self.get(c, who, row[0]) for row in c.execute(
-            "SELECT id FROM bot_transitions ORDER BY created DESC LIMIT ?", (limit,))]
-        return {"changes": changes, "transitions": transitions}
+        transitions = []
+        if owner and not before:
+            ids = c.execute("SELECT id FROM bot_transitions" + (" WHERE bot=?" if bot else "")
+                            + " ORDER BY created DESC LIMIT ?", ([bot] if bot else []) + [limit]).fetchall()
+            transitions = [self.get(c, who, row[0]) for row in ids]
+        return {"changes": changes, "transitions": transitions,
+                "next_before": page[-1]["id"] if len(rows) > len(page) else None}
+
+    def _history_bots(self, c, who, bot):
+        """The bots whose settings changes the caller may see, as a list that may be empty: the one named, else every
+        bot, kept to those the caller manages (`Auth.bot_manager`)."""
+        slugs = [bot] if bot else [row["bot"] for row in read_cache.configs(c)]
+        return [slug for slug in slugs if self.auth.bot_manager(c, who, slug)]
 
     @staticmethod
     def _report_undo(row):

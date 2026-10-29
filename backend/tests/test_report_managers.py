@@ -3,19 +3,24 @@ model, and its name and description, each recorded with via `report_manager`. Th
 switch turn that off. A person who manages the report sees and undoes such a change. Routines and the hub tools follow it.
 """
 
+from contextlib import contextmanager
+
 from backend import automations
+from backend import hubdb as H
+from backend import report_managers
 from backend.auth import Identity
+from backend.store import encode
 from backend.tests.test_api import api, get, headers, post, put  # noqa: F401  (api is a fixture)
 from backend.tests.test_mcp import call
 
 HAIKU = {"harness": "claude", "model": "claude-haiku-5-5", "effort": "low"}
 
 
-def bot(api, slug, reports_to=None):
+def bot(api, slug, reports_to=None, operator="ana"):
     """A bot the owner makes; the returned token is its agent credential, which acts as the bot."""
     post(api, "bots", {"slug": slug, "display_name": slug.title(), "description": "A test bot.",
                        "reports_to": reports_to, "status": "active", "repo": "emp-" + slug, "thread_mode": "personal",
-                       "model": "hermes-profile", "effort": "as-configured", "harness": "hermes", "operator": "ana",
+                       "model": "hermes-profile", "effort": "as-configured", "harness": "hermes", "operator": operator,
                        "owners": ["ana"], "runner_id": None})
     return post(api, f"bots/{slug}/agent-credential", {})["token"]
 
@@ -148,3 +153,79 @@ def test_the_hub_tools_and_the_model_route_work_for_a_manager_bot(api):
     assert not err, out
     assert any(row["after"]["model"] == "claude-sonnet-5-5" and row["via"] == "report_manager"
                for row in changes_to(api, "counsel", "model"))
+
+
+def newer_changes(api, bot_slug, n, created):
+    """`n` task-model changes a manager bot made to `bot_slug`, written as the app writes them; `created(i)` is when."""
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), bot_slug, "task_model", encode(None), encode(HAIKU), "bot:lead", None, created(i),
+                        report_managers.VIA) for i in range(n)])
+
+
+def test_a_bots_history_keeps_its_change_when_other_bots_fill_the_newest_page(api):
+    lead = bot(api, "lead", reports_to="human:ben")
+    bot(api, "counsel", reports_to="lead")
+    bot(api, "junior", reports_to="lead")
+    task_model(api, lead)
+    [mine] = changes_to(api, "counsel", "task_model")
+    newer_changes(api, "junior", 150, lambda i: H.shift(mine["created"], seconds=i + 1))
+    # The bot's own card asks for the bot: its change is there for the owner and for the person who manages it.
+    for token in ("ana-test", "ben-test"):
+        listed = get(api, "settings/history?bot=counsel", token=token)["changes"]
+        found = [row for row in listed if row["id"] == mine["id"]]
+        assert found and found[0]["can_undo"] is True, token
+        assert {row["bot"] for row in listed} == {"counsel"}, token
+
+
+def test_a_history_page_is_bounded_and_the_next_page_neither_skips_nor_repeats(api):
+    lead = bot(api, "lead", reports_to="human:ben")
+    bot(api, "counsel", reports_to="lead")
+    task_model(api, lead)
+    stamp = H.now()
+    newer_changes(api, "counsel", 250, lambda i: stamp)     # one time for all: the cursor must not skip a tie
+    with api.app.state.store.read() as c:
+        total = c.execute("SELECT count(*) FROM settings_changes WHERE bot='counsel' AND via=?",
+                          (report_managers.VIA,)).fetchone()[0]
+    seen, before = [], ""
+    for _ in range(10):
+        page = get(api, f"settings/history?bot=counsel&limit=100&before={before}", token="ben-test")
+        assert len(page["changes"]) <= 100
+        seen += [row["id"] for row in page["changes"]]
+        before = page["next_before"]
+        if not before:
+            break
+    assert total > 250 and len(seen) == len(set(seen)) == total
+
+
+def test_a_caller_who_manages_no_bot_reads_no_settings_change(api, monkeypatch):
+    lead = bot(api, "lead", reports_to="human:ben")
+    bot(api, "counsel", reports_to="lead")
+    task_model(api, lead)
+    newer_changes(api, "counsel", 300, lambda i: H.shift(H.now(), seconds=i))
+    statements, read = [], api.app.state.store.read
+
+    @contextmanager
+    def traced():
+        with read() as c:
+            c.set_trace_callback(statements.append)
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
+
+    monkeypatch.setattr(api.app.state.store, "read", traced)
+    assert get(api, "settings/history", token="cara-test")["changes"] == []
+    # Nothing reads the install's settings changes for her: no statement touches the table at all.
+    assert not [sql for sql in statements if "settings_changes" in sql]
+
+
+def test_a_person_sees_only_the_manager_changes_to_the_bots_they_manage(api):
+    bot(api, "lead", reports_to="human:ben")
+    bot(api, "counsel", reports_to="lead")
+    bot(api, "helper", operator="cara")
+    newer_changes(api, "counsel", 300, lambda i: H.shift(H.now(), seconds=i))
+    newer_changes(api, "helper", 2, lambda i: H.shift(H.now(), seconds=i))
+    listed = get(api, "settings/history", token="cara-test")["changes"]
+    assert [row["bot"] for row in listed] == ["helper", "helper"]

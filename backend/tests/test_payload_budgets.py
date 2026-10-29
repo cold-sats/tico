@@ -102,3 +102,17 @@ def test_payloads_stay_under_their_budgets(api):
     # Tool output is in no list (the whole Needs-you list above included).
     lists = [opened, board, status, api.get("/api/v2/conversations", headers=headers())]
     assert not [r.request.url for r in lists if MARKER in r.text] and MARKER not in encode([whole, changes])
+
+
+def test_a_settings_history_page_is_byte_capped(api):
+    # 200 changes each carrying a 38 KB description: the page stops at its byte budget and names the next page.
+    text = {"display_name": "Ops", "description": "A long description. " * 2000}
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), "ops", "definition", encode(text), encode(text), "human:ana", None,
+                        H.shift(H.now(), seconds=i), None) for i in range(200)])
+    opened = api.get("/api/v2/settings/history?limit=200", headers=headers())
+    page = opened.json()
+    assert 0 < len(page["changes"]) < 200 and page["next_before"]
+    assert len(opened.content) <= 300 * KB
