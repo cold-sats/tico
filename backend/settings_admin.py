@@ -1054,7 +1054,7 @@ class SettingsAdmin:
 
     def history(self, c, who, limit=100, bot="", before=""):
         """One page of the settings changes the caller may see, newest first, and `next_before` for the page after it.
-        The owner sees every change, and every transition on the first page. A person who manages a bot sees only the
+        The owner sees every change, and the newest `limit` transitions on the first page. A person who manages a bot sees only the
         changes its manager bots made to the bots they manage (via `report_manager`), and no transitions. Anyone else
         sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. The page is at most
         HISTORY_PAGE_BYTES as it is sent: its transitions come first, newest first, and `transitions_truncated` says
@@ -1080,11 +1080,13 @@ class SettingsAdmin:
         transitions, cut, used = [], False, 0
         if owner and not before:
             ids = c.execute("SELECT id FROM bot_transitions" + (" WHERE bot=?" if bot else "")
-                            + " ORDER BY created DESC LIMIT ?", ([bot] if bot else []) + [limit]).fetchall()
-            transitions = [self.get(c, who, row[0]) for row in ids]
+                            + " ORDER BY created DESC LIMIT ?", ([bot] if bot else []) + [limit + 1]).fetchall()
+            transitions = [self.get(c, who, row[0]) for row in ids[:limit]]
             actor_names.annotate(c, transitions)
             # The first change keeps its room, so a page that has transitions still takes a change.
             transitions, used, cut = _fit(transitions, room - (_bytes(changes[0]) + 1 if changes else 0))
+            # More than `limit` transitions: the older ones are left out as surely as those the bytes cut.
+            cut = cut or len(ids) > limit
         changes = _fit(changes, room - used)[0]
         return self._page(c, rows, changes, transitions, cut)
 

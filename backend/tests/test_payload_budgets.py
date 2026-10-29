@@ -222,3 +222,15 @@ def test_a_settings_history_first_page_leaves_out_the_oldest_transitions_its_byt
     kept = [row["id"] for row in page["transitions"]]
     assert page["transitions_truncated"] is True and 0 < len(kept) < 12 and kept == newest[:len(kept)]
     assert len(page["changes"]) >= 1
+
+
+def test_a_settings_history_first_page_flags_the_transitions_past_its_limit(api):
+    # Four small prepared changes on a page of three: the bytes hold them all, but the oldest is left out and flagged.
+    _, msg, _ = setup_attempt(api)
+    prepared_transitions(api, msg["conversation_id"], 4, "A short objective.")
+    page = api.get("/api/v2/settings/history?limit=3", headers=headers()).json()
+    with api.app.state.store.read() as c:
+        newest = [row[0] for row in c.execute("SELECT id FROM bot_transitions ORDER BY created DESC")]
+    assert [row["id"] for row in page["transitions"]] == newest[:3] and page["transitions_truncated"] is True
+    page = api.get("/api/v2/settings/history?limit=4", headers=headers()).json()
+    assert len(page["transitions"]) == 4 and page["transitions_truncated"] is False
