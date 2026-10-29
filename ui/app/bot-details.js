@@ -47,7 +47,7 @@ async function botSettingsHistoryLoad(slug) {
     // The server keeps the page to this bot, so the newest changes on other bots cannot push its own out of it.
     const history = await get(`/v2/settings/history?bot=${encodeURIComponent(slug)}`);
     if (BOT?.slug !== slug || !host.isConnected) return;
-    renderSettingsHistory(host, history);
+    renderSettingsHistory(host, history, before => settingsHistoryOlder(before, slug));
   } catch (error) { if (host.isConnected) host.textContent = error.message; }
 }
 

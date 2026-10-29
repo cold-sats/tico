@@ -80,7 +80,14 @@ async function renderSettingsRuns() {
 }
 
 // ----------------------------------------------------------------- Changes
-function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.history) {
+// A page of changes older than `before` (a page's next_before): the owner's list, or one bot's card with `bot`.
+function settingsHistoryOlder(before, bot = '') {
+  const scope = bot ? `bot=${encodeURIComponent(bot)}&` : '';
+  return get(`/v2/settings/history?${scope}before=${encodeURIComponent(before)}`);
+}
+// "Show older" fetches the page after the last one drawn, with `older`, and draws all the rows together. A page still
+// on its way is dropped when a later draw replaces this one, as a fresh first page after an undo does.
+function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.history, older = settingsHistoryOlder) {
   if (!el) return;
   const changes = history?.changes || [], transitions = history?.transitions || [];
   const pending = transitions.filter(t => ['preparing','blocked','failed','prepared'].includes(t.state));
@@ -101,10 +108,24 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
       <div class="history-action">${change.can_undo && e ? `<button class="ghost" type="button" data-settings-undo="${esc(change.id)}" data-bot="${esc(change.bot)}" data-revision="${e.revision}">Undo</button>` : ''}</div>
       ${settingsCheckpointDetails(transition)}</div>`;
   }).join('');
-  el.innerHTML = `${pendingRows ? `<h3>In progress</h3>${pendingRows}` : ''}${rows || '<div class="empty">No settings changes yet.</div>'}`;
+  const more = history?.next_before
+    ? '<button class="ghost" type="button" data-settings-older>Show older</button>' : '';
+  el.innerHTML = `${pendingRows ? `<h3>In progress</h3>${pendingRows}` : ''}`
+    + `${rows || '<div class="empty">No settings changes yet.</div>'}${more}`;
+  const drawn = el._settingsDrawn = {};
   el.onclick = async event => {
     const review = event.target.closest('[data-transition-review]');
     if (review) { settingsWatchTransition(review.dataset.transitionReview); return; }
+    const showOlder = event.target.closest('[data-settings-older]');
+    if (showOlder) {
+      showOlder.disabled = true;
+      try {
+        const next = await older(history.next_before);
+        if (el._settingsDrawn === drawn) renderSettingsHistory(el, {changes: [...changes, ...(next.changes || [])],
+          transitions, next_before: next.next_before}, older);
+      } catch (error) { showOlder.disabled = false; toast(error.message, true); }
+      return;
+    }
     const undo = event.target.closest('[data-settings-undo]'); if (!undo) return;
     undo.disabled = true;
     try {
