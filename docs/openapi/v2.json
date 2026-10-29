@@ -40870,6 +40870,10 @@
           },
           "check_limit": {
             "type": "integer"
+          },
+          "flow": {
+            "type": "object",
+            "description": "What the step does with a ticket (docs/tasks.md, Step flow). On a check step, other_company is prefer (the default) or require."
           }
         },
         "required": [
@@ -40979,7 +40983,8 @@
                 "type": "null"
               }
             ],
-            "title": "Flow"
+            "title": "Flow",
+            "description": "The step's flow (docs/tasks.md, Step flow). On a check step, other_company is prefer (the default) or require."
           }
         },
         "additionalProperties": false,

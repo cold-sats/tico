@@ -16,7 +16,8 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     let types = [
       {id: 'general', name: 'General', steps: statuses.map((status, position) => ({id: 'general-' + status, type_id: 'general', name: status, status, position}))},
       {id: 'marketing', name: 'Marketing', steps: [
-        {id: 'draft', name: 'Draft', status: 'open'}, {id: 'legal', name: 'Legal review', status: 'review'},
+        {id: 'draft', name: 'Draft', status: 'open'},
+        {id: 'legal', name: 'Legal review', status: 'review', flow: {check: 'review', on_pass: 'Complete', on_fail: 'Draft'}},
         {id: 'copy', name: 'Copy review', status: 'review'}, {id: 'complete', name: 'Complete', status: 'done'},
         {id: 'archive', name: 'Archive', status: 'closed'}].map((step, position) => ({...step, position, type_id: 'marketing'}))},
       // The roadmap types go by role, whoever manages them; a Dev tickets type made later beside Engineering goes first.
@@ -448,6 +449,16 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     await firstStep.locator('[aria-label="Open checks each"]').fill('3');
     assert.equal(await page.locator('.task-type-editor [name=typeBots]').inputValue(), 'parties', 'a type starts with its bots kept to their own tasks');
     await page.locator('.task-type-editor [name=typeBots]').selectOption('work');
+    // Another model company is a check step's rule: it starts at prefer, shows on no other step, fits a phone, and a
+    // changed rule is saved as the step's flow (its step references as ids).
+    assert.equal(await firstStep.locator('[aria-label="Another model company"]').inputValue(), 'prefer', 'a check step starts at prefer');
+    assert.equal(await page.locator('.task-type-editor [data-steps] .task-step-edit').nth(1).locator('[aria-label="Another model company"]').count(), 0,
+      'a step that is no check has no such rule');
+    await page.setViewportSize({width: 390, height: 844});
+    const rule = await firstStep.locator('[aria-label="Another model company"]').boundingBox();
+    assert(rule && rule.x >= 0 && rule.x + rule.width <= 390, 'the rule fits a phone-width editor');
+    await page.setViewportSize({width: 1200, height: 900});
+    await firstStep.locator('[aria-label="Another model company"]').selectOption('require');
     // A type private by default (the Product roadmap) shows each step's public name too, and a new step left blank
     // is not given its internal name publicly.
     assert.equal(await page.locator('.task-type-editor [name=defaultVisibility]').inputValue(), 'private');
@@ -467,6 +478,9 @@ const {t} = (() => { try { return require('./support/load.cjs'); } catch { retur
     assert.equal(edit.body.bots, 'work', 'the editor saves what bots may do with the type');
     assert.deepEqual([edit.body.steps[0].check_pool, edit.body.steps[0].check_limit], [['rev-a', 'rev-b'], 3], 'a step saves its check pool and limit');
     assert.deepEqual([edit.body.steps[1].check_pool, edit.body.steps[1].check_limit], [[], 2], 'a step without one saves none');
+    assert.deepEqual(edit.body.steps[0].flow, {check: 'review', on_pass: 'complete', on_fail: 'draft', other_company: 'require'},
+      'a changed rule saves the check step\'s whole flow, its step references as ids');
+    assert.equal('flow' in edit.body.steps[1], false, 'a step that is no check sends no flow');
     await page.locator('#set-types [data-new-type]').click();
     await page.locator('.task-type-editor input[aria-label="Type name"]').fill('Design');
     await page.locator('.task-type-editor button[type=submit]').click();
