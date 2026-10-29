@@ -620,6 +620,12 @@ tickets type is given three editable rows when it is created or renamed: **QA Fi
 ticket, **Pending Release** is a note to the Release Manager, and **In QA** wakes QA only. Delete a row and it stays
 deleted.
 
+A rule's `step` names a step of its type, by the step's name or its id (case ignored). Saving a wake rule that names a
+step its type does not have is refused (422), and the message lists the type's real steps. Renaming a step moves the
+rules that name it. Deleting a step that a wake rule names is refused until those rules are changed or deleted, and the
+message names them. A rule that already names a missing step is kept as it is and never fires; its automation shows a
+warning on the Automations list and in its detail, and the automation's `problems` (`rule`, `step`, `why`) say which rule.
+
 A bot's **profile** (Doer, Reviewer, Lead, Manager, Responder, Monitor, Custom) adds a few bot-level rows of its own: a Reviewer wakes for
 its review and QA requests and people and notes the rest, a Lead gets everything but people, escalations and approvals in a daily
 digest, a Manager wakes for people, tasks given to it, its own clock and its exceptions list and notes the rest, a Responder and a Monitor note the rest. The bot's **What wakes** automation shows them as the profile's, and a Custom bot's copies as its own
