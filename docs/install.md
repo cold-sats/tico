@@ -198,6 +198,10 @@ before a computer or an AI provider exists. Join this computer under **Settings 
 The server answers on this computer only: compose publishes the port on `127.0.0.1`, and a server with a domain and no
 sign-in refuses to start. A public address always needs sign-in.
 
+Bots' pages and SVG show as **Open** cards here: they need a separate address to show inline. Turn on
+[Tico file hosting](files.md#tico-file-hosting) on the Gateway page and they show inline from your `ticofiles.com`
+address; nothing has to reach this computer ([Visuals](visuals.md#self-hosting)).
+
 ### Add a domain and sign-in later
 
 To let your humans in from anywhere, edit `.env` in the install directory and run `docker compose up -d` there:

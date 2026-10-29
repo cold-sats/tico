@@ -3,10 +3,12 @@
 'use strict';
 
 // How visuals show (Visuals always on): decided by the setup, so a line to read, never a switch. "full" with a
-// separate visual address; otherwise pictures, video and audio only (backend/visuals.py mode).
+// separate visual address, "hosted" from Tico file hosting's address; otherwise pages and SVG are Open cards, and the
+// line says what fixes it (backend/visuals.py shown).
+const SETTINGS_VISUALS = {full: 'Visuals: full', hosted: 'Visuals: full, from Tico file hosting',
+  media: "Visuals: pages and SVG can't show inline. Add a visual address or Tico file hosting."};
 function settingsVisualsLine() {
-  const full = S.config?.visuals === 'full';
-  return `${full ? 'Visuals: full' : 'Visuals: pictures, video and audio only (no separate visual address)'}
+  return `${SETTINGS_VISUALS[S.config?.visuals] || SETTINGS_VISUALS.media}
     <a href="${GH}/blob/main/docs/visuals.md#self-hosting" target="_blank" rel="noopener noreferrer">How visuals show</a>`;
 }
 
