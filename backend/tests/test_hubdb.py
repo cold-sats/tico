@@ -1251,3 +1251,74 @@ class WaitingWithDependency(HubCase):
         self.assertEqual(stored('seo'), 0)
         H.task_comment_delete(self.conn, ANA, other['id'], reply['id'])
         self.assertEqual(stored('seo'), 1)
+
+
+# ----------------------------------------------------------------------------- the Strategy Bot's tables, renamed
+# The two tables the Strategy Bot had under their old names, with each index as an install from before has it.
+OLD_STRATEGY_TABLES = {
+    "strategy_actions": ("ceo_actions", {"strategy_actions_created": ("ceo_actions_created", "created")}),
+    "strategy_merges": ("ceo_merges", {"strategy_merges_original": ("ceo_merges_original", "original, state"),
+                                       "strategy_merges_person": ("ceo_merges_person", "person, created")}),
+}
+
+
+class StrategyTableNames(HubCase):
+    """An install from before the rename keeps its Strategy Bot rows: `_rename_strategy_tables` renames the tables
+    before the migrations would create empty ones under the new names."""
+
+    def back_to_old_names(self, new):
+        old, indexes = OLD_STRATEGY_TABLES[new]
+        for index in indexes:
+            self.conn.execute(f"DROP INDEX {index}")
+        self.conn.execute(f"ALTER TABLE {new} RENAME TO {old}")
+        for index, (old_index, columns) in indexes.items():
+            self.conn.execute(f"CREATE INDEX {old_index} ON {old}({columns})")
+
+    def names(self, kind="table"):
+        return {r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type=?", (kind,))}
+
+    def test_rows_move_to_the_new_names_when_an_older_schema_starts_again(self):
+        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
+                          (H.now(), "bot:goal-manager"))
+        self.conn.execute("INSERT INTO strategy_merges(merged_into,original,person,asker,created) "
+                          "VALUES('t1','t2','human:ana','bot:coo',?)", (H.now(),))
+        self.back_to_old_names("strategy_actions")
+        self.back_to_old_names("strategy_merges")
+        # An install that has not reached the migrations that create these tables runs them again, as it would on start.
+        first = min(H.MIGRATIONS.index(H.STRATEGY_ACTIONS_SCHEMA), H.MIGRATIONS.index(H.STRATEGY_MERGES_SCHEMA))
+        self.conn.execute(f"PRAGMA user_version={first}")
+        self.conn.commit()
+        H.migrate(self.conn)
+        tables = self.names()
+        self.assertLessEqual({"strategy_actions", "strategy_merges"}, tables)
+        self.assertFalse({"ceo_actions", "ceo_merges"} & tables)
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM strategy_actions")], ["a1"])
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT merged_into FROM strategy_merges")], ["t1"])
+        indexes = self.names("index")
+        self.assertLessEqual({"strategy_actions_created", "strategy_merges_original", "strategy_merges_person"},
+                             indexes)
+        self.assertFalse({"ceo_actions_created", "ceo_merges_original", "ceo_merges_person"} & indexes)
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], len(H.MIGRATIONS))
+
+    def test_a_second_start_changes_nothing(self):
+        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
+                          (H.now(), "bot:goal-manager"))
+        self.back_to_old_names("strategy_actions")
+        H.migrate(self.conn)
+        before = self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id").fetchall()
+        H.migrate(self.conn)
+        self.assertEqual(self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id").fetchall(), before)
+        self.assertEqual(before[0][0], "a1")
+
+    def test_when_both_names_exist_the_new_table_is_kept_and_the_old_one_is_left_alone(self):
+        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
+                          (H.now(), "bot:goal-manager"))
+        self.back_to_old_names("strategy_actions")
+        self.conn.execute("CREATE TABLE strategy_actions(id TEXT PRIMARY KEY, created TEXT NOT NULL, "
+                          "actor TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL)")
+        self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('new',?,?,'level','done')",
+                          (H.now(), "bot:goal-manager"))
+        self.conn.commit()
+        H.migrate(self.conn)
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM strategy_actions")], ["new"])
+        self.assertEqual([r[0] for r in self.conn.execute("SELECT id FROM ceo_actions")], ["a1"])

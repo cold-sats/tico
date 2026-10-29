@@ -51,8 +51,8 @@ async function open(browser, me, branches = false) {
   );
   const seats = [];
   const seatView = seat => ({...seat, kind: 'seat', stage: 'recruiting', can_edit: true,
-    draft: {state: seat.drafted ? 'drafted' : seat.drafting ? 'drafting' : 'none', by: 'CEO Bot', at: ''},
-    description_by: seat.drafted ? 'ceo_bot' : seat.description ? 'person' : 'chart'});
+    draft: {state: seat.drafted ? 'drafted' : seat.drafting ? 'drafting' : 'none', by: 'Strategy Bot', at: ''},
+    description_by: seat.drafted ? 'strategy_bot' : seat.description ? 'person' : 'chart'});
   const groupRows = () => groups.map((g, i) => ({...g, org_parent: g.parent ? 'g:' + g.parent : '', order: i}));
   const apply = (id, body) => {
     const group = groups.find(g => g.id === id);
@@ -114,7 +114,7 @@ async function open(browser, me, branches = false) {
         Object.assign(seat, {description: body.description, drafting: false, drafted: false});
         return json(seatView(seat));
       }
-      if (!s[2]) {                                   // the CEO Bot's draft lands by the first poll
+      if (!s[2]) {                                   // the Strategy Bot's draft lands by the first poll
         if (seat.drafting) Object.assign(seat, {drafting: false, drafted: true, description: 'Keeps the books and closes each month.'});
         return json(seatView(seat));
       }
@@ -521,7 +521,8 @@ async function teamAdd(browser) {
   assert.equal(await page.locator('#org-add-group').evaluate(el => el === document.activeElement), true);
   assert.deepEqual(calls, []);
 
-  // Add bot makes a Recruiting seat first (acceptance 9): it is on the chart before any bot exists, the CEO Bot's draft
+  // Add bot makes a Recruiting seat first (acceptance 9): it is on the chart before any bot exists, the Strategy Bot's
+  // draft
   // of its job description arrives while it is open, Recruit offers one recommended candidate with its model, and the
   // pick creates the bot in Onboarding where the seat was.
   await choose('Add bot');

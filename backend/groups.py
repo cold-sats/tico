@@ -12,7 +12,7 @@ time. Who reports to whom (`reports_to`) is a separate thing and is never touche
   migrate(c, settings)     once, for a team that had `teams`, org groups or derived departments: every one becomes a
                            group and every bot its group's member (idempotent; `groups_migrated` in the roster)
 
-Built-in bots (the Assistant, BotOps, the Librarian, the CEO Bot) and helpers stay outside groups.
+Built-in bots (the Assistant, BotOps, the Librarian, the Strategy Bot) and helpers stay outside groups.
 """
 import json
 import re

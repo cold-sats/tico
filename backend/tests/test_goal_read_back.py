@@ -1,5 +1,5 @@
-"""Goals agreed in words (backend/goal_read_back.py; spec chat-first-goals.md, criteria 1-5, 8, 9, 11, 12): the CEO Bot
-asks Tico to read back changes in the owner's chat, and the owner's yes to that message saves exactly what it read
+"""Goals agreed in words (backend/goal_read_back.py; spec chat-first-goals.md, criteria 1-5, 8, 9, 11, 12): the Strategy
+Bot asks Tico to read back changes in the owner's chat, and the owner's yes to that message saves exactly what it read
 back, or nothing."""
 import json
 
@@ -8,7 +8,7 @@ from backend import goals as G
 from backend.store import H
 from backend.tests.test_api import api, get, post  # noqa: F401
 from backend.tests.test_assistant import asked, say, turn_message
-from backend.tests.test_ceo_bot_chat import ceo, turn
+from backend.tests.test_strategy_bot_chat import strategy_bot, turn
 
 
 def goal(api, title, owner="ops", **extra):
@@ -22,7 +22,7 @@ def finish(api, r, attempt, text="Done."):
 
 
 def reply(api, r, attempt, words):
-    """The CEO Bot's turn ends on its read-back; the owner answers, and that starts its next turn."""
+    """The Strategy Bot's turn ends on its read-back; the owner answers, and that starts its next turn."""
     finish(api, r, attempt, "Want me to save it?")
     assert say(api, words)["fast"] is False
     return post(api, "jobs/claim", {}, token=r["token"])["attempt"]
@@ -57,10 +57,10 @@ NEW_GOAL = {"kind": "goal_create", "title": "Get 100 companies to try Tico", "ow
 
 
 def test_a_new_goal_is_read_back_by_tico_and_a_plain_yes_saves_exactly_it_as_the_owner(api):
-    ceo(api)
+    strategy_bot(api)
     serves = goal(api, "Developers and small companies keep using Tico", owner="company")
     r, attempt = turn(api, "goal-manager", "ana-test", "Set a goal for Ops: get 100 companies to try Tico")
-    # Only the CEO Bot, in the owner's own chat: not the owner's own click, not another bot.
+    # Only the Strategy Bot, in the owner's own chat: not the owner's own click, not another bot.
     post(api, "goals/read-back", {"changes": [NEW_GOAL]}, expected=403)
     back = read_back(api, attempt, {**NEW_GOAL, "parent_id": serves["id"]})
     text = back["text"]
@@ -68,7 +68,7 @@ def test_a_new_goal_is_read_back_by_tico_and_a_plain_yes_saves_exactly_it_as_the
     assert "supports “Developers and small companies keep using Tico”" in text
     assert "measure “Companies that tried Tico” (new: higher is better, weekly), target 100 by Nov 28" in text
     assert text.endswith("Reply yes to save exactly this; any other reply saves nothing.")
-    # Tico wrote it, as the CEO Bot's reply in the owner's chat; the turn's closing text is not posted after it.
+    # Tico wrote it, as the Strategy Bot's reply in the owner's chat; the turn's closing text is not posted after it.
     said = room_messages(api)
     assert (said[-1]["id"], said[-1]["from_actor"]) == (back["message_id"], "bot:goal-manager")
     # Before the yes, nothing saves, cited or not.
@@ -91,7 +91,7 @@ def test_a_new_goal_is_read_back_by_tico_and_a_plain_yes_saves_exactly_it_as_the
                                                                     serves["id"])
     assert [(k["name"], k["target_label"]) for k in shown["kpis"]] == [("Companies that tried Tico", "→ 100 by Nov 28")]
     assert save(api, attempt, first, expected=409)["error"]["code"] == "conflict"
-    # Recorded as the owner, via the CEO Bot, citing their yes and the read-back.
+    # Recorded as the owner, via the Strategy Bot, citing their yes and the read-back.
     with api.app.state.store.read() as c:
         row = c.execute("SELECT actor, detail_json FROM events WHERE action='goal.create' AND target=?", (gid,)).fetchone()
     detail = H._json(row["detail_json"], {})
@@ -104,7 +104,7 @@ def test_a_new_goal_is_read_back_by_tico_and_a_plain_yes_saves_exactly_it_as_the
 
 
 def test_any_reply_but_a_yes_saves_nothing(api):
-    ceo(api)
+    strategy_bot(api)
     r, attempt = turn(api, "goal-manager", "ana-test", "Set a goal for Ops")
     step = read_back(api, attempt, NEW_GOAL)["changes"][0]["steps"][0]
     for words in ("yes but make it 50", "wait"):
@@ -135,7 +135,7 @@ def test_the_owners_words_tico_reads_as_yes(api):
 
 
 def test_a_save_after_other_words_or_outside_thirty_minutes_is_not_agreed(api):
-    ceo(api)
+    strategy_bot(api)
     r, attempt = turn(api, "goal-manager", "ana-test", "Set a goal for Ops")
     back = read_back(api, attempt, NEW_GOAL)
     step = back["changes"][0]["steps"][0]
@@ -148,7 +148,8 @@ def test_a_save_after_other_words_or_outside_thirty_minutes_is_not_agreed(api):
     assert say(api, "yes")["fast"] is False
     attempt = post(api, "jobs/claim", {}, token=r["token"])["attempt"]
     assert save(api, attempt, step, expected=403)["error"]["code"] == "not_agreed"
-    # A notice, or the CEO Bot's own message, between the read-back and the yes: the yes answers that, not the list.
+    # A notice, or the Strategy Bot's own message, between the read-back and the yes: the yes answers that, not the
+    # list.
     for who, kind in ((H.KEEPER, "notice"), ("bot:goal-manager", "say")):
         attempt = reply(api, r, attempt, "Again")
         step = read_back(api, attempt, NEW_GOAL)["changes"][0]["steps"][0]
@@ -169,7 +170,7 @@ def test_a_save_after_other_words_or_outside_thirty_minutes_is_not_agreed(api):
 
 
 def window(api, minutes):
-    ceo(api)
+    strategy_bot(api)
     r, attempt = turn(api, "goal-manager", "ana-test", "Set a goal for Ops")
     asked_for = turn_message(api, attempt)
     back = read_back(api, attempt, NEW_GOAL)
@@ -190,7 +191,7 @@ def test_a_yes_to_a_read_back_31_minutes_old_is_not_agreed(api):
 
 
 def test_a_save_that_differs_from_the_read_back_is_refused_and_saves_nothing(api):
-    ceo(api)
+    strategy_bot(api)
     other = goal(api, "Keep the bots running")
     target = goal(api, "Launch the docs")
     r, attempt = turn(api, "goal-manager", "ana-test", "Rename the docs goal")
@@ -209,7 +210,7 @@ def test_a_save_that_differs_from_the_read_back_is_refused_and_saves_nothing(api
 
 
 def test_a_change_to_a_goal_reads_back_was_and_now_for_the_changed_fields_only(api):
-    ceo(api)
+    strategy_bot(api)
     serves = goal(api, "Grow the company", owner="company")
     row = goal(api, "Launch the docs", parent_id=serves["id"])
     r, attempt = turn(api, "goal-manager", "ana-test", "Fix the docs goal")
@@ -224,7 +225,7 @@ def test_a_change_to_a_goal_reads_back_was_and_now_for_the_changed_fields_only(a
 
 
 def six_changes(api):
-    ceo(api)
+    strategy_bot(api)
     a, b, c3 = goal(api, "Launch the docs"), goal(api, "Keep the bots running"), goal(api, "Win ten customers")
     with api.app.state.store.transaction() as c:
         kpi = G.kpi_create(c, "human:ana", "bot:ops", {"name": "Uptime", "unit": "%"}, goal_id=b["id"],
@@ -306,7 +307,7 @@ def test_a_suggestion_someone_settled_after_the_read_back_saves_nothing_and_says
 
 
 def test_a_goal_someone_changed_after_the_read_back_saves_nothing_and_says_what_changed(api):
-    ceo(api)
+    strategy_bot(api)
     row = goal(api, "Launch the docs")
     r, attempt = turn(api, "goal-manager", "ana-test", "Rename the docs goal")
     back = read_back(api, attempt, {"kind": "goal_update", "goal_id": row["id"], "title": "Ship the docs"},
@@ -332,7 +333,7 @@ def test_a_goal_someone_changed_after_the_read_back_saves_nothing_and_says_what_
 
 
 def test_what_stays_a_click_is_refused_at_read_back_with_one_reason_and_nothing_is_posted(api):
-    ceo(api)
+    strategy_bot(api)
     row = goal(api, "Launch the docs")
     r, attempt = turn(api, "goal-manager", "ana-test", "Make the docs goal green and log 40 pages")
     before = len(room_messages(api))
@@ -346,7 +347,7 @@ def test_what_stays_a_click_is_refused_at_read_back_with_one_reason_and_nothing_
         refused = read_back(api, attempt, {"kind": "goal_update", "goal_id": row["id"], "title": "Ship the docs"},
                             change, expected=403)["error"]
         assert refused["code"] == "stays_a_click" and word in refused["detail"], (change, refused)
-        assert refused["detail"].count(".") == 1                      # one sentence the CEO Bot can say
+        assert refused["detail"].count(".") == 1                      # one sentence the Strategy Bot can say
     assert len(room_messages(api)) == before
     assert get(api, "goals/" + row["id"])["goal"]["title"] == "Launch the docs"
     # What could not be saved by the owner's own click is refused before it is read back.
@@ -357,8 +358,8 @@ def test_what_stays_a_click_is_refused_at_read_back_with_one_reason_and_nothing_
               expected=422)
 
 
-def test_only_the_owners_ceo_bot_turn_saves_on_a_yes(api):
-    ceo(api)
+def test_only_the_owners_strategy_bot_turn_saves_on_a_yes(api):
+    strategy_bot(api)
     from backend.tests.test_assistant import assistant_turn
     r, attempt = assistant_turn(api, "ben-test", "Set a goal for Ops")
     read_back(api, attempt, NEW_GOAL, expected=403)
@@ -368,7 +369,7 @@ def test_only_the_owners_ceo_bot_turn_saves_on_a_yes(api):
 
 
 def test_repeated_changes_are_refused_before_posting_a_draft(api):
-    ceo(api)
+    strategy_bot(api)
     r, attempt = turn(api, "goal-manager", "ana-test", "Set a goal")
     before = room_messages(api)
     result = read_back(api, attempt, NEW_GOAL, dict(reversed(list(NEW_GOAL.items()))), expected=422)
@@ -404,7 +405,7 @@ def test_cli_read_back_and_cited_save_use_the_server_agreement(api, monkeypatch,
         def post(self, path, body, key=None):
             return self.call('POST', path, body, key)
 
-    ceo(api)
+    strategy_bot(api)
     r, attempt = turn(api, 'goal-manager', 'ana-test', 'Set two goals')
     monkeypatch.setattr(remotecli, 'Client', TurnClient)
     monkeypatch.setenv('HUB_API_URL', 'https://synthetic.invalid')

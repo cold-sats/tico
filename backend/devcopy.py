@@ -92,8 +92,9 @@ KEEP = frozenset((
     "attempt_inputs", "backup_verified_blobs", "batches", "blob_locations", "blob_media", "blobs",
     "bot_agent_instructions", "bot_budget", "bot_config", "bot_control", "bot_file_activity", "bot_file_versions", "bot_files",
     "bot_memory_documents", "bot_memory_oversized", "bot_memory_seen", "bot_memory_updates", "bot_repo_access", "bot_status",
-    "bot_task_tabs", "bot_tool_requests", "bot_transition_checkpoints", "bot_transitions", "bots", "ceo_actions",
-    "ask_ingest_items", "ask_ingest_settings", "ceo_merges", "changes", "chat_goals",
+    "bot_task_tabs", "bot_tool_requests", "bot_transition_checkpoints", "bot_transitions", "bots", "strategy_actions",
+    "ask_ingest_items", "ask_ingest_settings", "strategy_merges", "changes", "chat_goals",
+    "ceo_actions", "ceo_merges",  # the names before the rename: the server renames them when it opens the copy
     "cloud_migrations", "company_events", "company_profile", "connector_snapshots", "conversations", "doc_sources", "doc_versions", "docs",
     "document_versions", "documents", "external_documents", "external_sections", "external_snapshot_docs",
     "external_snapshots", "external_versions", "feed_sources", "feed_updates", "flight_db", "flight_events",

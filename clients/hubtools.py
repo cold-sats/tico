@@ -1215,7 +1215,8 @@ def task_wait(api, args):
 GOAL_YES = _s("The owner's plain yes to a goal read-back: turn or its message id. On not_agreed read back again, never retry the save.")
 
 
-@tool("hub_goal_read_back", "Tico writes and stores the read-back in the owner's CEO Bot chat. Saves nothing without a plain yes. "
+@tool("hub_goal_read_back", "Tico writes and stores the read-back in the owner's Strategy Bot chat. "
+                            "Saves nothing without a plain yes. "
       "Returns message_id, text and exact method/path/body_json steps; save agreed steps with hub_goal_save. "
       "Kinds: goal_create, goal_update, measure_add, target_set, measure_remove, suggestion.",
       {"changes": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": 20}},
@@ -1290,8 +1291,8 @@ def goal_create(api, args):
 
 @tool("hub_goal_status", "Set a goal's colour by hand: red, yellow or green with one honest sentence; "
       "done when reached, dropped when it stops mattering. A colour set by hand sticks, with your name and "
-      "note, until a person hands it back (status `auto`); the CEO Bot only suggests a different one. "
-      "`auto` lets the CEO Bot set the colour again: it ends a colour set by hand and works the automatic one "
+      "note, until a person hands it back (status `auto`); the Strategy Bot only suggests a different one. "
+      "`auto` lets the Strategy Bot set the colour again: it ends a colour set by hand and works the automatic one "
       "out now, from the goal's KPIs, or its owner's check-ins and tasks. The goal's owner, the owner of the goal "
       "it serves, or someone above them.",
       {"id": _s("Goal id"),
@@ -1305,9 +1306,9 @@ def goal_status(api, args):
                     key=_key(args))["goal"]
 
 
-@tool("hub_goal_refresh", "The CEO Bot's status pass: work the automatic colour of every live goal (or "
+@tool("hub_goal_refresh", "The Strategy Bot's status pass: work the automatic colour of every live goal (or "
       "the ones named) out again. A goal whose colour a person set only gets a visible suggestion. "
-      "Returns {changed, suggested, checked}. The CEO Bot or the team owner.",
+      "Returns {changed, suggested, checked}. The Strategy Bot or the team owner.",
       {"goal_ids": {"type": "array", "items": {"type": "string"}, "description": "Only these goals; default all"}},
       writes=True)
 def goal_refresh(api, args):
@@ -1316,7 +1317,7 @@ def goal_refresh(api, args):
 
 @tool("hub_goal_checkin", "Record how the owner says a goal is going, in their words: interpretation, kept "
       "apart from the readings (facts). It colours a goal that has no KPI. The goal's owner, someone above "
-      "them, or the CEO Bot recording an owner's answer (`from_actor`).",
+      "them, or the Strategy Bot recording an owner's answer (`from_actor`).",
       {"id": _s("Goal id"), "body": _s("What is going on, in a sentence or two"),
        "signal": {"type": "string", "enum": ["on_track", "at_risk", "off_track"]},
        "from_actor": _s("Whose words these are, when you record them for someone else: a bot slug or a person id"),
@@ -1339,39 +1340,44 @@ def goal_needs_you(api, args):
     return api.get("goals/needs-you")
 
 
-@tool("hub_goal_company", "The company's Vision and Description (the Company section at the top of Goals, where the CEO "
-      "Bot is on), empty until a person writes them. Read-only: only the owner or an admin changes them.", {})
+@tool("hub_goal_company", "The company's Vision and Description (the Company section at the top of Goals, "
+      "where the Strategy Bot is on), empty until a person writes them. Read-only: only the owner or an admin "
+      "changes them.", {})
 def goal_company(api, args):
     return api.get("company")
 
 
-@tool("hub_goal_ceo_bot", "The CEO Bot's name, how much it does (level 1 Passive, 2 suggests actions, 3 acts on its "
+@tool("hub_goal_strategy_bot", "The Strategy Bot's name, how much it does (level 1 Passive, "
+                               "2 suggests actions, 3 acts on its "
       "own; only the owner changes it), whether its regular checks run, and how many items it put in each person's "
       "Needs you today against its cap of 5.", {})
-def goal_ceo_bot(api, args):
-    return api.get("ceo-bot")
+def goal_strategy_bot(api, args):
+    return api.get("strategy-bot")
 
 
-@tool("hub_goal_ceo_bot_merge", "The CEO Bot only, at level 2 or 3: when several bots ask a person the same thing, "
+@tool("hub_goal_strategy_bot_merge", "The Strategy Bot only, at level 2 or 3: "
+                                     "when several bots ask a person the same thing, "
       "make them one item in that person's Needs you. The originals leave their Needs you while it is open; their one "
       "answer goes to every bot that asked. Counts toward the 5 a day.",
       {"person": _s("The person they all wait on: a person id"), "title": _s("The merged item's title"),
        "question": _s("The one question that answers them all"),
        "tasks": {"type": "array", "items": {"type": "string"}, "description": "2 to 10 task ids waiting on that person"}},
       required=("person", "title", "question", "tasks"), writes=True)
-def goal_ceo_bot_merge(api, args):
-    return api.post("ceo-bot/merge", {"person": _target(api, args["person"]), "title": args["title"],
+def goal_strategy_bot_merge(api, args):
+    return api.post("strategy-bot/merge", {"person": _target(api, args["person"]), "title": args["title"],
                     "question": args["question"], "tasks": list(args["tasks"])}, key=_key(args))
 
 
-@tool("hub_goal_ceo_bot_level3_offer", "The CEO Bot only: record that its Monday note offered level 3, once "
-      "`level3_offer.due` in hub_goal_ceo_bot is true (10 recoveries approved in a row unchanged, none offered in 30 "
+@tool("hub_goal_strategy_bot_level3_offer", "The Strategy Bot only: record that its Monday note offered level 3, once "
+      "`level3_offer.due` in hub_goal_strategy_bot is true (10 recoveries approved in a row "
+      "unchanged, none offered in 30 "
       "days). Only a person raises the level.", {}, writes=True)
-def goal_ceo_bot_level3_offer(api, args):
-    return api.post("ceo-bot/level3-offer", {}, key=_key(args))
+def goal_strategy_bot_level3_offer(api, args):
+    return api.post("strategy-bot/level3-offer", {}, key=_key(args))
 
 
-@tool("hub_goal_ceo_bot_decide", "The CEO Bot only, at level 3: make one decision alone, with its reason: 1 to 10 "
+@tool("hub_goal_strategy_bot_decide", "The Strategy Bot only, at level 3: "
+                                      "make one decision alone, with its reason: 1 to 10 "
       "changes to bot tasks (create a task for a bot, reorder one to the top of its queue, reassign one to another "
       "bot, close one), logged under one action id with an Undo for the owner. A task for a person, spending, "
       "publishing, outside sends, bots, goals, targets, the vision and instructions stay the owner's: those parts, and "
@@ -1385,7 +1391,7 @@ def goal_ceo_bot_level3_offer(api, args):
            "description": "1 to 10 changes"},
        "goal_id": _s("The goal this serves, if any")},
       required=("reason", "changes"), writes=True)
-def goal_ceo_bot_decide(api, args):
+def goal_strategy_bot_decide(api, args):
     changes = args["changes"]
     if isinstance(changes, str):                # the CLI passes the list as JSON
         try:
@@ -1395,15 +1401,16 @@ def goal_ceo_bot_decide(api, args):
     body = {"reason": args["reason"], "changes": list(changes)}
     if args.get("goal_id"):
         body["goal_id"] = args["goal_id"]
-    return api.post("ceo-bot/decisions", body, key=_key(args))
+    return api.post("strategy-bot/decisions", body, key=_key(args))
 
 
-@tool("hub_goal_ceo_bot_log", "The CEO Bot log, newest first: each decision it made alone and each thing it proposed "
+@tool("hub_goal_strategy_bot_log", "The Strategy Bot log, newest first: "
+                                   "each decision it made alone and each thing it proposed "
       "instead because it stays the owner's, with the reason and what Undo restored. The owner only: anyone else, "
-      "the CEO Bot included, is refused.",
+      "the Strategy Bot included, is refused.",
       {"before": _s("next_before from the previous page")})
-def goal_ceo_bot_log(api, args):
-    return api.get("ceo-bot/log" + (f"?before={quote(args['before'])}" if args.get("before") else ""))
+def goal_strategy_bot_log(api, args):
+    return api.get("strategy-bot/log" + (f"?before={quote(args['before'])}" if args.get("before") else ""))
 
 
 @tool("hub_goal_update", "Edit a goal: title, body, the goal it serves, its owner, or its place in "
@@ -1476,7 +1483,7 @@ def kpi_show(api, args):
 @tool("hub_kpi_create", "Make a KPI: a measure on its own that goals link to. Name what is counted, per what; "
       "give a definition, the unit, which way is good, how often it is read and who is accountable (default you). "
       "With `goal_id` it is linked to that goal, with the target fields on the link (an improvement: target and "
-      "deadline; or a range: min/max). The CEO Bot proposes instead (hub_proposal_create).",
+      "deadline; or a range: min/max). The Strategy Bot proposes instead (hub_proposal_create).",
       {"name": _s("'booked Calendly demos per two weeks'"), "goal_id": _s("Link it to this goal"),
        "owner": _s("`me` (default), `company` (the owner's), a bot slug or a person id"),
        **KPI_PROPS, **TARGET_PROPS, "on_behalf_of": GOAL_YES},
@@ -1516,7 +1523,7 @@ def kpi_restore(api, args):
 
 @tool("hub_kpi_link", "Link a goal to a KPI and set the target on that link, or change the target of an "
       "existing link: an improvement (baseline, target, deadline) or a range (min, max); none is just "
-      "linked. The goal's owner or someone above them; the CEO Bot proposes instead.",
+      "linked. The goal's owner or someone above them; the Strategy Bot proposes instead.",
       {"goal_id": _s("Goal id"), "kpi_id": _s("KPI id (auto:<bot>:<metric> for a bot's automatic KPI)"),
        **TARGET_PROPS, "on_behalf_of": GOAL_YES},
       required=("goal_id", "kpi_id"), writes=True)
@@ -1540,7 +1547,7 @@ def kpi_unlink(api, args):
 
 @tool("hub_kpi_log", "Log a reading on a KPI: a fact, with the period it describes, where it came from and how "
       "good it is. Never edited: to correct one, log a new reading that `supersedes` it. The KPI's owner, the "
-      "CEO Bot, or the owner of a goal that uses it.",
+      "Strategy Bot, or the owner of a goal that uses it.",
       {"kpi_id": _s("KPI id"), "value": {"type": "number"},
        "note": _s("Where the number came from", default=""),
        "period_start": _s("Start of the period it describes, ISO date or date-time; default one cadence before the end"),
@@ -1565,14 +1572,16 @@ def kpi_log(api, args):
 @tool("hub_proposal_create", "Propose a change you may not make yourself, for the owner to confirm: clearer "
       "goal wording (goal_wording: payload title/body), a KPI for a goal (goal_kpi: payload kpi or kpi_id, and "
       "target), a new definition (kpi_definition), a target (kpi_target: payload is the target fields), or a "
-      "flag (flag: payload issue vague|duplicate|unmeasured), or, where the CEO Bot is on, a goal's Why (goal_why: "
-      "payload why, one line tying the goal to the company's vision), or, from the CEO Bot at level 2 or 3, a red or "
+      "flag (flag: payload issue vague|duplicate|unmeasured), or, where the Strategy Bot "
+      "is on, a goal's Why (goal_why: "
+      "payload why, one line tying the goal to the company's vision), or, "
+      "from the Strategy Bot at level 2 or 3, a red or "
       "stalled goal's recovery (recovery: payload evidence, options [{label, actions}], pick; actions create, "
       "reorder or settle), or, from any bot at any level, a change to the strategy draft (strategy_draft: payload "
       "summary, vision, sections {serve, sell, know, not, extra: {key: {title, body}}}, bets [{id?, statement, why, "
       "rules_out, wrong_if, cites, status}], each optional; a bet with an id changes only the fields sent, one "
       "without is new; source bet_tripped when a tripped bet prompted it; confirmed, the owner's draft and bets "
-      "change, nothing is published). goal_wording may be only {bet_id} to link a goal to a bet. The CEO Bot "
+      "change, nothing is published). goal_wording may be only {bet_id} to link a goal to a bet. The Strategy Bot "
       "cannot change a definition or a target it is judged against without one.",
       {"kind": {"type": "string", "enum": list(PROPOSAL_KINDS)}, "goal_id": _s("The goal it is about"),
        "kpi_id": _s("The KPI it is about"), "payload": {"type": "object", "description": "The proposed change"},
@@ -1719,7 +1728,8 @@ def strategy_diff(api, args):
     return api.get("strategy/diff", **{"from": int(args["from_n"]), "to": int(args["to_n"])})
 
 
-@tool("hub_strategy_guides", "Deprecated: the CEO Bot's drafting questions (the default guide only). The exercises "
+@tool("hub_strategy_guides", "Deprecated: the Strategy Bot's drafting questions (the "
+                             "default guide only). The exercises "
       "run against a strategy are lenses: hub_lens_list.", {})
 def strategy_guides(api, args):
     return api.get("strategy/guides")
@@ -1757,8 +1767,8 @@ def lens_list(api, args):
 
 
 @tool("hub_lens_run", "Run a lens: answers by step key (a step left out is skipped and assumed from the strategy), on "
-      "the published strategy or, for the owner, the draft. The owner, the CEO Bot and, for a market lens, the "
-      "Librarian may run one. The CEO Bot's run files its changes as one strategy_draft proposal; nobody's run "
+      "the published strategy or, for the owner, the draft. The owner, the Strategy Bot and, for a market lens, the "
+      "Librarian may run one. The Strategy Bot's run files its changes as one strategy_draft proposal; nobody's run "
       "publishes. Waits up to `wait` seconds (at most 60) for the result.",
       {"lens": _s("Lens id, from hub_lens_list"),
        "answers": {"type": "object", "description": "{step key: answer}. text: a string; list: an array of strings "
@@ -1951,7 +1961,7 @@ def market_watch_check(api, args):
 
 @tool("hub_market_briefing_post", "Librarian (the market curator): post the week's market briefing. `body` is Markdown, `items` the "
       "week's findings, each {text, kind: change|signal|theme|size, entity_ids: [market ids it touches]}. The server works out "
-      "which bets cite those ids and tells the CEO Bot. The same week again replaces it.",
+      "which bets cite those ids and tells the Strategy Bot. The same week again replaces it.",
       {"week": _s("ISO week, like 2026-W44"), "title": _s("A short title"), "body": _s("The briefing in Markdown"),
        "items": {"type": "array", "items": {"type": "object"}, "description": "{text, kind, entity_ids} per finding"}},
       required=("week", "title", "body"), writes=True)
@@ -3146,7 +3156,7 @@ def seat_update(api, args):
     return api.patch(f"seats/{args['seat']}", body, key=_key(args))
 
 
-@tool("hub_seat_draft", "The CEO Bot's draft of a Recruiting seat's job description, on the task that asks for it "
+@tool("hub_seat_draft", "The Strategy Bot's draft of a Recruiting seat's job description, on the task that asks for it "
       "(the owner opened the seat). A description a person wrote is kept; Tico says so.",
       {"seat": _s("The seat id"), "text": _s("The job description")}, required=("seat", "text"), writes=True)
 def seat_draft(api, args):
@@ -4798,7 +4808,7 @@ def ack(api, args):
       "\"body\": {\"decision\": \"declined\", \"note\": \"<reason>\"}}, {\"path\": \"/api/v2/messages/<id>/answer\", "
       "\"body\": {\"text\": \"<their words>\"}}, ...]} (up to 100). Approving goes on a card only when the person's "
       "message names it (approve, merge, publish, send, spend); 'clear my queue' never approves. "
-      "The CEO Bot may propose one owner-confirmed org-chart change as POST /api/v2/seats/batch with body "
+      "The Strategy Bot may propose one owner-confirmed org-chart change as POST /api/v2/seats/batch with body "
       "{\"seats\":[{\"title\":\"...\",\"description\":\"...\",\"reports_to\":\"...\",\"team\":\"...\"}]} . "
       "Use hub_org_models for published recommendations; no seat is added before the owner confirms. "
       "A task action, decline or answer the person clearly asked for needs no card: pass on_behalf_of to that tool instead. "
@@ -4815,11 +4825,12 @@ def assistant_propose(api, args):
 
 @tool("hub_assistant_learn", "In a person's own chat: save one thing they taught you about how they like things ranked "
       "and summarised (\"launches matter more than hiring news\"), as one short line in their words, then tell them "
-      "what you saved. It is theirs alone and shows on What it has learned, where they edit or delete it. The CEO Bot "
+      "what you saved. It is theirs alone and shows on What it has learned, "
+      "where they edit or delete it. The Strategy Bot "
       "in the owner's chat saves what the owner teaches it about the company with layer company.",
       {"text": _s("One short line, in their words"),
        "layer": {"enum": ["personal", "company"], "default": "personal",
-                 "description": "personal (theirs), or company (the CEO Bot in the owner's chat only)"}},
+                 "description": "personal (theirs), or company (the Strategy Bot in the owner's chat only)"}},
       required=("text",), writes=True)
 def assistant_learn(api, args):
     return api.post("assistant/learned", {"layer": args.get("layer") or "personal", "text": args["text"]},
@@ -4827,7 +4838,7 @@ def assistant_learn(api, args):
 
 
 @tool("hub_assistant_learned", "What a person's chat bot has learned: their own layer, and for the owner the "
-      "company layer (vision, priorities, what they taught the CEO Bot about the company).", {})
+      "company layer (vision, priorities, what they taught the Strategy Bot about the company).", {})
 def assistant_learned(api, args):
     return api.get("assistant/learned")
 

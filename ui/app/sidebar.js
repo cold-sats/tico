@@ -45,22 +45,24 @@ function orgBossKey(n) {
 function orgHang(key, boss, groupOf) {
   const group = groupOf[key] || '';
   // The Strategy Bot hangs under the owner wherever the owner sits; it is a helper, off the chart, so what hangs under it
-  // shows under the owner (orgTreeWithHelpers). A bot the server hangs under the Strategy Bot (backend/ceo_bot.py) stays
+  // shows under the owner (orgTreeWithHelpers). A bot the server hangs under the Strategy Bot (backend/strategy_bot.py)
+  // stays
   // in its group only when that group hangs under the Strategy Bot too, else it leaves the group for the owner's branch:
   // the owner's own group never moves there, or the chart would loop.
-  if (boss && (key === 'b:goal-manager' || (boss === 'b:goal-manager' && group && !orgGroupUnderCeo(group)))) return boss;
+  if (boss && (key === 'b:goal-manager' || (boss === 'b:goal-manager' && group && !orgGroupUnderStrategyBot(group)))) return boss;
   if (group) return boss && groupOf[boss] === group ? boss : 'g:' + group;
   return boss && !groupOf[boss] ? boss : '';
 }
 // Whether this group, through its top-level group, hangs under the Strategy Bot (orgGroupParent).
-function orgGroupUnderCeo(id) {
+function orgGroupUnderStrategyBot(id) {
   const byId = new Map((S.orgGroups || []).map(g => [g.id, g]));
   let g = byId.get(id);
   for (let hops = 0; g?.parent && byId.has(g.parent) && hops < 20; hops++) g = byId.get(g.parent);
   return g?.org_parent === 'b:goal-manager';
 }
 // Where a group hangs: in its parent group, else at the top. The server hangs the top-level group of a Head it puts under
-// the Strategy Bot there too (`org_parent`, backend/ceo_bot.py), and the chart lifts it to the owner with the Head.
+// the Strategy Bot there too (`org_parent`, backend/strategy_bot.py), and the chart lifts it to the owner with the
+// Head.
 const orgGroupParent = (g, keys) => g.parent && keys.has('g:' + g.parent) ? 'g:' + g.parent
   : g.org_parent === 'b:goal-manager' && keys.has('b:goal-manager') ? 'b:goal-manager' : '';
 function orgGroupOf(people, bots, seats = []) {
@@ -168,7 +170,7 @@ function renderInboxNav() {
   patchHTML(list, rows.map(inboxNavLink).join(''));
 }
 function renderLibrarians() {
-  // The owner's tab is the CEO Bot, by its name; everyone else's the Assistant (ui/app/state.js meCeo).
+  // The owner's tab is the Strategy Bot, by its name; everyone else's the Assistant (ui/app/state.js meStrategyBot).
   const mine = myChatBot();
   for (const [id, slug, href] of [
     ['nav-assistant', mine, mePerson() ? ASSISTANT : `#/bot/${encodeURIComponent(mine)}`],

@@ -1,5 +1,6 @@
 // Goal suggestion cards say what yes does (ui/goals-kpis.js goalPropHtml, propDoHtml, propNowProposedHtml; spec "Clear
-// CEO Bot suggestion cards"): Add a KPI names the measure, says what it counts, its target or "No target yet" and a
+// Strategy Bot suggestion cards"): Add a KPI names the measure, says what it counts, its target or "No target yet" and
+// a
 // missing data source, and folds away the goal editor's target fields; each yes button says what it does, the no button
 // reads "No, leave it", a Flag has one "Got it", and new wording or a new definition reads Now and Proposed.
 // Fixtures only.
@@ -13,7 +14,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 
 const bot = (name, display_name, org_parent, over) => ({name, display_name, org_parent, host: 'keeper', status: 'active', can_chat: true, ...over});
 const bots = [bot('coo', 'Assistant', ''), bot('botops', 'BotOps', ''), bot('librarian', 'Librarian', ''),
-  bot('goal-manager', 'CEO Bot', 'p:ana', {reports_to: ''}), bot('cmo', 'Head of Marketing', 'p:ana')];
+  bot('goal-manager', 'Strategy Bot', 'p:ana', {reports_to: ''}), bot('cmo', 'Head of Marketing', 'p:ana')];
 const GOAL = 'Double organic signups';
 const LONG = 'Signed-up accounts that finish setup, counted once per account, in the week the last setup step is done, '.repeat(4);
 const prop = (id, kind, payload, card, over) => ({id, kind, goal_id: 'g-cmo', kpi_id: null, payload, reason: 'No measure on this goal yet',
@@ -116,7 +117,7 @@ const measure = (name, over) => ({name, definition: '', source_note: '', unit: '
     await word.locator('[data-np-all]').click();
     assert.equal(await longCell.evaluate(el => el.scrollHeight > el.clientHeight + 1), false, 'Show all opens it');
     assert.match(await card('p-tgt').innerText(), /New target for Activation on Double organic signups\s+Now\s+→ 65% by Dec 31\s+Proposed\s+→ 60% by Dec 31, 2027/);
-    // A Flag says in one line what the CEO Bot noticed.
+    // A Flag says in one line what the Strategy Bot noticed.
     assert.match(await card('p-flag').innerText(), /Strategy Bot noticed: Double organic signups looks like a duplicate of another goal: Same words as Grow signups/);
     if (screenshotDir) await page.locator('#goal-needs').screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-suggestion-cards.png')});
 

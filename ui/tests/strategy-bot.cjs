@@ -1,4 +1,4 @@
-// The Strategy Bot on every install (backend/ceo_bot.py): a built-in bot, like BotOps and the Librarian, so it is not a row
+// The Strategy Bot on every install (backend/strategy_bot.py): a built-in bot, like BotOps and the Librarian, so it is not a row
 // on the Team chart. The Heads, their departments and the bots with no manager that the server hangs under it report to
 // the owner instead: on the sidebar they sit at the top beside the owner's row (the top of the chart is not one more
 // level), on Goals under the owner. Strategy's rail calls it by its name, the Strategy Bot unless the owner
@@ -12,7 +12,7 @@ const {unrouted} = require('./support/routes.cjs');
 
 const bot = (name, display_name, org_parent, over) => ({name, display_name, org_parent, host: 'keeper', status: 'active', can_chat: true, ...over});
 // What the server sends: the Heads, and the Head's department (Marketing), hang under the Strategy Bot. For a person who
-// once chose Hide from my chart (`hidden`), nothing is moved under it and its row says `chart_hidden` (backend/ceo_bot.py).
+// once chose Hide from my chart (`hidden`), nothing is moved under it and its row says `chart_hidden` (backend/strategy_bot.py).
 const bots = (name, home, hidden, analyst) => [
   bot('coo', 'Assistant', 'p:ana'), bot('botops', 'BotOps', 'b:coo'), bot('librarian', 'Librarian', 'p:ana'),
   bot('goal-manager', name, 'p:ana', {reports_to: '', can_manage: true, ...(hidden ? {chart_hidden: true} : {})}),
@@ -39,7 +39,7 @@ async function open(browser, server, width = 1440) {
     if (ui) { const file = uiFile(ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
     if (p === '/api/v2/events') return;
     if (p === '/api/v2/config') return json({});
-    if (p === '/api/employees') return json(bots(server.name ?? 'CEO Bot', home, server.hidden, server.analyst));
+    if (p === '/api/employees') return json(bots(server.name ?? 'Strategy Bot', home, server.hidden, server.analyst));
     if (p === '/api/me') return json({id: 'ana', name: 'Ana Silva', email: 'ana@example.test', role: 'owner', mover: true, cloud: true, config: {}});
     if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana Silva', org_parent: '', ...(home ? {team: 'home'} : {})}], org_groups: groups(home, server.hidden)});
     if (p.startsWith('/api/v2/preferences/') && req.method() === 'POST') (server.saves ||= []).push(p);
@@ -90,6 +90,7 @@ async function check(page, name = 'Strategy Bot') {
   assert.equal(await page.locator('#sbot').getAttribute('aria-label'), name);
   await page.locator('#sbot .p-text').waitFor({state: 'attached'});
   assert.equal(await page.locator('#sbot .p-text').getAttribute('aria-label'), `Message to the ${name}`);
+  // The old names an install stored before the upgrade are never shown.
   assert.doesNotMatch(await page.locator('body').innerText(), /Goal Manager|CEO Bot/);
 }
 (async () => {
@@ -143,7 +144,7 @@ async function check(page, name = 'Strategy Bot') {
       assert.deepEqual(errors, []);
       await page.close();
     }
-    console.log('ceo-bot: ok');
+    console.log('strategy-bot: ok');
   } finally {
     await browser.close();
   }

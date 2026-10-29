@@ -324,8 +324,8 @@ async function pageBot(slug, tab) {
     </div>
     <div id="pane-more" role="tabpanel" aria-labelledby="bot-tab-info" hidden>
     <div class="bot-more-top" id="bot-more-top"></div>
-    ${slug === GM && ceoBotLogShown() ? `<section class="card" id="ceo-bot-log-card"><header><h2>${esc(ceoBotName())} log</h2></header>
-      <div id="ceo-bot-log"><div class="empty">Loading…</div></div></section>` : ''}
+    ${slug === GM && strategyBotLogShown() ? `<section class="card" id="strategy-bot-log-card"><header><h2>${esc(strategyBotName())} log</h2></header>
+      <div id="strategy-bot-log"><div class="empty">Loading…</div></div></section>` : ''}
     ${limited ? `    <section class="card"><header><h2>About</h2></header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd>${botRoleHTML(role)}</dd>` : ''}
@@ -403,11 +403,12 @@ async function pageBot(slug, tab) {
   } else {
     if (BOT_PILL) chatDraftSave(BOT_PILL);
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
-    // The CEO Bot: of people, only the owner talks to it, in their menu tab; anyone's earlier chat here stays readable.
+    // The Strategy Bot: of people, only the owner talks to it, in their menu tab; anyone's earlier chat here stays
+    // readable.
     $('#chat-composer').innerHTML = slug === 'goal-manager' && e.my_access?.write
-      ? `<section class="card"><p class="muted">${meCeo()
-        ? `You talk to ${esc(ceoBotName())} in your own chat: <a href="${ASSISTANT}">open it</a>.`
-        : `Only the company's owner talks to ${esc(ceoBotName())}. Ask <a href="${ASSISTANT}">your Assistant</a> instead.`}</p></section>`
+      ? `<section class="card"><p class="muted">${meStrategyBot()
+        ? `You talk to ${esc(strategyBotName())} in your own chat: <a href="${ASSISTANT}">open it</a>.`
+        : `Only the company's owner talks to ${esc(strategyBotName())}. Ask <a href="${ASSISTANT}">your Assistant</a> instead.`}</p></section>`
       : `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
   window.botTools?.mountStrip($('#bot-tool-strip'), {slug, get, esc, href: `${base}/tools`, skipModel: !!runtimeTag(e)});
@@ -597,7 +598,8 @@ function showBotTab(tab) {
     botLatestSeen();
   }
   if (view === 'info') once('toolslist', slug => window.botTools?.mountList($('#bot-tools'), {slug, get, esc}));
-  if (view === 'info' && BOT.slug === GM && ceoBotLogShown()) once('ceo-log', () => renderCeoBotLog($('#ceo-bot-log')));
+  if (view === 'info' && BOT.slug === GM && strategyBotLogShown())
+    once('strategy-log', () => renderStrategyBotLog($('#strategy-bot-log')));
   if (!BOT.limited) {
     if (view === 'history') {
       if (isKeeper(BOT.slug)) once('history', v2HistoryLoad);

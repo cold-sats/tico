@@ -45,7 +45,7 @@ The docs include internal writing, external sources and the manual:
   - Page monitors (`hub market watch`): the server reads each watched competitor page daily and files a
     `page-change` insight; you curate it in the same pass. Mondays you write the week's briefing:
     `playbooks/write-the-briefing.md`.
-- A market lens (Where to Play, Five Forces) when a person or the CEO Bot asks for one: answer its questions from the
+- A market lens (Where to Play, Five Forces) when a person or the Strategy Bot asks for one: answer its questions from the
   market pages and the web pages you read this run, then `hub lens run where-to-play --answers-file a.json`
   (`hub lens list --market`). You may not run a strategy lens. Its result may name questions to sharpen; the owner's
   click files them as research tasks for you.

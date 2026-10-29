@@ -1,4 +1,5 @@
-// The Updates chat (ui/app/updates-chat.js; spec: CEO Bot v3, section 10.8, tests 25 to 27): the person's own chat bot
+// The Updates chat (ui/app/updates-chat.js; spec: Strategy Bot v3, section 10.8, tests 25 to 27): the person's own chat
+// bot
 // in a right rail beside the feed, the same conversation as their menu tab; a question goes with `place: "updates"`;
 // a link in a reply scrolls to and highlights that update, switching the day or Daily/Weekly as needed, while the chat
 // stays; the header button hides it and that is remembered; its edge resizes it. On a phone the button opens the chat full screen; a link closes it first. Every request is intercepted (fixtures only).
@@ -85,7 +86,7 @@ const chatOf = over => ({available: true, state: 'active', can_turn_on: false, h
     // Desktop, a member: their Assistant beside the feed.
     {
       const cara = {id: 'cara', name: 'Cara', email: 'cara@example.test', role: 'member', cloud: true};
-      const chat = chatOf({bot: 'coo', ceo: false, name: 'Assistant', room_id: 'room-cara',
+      const chat = chatOf({bot: 'coo', strategy_bot: false, name: 'Assistant', room_id: 'room-cara',
         messages: [{id: 'm0', conversation_id: 'room-cara', from_actor: 'human:cara', to_actor: 'bot:coo', body: 'Asked from the menu tab', created: iso(-hour), refs: {assistant: true}}]});
       const store = {};
       const {context, page, errors, sent, prefs, trees} = await open(browser, cara, {width: 1400, height: 900}, chat, store);
@@ -165,7 +166,7 @@ const chatOf = over => ({available: true, state: 'active', can_turn_on: false, h
     // full screen; a link closes it.
     {
       const ana = {id: 'ana', name: 'Ana', email: 'ana@example.test', role: 'owner', cloud: true};
-      const chat = chatOf({bot: 'goal-manager', ceo: true, name: 'Chief', room_id: 'room-ana', messages: []});
+      const chat = chatOf({bot: 'goal-manager', strategy_bot: true, name: 'Chief', room_id: 'room-ana', messages: []});
       const {context, page, errors, sent} = await open(browser, ana, {width: 390, height: 844}, chat);
       await page.goto('http://tico-ui.test/#/updates');
       await page.locator('#upd-feed [data-upd="u-sales"]').waitFor();
@@ -200,7 +201,7 @@ const chatOf = over => ({available: true, state: 'active', can_turn_on: false, h
     // The Assistant off: one line with Turn on for whoever may turn it on; for anyone else no rail and no button.
     for (const canTurnOn of [true, false]) {
       const dana = {id: 'dana', name: 'Dana', email: 'dana@example.test', role: canTurnOn ? 'owner' : 'member', cloud: true};
-      const chat = chatOf({available: false, state: 'archived', bot: 'coo', ceo: false, name: 'Assistant', room_id: null, messages: [], can_turn_on: canTurnOn});
+      const chat = chatOf({available: false, state: 'archived', bot: 'coo', strategy_bot: false, name: 'Assistant', room_id: null, messages: [], can_turn_on: canTurnOn});
       const {context, page, errors} = await open(browser, dana, {width: 1400, height: 900}, chat);
       await page.goto('http://tico-ui.test/#/updates');
       await page.locator('#upd-feed [data-upd="u-sales"]').waitFor();

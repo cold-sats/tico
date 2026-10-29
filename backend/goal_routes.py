@@ -3,7 +3,7 @@
 Who may do what, in one place. Company goals and KPIs are visible to everyone signed in; a bot's own
 are visible to whoever may Read the bot (docs/permissions.md). A goal's owner, the owner of the goal
 it serves and anyone above the owner on the org chart set its colour and its KPIs. A KPI's owner (or
-anyone above them; the company owner for a company KPI) edits it and its readings. The CEO Bot,
+anyone above them; the company owner for a company KPI) edits it and its readings. The Strategy Bot,
 the built-in steward of every KPI, reads all of them and writes readings and automatic colours, and
 nothing else: a change to a definition or a target it is judged against is a proposal that a
 person confirms.
@@ -15,10 +15,10 @@ import re
 from fastapi import Request
 
 from . import botkpis
-from . import ceo_acts as CA
-from . import ceo_bot
-from . import ceo_merge as CM
-from . import ceo_suggest as CS
+from . import strategy_acts as CA
+from . import strategy_bot
+from . import strategy_merge as CM
+from . import strategy_suggest as CS
 from . import company as C
 from . import goal_asks as GA
 from . import goal_read_back as GR
@@ -32,8 +32,8 @@ from .store import H, Problem
 
 
 def company_editor(who):
-    """The owner, on their own click: never an admin or a member, never a bot (the CEO Bot proposes), never someone
-    acting for the owner. The CEO Bot's level, its regular checks, the vision and the strategy are theirs."""
+    """The owner, on their own click: never an admin or a member, never a bot (the Strategy Bot proposes), never someone
+    acting for the owner. The Strategy Bot's level, its regular checks, the vision and the strategy are theirs."""
     return who.role == "owner" and not who.via
 
 
@@ -46,7 +46,7 @@ def strategy_visible(who, proposal):
 
 
 def _hidden_owners(c, auth, who):
-    """The bots whose goals this caller may not read, as owner actors. The CEO Bot reads every goal."""
+    """The bots whose goals this caller may not read, as owner actors. The Strategy Bot reads every goal."""
     if who.role == "bot" and who.actor == G.AUTO_ACTOR:
         return set()
     return {"bot:" + slug for slug in auth.unreadable_bots(c, who)}
@@ -54,7 +54,7 @@ def _hidden_owners(c, auth, who):
 
 def readable_goals(c, auth, who, rows):
     """A bot's goals are its work: a caller sees them only when they may Read the bot (People's goals stay the
-    team's, as before). The CEO Bot reads every goal, as it keeps every KPI."""
+    team's, as before). The Strategy Bot reads every goal, as it keeps every KPI."""
     hidden = _hidden_owners(c, auth, who)
     return [row for row in rows if row["owner"] not in hidden] if hidden else list(rows)
 
@@ -66,7 +66,7 @@ def install(app, store, auth, mutate, settings):
     write = mutate
 
     def mutate(request, body, work):
-        """Every goals write, then the CEO Bot's asks brought up to date in the same transaction: a reading
+        """Every goals write, then the Strategy Bot's asks brought up to date in the same transaction: a reading
         logged or a proposal decided closes its task at once, not at the next hourly pass."""
         def work_then_ask(c):
             # A save the owner agreed to in words (backend/goal_read_back.py): checked again inside this write, so two
@@ -85,7 +85,7 @@ def install(app, store, auth, mutate, settings):
             except Exception as exc:          # the person's write stands; the hourly pass asks instead
                 if not c.in_transaction:
                     raise
-                GA.log.warning("CEO Bot asks not brought up to date: %s", type(exc).__name__)
+                GA.log.warning("Strategy Bot asks not brought up to date: %s", type(exc).__name__)
             return out
         return write(request, body, work_then_ask)
 
@@ -96,7 +96,7 @@ def install(app, store, auth, mutate, settings):
         return roster, entries, archived
 
     def is_manager(who):
-        """The CEO Bot acting as itself."""
+        """The Strategy Bot acting as itself."""
         return who.role == "bot" and who.actor == G.AUTO_ACTOR
 
     def goal_owner(c, who, value):
@@ -138,7 +138,7 @@ def install(app, store, auth, mutate, settings):
         return who.actor == record["owner"] or stands_above(c, who, record["owner"])
 
     def may_log(c, who, record):
-        """Whoever keeps the KPI, the CEO Bot, or the owner of a goal that uses it."""
+        """Whoever keeps the KPI, the Strategy Bot, or the owner of a goal that uses it."""
         if is_manager(who) or may_edit_kpi(c, who, record):
             return True
         return any(may_colour(c, who, g) for g in (G.goal(c, link["goal_id"]) for link in K.links_of(c, kpi_id=record["id"])) if g)
@@ -162,12 +162,12 @@ def install(app, store, auth, mutate, settings):
         return record
 
     def refuse_manager(c, who, what, gated=""):
-        """`gated` says what was tried when it changes a goal or a target: the CEO Bot's try becomes the owner's
-        proposal (backend/ceo_acts.py)."""
+        """`gated` says what was tried when it changes a goal or a target: the Strategy Bot's try becomes the owner's
+        proposal (backend/strategy_acts.py)."""
         if is_manager(who):
             if gated:
                 CA.gate(c, who.actor, "target", gated)
-            raise Problem("forbidden", f"The {ceo_bot.name(c)} proposes {what}; the owner confirms it "
+            raise Problem("forbidden", f"The {strategy_bot.name(c)} proposes {what}; the owner confirms it "
                           "(POST /api/v2/goal-proposals)", 403)
 
     def owner_names(c, rows):
@@ -189,7 +189,7 @@ def install(app, store, auth, mutate, settings):
         return names
 
     def in_words(who):
-        """The owner's yes to a goal read-back, saved by the CEO Bot in their chat (backend/goal_read_back.py)."""
+        """The owner's yes to a goal read-back, saved by the Strategy Bot in their chat (backend/goal_read_back.py)."""
         return who.role == "owner" and who.via == "assistant" and bool(GR.active())
 
     def decider(c, who, item):
@@ -315,7 +315,7 @@ def install(app, store, auth, mutate, settings):
                 f"{k} to \"{v}\"" for k, v in asked.items()) or "vision or description"))
             if not company_editor(who):
                 raise Problem("forbidden", "Only the owner writes the company's Vision and Description, on their own "
-                              f"click; an admin or a member asks them, and a bot, the {ceo_bot.name(c)} included, "
+                              f"click; an admin or a member asks them, and a bot, the {strategy_bot.name(c)} included, "
                               "proposes", 403)
             if body.vision is not None:
                 S.update_draft(c, who.actor, vision=body.vision)
@@ -324,73 +324,84 @@ def install(app, store, auth, mutate, settings):
             return company_view(c, who)
         return mutate(request, body, work)
 
-    # ------------------------------------------------------------------ how much the CEO Bot does
-    @app.post("/api/v2/ceo-bot/level")
-    def ceo_bot_level(request: Request, body: M.CeoBotLevel):
-        """Settings > CEO Bot, "How much your CEO Bot does": the owner picks Passive (1), Suggests actions (2) or Acts
-        on its own (3) on their own click; each change is kept with who and when. An admin or a member never does, nor
-        a bot, the CEO Bot included, nor the Assistant acting for the owner."""
+    # ------------------------------------------------------------------ how much the Strategy Bot does
+    # The /api/v2/ceo-bot paths are the Strategy Bot's old ones: clients built before the rename still call them, so
+    # each stays a hidden alias of the route under it.
+    @app.post("/api/v2/ceo-bot/level", include_in_schema=False)
+    @app.post("/api/v2/strategy-bot/level")
+    def strategy_bot_level(request: Request, body: M.StrategyBotLevel):
+        """Settings > Strategy Bot, "How much your Strategy Bot does": the owner picks Passive (1), Suggests actions (2)
+        or Acts on its own (3) on their own click; each change is kept with who and when. An admin or a member never
+        does, nor a bot, the Strategy Bot included, nor the Assistant acting for the owner."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
             if not company_editor(who):
-                raise Problem("forbidden", f"Only the owner chooses how much the {ceo_bot.name(c)} does, on their own "
-                              "click; no admin or bot changes it, the CEO Bot included", 403)
-            ceo_bot.set_level(c, who.actor, body.level)
-            return ceo_bot.named(c, ceo_bot.view(c))
+                raise Problem("forbidden",
+                              f"Only the owner chooses how much the {strategy_bot.name(c)} does, on their own "
+                              "click; no admin or bot changes it, the Strategy Bot included", 403)
+            strategy_bot.set_level(c, who.actor, body.level)
+            return strategy_bot.named(c, strategy_bot.view(c))
         return mutate(request, body, work)
 
-    @app.post("/api/v2/ceo-bot/checks")
-    def ceo_bot_checks(request: Request, body: M.CeoBotChecks):
-        """Settings > CEO Bot, "Regular checks": the owner turns the KPI pass and the automatic goal colours on or off,
-        on their own click. Off, neither runs until they turn them back on; their chat with the CEO Bot still works."""
+    @app.post("/api/v2/ceo-bot/checks", include_in_schema=False)
+    @app.post("/api/v2/strategy-bot/checks")
+    def strategy_bot_checks(request: Request, body: M.StrategyBotChecks):
+        """Settings > Strategy Bot, "Regular checks": the owner turns the KPI pass and the automatic goal colours on or
+        off, on their own click. Off, neither runs until they turn them back on; their chat with the Strategy Bot still
+        works."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
             if not company_editor(who):
-                raise Problem("forbidden", f"Only the owner turns the {ceo_bot.name(c)}'s regular checks on or off, "
+                raise Problem("forbidden",
+                              f"Only the owner turns the {strategy_bot.name(c)}'s regular checks on or off, "
                               "on their own click", 403)
-            ceo_bot.set_checks(c, who.actor, body.on)
-            return ceo_bot.named(c, ceo_bot.view(c))
+            strategy_bot.set_checks(c, who.actor, body.on)
+            return strategy_bot.named(c, strategy_bot.view(c))
         return mutate(request, body, work)
 
-    def ceo_itself(c, who, what):
-        if who.actor != "bot:" + ceo_bot.SLUG or who.via:
-            raise Problem("forbidden", f"Only the {ceo_bot.name(c)} {what}", 403)
+    def strategy_itself(c, who, what):
+        if who.actor != "bot:" + strategy_bot.SLUG or who.via:
+            raise Problem("forbidden", f"Only the {strategy_bot.name(c)} {what}", 403)
 
-    @app.post("/api/v2/ceo-bot/merge")
-    def ceo_bot_merge(request: Request, body: M.CeoBotMerge):
-        """At level 2 or 3, the CEO Bot makes several bots' asks waiting on one person a single item of its own; the
-        person's answer to it goes to each bot that asked (backend/ceo_merge.py)."""
+    @app.post("/api/v2/ceo-bot/merge", include_in_schema=False)
+    @app.post("/api/v2/strategy-bot/merge")
+    def strategy_bot_merge(request: Request, body: M.StrategyBotMerge):
+        """At level 2 or 3, the Strategy Bot makes several bots' asks waiting on one person a single item of its own;
+        the person's answer to it goes to each bot that asked (backend/strategy_merge.py)."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
-            ceo_itself(c, who, "merges the asks waiting on a person")
+            strategy_itself(c, who, "merges the asks waiting on a person")
             person = H.resolve_actor(c, body.person) or body.person
             return CM.merge(c, who.actor, person, body.title, body.question, body.tasks)
         return mutate(request, body, work)
 
-    @app.post("/api/v2/ceo-bot/level3-offer")
-    def ceo_bot_level3_offer(request: Request, body: M.Empty):
-        """The CEO Bot records that its Monday note offered level 3: refused unless 10 approvals in a row at level 2
-        make it due, and never more often than every 30 days. Offering never changes the level."""
+    @app.post("/api/v2/ceo-bot/level3-offer", include_in_schema=False)
+    @app.post("/api/v2/strategy-bot/level3-offer")
+    def strategy_bot_level3_offer(request: Request, body: M.Empty):
+        """The Strategy Bot records that its Monday note offered level 3: refused unless 10 approvals in a row at level
+        2 make it due, and never more often than every 30 days. Offering never changes the level."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
-            ceo_itself(c, who, "offers level 3, in its Monday note")
+            strategy_itself(c, who, "offers level 3, in its Monday note")
             return {"level3_offer": CS.offer_made(c, who.actor)}
         return mutate(request, body, work)
 
-    # ------------------------------------------------------------------ what the CEO Bot does alone (level 3)
-    @app.post("/api/v2/ceo-bot/decisions")
-    def ceo_bot_decide(request: Request, body: M.CeoBotDecision):
-        """The CEO Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the top
-        of their queue, given to another bot or closed, all under one action id in the CEO Bot log. What it may not do
-        alone (a person's task, a bot offline, a refusal) becomes one proposal in the owner's Needs you, never dropped."""
+    # ------------------------------------------------------------------ what the Strategy Bot does alone (level 3)
+    @app.post("/api/v2/ceo-bot/decisions", include_in_schema=False)
+    @app.post("/api/v2/strategy-bot/decisions")
+    def strategy_bot_decide(request: Request, body: M.StrategyBotDecision):
+        """The Strategy Bot only, at level 3: one decision made alone, with its reason: bot tasks created, moved to the
+        top of their queue, given to another bot or closed, all under one action id in the Strategy Bot log. What it may
+        not do alone (a person's task, a bot offline, a refusal) becomes one proposal in the owner's Needs you, never
+        dropped."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
-            ceo_itself(c, who, "decides alone, at level 3")
+            strategy_itself(c, who, "decides alone, at level 3")
             def give(owner, task_id):
                 # The checks a task create or reassign by this caller passes (POST /api/v2/tasks, /tasks/{id}).
                 try:
@@ -405,9 +416,10 @@ def install(app, store, auth, mutate, settings):
             return CA.receipt(CA.entry(c, made, auth.task_sql(c, who)))
         return mutate(request, body, work)
 
-    @app.get("/api/v2/ceo-bot/log")
-    def ceo_bot_log(request: Request, before: str | None = None, limit: int = CA.LOG_PAGE):
-        """The CEO Bot log, newest first: each decision it made alone with its reason and what it changed, and each
+    @app.get("/api/v2/ceo-bot/log", include_in_schema=False)
+    @app.get("/api/v2/strategy-bot/log")
+    def strategy_bot_log(request: Request, before: str | None = None, limit: int = CA.LOG_PAGE):
+        """The Strategy Bot log, newest first: each decision it made alone with its reason and what it changed, and each
         thing it proposed instead because it stays the owner's. The owner reads it, who decides on its proposals and
         undoes its decisions: an entry shows bot task activity (owners, status, queue places) that a person or bot may
         not be allowed to read, so nobody else does."""
@@ -415,21 +427,22 @@ def install(app, store, auth, mutate, settings):
         auth.domain(who)
         with store.read() as c:
             if who.role != "owner":
-                raise Problem("forbidden", f"Only the owner reads the {ceo_bot.name(c)} log", 403)
+                raise Problem("forbidden", f"Only the owner reads the {strategy_bot.name(c)} log", 403)
             out = CA.log(c, auth.task_sql(c, who), before, limit)
             out["can_undo"] = company_editor(who)
             return out
 
-    @app.post("/api/v2/ceo-bot/log/{action_id}/undo")
-    def ceo_bot_undo(request: Request, action_id: str, body: M.Empty):
-        """The owner, on their own click, undoes one decision the CEO Bot made alone: the tasks it changed go back
+    @app.post("/api/v2/ceo-bot/log/{action_id}/undo", include_in_schema=False)
+    @app.post("/api/v2/strategy-bot/log/{action_id}/undo")
+    def strategy_bot_undo(request: Request, action_id: str, body: M.Empty):
+        """The owner, on their own click, undoes one decision the Strategy Bot made alone: the tasks it changed go back
         where nobody changed them since, a later change is kept and named, and each bot whose task changed is told."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
             if not company_editor(who):
-                raise Problem("forbidden", f"Only the owner undoes what the {ceo_bot.name(c)} did, on their own click",
-                              403)
+                raise Problem("forbidden",
+                              f"Only the owner undoes what the {strategy_bot.name(c)} did, on their own click", 403)
             return CA.entry(c, CA.undo(c, who.actor, action_id), auth.task_sql(c, who))
         return mutate(request, body, work)
 
@@ -519,7 +532,7 @@ def install(app, store, auth, mutate, settings):
     @app.get("/api/v2/goals/needs-you")
     def goals_needs_you(request: Request):
         """What waits on the caller here: red KPIs on goals they own, stale KPIs they own, and definitions and
-        targets they are asked to confirm. For a person each is a CEO Bot task (backend/goal_asks.py), shown
+        targets they are asked to confirm. For a person each is a Strategy Bot task (backend/goal_asks.py), shown
         with it; one they closed while its cause stands is left out."""
         who = request.state.identity
         auth.domain(who)
@@ -531,7 +544,7 @@ def install(app, store, auth, mutate, settings):
             asked = {i["ref"]: i for i in wanted if i["kind"] == "proposal"}
             hidden, editor = hidden_owners(c, who), company_editor(who)
             for p in G.proposals(c, "pending"):
-                # A Why waits on its goal, not here: the CEO Bot asks for them as one item, above Passive.
+                # A Why waits on its goal, not here: the Strategy Bot asks for them as one item, above Passive.
                 if p["kind"] not in ("goal_why", "recovery") and decider(c, who, p):
                     goal = G.goal(c, p["goal_id"]) if p["goal_id"] else None
                     record = K.kpi(c, p["kpi_id"]) if p["kpi_id"] else None
@@ -828,17 +841,17 @@ def install(app, store, auth, mutate, settings):
 
     @app.post("/api/v2/goals/read-back")
     def goal_read_back(request: Request, body: M.GoalReadBack):
-        """The CEO Bot, in the owner's own chat: Tico writes the read-back of up to 20 changes as its reply and stores
-        the exact saves; the owner's yes to it is what lets them through (backend/goal_read_back.py)."""
+        """The Strategy Bot, in the owner's own chat: Tico writes the read-back of up to 20 changes as its reply and
+        stores the exact saves; the owner's yes to it is what lets them through (backend/goal_read_back.py)."""
         who = request.state.identity
-        if not GR.ceo_turn(who):
-            raise Problem("forbidden", "Only the CEO Bot, in the owner's own chat, reads back goal changes", 403)
+        if not GR.strategy_turn(who):
+            raise Problem("forbidden", "Only the Strategy Bot, in the owner's own chat, reads back goal changes", 403)
 
         def work(c):
             from . import assistant
-            room = assistant.find_ceo_room(c, who.actor)
+            room = assistant.find_strategy_room(c, who.actor)
             if not room:
-                raise Problem("not_found", "No CEO Bot chat", 404)
+                raise Problem("not_found", "No Strategy Bot chat", 404)
             changes = [read_back_plan(c, who, n, raw) for n, raw in enumerate(body.changes, 1)]
             seen = set()
             for change in changes:
@@ -852,7 +865,7 @@ def install(app, store, auth, mutate, settings):
             # message answers this and nothing else.
             turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
                              (who.attempt_id,)).fetchone()
-            msg = H._write_message(c, "bot:" + ceo_bot.SLUG, who.actor, text, room, "say",
+            msg = H._write_message(c, "bot:" + strategy_bot.SLUG, who.actor, text, room, "say",
                                    {"assistant": True, "read_back": True, "goal_read_back": True},
                                    turn["message_id"] if turn else None, None, delivered_at=H.now())
             H.event(c, who.actor, GR.EVENT, msg["id"], {"changes": changes})
@@ -866,15 +879,15 @@ def install(app, store, auth, mutate, settings):
         """One read-back as it stands: each change, its saves (the exact calls), whether it is saved, and, in the turn
         the owner's reply started, whether their reply says yes to it and why not."""
         who = request.state.identity
-        if not (GR.ceo_turn(who) or company_editor(who)):
-            raise Problem("forbidden", "The owner or the CEO Bot in their chat reads a goal read-back", 403)
+        if not (GR.strategy_turn(who) or company_editor(who)):
+            raise Problem("forbidden", "The owner or the Strategy Bot in their chat reads a goal read-back", 403)
         with store.read() as c:
             back = GR.stored(c, mid)
             if not back or (H.conversation(c, back["conversation_id"]) or {}).get("owner_actor") != who.actor:
                 raise Problem("not_found", "No such read-back", 404)
             done = GR.saves(c, mid)
             yes, why_not = None, ""
-            if GR.ceo_turn(who):
+            if GR.strategy_turn(who):
                 turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
                                  (who.attempt_id,)).fetchone()
                 try:
@@ -906,13 +919,13 @@ def install(app, store, auth, mutate, settings):
 
     @app.post("/api/v2/goals/refresh")
     def goals_refresh(request: Request, body: M.GoalRefresh):
-        """The CEO Bot's status pass: work every live goal's automatic colour out again (a goal a
+        """The Strategy Bot's status pass: work every live goal's automatic colour out again (a goal a
         person set only gets a suggestion). The owner may run it too."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
             if not (is_manager(who) or who.role == "owner"):
-                raise Problem("forbidden", f"The {ceo_bot.name(c)} or the owner runs the status pass", 403)
+                raise Problem("forbidden", f"The {strategy_bot.name(c)} or the owner runs the status pass", 403)
             return G.refresh(c, body.goal_ids)
         return mutate(request, body, work)
 
@@ -976,7 +989,7 @@ def install(app, store, auth, mutate, settings):
 
     @app.post("/api/v2/goals/{gid}/status/auto")
     def goal_status_auto(request: Request, gid: str, body: M.Empty):
-        """"Let CEO Bot set it": a person ends their override and the colour is worked out again now."""
+        """"Let Strategy Bot set it": a person ends their override and the colour is worked out again now."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
@@ -1049,14 +1062,14 @@ def install(app, store, auth, mutate, settings):
 
     @app.post("/api/v2/goals/{gid}/checkins")
     def goal_checkin(request: Request, gid: str, body: M.GoalCheckin):
-        """The owner's own words on how it is going (a person, or the CEO Bot recording their answer)."""
+        """The owner's own words on how it is going (a person, or the Strategy Bot recording their answer)."""
         who = request.state.identity
         def work(c):
             auth.domain(who)
             row = goal_or_404(c, gid)
             if not (may_colour(c, who, row) or is_manager(who)):
                 raise Problem("forbidden", "The goal's owner, the owner of the goal it serves, someone above them "
-                              f"or the {ceo_bot.name(c)} records a check-in", 403)
+                              f"or the {strategy_bot.name(c)} records a check-in", 403)
             source = None
             if body.from_actor:
                 source = auth.target(c, who, body.from_actor)
@@ -1269,7 +1282,8 @@ def install(app, store, auth, mutate, settings):
             auth.domain(who)
             record = kpi_or_404(c, who, kid)
             if not may_log(c, who, record):
-                raise Problem("forbidden", f"The KPI's owner, the {ceo_bot.name(c)}, or the owner of a goal that uses it "
+                raise Problem("forbidden",
+                              f"The KPI's owner, the {strategy_bot.name(c)}, or the owner of a goal that uses it "
                               "logs a reading", 403)
             fields = body.model_dump(exclude={"value", "note", "source", "at"})
             return {"reading": G.kpi_log(c, who.actor, kid, body.value, body.note, body.source, body.at, **fields)}

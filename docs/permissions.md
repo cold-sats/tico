@@ -35,7 +35,7 @@ appear in the settings history, where the owner can undo them, like the humans a
 
 Who may edit a bot's access: its owners (see [Bot owners](#bot-owners)): the team owner, the admins, the bot's creator
 and other owners, and the humans it reports up to on the team chart (the same humans who may change the bot's other settings).
-The Assistant, BotOps, the Librarian and the CEO Bot can have their access edited too.
+The Assistant, BotOps, the Librarian and the Strategy Bot can have their access edited too.
 
 ## Always full access
 
@@ -122,10 +122,10 @@ on `/api/v2/groups` through `hub api`, or `hub group update`), with that person'
 refused. The Strategy Bot only suggests org changes; when the person in its chat asks for one, it makes it citing their message, with the
 same rights. Built-in bots stay outside groups.
 
-**The built-in bots** (the Assistant, BotOps, the Librarian and the CEO Bot) act for the whole team, so only the owner changes their settings,
+**The built-in bots** (the Assistant, BotOps, the Librarian and the Strategy Bot) act for the whole team, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
 `librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
-The CEO Bot's level, regular checks and name, and publishing a strategy version, are the owner's alone: an Admin cannot change them ([Your CEO Bot](ceo-bot.md)).
+The Strategy Bot's level, regular checks and name, and publishing a strategy version, are the owner's alone: an Admin cannot change them ([Your Strategy Bot](strategy-bot.md)).
 
 A member may have at most **25 active bots** by default; owners and admins have no limit. An admin changes the number in
 Settings > People (**Bot limit per member**). Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
@@ -176,7 +176,7 @@ An incoming webhook (a trigger) is an address outside senders post to ([Webhooks
   data from outside Tico.
 - **Rules on a call** (`webhook.received`): the owner and admins write team rules; a bot's owners, its operator and BotOps write
   that bot's rules. Waking a bot needs rights over that bot. A rule that sends to an outgoing endpoint is written by a person, or by
-  a bot with its outbound send switch on, never the CEO Bot. The endpoint must exist and its maker must own it or be an admin: Tico checks
+  a bot with its outbound send switch on, never the Strategy Bot. The endpoint must exist and its maker must own it or be an admin: Tico checks
   that when the rule is saved, and again when it runs.
 - **Tico Team** is a built-in webhook. Nobody deletes it; only its keep days change.
 
@@ -189,7 +189,7 @@ An endpoint is an address Tico posts events to ([API](api.md#outgoing-webhooks))
 - **A bot** cannot make one on its own. Its request files a `send` approval, and the endpoint is made, owned by the person who
   approves it, when the bot repeats the call. A bot sees every endpoint without its full address, and changes none.
 - **Custom events** (`hub webhook send`, names `custom.*`) are sent by people, and by a bot only while its outbound send switch is on.
-  The CEO Bot never sends one and never causes a webhook.
+  The Strategy Bot never sends one and never causes a webhook.
 - **Privacy.** An endpoint hears of a task, approval, ask or bot only when its owner could read it themselves; the event body is built
   from what that person sees. Health, inbound and webhook events go to owner and admin endpoints only.
 - Plain `http://` is for `localhost` only, and only the owner switches it on for an endpoint. Every other address is `https://`
@@ -203,7 +203,7 @@ is the same humans who always have full access to it. A bot owner can:
 
 - edit its configuration: instructions, model, routines, name and description, repository;
 - set its See, Read and Write access;
-- pause it, rename it, archive it (never the built-in Assistant, BotOps, Librarian or CEO Bot);
+- pause it, rename it, archive it (never the built-in Assistant, BotOps, Librarian or Strategy Bot);
 - add or remove owners (`POST /api/v2/bots/{bot}/co-owners`, Settings > Bots, **Owned by**);
 - give it a stored credential they hold themselves or stored themselves, and no one else's.
 
@@ -563,14 +563,14 @@ what `set` does when BotOps or the Assistant asks for a person (the same answer 
 - **direct** (reversible, inside the team, no new spend: routines, task types, tags, a bot's model, release times,
   the privacy count): it changes at once, as that person, and the answer names the new value.
 - **confirm** (spending more, people and roles, sending or publishing outside, anything destructive, team rules,
-  ownership, the CEO bot): BotOps gets a Confirm card for the person to tap; nothing changes until they do, and nothing
+  ownership, the Strategy Bot): BotOps gets a Confirm card for the person to tap; nothing changes until they do, and nothing
   confirms it for them. A wake rule is direct unless it sends a webhook or forwards the call. The person's own
   `hub settings set` runs at once. A confirm entry whose route BotOps can't yet put on a card is person-only until it
   can (`NO_CARD_YET`; the catalogue test fails once one can, so it goes back to confirm).
 - **person** (a sign-in, a secret value, an upload such as the team icon, the person's own approvals and mail): BotOps
   answers with a one-line reason and the card's link.
 
-The Assistant's Confirm card is in the person's own Assistant chat (the owner's CEO Bot chat), and it may card every
+The Assistant's Confirm card is in the person's own Assistant chat (the owner's Strategy Bot chat), and it may card every
 catalogue route BotOps may. A direct entry runs on the person's own words: the write cites their message in that chat
 (`--on-behalf-of turn`), as a task action does. Without it, or while the owner's "Assistant acts without asking" is off,
 a direct entry is a card too. A card or a cited write from the Assistant is exactly one entry's body: two settings at

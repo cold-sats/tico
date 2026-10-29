@@ -215,20 +215,20 @@ window.addEventListener('hashchange', () => {
   const dlg = document.getElementById('goal-sheet');
   if (dlg?.open && !location.hash.startsWith(goalsBase())) dlg.close();
 });
-// The colour a person sets by hand sticks until they let the CEO Bot set it again.
+// The colour a person sets by hand sticks until they let the Strategy Bot set it again.
 const GOAL_COLOURS = [['green', 'On track'], ['yellow', 'At risk'], ['red', 'Off track'], ['done', 'Done']];
 function goalColourHtml(g) {
   const byHand = g.status_source === 'person' && ['red', 'yellow', 'green'].includes(g.status);
   return `<div class="goal-f goal-colour"><span>Colour</span><div class="goal-colour-row">
       <select name="status" aria-label="Colour"><option value="">${byHand ? 'Set by hand' : 'Automatic'}</option>${GOAL_COLOURS.map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select>
       <input name="note" type="text" maxlength="2000" autocomplete="off" placeholder="One sentence: why" aria-label="Why"></div>
-      ${byHand ? `<button class="linkish goal-auto" type="button" data-goal-auto>Let ${esc(ceoBotName())} set it</button>` : ''}</div>`;
+      ${byHand ? `<button class="linkish goal-auto" type="button" data-goal-auto>Let ${esc(strategyBotName())} set it</button>` : ''}</div>`;
 }
 function goalNoteHtml(g, may) {
   const byHand = g.status_source === 'person' && ['red', 'yellow', 'green'].includes(g.status);
   const said = byHand ? `Set by ${goalActorName(g.status_by)}${g.status_note ? ': ' + g.status_note : ''}` : g.status_note || '';
   const suggest = byHand && g.suggest_status
-    ? `<div class="goal-note goal-suggest">${esc(ceoBotName())} suggests <b>${esc(g.suggest_status)}</b>${g.suggest_note ? ': ' + esc(g.suggest_note) : ''}${may ? ' <button class="linkish" type="button" data-goal-auto="' + esc(g.id) + '">Let ' + esc(ceoBotName()) + ' set it</button>' : ''}</div>` : '';
+    ? `<div class="goal-note goal-suggest">${esc(strategyBotName())} suggests <b>${esc(g.suggest_status)}</b>${g.suggest_note ? ': ' + esc(g.suggest_note) : ''}${may ? ' <button class="linkish" type="button" data-goal-auto="' + esc(g.id) + '">Let ' + esc(strategyBotName()) + ' set it</button>' : ''}</div>` : '';
   return (said ? `<div class="goal-note">${esc(said)}</div>` : '') + suggest;
 }
 // The bets a goal may serve (ui/strategy-page.js): the active ones, and the one it serves now whatever its status, so
@@ -245,7 +245,7 @@ function goalBetHtml(g, may) {
         `<option value="${esc(c.id)}"${c.id === g.bet_id ? ' selected' : ''}>${esc(c.statement)}</option>`).join('')}</select></label>`;
 }
 // A done or dropped goal comes back (backend/goals.py `reopen`): with a colour that sticks, or `auto`, the colour it had,
-// worked out again by the CEO Bot. The server checks who may, as it does for a colour.
+// worked out again by the Strategy Bot. The server checks who may, as it does for a colour.
 const goalReopenPost = (id, status, note) => post('/v2/goals/' + encodeURIComponent(id) + '/reopen', {status, note});
 // After a removal: the redraw the page needs (the Goals page's tree and panel, else the bot page's cards).
 const goalsAfterChange = () => GOALS_ST && $('#goal-body') ? goalsReload(GOALS_ST) : goalsRefresh();
@@ -261,7 +261,8 @@ function goalRemovedToast(g) {
 }
 // "Finished (N)" under an owner's live goals: their done and dropped goals, closed until opened, newest first, the
 // latest 20 until "Show all". A row opens read only (its KPIs and its updates); whoever may set its colour may reopen
-// it, with a colour (or "Let CEO Bot set it") and one line why. The open state is kept per owner, so a redraw keeps it.
+// it, with a colour (or "Let Strategy Bot set it") and one line why. The open state is kept per owner, so a redraw
+// keeps it.
 const GOAL_FINISHED_CAP = 20;
 const GOAL_FINISHED = {};
 const goalFinishedAt = g => g.status_at || g.updated || '';
@@ -290,7 +291,7 @@ function goalReopenFormHtml(g, goals) {
   const choices = autoOnly ? [] : GOAL_COLOURS.filter(([v]) => v !== 'done').map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
   return `<form class="goal-form goal-reopen" data-fin-reopen-form="${esc(g.id)}" novalidate>
       <div class="goal-f goal-colour"><span>Colour</span><div class="goal-colour-row">
-        <select name="status" aria-label="Colour"><option value="">Choose…</option>${choices}<option value="auto">Let ${esc(ceoBotName())} set it</option></select>
+        <select name="status" aria-label="Colour"><option value="">Choose…</option>${choices}<option value="auto">Let ${esc(strategyBotName())} set it</option></select>
         <input name="note" type="text" maxlength="300" autocomplete="off" placeholder="One line: why it is back" aria-label="Why it is back"></div></div>
       <div class="goal-actions"><button class="primary" type="submit">Reopen</button><button class="ghost" type="button" data-fin-reopen-cancel>Cancel</button></div>
     </form>`;
@@ -537,12 +538,13 @@ async function goalsRefresh() {
   headGoalsReload();
 }
 
-// The CEO Bot can be renamed while Goals is open (the owner, in another tab; `refresh` calls this): the panel's names
+// The Strategy Bot can be renamed while Goals is open (the owner, in another tab; `refresh` calls this): the panel's
+// names
 // follow and the tree is drawn again, keeping the composer's draft, the chat's stream and a field being typed in.
 function goalsFollowRoster() {
   const state = GOALS_ST, host = document.querySelector('#sbot .sbot-body');
   if (!state || !host?.isConnected) return;
-  const name = ceoBotName();
+  const name = strategyBotName();
   host.querySelector('[data-gm-thread]')?.setAttribute('aria-label', name + ' conversation');
   host.querySelector('.gm-form .p-text')?.setAttribute('aria-label', 'Message to the ' + name);
   host._gmDraw?.();
@@ -591,13 +593,13 @@ async function goalManagerMount(rail) {
       } catch (e) { if (current()) status.textContent = e.message; }
       if (current()) on.disabled = false;
     };
-  } else if (!meCeo()) {
-    // Of people, only the owner talks to the CEO Bot (backend/assistant.py); everyone else asks their Assistant.
+  } else if (!meStrategyBot()) {
+    // Of people, only the owner talks to the Strategy Bot (backend/assistant.py); everyone else asks their Assistant.
     chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3>
-      <p class="muted gm-on" data-gm-assistant>Only the company's owner talks to ${esc(ceoBotName())}. Ask <a href="${ASSISTANT}">your Assistant</a> instead.</p>`;
+      <p class="muted gm-on" data-gm-assistant>Only the company's owner talks to ${esc(strategyBotName())}. Ask <a href="${ASSISTANT}">your Assistant</a> instead.</p>`;
   } else {
     chat.innerHTML = `<h3 class="rail-h" id="gm-chat-h">Chat</h3>
-      <div class="gm-thread" data-gm-thread role="log" aria-label="${esc(ceoBotName())} conversation" tabindex="0"><p class="muted">Loading conversation…</p></div>
+      <div class="gm-thread" data-gm-thread role="log" aria-label="${esc(strategyBotName())} conversation" tabindex="0"><p class="muted">Loading conversation…</p></div>
       <div class="gm-form"></div>
       <p class="err" data-gm-error role="alert" hidden></p>`;
     const error = chat.querySelector('[data-gm-error]');
@@ -614,7 +616,7 @@ async function goalManagerMount(rail) {
       const rows = messages.map(m => v2MessageHTML({...m, run:null}));
       const live = execution && execution.state !== 'completed' ? execution.text : '';
       if (live) rows.push(`<div data-gm-live>${v2MessageHTML({from_actor:'bot:' + GM, body:live})}</div>`);
-      else if (noProvider()) rows.push('<p class="muted" data-gm-provider>The ' + esc(ceoBotName()) + ' needs an AI provider. <a href="#/settings" data-gs-tab="models">Settings &gt; Computers</a></p>');
+      else if (noProvider()) rows.push('<p class="muted" data-gm-provider>The ' + esc(strategyBotName()) + ' needs an AI provider. <a href="#/settings" data-gs-tab="models">Settings &gt; Computers</a></p>');
       else if (messages.length && !isReply(messages.at(-1))) rows.push(`<p class="muted" role="status">${esc(execution?.label || 'Waiting for reply…')}</p>`);
       // An empty chat offers three starters; a tap sends its words as the owner's message.
       const html = rows.join('') || `<div class="gm-starters">${gmStarters().map(words =>
@@ -675,7 +677,7 @@ async function goalManagerMount(rail) {
       } catch (e) { fail(e.message); }
       finally { sending = P.sending = false; if (current()) pillButtons(P); }
     };
-    composer = makePill({mode:'chat', files:false, label:'Message to the ' + ceoBotName(), placeholder: 'Ask ' + ceoBotName(), send});
+    composer = makePill({mode:'chat', files:false, label:'Message to the ' + strategyBotName(), placeholder: 'Ask ' + strategyBotName(), send});
     pq(composer, '.p-text').maxLength = 4000;
     thread.addEventListener('click', event => {
       const starter = event.target.closest('[data-gm-starter]');
@@ -686,8 +688,8 @@ async function goalManagerMount(rail) {
       try {
         const list = await get('/v2/conversations?chat_with=' + GM);
         if (!current() || conversation) return;
-        // The owner's one chat with it, the same as their menu tab's (room_key "ceo", backend/rooms.py).
-        conversation = (list.conversations || []).find(c => c.room_key === 'ceo' && !c.closed_at) || null;
+        // The owner's one chat with it, the same as their menu tab's (room_key STRATEGY_ROOM, backend/rooms.py).
+        conversation = (list.conversations || []).find(c => c.room_key === STRATEGY_ROOM && !c.closed_at) || null;
         if (conversation) { await snapshot(); watch(); }
         else draw();
       } catch (e) { fail(e.message); }

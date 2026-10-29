@@ -610,7 +610,7 @@ room and wakes it; **`send_webhook`** `{webhook, type, data}` sends an outgoing 
 endpoint. `text` and the strings in `data` may use `{{path}}` placeholders, such as `{{type}}`, `{{data.order}}` or
 `{{data.items.0.name}}`: a missing path is empty, nothing is evaluated, a substituted value is never read as a template,
 and text is cut at 4 KB. A bot-scope `wake_bot` row wakes its own bot. Writing `wake_bot` needs the right to change that
-bot; writing `send_webhook` is for a person, or a bot with outbound sending on, and never the CEO Bot. A failed
+bot; writing `send_webhook` is for a person, or a bot with outbound sending on, and never the Strategy Bot. A failed
 `wake_bot` on a message event wakes the bot as usual (`fail_open`); a failed `send_webhook` is only logged.
 
 A task entering a step is the event `step_entered`; a rule's `when` can name the `step` and the `role` (`owner`,

@@ -13,7 +13,7 @@ function goalActorName(actor) {
   if (!actor) return '';
   if (actor === 'keeper') return S.config?.app_name || 'Tico';
   const info = goalOwnerInfo(actor);
-  return actor === GOAL_MANAGER_ACTOR ? ceoBotName() : info.name;
+  return actor === GOAL_MANAGER_ACTOR ? strategyBotName() : info.name;
 }
 
 // A status dot: green, yellow, red, gray (stale, missing or no data) or a ring (fresh, no target to judge by).
@@ -164,7 +164,7 @@ function propNowProposedHtml(rows) {
   return `<div class="prop-np${long ? ' prop-np-clamp' : ''}">${rows.map(r => `${rows.length > 1 && r.label ? `<div class="prop-np-label">${esc(r.label)}</div>` : ''}${cell('Now', r.now)}${cell('Proposed', r.proposed)}`).join('')}
     ${long ? '<button class="linkish" type="button" data-np-all>Show all</button>' : ''}</div>`;
 }
-// What the CEO Bot noticed, by the flag's issue (backend/goals.py FLAGS).
+// What the Strategy Bot noticed, by the flag's issue (backend/goals.py FLAGS).
 const PROP_FLAG = {vague: 'is worded too vaguely to tell when it is done', duplicate: 'looks like a duplicate of another goal', unmeasured: 'has nothing measuring it'};
 // A goal suggestion card (the payload's words, and `card`: what the server read to say it plainly, backend/goals.py
 // card): one line on what yes changes, what it would change, why, then the buttons named for what they do.
@@ -698,7 +698,8 @@ function goalBetLineHtml(state, g) {
 }
 
 // ---------------------------------------------------------------- a goal's Why
-// One line tying a goal to the vision (backend/company.py). The CEO Bot proposes it; a person who may edit the goal
+// One line tying a goal to the vision (backend/company.py). The Strategy Bot proposes it; a person who may edit the
+// goal
 // accepts it, edits it or writes their own. A goal with none is "Not tied to the vision": a note, not an error.
 const GOAL_NOT_TIED = 'Not tied to the vision';
 const goalWhyProposal = (state, g) => state.proposals.find(p => p.kind === 'goal_why' && p.goal_id === g.id);
@@ -726,7 +727,7 @@ function bindGoalWhy(state, root, reload) {
   const decide = async (b, body) => {
     const id = b.closest('[data-why-prop]').dataset.whyProp;
     b.disabled = true;
-    // Refused (the CEO Bot replaced the line meanwhile): draw the panel again, so they read the line now waiting.
+    // Refused (the Strategy Bot replaced the line meanwhile): draw the panel again, so they read the line now waiting.
     try { await post(`/v2/proposals/${encodeURIComponent(id)}/decide`, body); await reload(); }
     catch (e) { toast(e.message || 'Could not decide', true); b.disabled = false; await reload(); }
   };
@@ -760,7 +761,7 @@ function bindGoalWhy(state, root, reload) {
 }
 
 // What the tree is drawn from in the roster, so a refresh redraws it only when that changed (goalsFollowRoster).
-const goalTreeKey = () => JSON.stringify([ceoBotName(),
+const goalTreeKey = () => JSON.stringify([strategyBotName(),
   (S.emps || []).map(e => [e.name, e.display_name, e.org_parent, e.team, e.status]),
   (S.people || []).map(p => [p.id, p.org_parent, p.team, p.hidden]), (S.orgGroups || []).map(g => [g.id, g.parent, g.org_parent])]);
 function goalsRender(state) {
@@ -1076,12 +1077,13 @@ function goalPanelRender(state) {
 }
 
 // ---------------------------------------------------------------- Needs you
-// Each item is a CEO Bot task for the caller (backend/goal_asks.py), the same one Tasks and Decide show: linked.
+// Each item is a Strategy Bot task for the caller (backend/goal_asks.py), the same one Tasks and Decide show: linked.
 const needTaskLink = it => it.task ? `<a class="need-task muted" href="#/task/${esc(it.task.id)}" data-need-task>Task</a>` : '';
-// The CEO Bot's recovery for a red or stalled goal (level 2): the evidence, each option in plain words with its pick
+// The Strategy Bot's recovery for a red or stalled goal (level 2): the evidence, each option in plain words with its
+// pick
 // marked, one Approve per option and one Reject for them all. A part that can't happen now says why.
 function recoveryHtml(it) {
-  const p = it.proposal || {}, pl = p.payload || {}, name = esc(ceoBotName());
+  const p = it.proposal || {}, pl = p.payload || {}, name = esc(strategyBotName());
   const options = (it.options || []).map((o, n) => `<li class="rec-opt${o.pick ? ' rec-pick' : ''}"><div class="rec-opt-h"><b>${esc(o.label)}</b>${o.pick ? `<span class="muted"> · the ${name}'s pick</span>` : ''}</div>
     <ul class="rec-acts">${o.actions.map(a => `<li>${esc(a.text)}${a.note ? `<span class="muted"> · ${esc(a.note)}; this part would come back to you</span>` : ''}</li>`).join('')}</ul>
     <button class="${o.pick ? 'primary' : 'ghost'}" type="button" data-decide="confirm" data-option="${n}">Approve${(it.options || []).length > 1 ? ` option ${n + 1}` : ''}</button></li>`).join('');
@@ -1095,9 +1097,9 @@ function goalNeedsHtml(items) {
   const rows = items.map(it => {
     if (it.kind === 'recovery') return recoveryHtml(it);
     if (it.kind === 'proposal') return proposalHtml({...it.proposal, may_decide: true}, it.kpi_name || it.goal_title || '').replace(/<\/li>$/, `${needTaskLink(it)}</li>`);
-    // Where the CEO Bot is on: the vision, written on Strategy, and the Why lines waiting on this
+    // Where the Strategy Bot is on: the vision, written on Strategy, and the Why lines waiting on this
     // person, one row for all of them, each goal opening its panel where the Why is accepted or edited.
-    if (it.kind === 'vision') return `<li class="need-row" data-need-vision tabindex="0" role="button">${gdot('gray')}<span class="need-text"><b>Tell your ${esc(ceoBotName())} what this company is for</b><span class="muted">: write the Vision on Strategy</span></span>${needTaskLink(it)}</li>`;
+    if (it.kind === 'vision') return `<li class="need-row" data-need-vision tabindex="0" role="button">${gdot('gray')}<span class="need-text"><b>Tell your ${esc(strategyBotName())} what this company is for</b><span class="muted">: write the Vision on Strategy</span></span>${needTaskLink(it)}</li>`;
     if (it.kind === 'why') {
       const goals = it.goals || [];
       return `<li class="need-row" data-need-why="${esc(goals[0]?.goal_id || '')}" tabindex="0" role="button">${gdot('gray')}<span class="need-text"><b>These goals need a Why line</b><span class="muted">: </span>${goals.map(g =>

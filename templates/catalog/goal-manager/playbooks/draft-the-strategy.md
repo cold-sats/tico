@@ -119,7 +119,7 @@ At most eight claims over the whole run, in rounds of up to four, numbered so th
 - In the owner's chat: the round in your reply, then end the turn. Their answer is the next turn; rewrite the draft
   from it before the next round.
 - From a task: `hub task update <id> --status waiting --on <owner> --note "<the round>"`. That is one card; you are
-  woken with their answers. Each round counts toward the owner's 5 a day (`asked_today` in `hub goal ceo-bot`).
+  woken with their answers. Each round counts toward the owner's 5 a day (`asked_today` in `hub goal strategy-bot`).
 
 A kept claim goes in as it stands; an edit goes in in their words; a struck one comes out, and what it ruled out
 often belongs under "What we won't do". Do not argue: a position you think wrong goes in as theirs, with the

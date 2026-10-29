@@ -36,7 +36,7 @@ body.in-setup .rd-lib{display:none}
 
 /* The Market's Ask the Librarian button: the Strategy Bot answers on these tabs. */
 
-/* Goals as a tab: the tree takes the width the CEO Bot's rail had. */
+/* Goals as a tab: the tree takes the width the Strategy Bot's rail had. */
 #main.rd-goals{display:block}
 #main.rd-goals .goals-main{max-width:none}
 

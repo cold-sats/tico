@@ -22,7 +22,7 @@ const lensRunId = () => {
   return rest.startsWith('/') ? decodeURIComponent(rest.slice(1)) : '';
 };
 const lensRunHref = id => LENSES_ROUTE + '/' + encodeURIComponent(id);
-const lensCeo = () => { const n = typeof ceoBotName === 'function' ? ceoBotName() : 'CEO Bot'; return n === 'CEO Bot' || n === 'Strategy Bot' ? 'the ' + n : n; };
+const lensStrategy = () => { const n = typeof strategyBotName === 'function' ? strategyBotName() : 'Strategy Bot'; return n === 'Strategy Bot' ? 'the ' + n : n; };
 const lensErrorCode = error => error?.body?.error?.code || '';
 const lensFirstLine = text => String(text || '').split('\n').find(line => line.trim()) || '';
 
@@ -184,7 +184,7 @@ function lensFlowRender() {
       <p class="lens-note" data-lens-error hidden></p>
       <div class="goal-actions lens-actions"><button class="ghost" type="button" data-lens-back${flow.i === 0 ? ' disabled' : ''}>Back</button><span class="spacer"></span>
         <button class="primary" type="submit" data-lens-next>${last ? 'Run' : 'Next'}</button></div>
-      ${step ? `<button class="linkish lens-skip" type="button" data-lens-skip>Skip, let ${esc(lensCeo())} assume</button>` : ''}
+      ${step ? `<button class="linkish lens-skip" type="button" data-lens-skip>Skip, let ${esc(lensStrategy())} assume</button>` : ''}
     </form>`;
   lensFlowBind(dlg, flow, step, last);
   (dlg.querySelector('.lens-rows input, textarea, .lens-scores input, .lens-pill input') || dlg.querySelector('[data-lens-next]'))?.focus();
