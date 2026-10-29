@@ -10,8 +10,9 @@
 .dash-actions[hidden]{display:none}
 .dash-actions button{display:inline-flex;align-items:center;gap:4px}
 .dash-actions .nav-icon{font-size:16px;width:16px;height:16px}
+.dash-actions button{gap:6px}
 .dash-error{margin:0 20px 8px}
-.dash-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;padding:0 20px 24px;align-items:start}
+.dash-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;padding:0 20px 24px}
 .dash-grid>.empty,.dash-grid>.skel{grid-column:1/-1}
 .dash-pin{grid-column:span 3;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--surface);display:flex;flex-direction:column}
 .dash-pin[data-size=small]{grid-column:span 2}
@@ -20,6 +21,8 @@
 .dash-pin-head{position:relative;display:flex;align-items:center;gap:6px;padding:8px 10px 0 12px;min-height:32px}
 .dash-pin-head h2{margin:0;font-size:var(--t-label);font-weight:600;letter-spacing:var(--track-caps);text-transform:uppercase;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dash-pin-head h2 .muted{font-weight:500}
+.dash-pin-head .spacer{flex:1}
+.dash-plus{font-size:16px;line-height:1}
 .dash-grip{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;margin-left:-6px;padding:0;border:0;background:transparent;color:var(--muted);cursor:grab;touch-action:none;border-radius:5px}
 .dash-grip:hover,.dash-grip:focus-visible{background:var(--surface2);color:var(--ink)}
 .dash-more{flex:none;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted)}

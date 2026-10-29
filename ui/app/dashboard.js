@@ -83,8 +83,8 @@ async function pageDashboard(place) {
   main.innerHTML = `<div class="dash" id="dash-root"><header class="dash-head">
       <h1>${team ? '' : 'Overview'}</h1>${team ? '' : dashTabsHTML('dashboard')}<span class="spacer"></span>
       <span class="dash-actions" hidden>${team ? '<button type="button" class="ghost dash-audience" data-dash-audience></button>' : ''}
-        <button type="button" class="ghost" data-dash-add="card"><span class="nav-icon" aria-hidden="true">add</span>Card</button>
-        <button type="button" class="ghost" data-dash-add="page"><span class="nav-icon" aria-hidden="true">add</span>Page</button></span></header>
+        <button type="button" class="ghost" data-dash-add="card"><span class="dash-plus" aria-hidden="true">+</span>Card</button>
+        <button type="button" class="ghost" data-dash-add="page"><span class="dash-plus" aria-hidden="true">+</span>Page</button></span></header>
     <div class="dash-grid" id="dash-grid">${skelRows(4, {card: true})}</div>
     <dialog class="tmodal tmodal-shell dash-dialog" id="dash-dialog" aria-label="Card"></dialog></div>`;
   const state = DASH = {place, view: null, choices: null, root: $('#dash-root'), menu: null};
@@ -105,7 +105,7 @@ function dashDraw(state) {
   const actions = root.querySelector('.dash-actions');
   actions.hidden = !v.can_edit;
   const aud = root.querySelector('[data-dash-audience]');
-  if (aud) aud.innerHTML = `<span class="nav-icon" aria-hidden="true">${v.audience?.everyone === false ? 'lock' : 'groups'}</span>${v.audience?.everyone === false ? 'Chosen' : 'Everyone'}`;
+  if (aud) aud.innerHTML = `<span class="nav-icon" aria-hidden="true">${v.audience?.everyone === false ? 'person' : 'groups'}</span>${v.audience?.everyone === false ? 'Chosen' : 'Everyone'}`;
   const grid = root.querySelector('#dash-grid');
   grid.innerHTML = v.pins.length ? '' : `<p class="empty">${v.can_edit ? 'Add a card or a page' : 'Nothing pinned'}</p>`;
   v.pins.forEach((pin, i) => {
@@ -113,7 +113,7 @@ function dashDraw(state) {
     el.className = 'dash-pin'; el.dataset.size = pin.size || 'medium'; el.dataset.at = String(i);
     el.innerHTML = `<header class="dash-pin-head">
         ${v.can_edit ? `<button type="button" class="dash-grip" data-dash-grip aria-label="Move ${esc(dashPinTitle(pin))}" title="Move">${BOT_SVG.grip}</button>` : ''}
-        <h2>${esc(pin.card ? pin.card.heading : pin.page?.title || 'Page')}${pin.card?.team_name ? ` <span class="muted">· ${esc(pin.card.team_name)}</span>` : ''}</h2>
+        <h2>${pin.card ? esc(pin.card.heading) : ''}${pin.card?.team_name ? ` <span class="muted">· ${esc(pin.card.team_name)}</span>` : ''}</h2>
         <span class="spacer"></span>
         ${v.can_edit ? `<button type="button" class="dash-more" data-dash-menu aria-haspopup="menu" aria-expanded="false" aria-label="${esc(dashPinTitle(pin))} menu" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button>` : ''}</header>
       <div class="dash-pin-body"></div>`;
