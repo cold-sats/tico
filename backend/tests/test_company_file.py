@@ -1034,3 +1034,23 @@ def test_a_bet_added_to_a_plan_with_no_strategy_starts_the_block_and_undo_takes_
     assert "version: 0.3" in C.to_yaml(draft, CREATED)
     undone, _ = run(draft, ("undo", {}))
     assert "strategy" not in undone
+
+
+def test_the_pack_command_prints_the_plan_the_server_reads_and_refuses_a_file_it_cannot_import():
+    # scripts/install.sh runs this in the server image (--local --company-file): the same bytes the server unpacks.
+    root = Path(__file__).resolve().parents[2]
+
+    def pack_cli(data, *args):
+        return subprocess.run([sys.executable, "-m", "backend.company_file.starter", *(args or ("pack",))], input=data,
+                              capture_output=True, cwd=root, timeout=120)
+
+    text = (FIXTURES / "company.yaml").read_text()
+    done = pack_cli(text.encode())
+    assert done.returncode == 0 and done.stderr == b""
+    packed = done.stdout.decode().strip()
+    assert packed == starter.pack(text) and starter.unpack(packed) == starter.load(text)
+    bad = pack_cli(b"version: 0.2\nthis: [is not yaml")
+    assert bad.returncode == 2 and bad.stdout == b"" and b"isn't valid YAML" in bad.stderr
+    assert pack_cli(b"\xff\xfe not utf-8").returncode == 2
+    assert pack_cli(b"x" * (starter.MAX_BYTES + 1)).returncode == 2
+    assert pack_cli(b"", "unpack").returncode == 2

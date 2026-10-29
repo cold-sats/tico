@@ -7,6 +7,7 @@ import base64
 import binascii
 import gzip
 import json
+import sys
 import zlib
 
 from . import draft as D
@@ -97,3 +98,32 @@ def unpack(data):
         return load(json.loads(raw))
     except (ValueError, TypeError, binascii.Error, zlib.error, RecursionError):
         raise D.DraftError("the saved starter plan is invalid or too large; provide the company file again") from None
+
+
+def main(argv):
+    """`python -m backend.company_file.starter pack < tico.company.yaml`: the packed plan, on one line. scripts/install.sh
+    runs it in the server image, so an installer packs a file with the code that reads it and needs no Python of its own.
+    A file Tico cannot import gives its reason on stderr and exit 2; nothing is printed on stdout then."""
+    if argv != ["pack"]:
+        print("usage: python -m backend.company_file.starter pack < tico.company.yaml", file=sys.stderr)
+        return 2
+    raw = sys.stdin.buffer.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        print("the company file is too large", file=sys.stderr)
+        return 2
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError:
+        print("Cannot read --company-file; use a readable UTF-8 company YAML file", file=sys.stderr)
+        return 2
+    try:
+        packed = pack(text, MAX_PACKED)
+    except D.DraftError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    print(packed)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
