@@ -38447,6 +38447,16 @@
               "$ref": "#/components/schemas/TaskRun"
             }
           },
+          "run_model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskRunChoice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "comment_delivery": {
             "oneOf": [
               {
@@ -39044,6 +39054,44 @@
         ],
         "additionalProperties": true
       },
+      "TaskRunChoice": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "type": "string"
+          },
+          "set_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "harness",
+          "model",
+          "reasoning_effort",
+          "runtime",
+          "set_at",
+          "set_by"
+        ],
+        "additionalProperties": true
+      },
       "TaskRunModel": {
         "properties": {
           "model": {
@@ -39099,9 +39147,13 @@
             "type": "string"
           },
           "run_model": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskRunChoice"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "readiness": {
