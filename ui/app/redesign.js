@@ -24,7 +24,6 @@ function redesignNav() {
   RD_NAV_DONE = true;
   const strategyLink = nav.querySelector('a[data-nav="strategy"]'), before = [...nav.children];
   const pick = sel => nav.querySelector(sel);
-  const row = sel => pick(sel)?.closest('.nav-row') || pick(sel);
   const link = (key, href, icon, label) => {
     const a = Object.assign(document.createElement('a'), {className: 'nav-link', href, innerHTML: `<span class="nav-icon" aria-hidden="true">${icon}</span>${label}`});
     a.dataset.nav = key;
@@ -44,7 +43,7 @@ function redesignNav() {
   const tools = link('tools', RD_TOOLS, 'api', 'Tools');   // ui/app/redesign-library.js
   subs.append(...[pick('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), tools].filter(Boolean));
   if (strategyLink) { strategyLink.setAttribute('href', MARKET_ROUTE); strategyLink.querySelector('.nav-icon').textContent = RD_NAV_ICONS.strategy; }
-  const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), row('a[data-nav="strategy"]'),
+  const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), strategyLink,
     pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), pick('#nav-assistant'), automations, libRow, subs,
     pick('#nav-botops'), pick('#nav-pins')].filter(Boolean);
   const rest = before.filter(el => !order.includes(el) && !subs.contains(el));

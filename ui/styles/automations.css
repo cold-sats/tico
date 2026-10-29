@@ -4,8 +4,9 @@
    The cascade runs in the order index.html links these files; keep rules in order. */
 #main.au-layout{max-width:none;padding:0;overflow:hidden;height:100%}
 .au{display:flex;flex-direction:column;height:100%;min-height:0}
-.au-ph{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line)}
-.au-ph h1{margin:0;font-size:var(--t-lg);font-weight:650}
+/* The page header has no rule under it, as on Updates, Tasks, Docs and Meetings. */
+.au-ph{display:flex;align-items:center;gap:12px;padding:12px 20px}
+.au-ph h1{margin:0;font-size:var(--t-lg);font-weight:600}
 .au-sp{flex:1}
 .au-sp-phone{display:none}
 .au-pad{padding:14px}
@@ -216,7 +217,7 @@ button.au-chip:hover{background:var(--surface2)}
 @media (max-width:760px){
   #main.au-layout{overflow:auto;height:auto;padding:0 0 calc(var(--mobile-nav-height) + env(safe-area-inset-bottom))}
   .au{height:auto;min-height:0}
-  .au-ph{padding:12px;border:0}
+  .au-ph{padding:12px}
   .au-body{display:block}
   .au-list,.au-c,.au-side{display:none;border:0}
   .au:not([data-screen="list"]) .au-ph{display:none}
