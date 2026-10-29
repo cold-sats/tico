@@ -3424,8 +3424,8 @@ def create_app(settings=None):
         """What a comment's `delivery` can do for this reader on this task (docs/tasks.md): `default`, the choice
         a comment with none named gets (steer when it wakes its bot, queue when not; null when no bot is on the task);
         `steer`, whether the reader may steer (chat_goals.may_direct); `steers`, whether that bot's harness writes a
-        steer into its running turn; `goal`, whether the reader may set the task session's goal (chat_goals.may_set).
-        None for a bot reader."""
+        steer into its running turn; `goal`, whether the reader may set the task session's goal (chat_goals.own_room
+        and chat_goals.may_set). None for a bot reader."""
         if who.role == "bot":
             return None
         target = H.comment_target(c, who.actor, row)
@@ -3436,9 +3436,10 @@ def create_app(settings=None):
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(target),)).fetchone()
         config = json.loads(config[0] or "{}") if config else {}
         from .harnesses import steers
-        from .chat_goals import may_direct, may_set
+        from .chat_goals import may_direct, may_set, own_room
         return {"default": "steer" if wakes else "queue", "steer": may_direct(c, who, row),
-                "steers": steers(config, config.get("runtime")), "goal": may_set(c, auth, who, row["conversation_id"])}
+                "steers": steers(config, config.get("runtime")),
+                "goal": own_room(c, row) and may_set(c, auth, who, row["conversation_id"])}
 
     def task_runs(c, who, tid, limit=200):
         """The runs that worked this task, each with the model that actually ran it (`ran_on`). A review that
@@ -4160,7 +4161,7 @@ def create_app(settings=None):
             mark = H.jobs_mark(c)
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
-            from .chat_goals import may_direct, set_goal
+            from .chat_goals import may_direct, own_room, set_goal
             from .task_review import comment_rights, check_ask
             comment_rights(c, auth, who, task_id)
             ask = check_ask(c, task_id, body.ask, auth, who)
@@ -4182,6 +4183,10 @@ def create_app(settings=None):
                               "@name the bot that filed it", 403)
             if body.delivery == "goal" and who.role != "bot" and not may_direct(c, who, row):
                 raise Problem("delivery", "Only someone on this task can set its goal: send it with queue", 403)
+            # A goal is set in the task's own room only. In a chat the task was filed into, the goal is the chat's
+            # (chat_goals.own_room), so nothing is saved and no control is queued or cancelled there.
+            if body.delivery == "goal" and not own_room(c, row):
+                raise Problem("delivery", "This task has no room of its own: send it with steer or queue", 409)
             if steered:
                 wakes_bot = True
             elif body.delivery:

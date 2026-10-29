@@ -228,6 +228,14 @@ def may_direct(c, who, task):
     return mover or H.task_participant(c, who.actor, task)
 
 
+def own_room(c, task):
+    """Whether a task's conversation is the task's own room. A task filed into a chat before task rooms keeps that
+    chat as its conversation, and a goal set from its comments would replace the chat's goal, so only the own room
+    takes one. The same test as the task's goal turns (backend/execution.py)."""
+    room = H.conversation(c, task["conversation_id"]) or {}
+    return room.get("kind") == "task" and room.get("task_id") == task["id"]
+
+
 def access(c, auth, who, cid):
     """Who may change a conversation's goal: the one rule for the goal route and for a task comment that sets the
     task session's goal (delivery goal). The caller may write the conversation and its bot, the bot's harness keeps

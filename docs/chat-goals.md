@@ -39,7 +39,8 @@ A task's comment can set the goal of the task's session as well. **Set as goal**
 `POST /v2/tasks/{id}/comments` with `"delivery": "goal"` all set it the way `/goal <objective>` does in that
 conversation. The comment is kept on the task quietly, and the goal line wakes the bot. The same access and harness
 checks apply: 403 without write access, 403 for someone not on the task (a mover may set it), `goal_unsupported` (409)
-for a harness that cannot take goals. A goal comment
+for a harness that cannot take goals. A task still in a chat room (one filed into a chat before task rooms) has no goal
+of its own, so a goal comment on it is a 409 and the chat's goal stays as it is. A goal comment
 takes no files and cannot be public (422), and its response carries the `goal` it set. See [Tasks](tasks.md).
 
 The CLI and MCP use the same API and access checks:

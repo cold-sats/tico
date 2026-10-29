@@ -1091,12 +1091,12 @@ room, or a newer one for a person's message there, shaped as in a conversation s
 `goal`) is how it can reach them: `default` is what a comment without a delivery does (`steer` when it wakes the bot,
 else `queue`), `steer` says you may steer, `steers` says the bot's harness can take a message into a running turn, and
 `goal` says a goal can be set (both null without a bot). A task still in a chat room (one filed into a chat before task
-rooms) has no `execution`: that room's runs belong to the chat.
+rooms) has no `execution` and no goal of its own: that room's runs and goal belong to the chat, so `goal` is false.
 `hub task comment <id> "<text>" --steer|--queue|--goal` (one of the three), `hub_task_comment` with `delivery`, and
 `POST /v2/tasks/{id}/comments` with `delivery` choose the same ways. Without one a comment wakes the bot as it always
 has. A question (`ask`) always wakes the one it is for, so it takes no delivery; `needs_action` takes none or `steer`;
 a `goal` takes no files and cannot be public. A refused combination is a 422, a steer or goal by someone not on the task
-a 403, and nothing is saved.
+a 403, a goal on a task still in a chat room a 409, and nothing is saved.
 
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
 that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished

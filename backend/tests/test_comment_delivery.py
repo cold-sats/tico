@@ -3,6 +3,7 @@ on the task, goal sets the task session's goal. The API, the hub CLI and the MCP
 
 import pytest
 
+from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, headers, post, runner  # noqa: F401
 from backend.tests.test_mcp import call
 from clients import hubcli
@@ -23,6 +24,15 @@ def job_state(api, message_id):
     with api.app.state.store.read() as c:
         row = c.execute("SELECT state FROM jobs WHERE message_id=?", (message_id,)).fetchone()
     return row[0] if row else None
+
+
+def goal_controls(api, cid):
+    """The `/goal` controls in a conversation, each with the state of its job (None when it has none)."""
+    with api.app.state.store.read() as c:
+        return [tuple(r) for r in c.execute(
+            "SELECT m.id, j.state FROM messages m LEFT JOIN jobs j ON j.message_id=m.id "
+            "WHERE m.conversation_id=? AND json_extract(m.refs_json,'$.goal_action') IS NOT NULL ORDER BY m.created",
+            (cid,))]
 
 
 def test_queue_waits_for_the_next_turn_steer_joins_the_running_one_and_no_choice_is_as_before(api):
@@ -110,6 +120,29 @@ def test_goal_sets_the_task_sessions_goal_as_a_chat_goal_does(api):
     assert done["comment"]["body"] == text
     assert done["goal"]["objective"] == text and done["goal"]["status"] == "active"
     assert get(api, f"conversations/{cid}/goal")["goal"]["objective"] == text
+
+
+def test_a_task_filed_into_a_chat_cannot_replace_the_chats_goal(api):
+    """A task filed into a chat before task rooms keeps that chat as its conversation. Set as goal there would replace
+    the chat's goal and cancel its queued control, so it is refused, nothing changes, and the send does not offer it."""
+    world(api)
+    room = post(api, "chat/ops", {"text": "Keep the billing notes current."})["conversation_id"]
+    chat_goal = post(api, f"conversations/{room}/goal",
+                     {"action": "set", "objective": "Keep the billing notes current."})["goal"]
+    with api.app.state.store.transaction() as c:      # filed into the chat, with no task room of its own
+        legacy = H.task_create(c, "human:ana", "Plan the billing notes", "For the team.", "bot:ops",
+                               conversation_id=room, own_room=False)
+    assert legacy["conversation_id"] == room
+    controls = goal_controls(api, room)
+    assert [state for _, state in controls] == ["queued"]
+
+    assert get(api, f"tasks/{legacy['id']}")["comment_delivery"]["goal"] is False
+    r = api.post(f"/api/v2/tasks/{legacy['id']}/comments", json={"text": "Drop the billing notes.", "delivery": "goal"},
+                 headers=headers("ana-test"))
+    assert r.status_code == 409 and "no room of its own" in r.text, r.text
+    assert get(api, f"conversations/{room}/goal")["goal"] == chat_goal
+    assert goal_controls(api, room) == controls
+    assert all(c["body"] != "Drop the billing notes." for c in get(api, f"tasks/{legacy['id']}")["comments"])
 
 
 def test_a_goal_the_harness_cannot_take_saves_no_comment(api):
