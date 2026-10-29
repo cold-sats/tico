@@ -112,7 +112,7 @@ async function pageRdTools() {
     // The list is still loading for an earlier visit: wait for it, then draw only if this is still the route.
     const state = LC;
     await state.loading;
-    if (LC !== state || S.route.split('?')[0] !== path) return;
+    if (LC !== state || location.hash.split('?')[0] !== path) return;
   } else if (!LC || !document.body.contains(LC.root)) {
     $('#main').innerHTML = `<div class="lc" id="lc-root">
       <header class="lc-ph"><h1>Tools</h1>${helpBubble('Who may use each tool, and what they may change there: read only, with approval, or freely.')}
@@ -136,8 +136,9 @@ async function pageRdTools() {
             e => { state.rows = []; state.error = e.message; })
       .then(() => { state.loading = null; if (LC !== state) return; state.items = lcModel(state.rows); lcDrawControls(); });
     await state.loading;
-    // Left, or moved to another tool meanwhile (a filter typed while it loads changes only the query).
-    if (LC !== state || S.route.split('?')[0] !== path) return;
+    // Left, or moved to another tool meanwhile (a filter typed while it loads changes only the query). The address, not
+    // S.route: a click away that the router has not handled yet must not be sent back to the first tool below.
+    if (LC !== state || location.hash.split('?')[0] !== path) return;
   }
   // `?show=credentials` (the old Credentials page's links) opens on the credentials.
   const show = params.get('show');
