@@ -359,9 +359,12 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await page.locator('#task-modal [data-prop-row="parent"] .prop-v.ro').count(), 1, 'shown, read-only');
     assert.equal(await page.locator('#task-modal').getByRole('textbox', {name: 'Message'}).count(), 1);
     await page.locator('#task-modal [data-modal-close]').click();
+    // Reopened on the server, not through the page: a read already on its way shares its answer with a load that
+    // joins it (api.js GET_INFLIGHT), so the change waits until no read is out, and the list waits until it is open.
+    await page.waitForFunction(() => GET_INFLIGHT.size === 0);
     tasks.find(t => t.id === 'Approve the budget').status = 'open';
     await page.evaluate(() => tasksLoad(TASKS_ST));
-    await page.waitForFunction(() => TASKS_ST.tasks.some(t => t.id === 'Approve the budget'));
+    await page.waitForFunction(() => TASKS_ST.tasks.some(t => t.id === 'Approve the budget' && t.status === 'open'));
 
     await page.setViewportSize({width: 375, height: 844});
     // the sidebar's drawer transition has started and ended (two frames, then no finite animation running)
