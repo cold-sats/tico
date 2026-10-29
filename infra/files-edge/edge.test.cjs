@@ -202,6 +202,16 @@ test('distribution wiring preserves files and error fallback without stacking th
         assert.deepEqual(policy.SecurityHeadersConfig.ContentSecurityPolicy,
             {ContentSecurityPolicy: "default-src 'none'; sandbox", Override: true});
         assert.ok(policy.RemoveHeadersConfig.Items.some(x => x.Header === 'Set-Cookie'));
+        // CloudFront refuses CORS headers as custom headers (stand-up, Oct 29): files use its CORS config.
+        assert.ok(!policy.CustomHeadersConfig.Items.some(x => /^access-control-/i.test(x.Header)));
+        const removesCors = policy.RemoveHeadersConfig.Items.some(x => /^access-control-/i.test(x.Header));
+        if (i) assert.ok(removesCors && !policy.CorsConfig);
+        else {
+            assert.ok(!removesCors);
+            assert.deepEqual(policy.CorsConfig.AccessControlAllowOrigins.Items, ['*']);
+            assert.equal(policy.CorsConfig.AccessControlAllowCredentials, false);
+            assert.equal(policy.CorsConfig.OriginOverride, true);
+        }
         assert.ok(policy.RemoveHeadersConfig.Items.some(x => x.Header === 'Content-Security-Policy-Report-Only'));
         assert.equal(policy.SecurityHeadersConfig.ContentTypeOptions.Override, true);
         assert.equal(policy.SecurityHeadersConfig.ReferrerPolicy.ReferrerPolicy, 'no-referrer');

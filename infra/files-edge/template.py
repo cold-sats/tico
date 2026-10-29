@@ -27,12 +27,19 @@ def template():
             'FunctionConfig': {'Comment': 'Fixed sandbox ceiling for ' + name.lower(), 'Runtime': 'cloudfront-js-2.0'},
             'FunctionCode': (ROOT / 'response.js').read_text().replace('__VISUAL__', str(visual).lower())}}
         custom = [{'Header': 'Cross-Origin-Resource-Policy', 'Value': 'cross-origin', 'Override': True}]
+        cors = {}
         if visual:
             custom.append({'Header': 'Cache-Control', 'Value': 'private, no-cache', 'Override': True})
         else:
-            custom.append({'Header': 'Access-Control-Allow-Origin', 'Value': '*', 'Override': True})
+            # CloudFront refuses CORS headers as custom headers; its CORS config is the policy-layer fallback
+            # (origin errors skip viewer-response, which sets Access-Control-Allow-Origin: * itself).
+            cors = {'CorsConfig': {'AccessControlAllowOrigins': {'Items': ['*']},
+                                   'AccessControlAllowMethods': {'Items': ['GET', 'HEAD']},
+                                   'AccessControlAllowHeaders': {'Items': ['*']},
+                                   'AccessControlAllowCredentials': False, 'OriginOverride': True}}
         resources[name + 'Headers'] = {'Type': 'AWS::CloudFront::ResponseHeadersPolicy', 'Properties': {
             'ResponseHeadersPolicyConfig': {
+                **cors,
                 'Name': {'Fn::Sub': '${AWS::StackName}-' + name.lower()},
                 'SecurityHeadersConfig': {
                     'ContentSecurityPolicy': {'ContentSecurityPolicy': "default-src 'none'; sandbox", 'Override': True},
@@ -40,10 +47,12 @@ def template():
                     'ReferrerPolicy': {'ReferrerPolicy': 'no-referrer', 'Override': True}},
                 'CustomHeadersConfig': {'Items': custom},
                 # Metadata is needed by viewer-response; S3 errors have no object metadata.
+                # Files' CORS config overrides origin CORS headers; visuals have none, so remove them.
                 'RemoveHeadersConfig': {'Items': [{'Header': h} for h in [
-                    'Set-Cookie', 'Content-Security-Policy-Report-Only', 'Access-Control-Allow-Origin',
-                    'Access-Control-Allow-Credentials', 'Access-Control-Allow-Headers',
-                    'Access-Control-Allow-Methods', 'Access-Control-Expose-Headers', 'Access-Control-Max-Age']]}}}}
+                    'Set-Cookie', 'Content-Security-Policy-Report-Only'] + ([
+                        'Access-Control-Allow-Origin', 'Access-Control-Allow-Credentials',
+                        'Access-Control-Allow-Headers', 'Access-Control-Allow-Methods',
+                        'Access-Control-Expose-Headers', 'Access-Control-Max-Age'] if visual else [])]}}}}
     # Zero TTL prevents mutable metadata or company Cache-Control from freezing a stale policy.
     resources['Cache'] = {'Type': 'AWS::CloudFront::CachePolicy', 'Properties': {'CachePolicyConfig': {
         'Name': {'Fn::Sub': '${AWS::StackName}-no-cache'}, 'MinTTL': 0, 'DefaultTTL': 0, 'MaxTTL': 0,
