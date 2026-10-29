@@ -443,6 +443,7 @@ class World:
         if self.prs[number]["merged"]:
             return
         self.prs[number]["merged"] = True
+        self.prs[number]["merged_at"] = self.H.now()
         self.hook("pull_request", self.pr_payload(number, "closed", merged=True))
 
     # ------------------------------------------------------------------ fake GitHub reads (opt in)
@@ -528,10 +529,37 @@ class World:
                    and t["status"] not in ("done", "closed", "declined"))
 
     def cleared(self, task_id):
-        """Whether Tico let the ticket pass its current step without a check: a skip tag or a skipped round."""
+        """Whether Tico let the ticket pass its current step without a check: a skip tag, or a round skipped at a head
+        no check at the step failed. A round that timed out at a failed head is recorded as skipped too, but sends the
+        ticket to the step's on_fail (backend/verdict_moves.py `timeouts`), so it clears nothing."""
         entered = self.step_entered_at(task_id) or ""
-        return bool(self.sql("SELECT 1 FROM task_events WHERE task_id=? AND field IN ('step_skipped','round_skipped') "
-                             "AND ts>=? LIMIT 1", (task_id, entered)))
+        for e in self.sql("SELECT field, new FROM task_events WHERE task_id=? AND ts>=? "
+                          "AND field IN ('step_skipped','round_skipped')", (task_id, entered)):
+            step_id, _, head = str(e["new"] or "").partition(":")
+            step = self.sql("SELECT name FROM task_steps WHERE id=?", (step_id,))
+            if e["field"] == "step_skipped" or not (step and self.failed_at(task_id, step[0]["name"], head)):
+                return True
+        return False
+
+    def failed_at(self, task_id, step, head):
+        """Whether a check at `step` gave `head` a fail, changes or comments (a check done with none). Such a verdict
+        stands over a pass at the same head: only a new head clears it (backend/verdict_moves.py `_verdict_at`)."""
+        head = str(head or "").lower()
+        for c in self.checks(task_id):
+            if self.check_step(c) != step or not head.startswith(str(c.get("verdict_head") or self.judged_head(c)
+                                                                     or "-").lower()):
+                continue
+            verdict = c.get("verdict") or ("comments" if c["status"] == "done" else "")
+            if verdict and verdict not in ("approve", "pass"):
+                return True
+        return False
+
+    def judged_head(self, check):
+        """The head a check was filed for (its newest review_head), which a check done with no verdict judged, as
+        backend/verdict_moves.py `_judged_head` reads it."""
+        filed = self.sql("SELECT new FROM task_events WHERE task_id=? AND field='review_head' "
+                         "ORDER BY ts DESC, rowid DESC LIMIT 1", (check["id"],))
+        return str(filed[0]["new"] if filed else "").split(",")[0].lower()
 
     def fallback(self, who, task_id, what):
         self.fallbacks.append((self.now(), who, self.title(task_id), what))
@@ -547,6 +575,13 @@ class World:
     def judged(self, task_id, step=None):
         """The ticket's newest check with a verdict (for `step` when given)."""
         found = [c for c in self.checks(task_id) if c.get("verdict") and (step is None or self.check_step(c) == step)]
+        return found[-1] if found else None
+
+    def current_check(self, task_id, step):
+        """The round the ticket is waiting on at `step`: its newest check there filed since the ticket entered the
+        step, whether or not that check has a verdict yet. A check from before a return to the step is a past round."""
+        entered = self.step_entered_at(task_id) or ""
+        found = [c for c in self.checks(task_id) if self.check_step(c) == step and c["created"] >= entered]
         return found[-1] if found else None
 
     def checks(self, task_id):
