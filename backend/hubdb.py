@@ -2869,14 +2869,15 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
 
 
 def _close_open_asks(conn, actor, target, kind, msg):
-    """A person's reply answers the named ask, or that bot's asks to them on the named task, pick questions too:
-    the reply is the answer, and the bot wakes on it as on any message.
+    """A person's reply answers plain asks in scope; structured asks require a recorded choice.
+    The bot wakes on a note as on any message, while the decision stays open.
 
     A shared conversation alone does not identify which task a person is answering.
     A direct reply takes precedence over task context so it cannot close sibling asks.
     """
     refs = _json(msg.get("refs_json"), {}) or msg.get("refs") or {}
-    if kind not in ("say", "answer") or not is_human(actor) or not is_bot(target) or refs.get("clarify"):
+    if (kind not in ("say", "answer") or not is_human(actor) or not is_bot(target)
+            or refs.get("clarify") or refs.get("decision_open")):
         return      # asking for a clearer question (backend/clarify_asks.py) is not an answer
     if msg.get("in_reply_to"):
         scope, scope_id = "m.id", msg["in_reply_to"]
@@ -2886,12 +2887,12 @@ def _close_open_asks(conn, actor, target, kind, msg):
             return
         scope = MESSAGE_TASK_SQL
     open_asks = [r["id"] for r in _rows(conn.execute(
-        "SELECT m.id FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
+        "SELECT m.id,m.refs_json FROM messages m JOIN conversations cv ON cv.id=m.conversation_id "
         "WHERE m.to_actor=? AND m.from_actor=? AND m.kind='ask' AND m.superseded_at IS NULL "
         "AND m.answered_by IS NULL AND m.id NOT IN (SELECT in_reply_to FROM messages "
         "WHERE kind='answer' AND in_reply_to IS NOT NULL) "
         f"AND {scope}=?",
-        (actor, target, scope_id)))]
+        (actor, target, scope_id))) if refs.get("answer") or not has_pick_options(r)]
     if not open_asks:
         return
     conn.executemany("UPDATE messages SET answered_by=? WHERE id=?",
@@ -3200,6 +3201,12 @@ def _ask_depth(conn, actor, refs, in_reply_to):
     return max(declared, deepest + 1, 1)
 
 
+def has_pick_options(msg):
+    """Questions offering only free text keep the ordinary answer protocol."""
+    refs = msg.get("refs") or _json(msg.get("refs_json"), {}) or {}
+    return any(q.get("options") for q in refs.get("questions", []))
+
+
 def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, comment_target=None, classify_text=None):
     """Reply to an ask. A checked task comment may also answer a structured task ask."""
     _writer(conn, actor)
@@ -3216,6 +3223,13 @@ def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, c
     refs = {"depth": (asked.get("refs") or {}).get("depth", 1), **(comment_refs or {})}
     if unknown:
         refs["unknown"] = True
+    if has_pick_options(asked) and not refs.get("answer"):
+        refs.update({"decision_open": True})
+        about = message_task_id(asked, conversation(conn, asked["conversation_id"]))
+        if about:
+            refs["task"] = about
+        return _write_message(conn, actor, comment_target or asked["from_actor"], body,
+                              conversation(conn, asked["conversation_id"]), "say", refs, message_id, None)
     conv = conversation(conn, asked["conversation_id"])
     msg = _write_message(conn, actor, comment_target or asked["from_actor"], body, conv, "answer", refs, message_id, None)
     about = message_task_id(asked, conv)
@@ -5110,9 +5124,10 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
     if actor != KEEPER or ask:
         conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     now_row = task(conn, task_id) or {}
-    if now_row.get("status") == "waiting" and now_row.get("waiting_on") == actor:
-        # The person it waited on has spoken: the next move is the bot's, and it leaves their
-        # Needs you. The bot sets it waiting on them again if it still needs something.
+    if (now_row.get("status") == "waiting" and now_row.get("waiting_on") == actor
+            and not any(a.get("to_actor") == actor and has_pick_options(a)
+                        for a in open_task_asks(conn, now_row))):
+        # Plain replies clear a person wait; a structured decision keeps waiting until a choice is recorded.
         conn.execute("UPDATE tasks SET waiting_on=NULL WHERE id=?", (task_id,))
         _task_event(conn, task_id, actor, "waiting_on", actor, None, "")
         from . import task_holds
