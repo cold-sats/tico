@@ -3,6 +3,7 @@ routine's bot_turn step, which stamps its choice on the task its run opens. It i
 apart from the check model (backend/check_models.py), which holds when it cannot run: this falls back, to the bot's
 task model and then the bot's own model (backend/task_models.py `pick`). Whoever may set the bot's model may set this,
 and a bot never does, not even on its own task."""
+from . import ceo_acts
 from . import hubdb as H
 from . import providers
 from .harnesses import runtime_of
@@ -59,5 +60,6 @@ def moved(c, actor, task_id):
 
 def may_set(c, auth, who, bot):
     """Whether `who` may set the model `bot`'s tasks run on: whoever may manage the bot (Auth.bot_manager, the rule
-    settings_admin applies to the bot's own model), and never a bot, whatever it manages."""
-    return who.role != "bot" and bool(auth.bot_manager(c, who, bot))
+    settings_admin applies to the bot's own model), never a bot, whatever it manages, and never the CEO Bot, acting
+    for a person or itself: a model stays the person's at every level (the "cost" gate settings_admin runs first)."""
+    return who.role != "bot" and not ceo_acts.is_ceo(who.actor) and bool(auth.bot_manager(c, who, bot))

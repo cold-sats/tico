@@ -3,9 +3,10 @@ tasks keep theirs, a check subtask keeps its check model over it, a model that c
 whoever may change the bot's model may set a task's and a bot never does, change and clear are in the task's
 history, a task handed to another owner loses its model, and a routine's Bot turn step stamps its model on the task
 its run opens, which a routine nobody with that right has approved neither turns on nor runs by hand."""
+import contextlib
 import json
 
-from backend import task_run_models
+from backend import ceo_acts, task_run_models
 from backend.store import H
 from backend.tests.test_api import api, assign, claim, get, headers, post  # noqa: F401  (api is a fixture)
 from backend.tests.test_check_models import finish, heartbeat
@@ -192,6 +193,44 @@ def test_a_routine_step_model_is_not_run_by_hand_by_someone_who_may_not_set_it_b
     # Ana may run it by hand; that is one run, and the routine stays off until someone turns it on.
     post(api, f"automations/{aid}/run", {})
     assert get(api, f"automations/{aid}")["enabled"] is False
+
+
+@contextlib.contextmanager
+def acting_as_ceo_bot():
+    """Requests made inside it name the CEO Bot as the bot acting (`H.VIA`, which `ceo_acts.is_ceo` reads)."""
+    token = H.VIA.set(ceo_acts.CEO)
+    try:
+        yield
+    finally:
+        H.VIA.reset(token)
+
+
+def test_the_ceo_bot_acting_for_a_person_who_manages_the_bot_cannot_approve_or_run_its_model_in_a_routine(api):
+    ops_on_sonnet(api)
+    step = {"id": "audit", "type": "bot_turn", "bot": "ops", "prompt": "Run the audit.", **HAIKU}
+    flow = {"name": "Haiku audit", "owner": "human:ben", "trigger": {"type": "event", "name": "x.y"}, "steps": [step]}
+    with acting_as_ceo_bot():
+        # Ben manages ops, but the CEO Bot never chooses a bot's model: the routine is saved off, its version pending.
+        draft = post(api, "automations", flow, token="ben-test")
+        aid = draft["id"]
+        assert draft["pending"] == 1
+        patch(api, f"automations/{aid}", {"enabled": True}, token="ben-test", expected=403)
+        post(api, f"automations/{aid}/versions/1/restore", {}, token="ben-test", expected=403)
+        post(api, f"automations/{aid}/run", {}, token="ben-test", expected=403)
+    assert get(api, f"automations/{aid}")["enabled"] is False
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM automation_runs WHERE automation_id=?", (aid,)).fetchone()[0] == 0
+    # Ben, acting himself, approves the model by turning the routine on; then he may run it by hand.
+    assert patch(api, f"automations/{aid}", {"enabled": True}, token="ben-test")["enabled"] is True
+    post(api, f"automations/{aid}/run", {}, token="ben-test")
+
+
+def test_the_ceo_bot_acting_for_a_person_who_manages_the_bot_cannot_set_a_tasks_model_either(api):
+    ops_on_sonnet(api)
+    mine = filed(api, "Tidy the changelog")
+    with acting_as_ceo_bot():
+        own_model(api, mine["id"], HAIKU, token="ben-test", expected=409)
+    assert get(api, "tasks/" + mine["id"])["run_model"] is None
 
 
 def finance_on_the_computer(api, machine):
