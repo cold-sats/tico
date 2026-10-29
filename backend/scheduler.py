@@ -102,6 +102,26 @@ def run_engineering_exceptions(store, auth, at, failures=None):
         run.did(SR.words_of(woke, "manager woken", "No new exceptions"), quiet=not woke)
 
 
+def run_invariants(store, auth, at, failures=None):
+    # Plain SQL over the hub (backend/invariants.py): no model. Reads take no write lock; a run is recorded only when a
+    # check changed, inside the one write transaction that changes it. A quiet sweep writes nothing.
+    from . import invariants
+    run = SR.Run("invariant_checks")
+
+    def record(c, counts):
+        firing = [key for key, n in counts.items() if n]
+        SR.keep(c, run.did(f"{len(firing)} failing: {', '.join(firing)}" if firing else "All checks pass"))
+
+    try:
+        invariants.sweep(store, auth, store.settings, at, record=record)
+    except Exception as exc:
+        run.error = SR.failure_words(exc)
+        if failures is None:
+            raise
+        failures.append({"invariants": type(exc).__name__})
+        SR.write(store, run)
+
+
 QUICK = {"still_wanted": run_still_wanted, "kpi_asks": run_kpi_asks, "health_scan": run_health_scan,
          "ask_deadlines": run_ask_deadlines, "task_manager_report": run_task_manager_report,
          "engineering_exceptions": run_engineering_exceptions}
@@ -149,6 +169,7 @@ class Scheduler:
         self.billing_checked = None
         self.stale_checked = None
         self.hosted_checked = None
+        self.invariants_checked = None
         self.marks = {}             # a controlled job's last start in this process, if its record could not be written
 
     def due(self, key, at, cfgs, last):
@@ -436,6 +457,10 @@ class Scheduler:
         for key, run in QUICK.items():
             if cfgs and self.due(key, at, cfgs, last):
                 run(self.store, self.execution.auth, at, failures)
+        # Production invariants every 15 minutes (backend/invariants.py): plain SQL, no model.
+        if self.invariants_checked is None or at - self.invariants_checked >= timedelta(minutes=15):
+            self.invariants_checked = at
+            run_invariants(self.store, self.execution.auth, at, failures)
         if self.gateway_checked is None or at - self.gateway_checked >= timedelta(hours=1):
             # Every hour, while a gateway key or an invite is set: the Tico AI Gateway's word on it (revoked, 80% of the month's cap,
             # the cap reached), for Settings and Health. On its own thread: a tick never waits on the Gateway.

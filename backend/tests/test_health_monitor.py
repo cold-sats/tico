@@ -268,9 +268,9 @@ def test_a_release_approval_ready_past_the_setting_is_one_finding_counted_not_re
     assert scan_with(api, settings) == [] and finding(api, key)["present"] == 0
 
 
-@pytest.mark.parametrize("release,severity", [("0.0.9", "bad"), ("0.3.40", "warn")])
+@pytest.mark.parametrize("release,severity", [("0.0.9", "bad"), ("0.4.40", "warn")])
 def test_a_computer_on_a_release_the_server_cannot_work_with_is_bad(environment, monkeypatch, release, severity):
-    monkeypatch.setenv("TICO_VERSION", "0.3.45")
+    monkeypatch.setenv("TICO_VERSION", "0.4.45")
     api, runner = built(environment)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE runners SET last_seen=? WHERE id=?", (H.now(), runner["runner_id"]))

@@ -3440,10 +3440,18 @@ class Execution:
         lease that was live then lapsed only while the renewal waited for the lock."""
         self.runner(c, who)
         self.record_contact(H.now())
-        row = c.execute("SELECT a.*,x.runner_id AS assigned_runner,x.generation AS assigned_generation "
-                        "FROM attempts a JOIN assignments x ON x.bot=a.bot WHERE a.id=?", (aid,)).fetchone()
+        def read():
+            return c.execute("SELECT a.*,x.runner_id AS assigned_runner,x.generation AS assigned_generation "
+                             "FROM attempts a JOIN assignments x ON x.bot=a.bot WHERE a.id=?", (aid,)).fetchone()
+        row = read()
         if not row or row["runner_id"] != who.runner_id:
             raise Problem("forbidden", "This execution attempt is not yours", 403)
+        if final and row["state"] == "running" and row["lease_until"] <= H.now():
+            # A started turn's lease lapsed and no sweep has caught it yet: lapse it now, as the sweep would have, so
+            # its result is settled or filed below like any late one rather than refused with the lease. A turn that
+            # never started has no result worth that: the sweep requeues or fails it as before.
+            self.expire(c, attempt_ids=[aid])
+            row = read()
         if not privacy.attempt_readable(c, "bot:" + row["bot"], aid):
             raise Problem("stale_lease", "Task access expired; stop this attempt", 409)
         if (row["state"] in ("leased", "running") and row["lease_until"] > H.now()

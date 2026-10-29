@@ -433,7 +433,7 @@ def _propose(c, reason, left):
              f"Decide on {len(left)} changes the {strategy_bot.name(c)} proposed: {reason}")[:200]
     body = (f"Please decide whether to make these changes yourself; the {strategy_bot.name(c)} may not make them.\n"
             + (f"Why it wanted them: {reason}\n" if reason else "") + lines +
-            f"\nNothing changed. Make the change yourself if you agree, or close this to leave it.")
+            "\nNothing changed. Make the change yourself if you agree, or close this to leave it.")
     c.execute("SAVEPOINT strategy_propose")
     try:
         # Private, between the owner and the Strategy Bot that asks: it names company tasks by their titles, which a

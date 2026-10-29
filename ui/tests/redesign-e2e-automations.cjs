@@ -92,7 +92,8 @@ run('redesign-e2e-automations', ['org', 'toured', 'automations'], async ({hub, b
   await page.locator('.au-rx .au-sl').first().waitFor();
   const promo = await page.locator('.au-rx .au-sl').allInnerTexts();
   assert.match(promo[0], /promo.*Archive · waiting/, `${tag}: the rule archived it, queued: ${promo}`);
-  assert.equal(await page.locator('.au-rr').first().locator('.au-ro').innerText(), 'Waiting');
+  // The hub's clock is frozen, so both runs start at the same instant and their order is a tie: read the open one.
+  assert.equal(await page.locator('.au-rr[aria-expanded="true"]').locator('.au-ro').innerText(), 'Waiting');
   await shot(page, `${tag}-06-run-promo`);
   assert.deepEqual(page.errors, [], `${tag}: no page errors`);
   await page.context().close();

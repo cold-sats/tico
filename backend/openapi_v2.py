@@ -1323,7 +1323,7 @@ STABLE.append(("/api/v2/event-types", "get", "Events", "listEventTypes",
                "Every named event with its description, version and an example payload (`group` narrows it)", "EventTypeList"))
 SCHEMAS.update({
     "EventType": obj({"name": "s", "group": "s", "description": "s", "version": "i", "example": "o",
-                      "aliases": items("s"), "sourceless": "b", "outbound": "b"},
+                      "aliases": items({"type": "string"}), "sourceless": "b", "outbound": "b"},
                      required=["name", "group", "description", "version", "example"]),
     "EventTypeList": obj({"items": items(ref("EventType"))}, required=["items"]),
 })
