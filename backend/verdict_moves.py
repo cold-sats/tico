@@ -73,6 +73,14 @@ def at_head(c, row, head):
     return bool(head) and any(_head(pr).startswith(head) for pr in _prs(c, row) if _head(pr))
 
 
+def _full_head(c, row, head):
+    """The full head of the pull request on the ticket that `head` (7 to 40 characters, as a verdict may write it)
+    starts, lowered; `head` itself when no pull request is at it. Comparisons start from that full SHA, so a verdict's
+    short head and full head of one commit match whichever form the checker wrote."""
+    head = str(head or "").lower()
+    return next((_head(pr) for pr in _prs(c, row) if head and _head(pr).startswith(head)), head)
+
+
 def is_merged(c, row):
     prs = _prs(c, row)
     return bool(prs) and all(p.get("state") in ("merged", "shipped") for p in prs)
@@ -297,7 +305,7 @@ def _verdict_at(c, row, step, head):
     """The verdict the checks at `step` hold against `head` (lowered), or None when none judged that head. A fail,
     changes or comments wins over any pass on the same head, newer or not: a failed head is cleared by a fix at a new
     head, not by a later round at the same one, as a failed CI attempt or test receipt is (docs/tasks.md)."""
-    head = str(head or "").lower()
+    head = _full_head(c, row, head)
     given = [_verdict(check) for check in _checks(c, row, step) if _verdict(check)
              and head.startswith(str(check.get("verdict_head") or _judged_head(c, check) or "-").lower())]
     return next((v for v in given if v not in GOOD), given[-1] if given else None)

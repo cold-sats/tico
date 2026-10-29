@@ -725,6 +725,44 @@ def test_a_pass_at_a_head_a_fail_stands_on_goes_to_qa_fixes_and_only_a_new_head_
     assert len(merges) == 1 and merges[0]["refs"]["pr_head"] == NEW, merges
 
 
+def test_a_short_head_pass_does_not_clear_a_fail_recorded_at_the_full_head(api):
+    """A checker may write the head short: a pass recorded with the 7-character head does not clear a fail recorded with
+    the full SHA of the same commit, so the ticket goes to QA Fixes and is never cleared to merge."""
+    task = ticket(api, step="In QA")
+    _suite(api, "github-actions", "completed", "success", sha=HEAD)
+    verdict(api, check(api, task, "QA: PR #412"), "fail")
+    assert step(api, task) == "QA Fixes"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+        c.execute("DELETE FROM jobs")
+    verdict(api, check(api, task, "QA: PR #412"), "pass", head=HEAD[:7])
+    assert step(api, task) == "QA Fixes"
+    woke = builder_jobs(api)
+    assert [m["refs"].get(V.HANDOFF) for m in woke] == ["verdict"], woke
+    assert "already gave fail" in woke[0]["body"] and "only a new head clears it" in woke[0]["body"], woke[0]
+    with api.app.state.store.read() as c:
+        assert V.merge_ready(c, H.task(c, task["id"])) is None
+
+
+def test_a_full_head_pass_does_not_clear_a_fail_recorded_at_the_short_head(api):
+    """The same commit named short first: a fail recorded with the 7-character head still stands over a pass recorded
+    with the full SHA, so the ticket goes to QA Fixes and is never cleared to merge."""
+    task = ticket(api, step="In QA")
+    _suite(api, "github-actions", "completed", "success", sha=HEAD)
+    verdict(api, check(api, task, "QA: PR #412"), "fail", head=HEAD[:7])
+    assert step(api, task) == "QA Fixes"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+        c.execute("DELETE FROM jobs")
+    verdict(api, check(api, task, "QA: PR #412"), "pass")
+    assert step(api, task) == "QA Fixes"
+    woke = builder_jobs(api)
+    assert [m["refs"].get(V.HANDOFF) for m in woke] == ["verdict"], woke
+    assert "already gave fail" in woke[0]["body"] and "only a new head clears it" in woke[0]["body"], woke[0]
+    with api.app.state.store.read() as c:
+        assert V.merge_ready(c, H.task(c, task["id"])) is None
+
+
 def test_a_timed_out_round_after_a_fail_and_a_later_pass_clears_nothing_when_on_fail_has_no_target(api):
     """With no step to send a failed head to, the fail stays where it was given, and a later pass at that head does not
     clear it. A round that then times out at the head clears nothing either: the merge is not woken."""

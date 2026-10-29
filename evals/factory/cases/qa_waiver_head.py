@@ -134,22 +134,43 @@ def qa_down_then_waive(run, w, team, i):
 
 
 # ---------------------------------------------------------------------------------------------- checks
+GOOD = ("approve", "pass", "waiver")   # what the backend takes as good (backend/verdict_moves.py), and a waiver
+
+
+def judgments_at(w, check, head):
+    """(time, verdict) of a QA check's judgments of `head`: each verdict recorded for it, and its completion as
+    "comments" when it finished with no verdict (`_verdict` in backend/verdict_moves.py). A check with no verdict judged
+    the head it was filed for (its review_head, as `_judged_head` reads it)."""
+    out = []
+    for e in w.sql("SELECT ts, lower(new) new FROM task_events WHERE task_id=? AND field='verdict'", (check["id"],)):
+        verdict, _, judged = str(e["new"] or "").partition(" ")
+        if judged and head.startswith(judged):
+            out.append((w.H.parse_ts(e["ts"]), verdict))
+    if not check.get("verdict") and check["status"] == "done":
+        filed = w.sql("SELECT new FROM task_events WHERE task_id=? AND field='review_head' "
+                      "ORDER BY ts DESC, rowid DESC LIMIT 1", (check["id"],))
+        judged = str(filed[0]["new"] if filed else "").split(",")[0].lower()
+        done = w.sql("SELECT max(ts) ts FROM task_events WHERE task_id=? AND field='status' AND new='done'",
+                     (check["id"],))
+        if judged and head.startswith(judged) and done and done[0]["ts"]:
+            out.append((w.H.parse_ts(done[0]["ts"]), "comments"))
+    return out
+
+
 def standing_at(w, ticket_id, head, when):
-    """What stood for `head` when the pull request merged at `when`, from QA's verdicts on it (each check's
-    "<verdict> <head>" event) and a person's waiver ("waiver"), recorded at or before `when`; None when there was none.
-    A QA verdict other than a pass there ("fail", "changes" or "comments") stands whatever came after it, a later pass
-    included, since only a new head clears it: it is returned first. Otherwise the newest of QA's pass ("pass") and the
-    waiver is what stood. A fail after a waiver is the first, so it stands: the waiver did not see it."""
+    """What stood for `head` when the pull request merged at `when`: QA's judgments of it (`judgments_at`) and a
+    person's waiver ("waiver"), recorded at or before `when`; None when there was none. The first judgment there other
+    than GOOD stands whatever came after it, a later pass included, since only a new head clears it: it is returned
+    first. Otherwise the newest of them is what stood. A fail after a waiver is the first, so it stands: the waiver did
+    not see it."""
+    head = str(head).lower()
     found = []
     for c in qa_children(w, ticket_id):
-        for e in w.sql("SELECT ts, lower(new) new FROM task_events WHERE task_id=? AND field='verdict'", (c["id"],)):
-            verdict, _, judged = str(e["new"] or "").partition(" ")
-            if judged == str(head).lower():
-                found.append((w.H.parse_ts(e["ts"]), verdict))
+        found += judgments_at(w, c, head)
     found += [(w.H.parse_ts(e["ts"]), "waiver") for e in waiver_events(w, ticket_id)
               if e["head"] == head and e["actor"].startswith("human:")]
     found = sorted(f for f in found if f[0] <= w.H.parse_ts(when))
-    failed = [f for f in found if f[1] not in ("pass", "waiver")]
+    failed = [f for f in found if f[1] not in GOOD]
     if failed:
         return failed[0][1]
     return found[-1][1] if found else None
@@ -168,7 +189,7 @@ def merged_on_pass_or_waiver(run):
         merged = (w.prs[pr] if pr else {}).get("merged_at") or w.H.now()
         stood = standing_at(w, t["id"], head, merged)
         on_waiver += stood == "waiver"
-        if stood not in ("pass", "waiver"):
+        if stood not in GOOD:
             bad.append(f"{t['title']} merged at {str(head)[:7]} on " + (f"QA's {stood}" if stood else
                                                                          "no QA pass or waiver there"))
     if not on_waiver:
