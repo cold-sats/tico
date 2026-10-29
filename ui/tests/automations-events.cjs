@@ -1,7 +1,7 @@
 // Automations with an event trigger (ui/app/automations*.js) against the fake hub in support/automations-fake.cjs: an
 // event reads as a few words everywhere (the list's "· source", the trigger card, a wake rule's condition, the
 // editor), never its dotted id (task.done, tico.notice, tico.builtin.*); the id is only the chip's tooltip, and the
-// editor still saves it. A phone first, then a computer.
+// editor still saves it; Custom… takes a name the catalog does not list, saved as typed. A phone first, then a computer.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const {openAutomations, PHONE, DESKTOP, sideways, shot} = require('./support/automations-fake.cjs');
@@ -49,10 +49,11 @@ const rowText = (page, id) => page.locator(`.au-row[data-row="${id}"] a`).innerT
       assert.doesNotMatch(await page.locator('.au-pane').innerText(), RAW, 'no dotted ids in the flow');
       // Its editor, read only: one Event field, in words.
       await chip.click();
-      await page.waitForSelector('.au-ed:not([hidden]) [data-b="trigger.name"]');
+      await page.waitForSelector('.au-ed:not([hidden]) [data-b="evpick"]');
       assert.equal(await page.locator('.au-ed .au-lb', {hasText: /^Event$/i}).count(), 1, 'one Event field');
-      assert.equal(await page.locator('.au-ed [data-b="trigger.name"] option:checked').innerText(), 'Every event');
-      assert.equal(await page.locator('.au-ed [data-b="trigger.name"]').isDisabled(), true);
+      assert.equal(await page.locator('.au-ed [data-b="evpick"] option:checked').innerText(), 'Every event');
+      assert.equal(await page.locator('.au-ed [data-b="evpick"]').isDisabled(), true);
+      assert.equal(await page.locator('.au-ed [data-b="trigger.name"]').count(), 0, 'a built-in is no custom name');
       await shot(page, 'phone-events-builtin');
       assert.equal(await sideways(page), false);
       assert.deepEqual(writes, []);
@@ -66,23 +67,44 @@ const rowText = (page, id) => page.locator(`.au-row[data-row="${id}"] a`).innerT
       assert.equal(await page.locator('.au-trig .au-c1').innerText(), 'Notice');
       assert.doesNotMatch(await page.locator('.au-list').innerText(), RAW);
       await page.locator('.au-card[data-open="trigger"]').click();
-      const pick = page.locator('.au-ed [data-b="trigger.name"]');
+      const pick = page.locator('.au-ed [data-b="evpick"]');
       await pick.waitFor();
       assert.equal(await pick.locator('option:checked').innerText(), 'Notice');
       const labels = await pick.locator('option').allInnerTexts();
       assert.ok(labels.includes('Task finished') && labels.includes('Message received'), 'the catalog in words');
       assert.ok(!labels.some(l => RAW.test(l)), 'no dotted ids among the choices');
+      assert.equal(labels.at(-1), 'Custom…', 'Custom… comes last');
+      assert.equal(await page.locator('.au-ed [data-b="trigger.name"]').count(), 0, 'no name box for a catalog event');
       await pick.selectOption('task.done');
       await page.locator('.au-ed .au-save').click();
       await page.waitForFunction(() => document.querySelector('.au-trig .au-c1')?.textContent === 'Task finished');
       const saved = writes.find(w => w.method === 'PATCH' && w.body?.trigger);
       assert.deepEqual(saved.body.trigger, {type: 'event', name: 'task.done'});
-      // One the catalog does not list keeps its own name, in words.
+      // A name of one's own: Custom… and a box for it; saved exactly as typed.
+      await page.locator('.au-card[data-open="trigger"]').click();
+      await pick.selectOption('__custom');
+      const name = page.locator('.au-ed [data-b="trigger.name"]');
+      await name.waitFor();
+      assert.equal(await name.inputValue(), '', 'a catalog name is not carried into the box');
+      assert.equal(await name.evaluate(el => el === document.activeElement), true, 'the box takes the cursor');
+      await name.fill('custom.deploy_finished');
+      await shot(page, 'desktop-events-custom');
+      await page.locator('.au-ed .au-save').click();
+      await page.waitForFunction(() => document.querySelector('.au-trig .au-c1')?.textContent === 'Deploy finished');
+      assert.deepEqual(writes.filter(w => w.method === 'PATCH' && w.body?.trigger).at(-1).body.trigger, {type: 'event', name: 'custom.deploy_finished'});
+      // Back to a catalog event drops the box.
+      await page.locator('.au-card[data-open="trigger"]').click();
+      assert.equal(await pick.locator('option:checked').innerText(), 'Custom…');
+      await pick.selectOption('tico.notice');
+      assert.equal(await page.locator('.au-ed [data-b="trigger.name"]').count(), 0);
+      await page.locator('.au-ed [data-op="close"]').click();
+      // One the catalog does not list opens on Custom… with its name filled in.
       await page.locator('.au-row[data-row="au_custom"] a').click();
       await page.waitForSelector('.au-hd .au-name:text("Deploys")');
       assert.equal(await page.locator('.au-trig .au-c1').innerText(), 'Deploy finished');
       await page.locator('.au-card[data-open="trigger"]').click();
-      assert.equal(await page.locator('.au-ed [data-b="trigger.name"] option:checked').innerText(), 'Deploy finished');
+      assert.equal(await pick.locator('option:checked').innerText(), 'Custom…');
+      assert.equal(await name.inputValue(), 'custom.deploy_finished');
       await shot(page, 'desktop-events-editor');
       assert.equal(await sideways(page), false);
       assert.deepEqual(errors, []);

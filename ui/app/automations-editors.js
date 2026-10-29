@@ -100,7 +100,7 @@ function auEdHTML() {
   if (ed.kind === 'spend') return auFrame('Spend limit', auFld('$ per 30 min',
     `<input type="number" data-b="value" min="0" step="0.10" value="${esc(ed.value ?? '')}" placeholder="Bot’s limit" inputmode="decimal">`)
     + `<button class="linkish au-plus" type="button" data-op="nocap">Use the bot’s limit</button>`, {});
-  if (ed.kind === 'trigger') return auFrame('Trigger', auTriggerFields(ed.trigger), {icon: AU_TRIGGER_ICONS[ed.trigger.type]});
+  if (ed.kind === 'trigger') return auFrame('Trigger', auTriggerFields(ed.trigger, ed), {icon: AU_TRIGGER_ICONS[ed.trigger.type]});
   if (ed.kind === 'run') return auFrame('Test run', auFld('Sample input', auTa('text', ed.text, 9), 'au-mono'), {icon: 'play_arrow', label: 'Run'});
   const s = ed.step;
   const body = {filter: auFilterFields, decide: auDecideFields, llm: auLlmFields, find: auFindFields, bot_turn: auBotFields,
@@ -117,14 +117,23 @@ function auFrame(title, body, {tag = '', icon = '', save = true, del = false, la
       <button class="primary au-save" type="button" data-op="save">${esc(label)}</button></div>` : ''}`;
 }
 
-function auTriggerFields(t) {
+// An event trigger's event: the catalog in words, or Custom… with the exact name typed (custom.<x>, any name the
+// catalog does not list). A built-in's tico.builtin.* stays its words.
+const AU_EV_CUSTOM = '__custom';
+const auEvCustom = (t, ed) => ed?.evCustom ?? (!!t.name && !AU_EVENTS[t.name] && !AU_EVENT_MORE[t.name] && !String(t.name).startsWith('tico.builtin.'));
+function auEventField(t, ed) {
+  const custom = auEvCustom(t, ed);
+  const list = [...auWithCur(Object.entries(AU_EVENTS), custom ? '' : t.name, auEventWords(t.name)), [AU_EV_CUSTOM, 'Custom…']];
+  const pick = auSel('evpick', list, custom ? AU_EV_CUSTOM : t.name, `aria-label="Event"${t.name && !custom ? ` title="${esc(t.name)}"` : ''}`);
+  return auFld('Event', pick + (custom ? auIn('trigger.name', t.name, 'custom.name', 'aria-label="Custom event"') : ''));
+}
+function auTriggerFields(t, ed) {
   const src = {message: () => auFld('Inbox', auIn('trigger.inbox', t.inbox)),
     task_received: () => auFld('To', auSel('trigger.to', auWithCur([...auPeople(), ...auBots()], t.to, auActorName(t.to)), t.to)),
     schedule: () => auFld('Cron', auIn('trigger.cron', t.cron, '0 7 * * 1-5')) + auFld('Time zone', auIn('trigger.tz', t.tz)),
     webhook: () => auFld('Webhook', `<input type="text" value="${esc(t.name || t.id || '')}" disabled>`),
     listening: () => auFld('Destination', auIn('trigger.destination', t.destination)),
-    event: () => auFld('Event', auSel('trigger.name', auWithCur(Object.entries(AU_EVENTS), t.name, auEventWords(t.name)), t.name,
-      t.name ? `title="${esc(t.name)}"` : ''))}[t.type];
+    event: () => auEventField(t, ed)}[t.type];
   // An event trigger's one field names its event; the others say what kind of trigger it is first.
   const kind = t.type === 'event' ? '' : auFld('Event', `<input type="text" value="${esc(AU_TRIGGER_WORDS[t.type] || t.type || '')}" disabled>`);
   return kind + (src ? src() : '')
@@ -221,6 +230,15 @@ function auEdWire(box) {
     if (t.hasAttribute('data-pct')) v = v === '' ? undefined : Math.max(0, Math.min(100, Number(v))) / 100;
     else if (t.hasAttribute('data-num')) v = v === '' ? undefined : Number(v);
     else if (t.hasAttribute('data-slug')) v = String(v).replace(/^bot:/, '');
+    if (b === 'evpick') {
+      if (e.type !== 'change') return;
+      ed.evCustom = v === AU_EV_CUSTOM;
+      if (!ed.evCustom) ed.trigger.name = v;
+      else if (AU_EVENTS[ed.trigger.name] || AU_EVENT_MORE[ed.trigger.name]) ed.trigger.name = '';
+      auDrawSide();
+      if (ed.evCustom) box.querySelector('[data-b="trigger.name"]')?.focus();
+      return;
+    }
     if (b === 'set') { ed.custom = !v; if (v) { ed.step.set = v; delete ed.step.questions; auDecideQs(ed); } auDrawSide(); return; }
     if (b.startsWith('qs.')) ed.custom = true;
     auPathSet(ed, b, v);
@@ -260,7 +278,10 @@ async function auEdSave(button) {
   if (ed.kind === 'run') { await auRunNow(ed, button); return; }
   if (button) button.disabled = true;
   let body;
-  if (ed.kind === 'trigger') body = {trigger: ed.trigger};
+  if (ed.kind === 'trigger') {
+    body = {trigger: ed.trigger.type === 'event' ? {...ed.trigger, name: String(ed.trigger.name || '').trim()} : ed.trigger};
+    if (ed.trigger.type === 'event' && !body.trigger.name) { toast('Name the event', true); if (button) button.disabled = false; return; }
+  }
   else {
     const step = auClone(ed.step);
     if (step.type === 'decide' && ed.custom) {
