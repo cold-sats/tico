@@ -24,7 +24,10 @@ from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
 from .readiness import absolute, can_run
 from .statuses import PARKED_SQL
+from . import fast_json
+from . import names as actor_names
 from . import read_cache
+from . import report_managers
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
 
 
@@ -33,6 +36,23 @@ def _json(value, fallback=None):
         return json.loads(value) if isinstance(value, str) else value
     except (TypeError, ValueError):
         return fallback
+
+
+def _bytes(value):
+    """The bytes `value` takes as the route sends it: fast_json encodes the stable answers (backend/app.py)."""
+    return len(fast_json.dumps(value))
+
+
+def _fit(items, budget):
+    """The leading `items` that fit in `budget` bytes with their commas: (those, their bytes, whether any were cut)."""
+    kept, used = [], 0
+    for item in items:
+        cost = _bytes(item) + 1
+        if used + cost > budget:
+            return kept, used, True
+        kept.append(item)
+        used += cost
+    return kept, used, False
 
 def repository_present(c, bot):
     from .agents import external_harness
@@ -53,6 +73,14 @@ DEFAULT_COMPACT_AT = 250_000
 def compact_at(config):
     value = (config or {}).get("compact_at")
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else DEFAULT_COMPACT_AT
+
+
+# The fields a manager bot changes on its report (report_managers.SCOPES). Anyone who manages the bot may undo them.
+REPORT_UNDO = ("model", "task_model", "identity")
+# A page of the settings history is at most this many bytes of JSON as it is sent, names included, counted in UTF-8 (an
+# emoji is four bytes, not one character). A change past that starts the next page (`next_before`); one bigger than a
+# page on its own is sent without its values (`truncated`), so the page still moves on past it.
+HISTORY_PAGE_BYTES = 256 * 1024
 
 
 class SettingsAdmin:
@@ -88,14 +116,50 @@ class SettingsAdmin:
                          "WHERE bc.created_by=? AND b.state<>'archived' AND bc.bot<>? "
                          "AND COALESCE(bc.onboarding_state,'') NOT IN " + PARKED_SQL, (actor, excluding)).fetchone()[0]
 
-    def _manager(self, c, who, bot, botops=False):
+    def _manager(self, c, who, bot, botops=False, report=None):
         """The one "may manage this bot" check (`Auth.bot_manager`): the owner, an Admin, one of the bot's
         owners, or a person it reports up to. They are also the people who always have full access to it.
-        `botops`: BotOps in its own run may also make this change (`Auth.botops_manages`)."""
+        `botops`: BotOps in its own run may also make this change (`Auth.botops_manages`). `report`: the scope a
+        manager bot changes on its direct report (`Auth.report_manager`), else None."""
         if (who.role == "owner" or self.auth.bot_manager(c, who, bot)
-                or (botops and self.auth.botops_manages(c, who, bot))):
+                or (botops and self.auth.botops_manages(c, who, bot))
+                or (report and self.auth.report_manager(c, who, bot, report))):
             return
         raise Problem("forbidden", "You may change only bots you own or that report up to you", 403)
+
+    def as_report_manager(self, who, bot, scope, fn):
+        """`fn(c)` run so that a change a manager bot makes to its direct report is recorded as that bot's own, with
+        via `report_manager` (`record` and the events read H.VIA). Anyone else's change is recorded as it always was. The
+        event names who turned the manager's switch on, when a person did."""
+        def run(c):
+            token = H.VIA.set(report_managers.VIA) if self.auth.report_manager(c, who, bot, scope) else None
+            try:
+                result = fn(c)
+            finally:
+                if token is not None:
+                    H.VIA.reset(token)
+            if token is not None:
+                H.event(c, who.actor, "bot.report_managed", bot, {"manager": who.actor, "scope": scope,
+                        "switch_set_by": self._switch_setter(c, H.actor_id(who.actor))})
+            return result
+        return run
+
+    def _switch_setter(self, c, manager):
+        """Who last set the manager bot's "manages its reports" switch, or None: the default, nobody set it."""
+        row = c.execute("SELECT actor FROM settings_changes WHERE bot=? AND field=? ORDER BY created DESC LIMIT 1",
+                        (manager, report_managers.KEY)).fetchone()
+        return row["actor"] if row else None
+
+    def report_change(self, c, who, bot, changed):
+        """Whether a manager bot makes this change to its direct report (`Auth.report_manager`, scope `definition`): only
+        its name and description are the manager's to change. Anything else is refused before anything is written."""
+        if who.role == "owner" or self.auth.bot_manager(c, who, bot) or not self.auth.report_manager(c, who, bot, "definition"):
+            return False
+        refused = set(changed) - set(report_managers.NAME_FIELDS)
+        if refused:
+            raise Problem("forbidden", "A bot that manages this one changes only its name and description; "
+                          + ", ".join(sorted(refused)) + " is for the people who manage it", 403)
+        return True
 
     @staticmethod
     def _config(c, bot):
@@ -551,9 +615,11 @@ class SettingsAdmin:
         asked = body.model_dump(exclude_unset=True, exclude={"expected_revision", "on_behalf_of"})
         CA.gate(c, who.actor, "instructions", f"change {bot}'s instructions or settings: "
                 + "; ".join(f"{k} to \"{v}\"" for k, v in asked.items()))
-        own_run = not (who.role == "owner" or self.auth.bot_manager(c, who, bot))
-        self._manager(c, who, bot, botops=True)
         changed = body.model_fields_set - {"expected_revision", "on_behalf_of"}
+        report = self.report_change(c, who, bot, changed)
+        own_run = not (who.role == "owner" or self.auth.bot_manager(c, who, bot)) and not report
+        if not report:
+            self._manager(c, who, bot, botops=True)
         if own_run and changed - self.BOTOPS_OWN_DEFINITION:
             raise Problem("forbidden", "BotOps' own run changes only another bot's contact; "
                           + ", ".join(sorted(changed - self.BOTOPS_OWN_DEFINITION))
@@ -578,7 +644,7 @@ class SettingsAdmin:
         if before.get("status") == "quarantined" and values.get("status") != "quarantined":
             raise Problem("quarantined", "This bot is quarantined; clear the quarantine first", 409)
         self._parent(c, bot, values.get("reports_to"))
-        if (not own_run and who.role != "owner" and values.get("reports_to")
+        if (not own_run and not report and who.role != "owner" and values.get("reports_to")
                 and not str(values["reports_to"]).startswith("human:")):
             parent = self._config(c, values["reports_to"])
             if parent["operator"] != H.actor_id(who.actor) and not self.auth.manages(c, who, "bot", values["reports_to"]):
@@ -666,10 +732,18 @@ class SettingsAdmin:
         from . import groups
         groups.leads_follow(c, "bot:" + bot)          # a new manager can take a bot out of the group it leads
         after = self.definition(c, bot)
-        self.record(c, who.actor, bot, "definition", before, after)
+        if report:
+            self.record(c, who.actor, bot, "identity", self.identity_of(before), self.identity_of(after))
+        else:
+            self.record(c, who.actor, bot, "definition", before, after)
         H.event(c, who.actor, "bot.definition_changed", bot,
                 {"before": before, "after": after})
         return {**after, "previous_thread_mode": before["thread_mode"]}
+
+    @staticmethod
+    def identity_of(definition):
+        """A bot's name and description, the part a manager bot may change of its report (report_managers.NAME_FIELDS)."""
+        return {key: definition.get(key) for key in report_managers.NAME_FIELDS}
 
     def snapshot(self, c, bot, field):
         config = self._config(c, bot)
@@ -707,6 +781,10 @@ class SettingsAdmin:
                     "operator": config["operator"], "label": row["label"] if row else ""}
         if field == "definition":
             return self.definition(c, bot)
+        if field == "identity":
+            return self.identity_of(self.definition(c, bot))
+        if field == report_managers.KEY:
+            return report_managers.switch_on(_json(config["config_json"], {}) or {})
         raise ValueError(field)
 
     def record(self, c, actor, bot, field, before, after, transition_id=None):
@@ -797,7 +875,7 @@ class SettingsAdmin:
 
     def begin(self, c, who, bot, body, undo_change_id=None):
         CA.gate(c, who.actor, "cost", f"change {bot}'s model or harness")
-        self._manager(c, who, bot)
+        self._manager(c, who, bot, report="model" if body.kind == "model" else None)
         if body.kind == "model":
             shared_bots.refuse_copy(c, bot)
         config = self._config(c, bot)
@@ -831,7 +909,7 @@ class SettingsAdmin:
         return self.get(c, who, transition_id)
 
     def _apply(self, c, who, transition, *, without_checkpoint=False):
-        self._manager(c, who, transition["bot"])
+        self._manager(c, who, transition["bot"], report=self._transition_scope(transition))
         config = self._config(c, transition["bot"])
         if config["revision"] != transition["expected_revision"]:
             raise Problem("version_conflict", "Bot settings changed while the checkpoint was being prepared", 409)
@@ -901,12 +979,16 @@ class SettingsAdmin:
         transition = c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone()
         if not transition:
             raise Problem("not_found", "Prepared change not found", 404)
-        self._manager(c, who, transition["bot"])
+        self._manager(c, who, transition["bot"], report=self._transition_scope(transition))
+        # A checkpoint holds what a conversation decided and did. A manager bot may follow its report's model change,
+        # not read the conversations it checkpoints: it sees only each one's state.
+        full = who.role == "owner" or self.auth.bot_manager(c, who, transition["bot"])
         checkpoints = []
         for row in c.execute("SELECT * FROM bot_transition_checkpoints WHERE transition_id=? ORDER BY conversation_id",
                              (transition_id,)):
             checkpoints.append({"conversation_id": row["conversation_id"], "state": row["state"],
-                                "checkpoint": _json(row["checkpoint_json"]), "error": row["error"]})
+                                "checkpoint": _json(row["checkpoint_json"]), "error": row["error"]} if full else
+                               {"conversation_id": None, "state": row["state"], "checkpoint": None, "error": None})
         value = dict(transition)
         value["target"] = _json(value.pop("target_json"), {})
         value["checkpoints"] = checkpoints
@@ -924,7 +1006,7 @@ class SettingsAdmin:
     def force(self, c, who, transition_id):
         transition = c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone()
         if transition:
-            self._manager(c, who, transition["bot"])
+            self._manager(c, who, transition["bot"], report=self._transition_scope(transition))
         if not transition or transition["state"] in ("applied", "cancelled"):
             raise Problem("state", "This prepared change is no longer pending", 409)
         active = c.execute("SELECT 1 FROM bot_transition_checkpoints p JOIN jobs j ON j.message_id=p.message_id "
@@ -939,7 +1021,7 @@ class SettingsAdmin:
     def cancel(self, c, who, transition_id):
         transition = c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone()
         if transition:
-            self._manager(c, who, transition["bot"])
+            self._manager(c, who, transition["bot"], report=self._transition_scope(transition))
         if not transition or transition["state"] in ("applied", "cancelled"):
             raise Problem("state", "This prepared change is no longer pending", 409)
         if c.execute("SELECT 1 FROM bot_transition_checkpoints p JOIN jobs j ON j.message_id=p.message_id "
@@ -953,32 +1035,128 @@ class SettingsAdmin:
         H.event(c, who.actor, "bot.transition_cancelled", transition["bot"], {"transition": transition_id})
         return self.get(c, who, transition_id)
 
-    def history(self, c, who, limit=100):
-        self._owner(who)
+    def history(self, c, who, limit=100, bot="", before=""):
+        """One page of the settings changes the caller may see, newest first, and `next_before` for the page after it.
+        The owner sees every change, and the newest `limit` transitions on the first page. A person who manages a bot
+        sees only the changes its manager bots made to the bots they manage (via `report_manager`), and no transitions.
+        Anyone else sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. The
+        page is at most HISTORY_PAGE_BYTES as it is sent: its transitions come first, newest first, and
+        `transitions_truncated` says when some were left out; its changes take what is left."""
+        if who.role not in ("owner", "human"):
+            raise Problem("forbidden", "Only the owner, or a person who manages the bot, sees its settings changes",
+                          403)
+        owner = who.role == "owner"
         limit = max(1, min(int(limit), 200))
-        changes = []
-        for row in c.execute("SELECT * FROM settings_changes ORDER BY created DESC LIMIT ?", (limit,)):
-            value = dict(row)
-            value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
-            try:
-                current = self.snapshot(c, row["bot"], row["field"])
-            except (ValueError, Problem, TypeError, KeyError):
-                # A field an older release wrote, or a bot deleted since: history still shows it.
-                current = None
-            value["can_undo"] = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access", "profile")
-                                 and not row["undone_at"] and current == value["after"]
-                                 # A profile change from a bot that had none has nothing to go back to (undo: 409).
-                                 and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
-            changes.append(value)
-        transitions = [self.get(c, who, row[0]) for row in c.execute(
-            "SELECT id FROM bot_transitions ORDER BY created DESC LIMIT ?", (limit,))]
-        return {"changes": changes, "transitions": transitions}
+        # The bots first: a caller who manages none reads no change at all, and anyone else reads only theirs.
+        bots = None if owner and not bot else self._history_bots(c, who, bot)
+        rows = self._history_rows(c, owner, bots, before, limit)
+        changes = [self._history_change(c, row, owner) for row in rows[:limit]]
+        actor_names.annotate(c, changes)
+        # What the page takes besides its changes: its keys, and a cursor as long as an id.
+        room = HISTORY_PAGE_BYTES - _bytes({"changes": [], "next_before": H.new_id(), "transitions": [],
+                                            "transitions_truncated": True})
+        for value in changes:
+            if _bytes(value) + 1 > room:
+                # Bigger than a page on its own (a long list of people, say): sent without its values. It is still
+                # taken, so the page moves on past it.
+                value.update(before=None, after=None, truncated=True)
+        transitions, cut, used = [], False, 0
+        if owner and not before:
+            ids = c.execute("SELECT id FROM bot_transitions" + (" WHERE bot=?" if bot else "")
+                            + " ORDER BY created DESC LIMIT ?", ([bot] if bot else []) + [limit + 1]).fetchall()
+            transitions = [self.get(c, who, row[0]) for row in ids[:limit]]
+            actor_names.annotate(c, transitions)
+            # The first change keeps its room, so a page that has transitions still takes a change.
+            transitions, used, cut = _fit(transitions, room - (_bytes(changes[0]) + 1 if changes else 0))
+            # More than `limit` transitions: the older ones are left out as surely as those the bytes cut.
+            cut = cut or len(ids) > limit
+        changes = _fit(changes, room - used)[0]
+        return self._page(c, rows, changes, transitions, cut)
+
+    def _history_change(self, c, row, owner):
+        """A settings change with what the page says about it (`can_undo`); `history` fits it afterwards."""
+        value = dict(row)
+        value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
+        try:
+            current = self.snapshot(c, row["bot"], row["field"])
+        except (ValueError, Problem, TypeError, KeyError):
+            # A field an older release wrote, or a bot deleted since: history still shows it.
+            current = None
+        # The owner's own list, and a change a manager bot made to its report (anyone who manages the bot may undo it).
+        owners_undo = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access", "profile")
+                       # A profile change from a bot that had none has nothing to go back to (undo: 409).
+                       and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
+        value["can_undo"] = bool(not row["undone_at"] and current == value["after"]
+                                 and ((owner and owners_undo) or self._report_undo(row)))
+        value["truncated"] = False
+        return value
+
+    def _page(self, c, rows, changes, transitions, cut):
+        """The page as it is sent: its names are added (they are bytes too), then, while it is over a page, its last
+        change goes to the next page, then its last transition. A lone change still over a page comes without its
+        values."""
+        while True:
+            page = {"changes": changes, "transitions": transitions, "transitions_truncated": cut,
+                    "next_before": changes[-1]["id"] if len(rows) > len(changes) else None}
+            actor_names.annotate(c, page)
+            if _bytes(page) <= HISTORY_PAGE_BYTES:
+                return page
+            if len(changes) > 1:
+                changes.pop()
+            elif transitions:
+                transitions.pop()
+                cut = True
+            elif changes[0]["truncated"]:
+                return page
+            else:
+                changes[0].update(before=None, after=None, truncated=True)
+
+    @staticmethod
+    def _history_rows(c, owner, bots, before, limit):
+        """The newest `limit` + 1 changes the caller may see, newest first (`bots` None: every bot's). Each bot is its
+        own query, an index seek (`settings_changes_bot_id`, or `settings_changes_bot_via_id` for a person's view) in
+        id order within a timestamp, that reads at most `limit` + 1 rows, so a bot's ordinary history is never read by a
+        person who sees none of it."""
+        rows = []
+        for slug in [None] if bots is None else bots:
+            where, args = [], []
+            if not owner:
+                where.append("via=?")
+                args.append(report_managers.VIA)
+            if slug is not None:
+                where.append("bot=?")
+                args.append(slug)
+            if before:
+                where.append("(created,id) < (SELECT created,id FROM settings_changes WHERE id=?)")
+                args.append(before)
+            sql = "SELECT * FROM settings_changes" + (" WHERE " + " AND ".join(where) if where else "")
+            rows += c.execute(sql + " ORDER BY created DESC, id DESC LIMIT ?", (*args, limit + 1)).fetchall()
+        return sorted(rows, key=lambda row: (row["created"], row["id"]), reverse=True)[:limit + 1]
+
+    def _history_bots(self, c, who, bot):
+        """The bots whose settings changes the caller may see, as a list that may be empty: the one named, else every
+        bot, kept to those the caller manages (`Auth.bot_manager`)."""
+        slugs = [bot] if bot else [row["bot"] for row in read_cache.configs(c)]
+        return [slug for slug in slugs if self.auth.bot_manager(c, who, slug)]
+
+    @staticmethod
+    def _report_undo(row):
+        """Whether a change is one a manager bot made to its report, which anyone who manages the bot may undo."""
+        return row["via"] == report_managers.VIA and row["field"] in REPORT_UNDO
+
+    def _undoer(self, c, who, change):
+        """The owner undoes any change. A person who manages the bot undoes what its manager bot changed on it, and nothing else."""
+        if who.role == "owner":
+            return
+        if not self._report_undo(change) or not self.auth.bot_manager(c, who, change["bot"]):
+            raise Problem("forbidden", "Only the owner may undo this settings change; a person who manages the bot may "
+                          "undo what its manager bot changed", 403)
 
     def undo(self, c, who, change_id, body):
-        self._owner(who)
         change = c.execute("SELECT * FROM settings_changes WHERE id=?", (change_id,)).fetchone()
         if not change:
             raise Problem("not_found", "Settings change not found", 404)
+        self._undoer(c, who, change)
         config = self._config(c, change["bot"])
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot settings changed; refresh before undoing", 409)
@@ -1050,6 +1228,13 @@ class SettingsAdmin:
             return profiles.set_profile(self, c, who, bot, SimpleNamespace(
                 profile=before["profile"], expected_revision=body.expected_revision, confirm_drop_rules=True,
                 **{k: v for k, v in (before.get("options") or {}).items()}), undo_change_id=change_id)
+        if change["field"] == "identity":
+            self.update_bot(c, who, bot, M.BotDefinitionUpdate(
+                display_name=before["display_name"], description=before["description"],
+                expected_revision=body.expected_revision))
+            c.execute("UPDATE settings_changes SET undone_by=?,undone_at=? WHERE id=?", (who.actor, H.now(), change_id))
+            H.event(c, who.actor, "settings.undo", bot, {"change": change_id, "field": change["field"]})
+            return {"undone": True, "bot": bot, "field": change["field"], "revision": config["revision"] + 1}
         if change["field"] == "turn_budget":
             from . import turn_budgets
             return turn_budgets.set_bot(self, c, who, bot, SimpleNamespace(
@@ -1104,6 +1289,29 @@ class SettingsAdmin:
             owner_access.clear_bot_access_notice(c)
         return {"bot": bot, **doc, "revision": config["revision"] + 1}
 
+    def set_manages_reports(self, c, who, bot, body):
+        """Whether this bot changes its direct reports (report_managers). A person who manages the bot turns it on or
+        off; with the owner's team rule `managers_manage_reports` off, no bot does, whatever this says."""
+        self._manager(c, who, bot)
+        config = self._config(c, bot)
+        if config["revision"] != body.expected_revision:
+            raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
+        declared = _json(config["config_json"], {}) or {}
+        before = report_managers.switch_on(declared)
+        if before == body.manages_reports:
+            raise Problem("unchanged", "That setting is already selected", 409)
+        declared[report_managers.KEY] = body.manages_reports
+        c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(declared), bot))
+        self.record(c, who.actor, bot, report_managers.KEY, before, body.manages_reports)
+        H.event(c, who.actor, "bot.manages_reports_changed", bot, {"before": before, "after": body.manages_reports})
+        return {"bot": bot, "manages_reports": body.manages_reports, "revision": config["revision"] + 1}
+
+    @staticmethod
+    def _transition_scope(transition):
+        """The scope a manager bot needs for a transition: a model change may be a report's (report_managers); a move is
+        never one, so only the people who manage the bot make it."""
+        return "model" if transition["kind"] == "model" else None
+
     def set_fallback(self, c, who, bot, body, undo_change_id=None):
         CA.gate(c, who.actor, "cost", f"change {bot}'s fallback model")
         self._manager(c, who, bot)
@@ -1156,7 +1364,7 @@ class SettingsAdmin:
         model, and so its sessions, stay as they are. A model the bot's computer cannot run is saved all the same, and
         its tasks run on the bot's model until it can: the answer's `readiness` says so now."""
         CA.gate(c, who.actor, "cost", f"change the model {bot}'s tasks run on")
-        self._manager(c, who, bot)
+        self._manager(c, who, bot, report="task_model")
         shared_bots.refuse_copy(c, bot)
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:

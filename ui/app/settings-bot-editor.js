@@ -19,6 +19,7 @@ function settingsBotEditorRows(e) {
     ${profileRowHTML(e)}
     ${settingsKeepTasksRow(e)}
     ${settingsTurnsAtOnceRow(e)}
+    ${settingsManagesReportsRow(e)}
     ${budgetRowHTML(e)}
     ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>${settingsAppDeliveryRow(e)}`
       : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
@@ -73,6 +74,21 @@ function settingsTurnsAtOnceRun(input) {
   const slug = input.dataset.botTurnsAtOnce, turns_at_once = input.value === '' ? null : Number(input.value);
   return async rev => (await post(`/v2/bots/${encodeURIComponent(slug)}/turns-at-once`,
     {turns_at_once, expected_revision: rev}))?.revision ?? rev + 1;
+}
+// Whether this bot changes its direct reports (backend/report_managers.py). On by default; the owner's team rule turns
+// every manager off whatever this says. The bot cannot set its own: whoever manages it does.
+function settingsManagesReportsRow(e) {
+  if (e.agent) return '';
+  const on = e.manages_reports !== false;
+  return `<div class="sb-row"><span>Manages its reports</span><label class="settings-inline-check"><input type="checkbox" data-bot-manages-reports="${esc(e.name)}"
+    data-current="${on}" ${on ? 'checked' : ''} aria-label="Manages its reports for ${esc(e.display_name)}" ${settingsCanManageBot(e) ? '' : 'disabled'}>
+    <span>${on ? 'On' : 'Off'}</span></label><span></span></div>
+    <div class="sb-sub muted">This bot changes its direct reports' model, task model, name and description, as itself. Off: it changes none of them.</div>`;
+}
+function settingsManagesReportsRun(box) {
+  const slug = box.dataset.botManagesReports, manages_reports = box.checked;
+  return async rev => (await post(`/v2/bots/${encodeURIComponent(slug)}/manages-reports`,
+    {manages_reports, expected_revision: rev}))?.revision ?? rev + 1;
 }
 // The old wake presets, for history rows written before profiles (backend/profiles.py replaced them).
 const SETTINGS_WAKE_PRESETS = [['token_saver', 'Token saver'], ['performance', 'Performance']];
@@ -277,6 +293,8 @@ function settingsEditBot(slug = '', inline = false) {
           turns.validationMessage || 'Enter a whole number from 1 to 256, or leave it blank.');
         stage('turns', 'turns at once', changed(turns) && turns.checkValidity() && settingsTurnsAtOnceRun(turns));
       }
+      const managesReports = event.target.closest('[data-bot-manages-reports]');
+      if (managesReports) stage('manages', 'manages its reports', managesReports.checked !== (managesReports.dataset.current === 'true') && settingsManagesReportsRun(managesReports));
       if (event.target.matches('[data-task-effort]')) event.target.dataset.touched = '1';
       const delivery = event.target.closest('[data-bot-app-delivery]');
       if (delivery) stage('delivery', 'app delivery', changed(delivery) && settingsAppDeliveryRun(delivery));
