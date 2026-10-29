@@ -1,10 +1,11 @@
 """How much the CEO Bot does (backend/ceo_bot.py, backend/goal_asks.py; spec: Head of Product, CEO Bot, tests 3, 4, 8,
-14, 16 and 18; v3 10.11). Every install starts at Passive, which keeps only the regular checks (the KPI pass and the
-automatic goal colours); only the owner changes the level or turns the regular checks off, on their own click, and
-each change is kept with who and when. Above Passive the CEO Bot asks for the vision first, asks for its proposed Why
-lines as one item, starts its Monday note, and puts at most 5 items a day in a person's Needs you."""
+14, 16 and 18; v3 10.11). Every install starts at Suggests actions until its owner chooses a level. At Passive the CEO
+Bot keeps only the regular checks (the KPI pass and the automatic goal colours); only the owner changes the level or
+turns the regular checks off, on their own click, and each change is kept with who and when. Above Passive the CEO Bot
+asks for the vision first, asks for its proposed Why lines as one item, starts its Monday note, and puts at most 5 items
+a day in a person's Needs you."""
 
-from backend import ceo_bot, goals as G, routines
+from backend import ceo_bot, ceo_suggest, goals as G, routines
 from backend.auth import Identity
 from backend.store import H
 from backend.tests.test_api import api, get, post  # noqa: F401
@@ -40,35 +41,64 @@ def review_enabled(api):
         return bool(routines.row(c, REVIEW)["enabled"])
 
 
-def test_every_install_starts_at_passive_and_says_what_each_level_does(api):
-    """Spec test 16 (v3): an install is at Passive, with its regular checks on. Each level has its one sentence, and
-    every level has arrived: level 3 says what it does alone, with no "not yet"."""
-    with_ceo_bot(api)
+def test_every_install_starts_at_suggests_actions_and_says_what_each_level_does(api):
+    """Spec test 16 (v3): an install the owner never set a level on is at Suggests actions, with its regular checks on.
+    Each level has its one sentence, and every level has arrived: level 3 says what it does alone, with no "not yet"."""
+    with_ceo_bot(api, level=None)
     shown = get(api, "ceo-bot")
-    assert "on" not in shown and shown["level"] == 1 and shown["level_history"] == []
+    assert "on" not in shown and shown["level"] == 2 and shown["level_history"] == []
     assert shown["regular_checks"] is True and shown["name"] == "CEO Bot"
     assert [(lv["level"], lv["name"], lv["ready"]) for lv in shown["levels"]] == \
         [(1, "Passive", True), (2, "Suggests actions", True), (3, "Acts on its own", True)]
     assert "regular checks" in shown["levels"][0]["sentence"] and "changes nothing" in shown["levels"][0]["sentence"]
     assert "decides on its own" in shown["levels"][2]["sentence"] and "Not yet" not in str(shown["levels"])
-    assert get(api, "ceo-bot", token="cara-test")["level"] == 1    # everyone reads it
+    assert get(api, "ceo-bot", token="cara-test")["level"] == 2    # everyone reads it
+
+
+def test_no_chosen_level_is_suggests_actions_and_a_passive_the_owner_chose_stays(api):
+    """With no level stored the CEO Bot is at Suggests actions, and `proactive` is true. An owner who chose Passive
+    keeps it: the startup `migrate`, which runs `reconcile`, does not raise it back, and the level it shows is the
+    stored one."""
+    store = api.app.state.store
+    with_ceo_bot(api, level=None)
+    with store.transaction() as c:
+        ceo_bot.migrate(c)
+    with store.read() as c:
+        assert ceo_bot.level(c) == 2 and ceo_bot.proactive(c) is True
+    level(api, 1)
+    with store.transaction() as c:
+        ceo_bot.migrate(c)
+        ceo_bot.reconcile(c)
+    with store.read() as c:
+        assert ceo_bot.level(c) == 1 and ceo_bot.proactive(c) is False
+    assert get(api, "ceo-bot")["level"] == 1
+
+
+def test_an_owner_who_picks_the_default_keeps_it_as_their_choice(api):
+    """Picking Suggests actions where nothing is stored records it, with no history line (the level did not change),
+    so a later default never moves an owner who chose it."""
+    store = api.app.state.store
+    with_ceo_bot(api, level=None)
+    with store.transaction() as c:
+        ceo_bot.set_level(c, OWNER, 2)
+        assert ceo_bot._record(c)["level"] == 2 and ceo_bot.level_history(c) == []
 
 
 def test_only_the_owner_changes_the_level_and_each_change_is_logged(api):
     """Spec test 18 (v3): the owner picks a level and the change is kept with who and when. No admin or member changes
     it, no bot, the CEO Bot included, nor the Assistant acting for the owner."""
-    ceo = with_ceo_bot(api)
+    ceo = with_ceo_bot(api, level=None)
     other = bot(api, "ops")
-    changed = level(api, 2)
-    assert changed["level"] == 2 and changed["level_changed_by"] == OWNER and changed["level_changed_at"]
+    changed = level(api, 1)
+    assert changed["level"] == 1 and changed["level_changed_by"] == OWNER and changed["level_changed_at"]
     [entry] = changed["level_history"]
-    assert (entry["level"], entry["was"], entry["by"]) == (2, 1, OWNER) and entry["by_name"]
+    assert (entry["level"], entry["was"], entry["by"]) == (1, 2, OWNER) and entry["by_name"]
     for token in ("ben-test", "cara-test", ceo, other, via_assistant(api)):
         refused = level(api, 3, token=token, expected=403)
         assert "Only the owner" in str(refused)
     assert level(api, 3)["level"] == 3
     shown = get(api, "ceo-bot")
-    assert shown["level"] == 3 and [(e["level"], e["by"]) for e in shown["level_history"]] == [(3, OWNER), (2, OWNER)]
+    assert shown["level"] == 3 and [(e["level"], e["by"]) for e in shown["level_history"]] == [(3, OWNER), (1, OWNER)]
     # The same level again changes nothing and logs nothing; a level outside 1-3 is refused.
     assert len(level(api, 3)["level_history"]) == 2
     level(api, 4, expected=422)
@@ -222,9 +252,60 @@ def test_at_passive_the_reconcile_never_starts_the_monday_note(api):
     assert not review_enabled(api)
 
 
+def test_with_no_chosen_level_the_monday_note_starts_once_and_a_persons_pause_stands(api):
+    """An install whose owner never chose a level is at Suggests actions, so the reconcile starts its Monday note the
+    way a raise would, once. A person who pauses it afterwards keeps it paused: the reconcile does not start it
+    again."""
+    with_ceo_bot(api, level=None)
+    review_routine(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        ceo_bot.reconcile(c)
+    assert review_enabled(api)
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        ceo_bot.reconcile(c)
+    assert not review_enabled(api)
+    with store.transaction() as c:
+        ceo_bot.reconcile(c)
+    assert not review_enabled(api)
+
+
+def test_with_no_chosen_level_passive_pauses_the_note_and_withdraws_what_waits_and_the_default_changes_nothing(api):
+    """The owner picks Passive on an install that never chose a level: the Monday note the reconcile started is paused
+    and the recoveries still waiting are withdrawn, exactly as when lowering from level 2. Picking the level the install
+    is already at (2) changes nothing and logs nothing."""
+    ceo = with_ceo_bot(api, level=None)
+    review_routine(api)
+    store = api.app.state.store
+    with store.transaction() as c:
+        ceo_bot.reconcile(c)
+    assert review_enabled(api)
+    goal_id = post(api, "goals", {"title": "Grow rentals", "owner": "company"})["goal"]["id"]
+    payload = {"evidence": "Activation fell from 40% to 10% this week.", "pick": 0, "options": [
+        {"label": "Finance pauses the campaign", "actions": [
+            {"do": "create", "owner": "finance", "title": "Pause the signup campaign"}]}]}
+    waiting = post(api, "goal-proposals", {"kind": "recovery", "goal_id": goal_id, "reason": "Red for a week",
+                                           "payload": payload}, token=ceo)["proposal"]
+    assert waiting["status"] == "pending"
+    level(api, 2)
+    assert get(api, "ceo-bot")["level_history"] == [] and review_enabled(api)
+    level(api, 1)
+    assert not review_enabled(api)
+    [entry] = get(api, "ceo-bot")["level_history"]
+    assert (entry["level"], entry["was"], entry["by"]) == (1, 2, OWNER)
+    with store.read() as c:
+        status, note = c.execute("SELECT status, decision_note FROM goal_proposals WHERE id=?",
+                                 (waiting["id"],)).fetchone()
+    assert (status, note) == ("rejected", ceo_suggest.WITHDRAWN)
+    with store.transaction() as c:
+        ceo_bot.reconcile(c)
+    assert not review_enabled(api)                                           # at Passive nothing starts it again
+
+
 def test_a_monday_note_the_old_level_1_started_is_paused_at_passive_once(api):
-    """Before v3, level 1 with the switch on started the Monday note. At upgrade that install is at Passive: the hourly
-    reconcile pauses the note it started, unless a person touched it since."""
+    """Before v3, level 1 with the switch on started the Monday note. At upgrade that install is at Passive (its stored
+    level 1): the hourly reconcile pauses the note it started, unless a person touched it since."""
     import json
     goal_manager(api)
     review_routine(api)
@@ -232,7 +313,7 @@ def test_a_monday_note_the_old_level_1_started_is_paused_at_passive_once(api):
     with store.transaction() as c:
         routines.update(c, H.KEEPER, REVIEW, {"enabled": True})
         c.execute("INSERT OR REPLACE INTO registry_metadata VALUES(?,?)", (ceo_bot.KEY, json.dumps(
-            {"on": True, "by": OWNER, "review_armed": H.now(), "review_settled": True})))
+            {"on": True, "level": 1, "by": OWNER, "review_armed": H.now(), "review_settled": True})))
         ceo_bot.reconcile(c)
     assert not review_enabled(api)
     with store.transaction() as c:

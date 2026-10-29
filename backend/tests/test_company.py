@@ -24,7 +24,8 @@ def bot(api, slug):
 
 
 def with_ceo_bot(api, level=1):
-    """The CEO Bot, at Passive unless the owner raised it, as its own agent credential."""
+    """The CEO Bot at `level` (the owner's choice; Passive unless asked otherwise; None leaves it as built, at the
+    default level), as its own agent credential."""
     goal_manager(api, level)
     return bot(api, "goal-manager")
 

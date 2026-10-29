@@ -10,12 +10,12 @@ changes that, and what stays yours. There is no On/Off switch: you choose how mu
 ## The three levels
 
 **Settings > CEO Bot** shows the regular checks, then three levels. Each level has one sentence on what the CEO Bot will
-and won't do. Every company starts at **Passive**.
+and won't do. Every company starts at **Suggests actions** until its owner chooses another level.
 
 | Level | Name | What the CEO Bot does |
 |---|---|---|
-| 1 | **Passive** (default) | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It proposes a strategy draft when you ask, writes the card when a bet's wrong-if trips, suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
-| 2 | **Suggests actions** | Also takes "Draft the strategy" tasks, asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
+| 1 | **Passive** | Keeps the regular checks running (KPI readings and the automatic goal colours) and otherwise acts only when you talk to it. It proposes a strategy draft when you ask, writes the card when a bet's wrong-if trips, suggests KPIs, goals and Why lines when you ask, and changes nothing until you accept. |
+| 2 | **Suggests actions** (default) | Also takes "Draft the strategy" tasks, asks you for the vision, proposes Why lines, sends a Monday note, asks a goal's owner what is happening, and suggests how your bots could recover a goal that falls behind, as items in **Needs you** that you approve one by one. |
 | 3 | **Acts on its own** | Also decides on its own: makes, reorders, reassigns and closes bot tasks itself to recover a goal, each decision with an Undo. |
 
 At level 3 the CEO Bot also decides on its own. One decision has a reason and up to 10 changes to bot tasks: a new task
@@ -26,7 +26,7 @@ write to, as its own API calls would: a task hidden from it by a bot's access is
 is offline, becomes an item in your **Needs you** instead. Everything that
 [stays yours](#what-stays-yours) stays yours at level 3 too.
 
-An install that was on the old level 1, **Goals and tracking**, is **Passive** after the upgrade.
+An install whose owner chose the old level 1, **Goals and tracking**, is **Passive** after the upgrade.
 
 ## Regular checks
 
@@ -86,11 +86,13 @@ the bets, and you publish:
   note. Those start at **Suggests actions**. An ask filed earlier stays until it is settled. The one exception is a
   bet whose wrong-if trips: the server detects it, so its Decide card still reaches you.
 - **Changes no tasks.** It creates, reorders, reassigns and closes nothing of anyone's. Going down to Passive withdraws
-  the recoveries still waiting, and pauses a Monday note the server started when you went up.
+  the recoveries still waiting, and pauses a Monday note the server started (when the level went above Passive, or on
+  an install that never chose a level).
 
 ## What the CEO Bot does at Suggests actions
 
-Everything at Passive, plus these. Going up from Passive starts the Monday note.
+Everything at Passive, plus these. Going up from Passive starts the Monday note, and so does an install that never
+chose a level, since it starts here.
 - **Takes "Draft the strategy" tasks.** A drafting run ends in a `strategy_draft` proposal you confirm
   ([Strategy](#strategy)), as at every level; it writes nothing to the page itself.
 - **Asks you for the vision.** While the team's vision is empty, the first item in the owner's **Needs you** is "Tell

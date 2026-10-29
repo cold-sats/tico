@@ -1,7 +1,8 @@
-// Settings > CEO Bot (ui/app/settings-ceo-bot.js): the owner sees the regular checks, on, and the three levels with their
-// sentences, Passive current; picking another shows its sentence again and changes nothing until Confirm, and Cancel
-// leaves it as it was. Turning the regular checks off saves at once. Only the owner has the tab: an admin or a member
-// has none. The tab and headings use the bot's name. Fixtures only.
+// Settings > CEO Bot (ui/app/settings-ceo-bot.js): the owner sees the regular checks, on, and the three levels with
+// their sentences, Suggests actions current (the level every install starts at); picking another shows its sentence
+// again and changes nothing until Confirm, and Cancel leaves it as it was. Turning the regular checks off saves at
+// once. Only the owner has the tab: an admin or a member has none. The tab and headings use the bot's name. Fixtures
+// only.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -18,7 +19,7 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
   const page = await browser.newPage({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
   const errors = [], posted = [];
   page.on('pageerror', e => errors.push(e.message));
-  const state = {regular_checks: true, level: 1, level_changed_by: '', level_changed_by_name: '', level_changed_at: '', level_history: [], levels: LEVELS,
+  const state = {regular_checks: true, level: 2, level_changed_by: '', level_changed_by_name: '', level_changed_at: '', level_history: [], levels: LEVELS,
     name, asked_today: {}};
   await page.route('**/*', route => {
     const req = route.request(), p = new URL(req.url()).pathname;
@@ -80,32 +81,34 @@ async function open(browser, {role = 'owner', name = 'CEO Bot'} = {}) {
       const levels = page.locator('#set-ceo-bot [data-ceo-level]');
       await levels.first().waitFor();
       assert.equal(await levels.count(), 3);
-      assert.match(await levels.nth(0).innerText(), /Passive[\s\S]*Now[\s\S]*acts only when you talk to it/);
-      assert.equal(await levels.nth(0).getAttribute('aria-checked'), 'true');
+      assert.match(await levels.nth(1).innerText(), /Suggests actions[\s\S]*Now[\s\S]*asks goal owners/);
+      assert.equal(await levels.nth(1).getAttribute('aria-checked'), 'true');
       assert.match(await levels.nth(2).innerText(), /decides on its own/);
       const panel = await page.locator('#set-ceo-bot').innerText();
-      assert.match(panel, /Regular checks[\s\S]*How much your CEO Bot does[\s\S]*Passive, where every company starts/);
+      assert.match(panel,
+        /Regular checks[\s\S]*How much your CEO Bot does[\s\S]*Suggests actions, where every company starts/);
       assert.doesNotMatch(panel, /Goal Manager|level 1|switch/i);
       assert.equal(await page.locator('#set-ceo-bot [data-ceo-checks]').isChecked(), true);
-      // Picking level 2 shows its sentence with a Confirm; Cancel changes nothing.
-      await levels.nth(1).click();
+      // Picking Passive shows its sentence with a Confirm; Cancel changes nothing.
+      await levels.nth(0).click();
       const confirm = page.locator('#set-ceo-bot .ceo-confirm');
       await confirm.waitFor();
-      assert.match(await confirm.innerText(), /Change to Suggests actions\?[\s\S]*asks goal owners/);
+      assert.match(await confirm.innerText(), /Change to Passive\?[\s\S]*acts only when you talk to it/);
       await confirm.locator('[data-ceo-cancel]').click();
       await confirm.waitFor({state: 'detached'});
       assert.deepEqual(posted, []);
       // Confirm saves it, and the change is listed with who.
-      await levels.nth(1).click();
-      await page.locator('#set-ceo-bot [data-ceo-confirm="2"]').click();
-      await page.waitForFunction(() => document.querySelector('#set-ceo-bot [data-ceo-level="2"]')?.classList.contains('cur'));
-      assert.deepEqual(posted, [{level: 2}]);
+      await levels.nth(0).click();
+      await page.locator('#set-ceo-bot [data-ceo-confirm="1"]').click();
+      await page.waitForFunction(() =>
+        document.querySelector('#set-ceo-bot [data-ceo-level="1"]')?.classList.contains('cur'));
+      assert.deepEqual(posted, [{level: 1}]);
       assert.match(await page.locator('#set-ceo-bot').innerText(), /chosen by Ana/);
       // The regular checks go off at once, on the owner's click.
       await page.locator('#set-ceo-bot [data-ceo-checks]').uncheck();
       await page.waitForFunction(() => document.querySelector('#set-ceo-bot [data-ceo-checks]') && !document.querySelector('#set-ceo-bot [data-ceo-checks]').disabled
         && !document.querySelector('#set-ceo-bot [data-ceo-checks]').checked);
-      assert.deepEqual(posted, [{level: 2}, {checks: false}]);
+      assert.deepEqual(posted, [{level: 1}, {checks: false}]);
       assert.deepEqual(errors, []);
       await page.close();
     }

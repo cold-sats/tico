@@ -122,7 +122,7 @@ built-ins it is not on the [team chart](org-chart.md); nobody archives it, and o
 computer and a model exist. Its template is `templates/catalog/goal-manager/`; its playbooks are the product.
 
 There is no On/Off switch. How much it does is the [level](ceo-bot.md) the owner picks, and a new install starts at
-**Passive**. Its first job is the team's [strategy](strategy.md): it proposes the Strategy page to the owner and, when a
+**Suggests actions**. Its first job is the team's [strategy](strategy.md): it proposes the Strategy page to the owner and, when a
 bet's wrong-if trips, puts one Decide card in front of them; the owner writes and publishes, never the bot.
 On goals and KPIs it does five things:
 
@@ -156,8 +156,8 @@ the level and whether the regular checks are on. Each goal gets a [Why line](#a-
 
 ### How much your CEO Bot does
 
-**Settings > CEO Bot** has the **Regular checks** toggle and three levels: **Passive** (where every company starts),
-**Suggests actions** and **Acts on its own**. At **Acts on its own** it also decides on bots' tasks itself, each
+**Settings > CEO Bot** has the **Regular checks** toggle and three levels: **Passive**, **Suggests actions** (where
+every company starts) and **Acts on its own**. At **Acts on its own** it also decides on bots' tasks itself, each
 decision with an Undo ([Your CEO Bot](ceo-bot.md#the-ceo-bot-log)).
 
 - **Passive** keeps the regular checks (KPI readings and automatic goal colours) and otherwise acts only when you talk to
