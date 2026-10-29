@@ -1,6 +1,6 @@
 // Library on a real hub: its sidebar group folds behind a chevron (kept per browser, open again inside Library), and
 // the Librarian's chat (ui/docs-ask.js) is the right rail on Docs, Meetings and Tools on a desktop, a sheet behind a
-// button on a phone. An install without the Librarian shows none of it: no rail, no button, no settings link.
+// button on a phone, with its sample questions on Docs only. An install without the Librarian shows none of it: no rail, no button, no settings link.
 // Phone, then desktop.
 const assert = require('node:assert/strict');
 const {run, open, go, sideways, shot, t} = require('./support/redesign-e2e.cjs');
@@ -33,7 +33,7 @@ run('redesign-library-rail', ['org', 'toured'], async ({hub, browser, phone, tag
   await at(page, '#/docs');
   await page.locator('.docs-actions #docs-librarian-settings').waitFor({timeout: t(10000)});
   assert.equal(await page.locator('#docs-librarian-settings').getAttribute('href'), '#/bot/librarian/more');
-  assert.equal(await page.locator('#side .nav-row:has(a[data-nav="docs"]) .nav-librarian').count(), 0, `${tag}: no gear beside Docs`);
+  assert.equal(await page.locator('#side .nav-librarian, #nav-strategy-librarian').count(), 0, `${tag}: no Librarian gear in the sidebar`);
 
   if (phone) {
     for (const [hash, button] of [['#/meetings', '#meet-ask'], ['#/library/tools', '#lc-ask']]) {
@@ -42,6 +42,7 @@ run('redesign-library-rail', ['org', 'toured'], async ({hub, browser, phone, tag
       assert.equal(await rail(page).count(), 0, `${tag} ${hash}: no rail until asked`);
       await page.locator(button).click();
       assert.equal(await rail(page).getAttribute('aria-modal'), 'true', `${tag} ${hash}: a sheet`);
+      assert.equal(await rail(page).locator('[data-hint]').count(), 0, `${tag} ${hash}: no doc questions off Docs`);
       assert.equal(await sideways(page), false);
       await shot(page, `library-rail-${tag}-${hash.split('/').pop()}`);
       await page.locator('.dask-close').click();
@@ -53,6 +54,11 @@ run('redesign-library-rail', ['org', 'toured'], async ({hub, browser, phone, tag
       await at(page, hash);
       await rail(page).waitFor({timeout: t(10000)});
       assert.equal(await rail(page).getAttribute('role'), 'complementary', `${tag} ${hash}: a rail`);
+      // The Librarian reads docs, so its sample questions are doc questions, offered on Docs only.
+      if (hash === '#/docs') await rail(page).locator('[data-hint]').first().waitFor({timeout: t(5000)});
+      else await page.waitForFunction(() => !document.querySelector('[data-docs-ask] [data-hint]'), null, {timeout: t(5000)});
+      assert.deepEqual(await rail(page).locator('[data-hint]').allInnerTexts(),
+        hash === '#/docs' ? ['How do we handle a refund?', 'Who helps new hires?', 'Where is the pricing?'] : [], `${tag} ${hash}: hints`);
       const main = await page.locator('#main').boundingBox(), side = await rail(page).boundingBox();
       assert.ok(main.x + main.width <= side.x + 1, `${tag} ${hash}: the page sits beside the rail`);
       assert.equal(await sideways(page), false);
