@@ -38384,6 +38384,9 @@
           "can_comment": {
             "type": "boolean"
           },
+          "can_set_run_model": {
+            "type": "boolean"
+          },
           "mover": {
             "type": "boolean"
           },

@@ -635,7 +635,7 @@ effort and harness instead. In a bot's task window, **Runs on** picks them and *
 `hub task model <id> <model> --effort <effort> --harness <harness>`, or `hub task model <id> --clear` to return it to the
 bot's task model. `hub_task_create`, `hub_task_model` and `POST /api/v2/tasks/{id}/model` (with `{"model": null}` to clear) do
 the same. `hub bot task-model` and `hub_bot_task_model` read or set the bot's task model. `GET /api/v2/tasks/{id}` shows
-the task's own choice as `run_model`.
+the task's own choice as `run_model`, and `can_set_run_model` says whether the reader may change it.
 
 Whoever may change the bot's model may change a task's model. A bot never does, not even on its own task. On a
 [branch](creating-bots.md#branches) that is whoever may change the original's model, since the branch follows it; the

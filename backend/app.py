@@ -3390,6 +3390,10 @@ def create_app(settings=None):
                     "check_model": H.check_model(c, tid),
                     # The task's own model (backend/task_run_models.py), or null when its runs use the bot's task model.
                     "run_model": task_run_models.of(c, tid),
+                    # Whether this reader may set that model: the answer POST /v2/tasks/{id}/model gives, so the task
+                    # page offers its form to whoever the server would accept. A person's task has no model to set.
+                    "can_set_run_model": H.is_bot(row["owner"]) and task_run_models.may_set(
+                        c, auth, who, H.actor_id(row["owner"])),
                     **privacy.page(c, who, row["conversation_id"], task_id=tid)}
 
     def task_execution(c, who, row):

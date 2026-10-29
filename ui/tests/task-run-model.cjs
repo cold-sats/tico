@@ -1,6 +1,7 @@
-// A bot's task says the model its runs use (Runs on, backend/task_run_models.py). Whoever may change the bot's model
-// picks the task's own model, harness and effort and applies it, or clears it back to the bot's task model; anyone else
-// reads what it runs on. Retired and Gateway tier models are not offered. The form fits a phone's width.
+// A bot's task says the model its runs use (Runs on, backend/task_run_models.py). Whoever the server says may set it
+// (`can_set_run_model` in GET /v2/tasks/{id}) picks the task's own model, harness and effort and applies it, or clears
+// it back to the bot's task model; anyone else reads what it runs on. Retired and Gateway tier models are not offered.
+// The form fits a phone's width.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -18,7 +19,8 @@ const MODELS = [
   {id: 'old-model', label: 'Old Model', harnesses: ['claude'], efforts: [], deprecated: true},
   {id: 'tico-fast', label: 'Gateway fast', harnesses: ['claude'], efforts: []}];
 
-async function run(viewport, shot, me) {
+// `canSet` is the server's answer for this reader (`can_set_run_model`), whatever their role in the roster says.
+async function run(viewport, shot, me, canSet) {
   const browser = await launch();
   try {
     const page = await browser.newPage({viewport, serviceWorkers: 'block'});
@@ -47,7 +49,8 @@ async function run(viewport, shot, me) {
         return json({task: 't-audit', run_model: runModel, readiness: null, warning: ''});
       }
       if (p === '/api/v2/tasks/t-audit')
-        return json({task, events: [], can_comment: true, children: [], comments: [], execution: null, run_model: runModel});
+        return json({task, events: [], can_comment: true, children: [], comments: [], execution: null,
+          run_model: runModel, can_set_run_model: canSet});
       if (p.endsWith('/files')) return json({files: []});
       return json(unrouted(p));
     });
@@ -57,8 +60,11 @@ async function run(viewport, shot, me) {
     const modal = page.locator('#task-modal'), sec = modal.locator('[data-task-run-model]');
     await sec.locator('.task-run-now', {hasText: "The bot's task model"}).waitFor();
 
-    if (me.role !== 'owner') {
-      // Someone who may not change the bot's model reads what the task runs on, with nothing to pick.
+    if (!canSet) {
+      // Someone the server does not let set the model reads what the task runs on, with nothing to pick, whatever
+      // their role: the owner too, when the answer for this task is no. The models are read either way, so a form would
+      // have appeared by now.
+      await page.waitForFunction(() => Array.isArray(TASK_RUN_ROWS));
       assert.equal(await sec.locator('form').count(), 0);
       assert.deepEqual(errors, []);
       return;
@@ -96,8 +102,12 @@ async function run(viewport, shot, me) {
 (async () => {
   const shot = name => SHOTS ? require('node:path').join(SHOTS, name) : '';
   const owner = {id: 'ana', name: 'Ana', role: 'owner', cloud: true}, member = {id: 'cara', name: 'Cara', role: 'human', cloud: true};
-  await run({width: 1200, height: 800}, shot('task-run-model-desktop.png'), owner);
-  await run({width: 390, height: 844}, shot('task-run-model-phone.png'), owner);
-  await run({width: 1200, height: 800}, '', member);
+  const manager = {id: 'ben', name: 'Ben', role: 'human', cloud: true};
+  await run({width: 1200, height: 800}, shot('task-run-model-desktop.png'), owner, true);
+  await run({width: 390, height: 844}, shot('task-run-model-phone.png'), owner, true);
+  await run({width: 1200, height: 800}, '', owner, false);
+  await run({width: 1200, height: 800}, '', member, false);
+  // Someone who manages the branch's original but not the branch gets the form too.
+  await run({width: 1200, height: 800}, '', manager, true);
   console.log('task run model ok');
 })().catch(e => { console.error(e); process.exit(1); });

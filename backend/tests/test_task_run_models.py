@@ -389,6 +389,30 @@ def test_a_branch_task_takes_its_own_model_from_whoever_may_change_the_originals
         "claude-haiku-5-5"
 
 
+def test_a_task_says_whether_its_reader_may_set_its_model_as_the_post_decides(api):
+    from backend.tests.test_api import as_member
+    ops_on_sonnet(api)
+    share_ops_with_branches(api)
+    post(api, "bots/ops/copies", {"runner_id": runner(api, "ben", "Ben's Mac")["runner_id"]}, token="ben-test")
+    post(api, "bots/ops/copies", {"runner_id": runner(api, "cara", "Cara's Mac")["runner_id"]}, token="cara-test")
+    theirs = post(api, "tasks", {"owner": "ops", "title": "Tidy the README", "body": "Sort it."}, "cara-test")
+    assert theirs["owner"] == "bot:ops-cara"
+    # Cara operates her branch but manages neither it nor ops, whose model it follows: no form, and no save.
+    assert get(api, "tasks/" + theirs["id"], "cara-test")["can_set_run_model"] is False
+    own_model(api, theirs["id"], HAIKU, token="cara-test", expected=403)
+    # Ben is an Admin here, so he manages every branch. As a member he manages this one only through ops, and he is not
+    # yet one of ops' owners: the answer is no, and the save is refused.
+    as_member(api, "ben@acme.example")
+    assert get(api, "tasks/" + theirs["id"], "ben-test")["can_set_run_model"] is False
+    own_model(api, theirs["id"], HAIKU, token="ben-test", expected=403)
+    # Named an owner of ops, he may set the model of its branch's tasks, though he does not manage the branch itself.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET bot_owners_json=? WHERE bot='ops'", (json.dumps(["ana", "ben"]),))
+    assert get(api, "tasks/" + theirs["id"], "ben-test")["can_set_run_model"] is True
+    own_model(api, theirs["id"], HAIKU, token="ben-test")
+    assert get(api, "tasks/" + theirs["id"], "ben-test")["run_model"]["model"] == "claude-haiku-5-5"
+
+
 def test_a_routine_step_on_a_branch_needs_the_originals_managers_to_set_its_model(api):
     ops_on_sonnet(api)
     share_ops_with_branches(api)
