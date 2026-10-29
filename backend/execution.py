@@ -21,6 +21,7 @@ from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .verdict_moves import HANDOFF_FIRST_SQL
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
+from .config import Settings
 
 # The wait after a usage limit whose provider gave no reset time; a reported reset is used instead.
 LIMIT_COOLDOWN = 1800        # seconds a bot waits after its runtime reported a usage limit
@@ -567,6 +568,38 @@ def restart_reported(c, attempt_id):
                 and result.get('text') == 'Runner restarted during execution')
 
 
+# An update that restarts the hub and its runners ends their turns without a report, so each lapses. The update's
+# snapshot, image switch and health check take minutes (docs/updates.md) and the sweep that expires a lapsed lease
+# runs after them, so a turn that ends this long after the update finished (or started) stopped during it. That is
+# timing, not proof the update restarted its computer: it names the cause and groups the runs for one choice, and
+# never relaxes the retry rule the way the computer's own restart report does.
+UPDATE_MARGIN_S = 15 * 60
+
+
+def cut_by_update(c, attempt_id):
+    """Whether this run stopped during Tico's own update: an update started before the run ended, and the run ended
+    within the lease plus UPDATE_MARGIN_S of that update's finish (or of its start while the update is still running).
+    The updater restarts the runners after it reports its finish, so a run that began just after the update counts
+    too. Only a lapsed or interrupted run counts; a run that reported its own end never does."""
+    row = (c.execute("SELECT state,started,finished FROM attempts WHERE id=?", (attempt_id,)).fetchone()
+           if attempt_id else None)
+    if not row or row['state'] not in ('interrupted', 'expired') or not row['started'] or not row['finished']:
+        return False
+    began = c.execute("SELECT ts FROM events WHERE action='system.update.started' AND ts<=? ORDER BY ts DESC LIMIT 1",
+                      (row['finished'],)).fetchone()
+    if not began:
+        return False
+    ended = c.execute("SELECT ts FROM events WHERE action='system.update.finished' AND ts>=? ORDER BY ts LIMIT 1",
+                      (began['ts'],)).fetchone()
+    base = ended['ts'] if ended and ended['ts'] <= row['finished'] else began['ts']
+    return row['finished'] <= H.shift(base, seconds=Settings.lease_seconds + UPDATE_MARGIN_S)
+
+
+def restart_cause(facts):
+    """How a review card names the restart that ended a run: Tico's own update, or the computer's report of one."""
+    return "The computer reported a restart" + (" during Tico's update" if facts['update'] else "")
+
+
 def run_limit_minutes(c, attempt_id):
     """Recognize the runner's terminal run-budget cut, never a provider quota or Gateway limit."""
     row = c.execute("SELECT * FROM attempts WHERE id=?", (attempt_id,)).fetchone()
@@ -655,6 +688,7 @@ def retry_facts(c, job, started, finished):
     starts = c.execute("SELECT count(*) FROM attempts WHERE started IS NOT NULL AND (job_id=? OR id IN "
                        "(SELECT attempt_id FROM attempt_inputs WHERE message_id=?))",
                        (job['id'], job['message_id'])).fetchone()[0]
+    update = cut_by_update(c, job['attempt_id'])
     restart = restart_reported(c, job['attempt_id'])
     attempt = c.execute('SELECT state,thread_id,runner_id FROM attempts WHERE id=?', (job['attempt_id'],)).fetchone()
     computer = c.execute('SELECT capabilities_json FROM runners WHERE id=?', (attempt['runner_id'],)).fetchone() if attempt else None
@@ -665,7 +699,7 @@ def retry_facts(c, job, started, finished):
     lease_lost = bool(attempt and attempt['state'] == 'expired' and started and attempt['thread_id']
                       and capacity_continue_on(computer) and reported and not acted and not final)
     timeout = run_limit_minutes(c, job['attempt_id'])
-    outside = outside_actions(c, job, started, finished) if restart or lease_lost or timeout else []
+    outside = outside_actions(c, job, started, finished) if restart or lease_lost or timeout or update else []
     result = c.execute("SELECT result_json FROM attempts WHERE id=?", (job['attempt_id'],)).fetchone()
     result = json.loads(result[0] or '{}') if result else {}
     pending_source = result.get('source_pending') and not result.get('source_running')
@@ -675,7 +709,7 @@ def retry_facts(c, job, started, finished):
     fallback_unknown = pending_source or (result.get('outcome') == 'interrupted' and result.get('primary_held')
                        and result.get('fallback') and not result.get('source_pause') and not source_bound)
     return {'calls': calls, 'acted': acted, 'consumed': consumed, 'reported': reported, 'starts': starts,
-            'restart': restart, 'lease_lost': lease_lost, 'timeout': timeout,
+            'restart': restart, 'update': update, 'lease_lost': lease_lost, 'timeout': timeout,
             'limit_cuts': run_limit_cuts(c, job) if timeout else 0,
             'outside': outside, 'approval_kinds': sorted({a['kind'] for a in approvals}),
             # Explicit restart/time-limit policy holds only named irreversible effects or consumed approvals. A silent
@@ -801,8 +835,13 @@ def held_runs(c, who, auth, bot, limit=3):
     """The tasks of a bot's stopped runs held for review that `who` may read, oldest first: title and owner.
     A task counts only under the same rule as reading it (`auth.task_sql`), so a company task involving a bot
     the reader may not read stays unnamed."""
-    held = []
-    for _, task, _ in _readable_held(c, who, auth, bot):
+    held, seen = [], set()
+    for row, task, _ in _readable_held(c, who, auth, bot):
+        # A request folded into a run shares the run's row: one title per run, however many jobs it settles.
+        key = row["attempt_id"] or row["job_id"]
+        if key in seen:
+            continue
+        seen.add(key)
         if task:
             held.append({"title": task["title"], "owner": task["owner"], "owner_name": owner_name(c, task["owner"])})
         if len(held) >= limit:
@@ -813,14 +852,15 @@ def held_runs(c, who, auth, bot, limit=3):
 # Why a held run stopped, in the words of one Needs you row (stopped_rows). Only a person's Stop and a plain stop are
 # not `routine`: an interruption (a restart, update or drain), a usage limit, a busy AI service or a computer that
 # stopped answering is the computer's or the provider's, so the person is told it is not a bug (Chris, Oct 26).
-STOP_WHY = {"interrupted": "Interrupted on its computer", "quota": "Usage limit", "capacity": "AI service busy",
-            "timeout": "Computer stopped answering", "stopped": "Stopped by a person", "partway": "Stopped partway"}
-ROUTINE_STOPS = frozenset({"interrupted", "quota", "capacity", "timeout"})
+STOP_WHY = {"update": "Stopped during Tico's update", "interrupted": "Interrupted on its computer",
+            "quota": "Usage limit", "capacity": "AI service busy", "timeout": "Computer stopped answering",
+            "stopped": "Stopped by a person", "partway": "Stopped partway"}
+ROUTINE_STOPS = frozenset({"update", "interrupted", "quota", "capacity", "timeout"})
 
 
-def stop_cause(attempt):
+def stop_cause(attempt, update=False):
     """One STOP_WHY key for a held run's attempt, from what the run recorded, never from the bot's own text: a Billing
-    task's answer that says "quota" is not a usage limit."""
+    task's answer that says "quota" is not a usage limit. `update` is cut_by_update's answer for the run."""
     if not attempt:
         return "partway"
     if attempt["stop_requested"]:
@@ -836,6 +876,8 @@ def stop_cause(attempt):
     # `primary_limited` alone means the run fell back to another model and carried on, so its state says why it stopped.
     if source or result.get("limited"):
         return "quota"
+    if update:
+        return "update"
     # A runner reports `interrupted` when its computer restarts or drains under a run, or the harness ends the turn
     # early, so the row says interrupted, not restarted; a lapsed lease is a computer that stopped reporting (asleep,
     # offline or too busy).
@@ -868,6 +910,16 @@ def stopped_rows(c, who, auth, bot, limit=5):
             attempts[a["id"]] = a
     rows, by_run = [], {}
 
+    def judged(job, attempt):
+        # Each request folded into a run is judged on its own facts (its starts, the approvals its message used), and
+        # the run's line is only as safe as its least safe request, since one choice settles them all.
+        facts = retry_facts(c, job, attempt["started"] if attempt else None, attempt["finished"] if attempt else None)
+        return facts, {"retry": bool(facts["safe"] and facts["starts"] <= 1),
+                       # One choice for every run the update stopped, unless this one recorded a named outside action
+                       # or used an approval: those stay a choice of their own.
+                       "update_group": bool(facts["update"] and not facts["outside"] and not facts["consumed"]
+                                            and not facts["fallback_unknown"])}
+
     def handle(job):
         key = (job["id"], job["attempt_id"])
         return {"id": job["id"], "attempt_id": job["attempt_id"],
@@ -881,22 +933,25 @@ def stopped_rows(c, who, auth, bot, limit=5):
         if key in by_run:
             if by_run[key] is not None:
                 by_run[key]["jobs"].append(handle(job))
+                _, flags = judged(job, attempts.get(row["attempt_id"]) if row["attempt_id"] else None)
+                by_run[key].update({k: by_run[key][k] and v for k, v in flags.items()})
             continue
         if len(rows) >= limit:
             by_run[key] = None
             continue
         attempt = attempts.get(row["attempt_id"]) if row["attempt_id"] else None
-        cause = stop_cause(attempt)
-        facts = retry_facts(c, job, attempt["started"] if attempt else None, attempt["finished"] if attempt else None)
+        facts, flags = judged(job, attempt)
+        cause = stop_cause(attempt, update=facts["update"])
         by_run[key] = {"title": task["title"] if task else "A chat request" if seen else None,
-                       "cause": cause, "why": STOP_WHY[cause], "routine": cause in ROUTINE_STOPS,
-                       "retry": bool(facts["safe"] and facts["starts"] <= 1),
+                       "cause": cause, "why": STOP_WHY[cause], "routine": cause in ROUTINE_STOPS, **flags,
                        "at": attempt["finished"] if attempt else None,
                        "jobs": [handle(job)]}
         rows.append(by_run[key])
     for row in rows:
         # The Details card decides each folded request on its own, so they can differ.
         saved = {job.get("decided") for job in row["jobs"]}
+        # Kept for readers not shown the jobs: a run someone started deciding is no longer the update's to group.
+        row["chosen"] = bool(saved - {None})
         row["decided"] = None if None in saved else saved.pop() if len(saved) == 1 else "mixed"
     return rows, len(by_run)
 
@@ -949,11 +1004,12 @@ def held_back(c, who, auth, bot, limit=3):
 
 def unreviewed(c, who, bot):
     """The bot's held runs `who` may read that have waited HELD_UNREVIEWED or longer with no saved decision:
-    (count, whole hours the oldest has waited). A run waits from when it stopped (the job's creation when it never
-    started); a saved decision that waits for its lane is a review already."""
+    (count, whole hours the oldest has waited). Counted per run, not per request: a run that settles several folded
+    requests is one stopped run. A run waits from when it stopped (the job's creation when it never started); a saved
+    decision that waits for its lane is a review already."""
     actor = privacy.actor(who)
     cutoff = H.shift(H.now(), seconds=-HELD_UNREVIEWED)
-    count, oldest = 0, None
+    count, oldest, seen = 0, None, set()
     rows = list(c.execute(
         "SELECT m.*,j.attempt_id,coalesce(a.finished,j.created) AS since FROM jobs j "
         "JOIN messages m ON m.id=j.message_id LEFT JOIN attempts a ON a.id=j.attempt_id "
@@ -967,6 +1023,10 @@ def unreviewed(c, who, bot):
             continue
         if row["attempt_id"] and not privacy.attempt_readable(c, actor, row["attempt_id"]):
             continue
+        key = row["attempt_id"] or row["id"]
+        if key in seen:
+            continue
+        seen.add(key)
         count += 1
         oldest = oldest or row["since"]
     hours = int((H.parse_ts(H.now()) - H.parse_ts(oldest)).total_seconds() // 3600) if oldest else 0
@@ -987,7 +1047,9 @@ def left_by_keeper(c, who, bot):
     # One privacy prime (status/operations used to call message_readable per row here).
     shown = {m["id"] for m in privacy.readable_messages(c, actor, rows)}
     privacy.prime_attempts(c, [r["attempt_id"] for r in rows if r["id"] in shown and r["attempt_id"]])
-    return sum(r["id"] in shown and privacy.attempt_readable(c, actor, r["attempt_id"]) for r in rows)
+    # Counted per run: requests folded into one stopped run share its attempt.
+    runs = {r["attempt_id"] for r in rows if r["id"] in shown and privacy.attempt_readable(c, actor, r["attempt_id"])}
+    return len(runs)
 
 
 def limit_streak(c, bot):
@@ -3290,7 +3352,8 @@ class Execution:
         return {"attempt": {"chat_goal": chat_goal, "routine": routine, "id": aid,
                             # Which waiting turn takes a shared one-turn login first (runner-rs/src/login_turns.rs).
                             "login_class": login_class(c, task, msg, routine),
-                            "recovery": {"resume_session": restart_reported(c, row["attempt_id"]) or bool(run_limit_minutes(c, row["attempt_id"])) or bool(c.execute(
+                            "recovery": {"resume_session": restart_reported(c, row["attempt_id"]) or cut_by_update(c, row["attempt_id"])
+                                         or bool(run_limit_minutes(c, row["attempt_id"])) or bool(c.execute(
                                 "SELECT 1 FROM attempts WHERE id=? AND state='expired' AND thread_id IS NOT NULL",
                                 (row["attempt_id"],)).fetchone())} if recovery else None,
                             "computer_label": runner["label"], "computer_logins_v1": True,
@@ -4755,15 +4818,15 @@ class Execution:
                 stopped = 'changed'
                 named = ', '.join([*facts['outside'],
                                    *(['consumed approval (' + ', '.join(facts['approval_kinds']) + ')'] if facts['consumed'] else [])])
-                reason = f"The computer restarted after the run recorded {named}; check this outside action before resuming."
+                reason = (f"{restart_cause(facts)} after the run recorded {named}; check this outside action before resuming.")
             elif facts['restart'] and facts['starts'] <= 1 and not facts['acted']:
                 stopped = 'read'
-                reason = "The computer reported a restart; no consumed approval or named irreversible outside action holds this run."
+                reason = f"{restart_cause(facts)}; no consumed approval or named irreversible outside action holds this run."
             elif facts['restart'] and facts['starts'] <= 1:
                 # Safe to resume, but the run did reach tools that can change things: the card must
                 # never say it only read (ui/app/settings.js renders each bucket's own words).
                 stopped = 'restarted'
-                reason = ("The computer reported a restart; no consumed approval or named irreversible outside "
+                reason = (f"{restart_cause(facts)}; no consumed approval or named irreversible outside "
                           "action holds this run, but it had started tools that can change things, so check what "
                           "already happened before running it again.")
             elif facts['restart'] and facts['starts'] > 1:
@@ -5198,7 +5261,8 @@ class Execution:
                     # The cut time is the attempt's finished (report) time: the closest Tico has to when
                     # the computer was cut off.
                     at = (row['finished'] or H.now())[11:16]
-                    note = (f"You were interrupted at {at} UTC by a computer restart or lost lease. "
+                    cut = "a computer restart or lost lease" + (" during Tico's update" if facts['update'] else "")
+                    note = (f"You were interrupted at {at} UTC by {cut}. "
                             "Check what already happened first, then continue in this provider session. "
                             "No consumed approval or named irreversible outside action was recorded. " +
                             (note if not acted else ''))
