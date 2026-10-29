@@ -245,7 +245,7 @@ class Compare:
             return
         for key in ("anyOf", "oneOf"):
             if key in writer:
-                for i, option in enumerate(writer[key]):
+                for option in writer[key]:
                     self.check(reader, {**{k: v for k, v in writer.items() if k != key}, **option}
                                if len(writer) > 1 else option, where)
                 return
@@ -400,7 +400,7 @@ def breaks(new, old, old_name="the previous release"):
                 found.append("old runner, new server: " + p)
             for p in compare(ref(current), new_wire, ref(previous), old_wire, True, name + "." + label):
                 found.append("new runner, old server: " + p)
-    for name, end in new_wire["endpoints"].items():
+    for name in new_wire["endpoints"]:
         if name not in old_wire["endpoints"] and name not in gated:
             found.append("new runner, old server (list it under gated once the runner copes without it): "
                          "%s is new since %s" % (name, old_name))

@@ -12,17 +12,17 @@
 #   B034         1   owner: engineering
 #   B904        37   owner: engineering
 #   B905        20   owner: engineering
-#   BLE001     130   owner: engineering
+#   BLE001     131   owner: engineering
 #   DTZ005       2   owner: engineering
 #   DTZ007       2   owner: engineering
 #   DTZ011       6   owner: engineering
 #   F401        30   owner: engineering
 #   F402         1   owner: engineering
-#   F541         7   owner: engineering
-#   F811         1   owner: engineering
+#   F541         6   owner: engineering
+#   F811         2   owner: engineering
 #   F841        20   owner: engineering
 #   PLW1510     29   owner: engineering
-#   S110        32   owner: engineering
+#   S110        33   owner: engineering
 
 [lint.per-file-ignores]
 "backend/agents.py" = ["BLE001"]
@@ -43,8 +43,6 @@
 "backend/botkpis.py" = ["F401"]
 "backend/cards.py" = ["DTZ007"]
 "backend/census.py" = ["BLE001"]
-"backend/ceo_acts.py" = ["F541"]
-"backend/ceo_suggest.py" = ["B023"]
 "backend/company_billing.py" = ["BLE001"]
 "backend/company_file/actions.py" = ["DTZ011"]
 "backend/company_file/draft.py" = ["B018"]
@@ -65,6 +63,7 @@
 "backend/events.py" = ["ASYNC109"]
 "backend/execution.py" = ["F401"]
 "backend/fast_json.py" = ["BLE001"]
+"backend/file_library.py" = ["BLE001", "F811", "S110"]
 "backend/file_metadata.py" = ["B904", "BLE001", "PLW1510", "S110"]
 "backend/fleet_check.py" = ["BLE001"]
 "backend/flight.py" = ["B007", "B904", "B905", "BLE001", "PLW1510", "S110"]
@@ -131,6 +130,7 @@
 "backend/step_age.py" = ["F541"]
 "backend/strategy.py" = ["DTZ011"]
 "backend/strategy_setup.py" = ["B018", "BLE001", "DTZ011"]
+"backend/strategy_suggest.py" = ["B023"]
 "backend/support.py" = ["BLE001"]
 "backend/support_access.py" = ["BLE001"]
 "backend/system_routines.py" = ["BLE001"]
