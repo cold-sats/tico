@@ -4329,8 +4329,10 @@ def create_app(settings=None):
                 way = "steer"
             else:
                 way, defer_for = H.comment_way(c, who.actor, row, body.text, mover=moves)
-            # Ride-along: a defer while the bot works this task goes in right after that turn.
-            if way == "defer" and to_bot and not ask and delivery.running_in_session(
+            # Ride-along: a defer someone chose while the bot works this task goes in right after that turn, if they
+            # may wake it. A default defer (a plain comment on a bot-filed task, or from outside it) keeps its deadline.
+            rides = body.delivery == "defer" and (who.role == "bot" or may_direct(c, who, row))
+            if way == "defer" and to_bot and not ask and rides and delivery.running_in_session(
                     c, H.actor_id(target), [row["conversation_id"]], task_id):
                 way = "queue"
             if people and not (to_bot and way in ("steer", "queue")):
