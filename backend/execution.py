@@ -3446,9 +3446,10 @@ class Execution:
         row = read()
         if not row or row["runner_id"] != who.runner_id:
             raise Problem("forbidden", "This execution attempt is not yours", 403)
-        if final and row["state"] in ("leased", "running") and row["lease_until"] <= H.now():
-            # The lease lapsed and no sweep has caught it yet: lapse it now, as the sweep would have, so the result is
-            # settled or filed below like any late one rather than refused with the lease.
+        if final and row["state"] == "running" and row["lease_until"] <= H.now():
+            # A started turn's lease lapsed and no sweep has caught it yet: lapse it now, as the sweep would have, so
+            # its result is settled or filed below like any late one rather than refused with the lease. A turn that
+            # never started has no result worth that: the sweep requeues or fails it as before.
             self.expire(c, attempt_ids=[aid])
             row = read()
         if not privacy.attempt_readable(c, "bot:" + row["bot"], aid):

@@ -79,19 +79,15 @@ def lease_overdue(c, ctx):
 
 
 def task_stuck(c, ctx):
-    """A bot's task in progress (`doing`) with no job for it still owed work, and nothing changed on it for the hour."""
-    stuck = []
-    rows = c.execute("SELECT id, owner FROM tasks WHERE status='doing' AND owner LIKE 'bot:%' AND updated<? "
-                     "ORDER BY updated LIMIT ?", (_ago(ctx, minutes=TASK_QUIET_MINUTES), LIMIT)).fetchall()
-    for row in rows:
-        busy = c.execute(f"SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id "
-                         f"JOIN conversations cv ON cv.id=m.conversation_id "
-                         f"WHERE j.bot=? AND j.state IN ({','.join('?' * len(LIVE_JOBS))}) "
-                         f"AND {H.MESSAGE_TASK_SQL}=? LIMIT 1",
-                         (H.actor_id(row["owner"]), *LIVE_JOBS, row["id"])).fetchone()
-        if not busy:
-            stuck.append(row["id"])
-    return stuck
+    """A bot's task in progress (`doing`) with no job for it still owed work, and nothing changed on it for the hour.
+    The live-job test is in the query, ahead of LIMIT, so busy old tasks cannot hide a stuck newer one."""
+    rows = c.execute(f"SELECT t.id FROM tasks t WHERE t.status='doing' AND t.owner LIKE 'bot:%' AND t.updated<? "
+                     f"AND NOT EXISTS (SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id "
+                     f"JOIN conversations cv ON cv.id=m.conversation_id "
+                     f"WHERE j.bot=substr(t.owner, 5) AND j.state IN ({','.join('?' * len(LIVE_JOBS))}) "
+                     f"AND {H.MESSAGE_TASK_SQL}=t.id) ORDER BY t.updated LIMIT ?",
+                     (_ago(ctx, minutes=TASK_QUIET_MINUTES), *LIVE_JOBS, LIMIT)).fetchall()
+    return [row["id"] for row in rows]
 
 
 def _unreachable(actor, people, bots):
@@ -112,17 +108,17 @@ def owner_unreachable(c, ctx):
     people = {p["id"]: p for p in roster(c).get("people") or []}
     bots = {row["slug"]: row["state"] for row in c.execute("SELECT slug, state FROM bots")}
     found = []
-    targets = [row["to_actor"] for row in c.execute(
-        "SELECT DISTINCT to_actor FROM messages WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL "
-        "LIMIT ?", (LIMIT,)).fetchall()]
+    # Every open ask's addressee and every undecided approval is read: the reachability test is in Python, so a
+    # LIMIT before it could leave an unreachable owner behind reachable ones.
+    open_ask = f"m.kind='ask' AND m.deleted_at IS NULL AND {H.OPEN_ASK_SQL}"
+    targets = [row["to_actor"] for row in c.execute(f"SELECT DISTINCT m.to_actor FROM messages m WHERE {open_ask}")]
     for actor in targets:
         if _unreachable(actor, people, bots):
             found += [row["id"] for row in c.execute(
-                "SELECT id FROM messages WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL "
-                "AND to_actor=? ORDER BY created LIMIT ?", (actor, LIMIT))]
+                f"SELECT m.id FROM messages m WHERE {open_ask} AND m.to_actor=? ORDER BY m.created LIMIT ?",
+                (actor, LIMIT))]
     for row in c.execute("SELECT a.id, COALESCE(a.decision_owner, m.to_actor) AS owner FROM approvals a "
-                         "LEFT JOIN messages m ON m.id=a.message_id WHERE a.decision IS NULL ORDER BY a.created LIMIT ?",
-                         (LIMIT,)).fetchall():
+                         "LEFT JOIN messages m ON m.id=a.message_id WHERE a.decision IS NULL ORDER BY a.created").fetchall():
         if row["owner"] and _unreachable(row["owner"], people, bots):
             found.append(row["id"])
     return found[:LIMIT]

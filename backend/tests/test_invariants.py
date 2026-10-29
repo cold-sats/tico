@@ -73,12 +73,15 @@ def test_a_run_past_its_lease_by_ten_minutes_fires_and_a_recent_or_finished_one_
     assert sweep(api)["lease_overdue"] == 0, "a finished run has no lease to lose"
 
 
-def test_a_bot_task_in_progress_with_no_run_for_an_hour_fires_and_one_with_a_queued_run_does_not(api):
+def test_a_bot_task_in_progress_with_no_run_for_an_hour_fires_and_one_with_a_queued_run_does_not(api, monkeypatch):
     stuck = post(api, "tasks", {"owner": "ops", "title": "Draft the notes", "body": "x"})["id"]
     waiting = post(api, "tasks", {"owner": "ops", "title": "Pick a venue", "body": "x"})["id"]
     store = api.app.state.store
+    # One example at most, and the busy task is the older: it must not use up the limit ahead of the stuck one.
+    monkeypatch.setattr(I, "LIMIT", 1)
     with store.transaction() as c:
-        c.execute("UPDATE tasks SET status='doing', updated=? WHERE id IN (?,?)", (ago(hours=2), stuck, waiting))
+        c.execute("UPDATE tasks SET status='doing', updated=? WHERE id=?", (ago(hours=2), stuck))
+        c.execute("UPDATE tasks SET status='doing', updated=? WHERE id=?", (ago(hours=3), waiting))
         # Finish the first task's run and leave the second task's run queued.
         c.execute("UPDATE jobs SET state='done' WHERE id=(SELECT id FROM jobs ORDER BY created LIMIT 1)")
     assert sweep(api)["task_stuck"] == 1
@@ -87,6 +90,7 @@ def test_a_bot_task_in_progress_with_no_run_for_an_hour_fires_and_one_with_a_que
 
 def test_a_question_to_a_person_who_has_since_left_fires_and_one_to_a_present_person_does_not(api):
     tid = post(api, "tasks", {"owner": "ops", "title": "Pick a vendor", "body": "x"})["id"]
+    other = post(api, "tasks", {"owner": "ops", "title": "Set a budget", "body": "x"})["id"]
     store = api.app.state.store
     with store.transaction() as c:
         task = H.task(c, tid)
@@ -94,15 +98,16 @@ def test_a_question_to_a_person_who_has_since_left_fires_and_one_to_a_present_pe
               refs={"task": tid})
         left = c.execute("SELECT id FROM messages WHERE kind='ask' AND to_actor='human:ana' "
                          "ORDER BY created DESC LIMIT 1").fetchone()[0]
-        H.say(c, "bot:ops", "human:ana", "Which budget?", kind="ask", conversation_id=task["conversation_id"],
-              refs={"task": tid})
+        # A second open question, on another task so it does not supersede the first, to a person still present.
+        H.say(c, "bot:ops", "human:ana", "Which budget?", kind="ask",
+              conversation_id=H.task(c, other)["conversation_id"], refs={"task": other})
         # Ana left after the first question was asked: its recipient is now a person not on the roster.
         c.execute("UPDATE messages SET to_actor='human:gone' WHERE id=?", (left,))
     assert sweep(api)["owner_unreachable"] == 1
     assert left in examples(api, "owner_unreachable"), "the example is the message id, never the person"
     with store.transaction() as c:
-        c.execute("UPDATE messages SET answered_by='human:ana' WHERE to_actor='human:gone'")
-    assert sweep(api)["owner_unreachable"] == 0
+        c.execute("UPDATE messages SET superseded_at=? WHERE to_actor='human:gone'", (ago(minutes=1),))
+    assert sweep(api)["owner_unreachable"] == 0, "a superseded question is no longer open"
 
 
 def test_the_same_rule_refusing_one_bot_more_than_twenty_times_in_a_day_fires(api):
