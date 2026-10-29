@@ -231,13 +231,16 @@ Anything you send a bot (a chat message, a task comment, a new task) reaches it 
 
 "There" is the session the item lands in: a task's own room for its comments, the chat for a chat message. A deferred
 task or message for the bot's next run of any kind (below) is tied to no session. A defer sent while the bot has a turn
-going in the same session goes in right after that turn, as a queue; a turn on another task does not count.
+going in the same session goes in right after that turn, as a queue; a turn on another task does not count. A
+deadline wakes the bot, so only someone who may steer it can set one: anyone else's defer waits with no deadline.
 
 When the earliest deadline among the items waiting in a session comes, Tico starts one run there that carries them
-all; deferred tasks and messages tied to no session batch into one run per bot. A deadline never wakes a paused bot
-(it fires once the bot is back), and spend caps, turns at once and holds apply as to any run; a hosted server asleep
-when idle wakes for it. Each deadline fires once, across restarts. A turn's prompt counts what was deferred to it:
-"Deferred since your last turn: 2 comments, 1 task".
+all; a deadline that comes while that run is still waiting joins it, and a turn there that carries everything first
+makes the run unneeded. Deferred tasks and messages tied to no session batch into one run per bot. A deadline never
+wakes a paused bot (it fires once the bot is back), and spend caps, turns at once and holds apply as to any run; a
+hosted server asleep when idle wakes for it. Each deadline fires once, across restarts. A turn's prompt counts what was
+deferred to it ("Deferred since your last turn: 2 comments, 1 task") and lists the deferred comments and messages
+themselves, up to 20 a turn; the rest wait for the next turn.
 
 Defaults: plain Send is Steer for a chat message and a comment on a task a bot owns, as before (when the bot is idle
 that is the same as Queue). A comment on a task a bot filed for a

@@ -67,7 +67,8 @@ def test_a_deadline_starts_one_run_for_its_session_once(api):
     # The run is an ordinary turn on the task: it carries both comments and settles the task's own wait.
     attempt = post(api, "jobs/claim", {"next_run": True}, token=machine["token"])["attempt"]
     assert attempt["message"]["id"] == second["id"]
-    assert attempt["deferred"] == "Deferred since your last turn: 2 comments"
+    assert attempt["deferred"].split("\n")[0] == "Deferred since your last turn: 2 comments"
+    assert "Billing first." in attempt["deferred"] and "Then the docs." not in attempt["deferred"]
     assert {r["how"] for r in rows(api, bot="ops")} == {"carried"}
 
 
@@ -221,3 +222,68 @@ def test_a_chat_delivery_that_cannot_apply_is_refused(api, body):
     setup(api)
     r = api.post("/api/v2/chat/ops", json=body, headers=headers())
     assert r.status_code == 422, r.text
+
+
+def test_someone_off_the_task_cannot_wake_its_bot_with_a_deadline(api):
+    setup(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Plan the launch", "body": "For the team."})
+    path = f"tasks/{task['id']}/comments"
+    # Ben is not on the task: a deadline would wake the bot as a steer would.
+    r = api.post(f"/api/v2/{path}", json={"text": "Mine first.", "delivery": "defer", "defer_for": "1m"},
+                 headers=headers("ben-test"))
+    assert r.status_code == 403 and "delivery" in r.text, r.text
+    # A defer with no deadline named takes none from him (a person on the task gets a day).
+    held = post(api, path, {"text": "When you can.", "delivery": "defer"}, token="ben-test")
+    assert held["sent_as"] == {"delivery": "defer", "until": None}
+    never = post(api, path, {"text": "Whenever.", "delivery": "defer", "defer_for": "never"}, token="ben-test")
+    assert never["sent_as"] == {"delivery": "defer", "until": None}
+    tick(api, 2 * 24 * 60)
+    assert fired(api) == [] and job_of(api, held["comment"]["id"]) is None
+    # Ana, on the task, still sets one.
+    assert post(api, path, {"text": "Billing first.", "delivery": "defer", "defer_for": "1m"})["sent_as"]["until"]
+
+
+def test_deferred_comments_older_than_the_history_page_are_written_out_not_dropped(api, monkeypatch):
+    machine = setup(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Plan the launch", "body": "For the team.",
+                               "delivery": "defer", "defer_for": "never"})
+    path = f"tasks/{task['id']}/comments"
+    old = post(api, path, {"text": "Billing first.", "delivery": "defer", "defer_for": "30m"})["comment"]
+    # The room fills past one history page before the bot's next turn.
+    for n in range(60):
+        post(api, path, {"text": f"Note {n}.", "delivery": "defer", "defer_for": "never"})
+    monkeypatch.setattr(delivery, "ITEMS", 5, raising=False)
+    trigger = post(api, path, {"text": "Start now.", "delivery": "steer"})["comment"]
+    attempt = post(api, "jobs/claim", {"next_run": True}, token=machine["token"])["attempt"]
+    assert attempt["message"]["id"] == trigger["id"]
+    assert old["id"] not in {m["id"] for m in attempt["history"]}, "the page does not reach it"
+    # Written out in the prompt, so its deadline is met.
+    assert f"[{old['id']}]" in attempt["deferred"] and "Billing first." in attempt["deferred"]
+    assert rows(api, item=old["id"])[0]["how"] == "carried"
+    # What did not fit waits for the next turn, unsettled, and says so.
+    assert "56 more deferred here wait for your next turn" in attempt["deferred"]
+    assert len([r for r in rows(api, bot="ops", kind="comment") if r["settled"] is None]) == 56
+
+
+def test_deadlines_in_one_session_share_one_run_and_another_turn_cancels_it(api):
+    machine = setup(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "Plan the launch", "body": "For the team.",
+                               "delivery": "defer", "defer_for": "never"})
+    path = f"tasks/{task['id']}/comments"
+    first = post(api, path, {"text": "Billing first.", "delivery": "defer", "defer_for": "30m"})["comment"]
+    tick(api, 31)
+    assert job_of(api, first["id"])[1] == "queued"
+    # A later item comes due while that run is still queued: it joins the run rather than starting a second.
+    second = post(api, path, {"text": "Then the docs.", "delivery": "defer", "defer_for": "1m"})["comment"]
+    tick(api, 32)
+    assert fired(api) == [first["id"]] and job_of(api, second["id"]) is None
+    assert {r["fired_job"] for r in rows(api, kind="comment")} == {first["id"]}
+
+    # A turn there in another way carries both (the run's job is stamped at the deadline, so this one goes first):
+    # the deadline run is no longer needed.
+    trigger = post(api, path, {"text": "Start now.", "delivery": "steer"})["comment"]
+    attempt = post(api, "jobs/claim", {"next_run": True}, token=machine["token"])["attempt"]
+    assert attempt["message"]["id"] == trigger["id"]
+    assert "Billing first." in attempt["deferred"] and "Then the docs." in attempt["deferred"]
+    assert {r["how"] for r in rows(api, kind="comment")} == {"carried"}
+    assert job_of(api, first["id"])[1] == "cancelled"
