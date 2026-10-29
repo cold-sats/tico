@@ -158,7 +158,7 @@ function propDoHtml(p, {yes, no = 'No, leave it', line = '', decide = 'confirm',
 // Sent, the reason is the suggestion's decision note (POST /v2/proposals/{id}/note, once, by whoever said no), read by
 // the Strategy Bot before it suggests again; left, nothing more happens. The server's cap (backend/goals.py REASON_MAX).
 const PROP_REASON_MAX = 280;
-const propStrategyBot = () => { const name = strategyBotName(); return name === 'Strategy Bot' ? 'the Strategy Bot' : name; };
+const propStrategyBot = () => { const name = strategyBotName(); return name === strategyDefaultName() ? 'the ' + name : name; };
 function propLeftHtml() {
   return `<form class="kpi-prop-left" data-prop-left novalidate><span class="kpi-prop-left-k">Left as it is. Tell ${esc(propStrategyBot())} why? (optional)</span>
     <input type="text" name="note" maxlength="${PROP_REASON_MAX}" autocomplete="off" aria-label="Why you left it (optional)" placeholder="One line, e.g. no billing yet">

@@ -557,6 +557,9 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       return form;
     };
     let form = await newTag();
+    // The pane's refresh can land after Advanced is opened; it stays open.
+    await page.evaluate(() => renderTags($('#settings-tags')));
+    assert.equal(await form.locator('.tag-advanced').evaluate(d => d.open), true);
     assert.equal(await form.locator('input[name="key"]').getAttribute('maxlength'), '40');
     assert.equal(await form.locator('[data-tag-key-line]').innerText(), 'Key: made from the name');
     await form.locator('input[name="label"]').fill('Quarterly roadmap review for the platform team now');

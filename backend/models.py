@@ -335,7 +335,8 @@ class TaskStepInput(Contract):
     check_limit: int | None = Field(default=None, ge=1, le=20)
     # What the step does with a ticket (backend/step_flow.py): where a check's pass or other outcome sends it, the
     # merged step, a skip tag, a check timeout. Left out, a step keeps what it had; {} clears it.
-    flow: dict | None = None
+    flow: dict | None = Field(default=None, description="The step's flow (docs/tasks.md, Step flow). On a check step, "
+                              "other_company is prefer (the default) or require.")
 
 
 # What every bot may do with a type's tasks beyond its own (hubdb.TYPE_BOTS): parties keeps them to

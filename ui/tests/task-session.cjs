@@ -12,6 +12,12 @@ const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 const SHOTS = process.env.TICO_UI_SHOTS || '';
 const launch = () => chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
+// Reads the task again once no send or read is in flight: taskChatRead skips while one is, and a read that left before
+// the fixture changed paints what the fixture said then.
+async function reread(page) {
+  await page.waitForFunction(() => !TASK_CHAT.sending && !TASK_CHAT.reading);
+  await page.evaluate(() => taskChatRead(TASK_CHAT));
+}
 
 const now = Date.now(), at = m => new Date(now - m * 60000).toISOString();
 const task = {id: 't-docs', title: 'Ship the docs refresh', owner: 'bot:botops', requester: 'human:ana', status: 'doing',
@@ -112,7 +118,7 @@ async function run(viewport, shot) {
     assert.ok(await live.locator('[data-task-stop]').isDisabled());
     assert.deepEqual(stops, [{attempt_id: 'a2'}]);
     running = false;
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await page.waitForFunction(() => !document.querySelector('#task-modal .task-live'));
     assert.ok(await fold.evaluate(x => x.open), 'an open fold stays open across the redraw');
     // A tab shown again replays what it missed at the caller's pace (the live line's 1.5 s), not the 15 s default.
@@ -199,20 +205,20 @@ async function answered(viewport, shot) {
     await live.filter({hasText: 'Queued'}).waitFor();
     assert.equal(await live.locator('.typing.wait').count(), 1, 'a queued run breathes, as in the bot chat');
     phase = 'running';
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await live.filter({hasText: 'Head of Engineering is working…'}).waitFor();
     assert.match(await live.innerText(), /Ran hub task show/);
     assert.equal(await live.getAttribute('aria-label'), 'Head of Engineering is working: Ran hub task show');
     if (shot) await page.screenshot({path: shot});
     phase = 'replied';
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await thread.locator('.tcomment.bot', {hasText: 'Thanks, closing it.'}).waitFor();
     assert.equal(await live.count(), 0, 'the reply replaces the line');
     assert.equal(await page.locator('#task-modal [data-task-chat-status]').innerText(), '');
 
     // A turn that errored says so; a bot's message to another bot does not take the line.
     phase = 'failed';
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await live.filter({hasText: 'Reply failed — your message is saved'}).waitFor();
     // A new message after a failed one is Sent until its own run is read, not the old "Reply failed".
     release = new Promise(r => { open = r; });
@@ -223,15 +229,15 @@ async function answered(viewport, shot) {
     release = null; open();
     await live.filter({hasText: 'Reply failed'}).waitFor();     // the fixture's read still has the failed run
     phase = 'botToBot';
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await page.waitForFunction(() => !document.querySelector('#task-modal .task-live'));
 
     // Before sending: no bot at all, or saved for the bot's next run unless the draft @mentions it.
     to = {bot: null, wakes: false, mention: []};
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await hint.filter({hasText: 'No bot gets this message'}).waitFor();
     to = {bot: 'lead', wakes: false, mention: ['lead', 'Head of Engineering']};
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await hint.filter({hasText: "Saved for Head of Engineering's next run on this task. Write @lead to ask now."}).waitFor();
     await page.locator('#task-modal textarea').fill('@Head of Engineering is it the billing app?');
     assert.equal(await hint.innerText(), '', 'an @mention of the bot that asked wakes it');
@@ -325,7 +331,7 @@ async function deliveryChoice(viewport, shot) {
     // A session that cannot take a goal: the goal choice reads as steer, the menu offers only queue, and Escape closes the
     // menu without closing the task.
     choices = {default: 'steer', steer: true, steers: false, goal: false};
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await hint.filter({hasText: 'or after its running turn'}).waitFor();
     assert.equal(await main.innerText(), 'Steer');
     assert.equal(await hint.innerText(), 'Steer: reaches Head of Engineering now, or after its running turn if its harness cannot steer.');
@@ -337,7 +343,7 @@ async function deliveryChoice(viewport, shot) {
 
     // Someone not on the task may not steer its bot: the send is Queue, the server's default, with nothing else to pick.
     choices = {default: 'queue', steer: false, steers: false, goal: false};
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await hint.filter({hasText: 'Queue:'}).waitFor();
     assert.equal(await main.innerText(), 'Queue');
     assert.equal(await caret.isHidden(), true);
@@ -347,7 +353,7 @@ async function deliveryChoice(viewport, shot) {
     await page.evaluate(() => localStorage.removeItem('hub.task.delivery'));
     choices = {default: 'queue', steer: true, steers: true, goal: true};
     to = {bot: 'lead', wakes: false, mention: ['lead']};
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await hint.filter({hasText: 'Queue: saved'}).waitFor();
     assert.equal(await main.innerText(), 'Queue');
     await modal.locator('textarea').fill('Billing first; @lead, is the API page in?');
@@ -368,7 +374,7 @@ async function deliveryChoice(viewport, shot) {
 
     // A task with no bot keeps the plain arrow, and its comment carries no delivery.
     to = {bot: null, wakes: false, mention: []}; choices = null;
-    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await reread(page);
     await hint.filter({hasText: 'No bot gets this message'}).waitFor();
     assert.equal(await caret.isHidden(), true);
     assert.ok(await main.isVisible(), 'the plain arrow stays');
