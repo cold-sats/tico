@@ -11,7 +11,7 @@ const rdUnder = (r, base) => r === base || r.startsWith(base + '/') || r.startsW
 const goalsBase = () => RD_GOALS;
 
 // One "?" per panel: the explanation a row would otherwise carry, on hover, focus or tap.
-const helpBubble = text => `<span class="rd-help" tabindex="0" role="button" aria-label="${esc(text)}">?<span class="rd-help-pop" role="tooltip">${esc(text)}</span></span>`;
+const helpBubble = (text, attrs = '') => `<span class="rd-help"${attrs ? ' ' + attrs : ''} tabindex="0" role="button" aria-label="${esc(text)}">?<span class="rd-help-pop" role="tooltip">${esc(text)}</span></span>`;
 
 // ----------------------------------------------------------------- the sidebar
 // The rail is rearranged in place, once, not drawn again: the links keep their own badges and handlers (sidebar.js,
@@ -24,7 +24,6 @@ function redesignNav() {
   RD_NAV_DONE = true;
   const strategyLink = nav.querySelector('a[data-nav="strategy"]'), before = [...nav.children];
   const pick = sel => nav.querySelector(sel);
-  const row = sel => pick(sel)?.closest('.nav-row') || pick(sel);
   const link = (key, href, icon, label) => {
     const a = Object.assign(document.createElement('a'), {className: 'nav-link', href, innerHTML: `<span class="nav-icon" aria-hidden="true">${icon}</span>${label}`});
     a.dataset.nav = key;
@@ -44,12 +43,13 @@ function redesignNav() {
   const tools = link('tools', RD_TOOLS, 'api', 'Tools');   // ui/app/redesign-library.js
   subs.append(...[pick('a[data-nav="docs"]'), pick('a[data-nav="meetings"]'), tools].filter(Boolean));
   if (strategyLink) { strategyLink.setAttribute('href', MARKET_ROUTE); strategyLink.querySelector('.nav-icon').textContent = RD_NAV_ICONS.strategy; }
-  const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), row('a[data-nav="strategy"]'),
+  const order = [pick('#side-update'), pick('a[data-nav="overview"]'), pick('#nav-welcome'), strategyLink,
     pick('a[data-nav="updates"]'), pick('a[data-nav="tasks"]'), pick('#nav-assistant'), automations, libRow, subs,
     pick('#nav-botops'), pick('#nav-pins')].filter(Boolean);
   const rest = before.filter(el => !order.includes(el) && !subs.contains(el));
   nav.append(...order, ...rest);
   rdLibSync();
+  renderTree();   // marks the current page again: Automations and Tools did not exist when the first route drew the rail
 }
 // Library open or folded: what this browser chose, opened while a Library page is showing (a fold there holds until
 // the next visit). A browser that will not store it keeps Library open.

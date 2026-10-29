@@ -253,7 +253,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await shot(page, 'list');
     // The Librarian's settings sit in the page header, not as a gear beside Docs in the sidebar.
     assert.equal(await page.locator('.docs-actions #docs-librarian-settings').getAttribute('href'), '#/bot/librarian/more');
-    assert.equal(await page.locator('#side .nav-row:has(a[data-nav="docs"]) .nav-librarian').count(), 0);
+    assert.equal(await page.locator('#side .nav-librarian, #nav-strategy-librarian').count(), 0, 'no Librarian gear in the sidebar');
 
     // Desktop rail stays open while reading, streams answers and preserves collapse per viewer.
     assert.equal(await page.locator('[data-docs-ask]').getAttribute('role'), 'complementary');
