@@ -76,7 +76,10 @@ impl Freeze {
         fs::rename(temp, path).map_err(|e| e.to_string())
     }
     fn title(&self, candidate: &str) -> String {
-        format!("Validate {candidate} as {} from {}", self.version, self.previous)
+        format!(
+            "Validate {candidate} as {} from {}",
+            self.version, self.previous
+        )
     }
 }
 fn main_head() -> Result<String> {
@@ -290,14 +293,25 @@ fn validate_and_tag(
     ])?;
     state.tagged = true;
     state.save(path)?;
-    println!("Tagged {} at validated commit {candidate} (run {id}).", state.version);
+    println!(
+        "Tagged {} at validated commit {candidate} (run {id}).",
+        state.version
+    );
     Ok(())
 }
 // The Release workflow publishes the tag a few minutes after it is pushed; the notes task waits for that.
 fn published(state: &Freeze) -> Result<()> {
     for _ in 0..180 {
         let view = Command::new("gh")
-            .args(["release", "view", &state.version, "--repo", &state.repo, "--json", "isDraft"])
+            .args([
+                "release",
+                "view",
+                &state.version,
+                "--repo",
+                &state.repo,
+                "--json",
+                "isDraft",
+            ])
             .output()
             .map_err(|e| e.to_string())?;
         if view.status.success()
@@ -309,7 +323,11 @@ fn published(state: &Freeze) -> Result<()> {
     }
     Err(format!("{} was not published within 30 minutes; check the Release workflow, then run publish again", state.version))
 }
-fn file_writer_task(state: &mut Freeze, options: &HashMap<String, String>, path: &PathBuf) -> Result<()> {
+fn file_writer_task(
+    state: &mut Freeze,
+    options: &HashMap<String, String>,
+    path: &PathBuf,
+) -> Result<()> {
     if let Some(task) = &state.writer_task {
         println!("{} is published; its release notes task is {task}. Retain the freeze record as the release receipt.", state.version);
         return Ok(());
@@ -319,7 +337,10 @@ fn file_writer_task(state: &mut Freeze, options: &HashMap<String, String>, path:
         "The notes task may already have been filed; check the Technical Writer's tasks and record it in the freeze record as writer_task",
     )?;
     published(state)?;
-    let writer = options.get("writer").map(String::as_str).unwrap_or("docs-writer");
+    let writer = options
+        .get("writer")
+        .map(String::as_str)
+        .unwrap_or("docs-writer");
     let range = format!("{}..{}", state.previous, state.version);
     let body = format!(
         "{version} is published. Write its section in CHANGELOG.md from the pull requests merged in {range} \
