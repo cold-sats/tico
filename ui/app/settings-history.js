@@ -127,7 +127,7 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
       try {
         const next = await older(history.next_before);
         if (el._settingsDrawn === drawn) renderSettingsHistory(el, {changes: [...changes, ...(next.changes || [])],
-          transitions, next_before: next.next_before}, older);
+          transitions, transitions_truncated: history.transitions_truncated, next_before: next.next_before}, older);
       } catch (error) { showOlder.disabled = false; toast(error.message, true); }
       return;
     }

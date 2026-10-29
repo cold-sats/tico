@@ -997,11 +997,15 @@ class SettingsAdmin:
         if not transition:
             raise Problem("not_found", "Prepared change not found", 404)
         self._manager(c, who, transition["bot"], report=self._transition_scope(transition))
+        # A checkpoint holds what a conversation decided and did. A manager bot may follow its report's model change,
+        # not read the conversations it checkpoints: it sees only each one's state.
+        full = who.role == "owner" or self.auth.bot_manager(c, who, transition["bot"])
         checkpoints = []
         for row in c.execute("SELECT * FROM bot_transition_checkpoints WHERE transition_id=? ORDER BY conversation_id",
                              (transition_id,)):
             checkpoints.append({"conversation_id": row["conversation_id"], "state": row["state"],
-                                "checkpoint": _json(row["checkpoint_json"]), "error": row["error"]})
+                                "checkpoint": _json(row["checkpoint_json"]), "error": row["error"]} if full else
+                               {"conversation_id": None, "state": row["state"], "checkpoint": None, "error": None})
         value = dict(transition)
         value["target"] = _json(value.pop("target_json"), {})
         value["checkpoints"] = checkpoints

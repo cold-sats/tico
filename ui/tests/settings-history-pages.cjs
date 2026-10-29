@@ -56,7 +56,9 @@ const {unrouted} = require('./support/routes.cjs');
         const bot = url.searchParams.get('bot') || '', before = url.searchParams.get('before') || '';
         calls.push({bot, before});
         const rows = CHANGES.filter(row => !bot || row.bot === bot);
-        return json({...pageOf(rows, before), transitions: bot || before ? [] : [PENDING]});
+        // The first page left out older in-progress changes that would not fit (`transitions_truncated`).
+        return json({...pageOf(rows, before), ...(bot || before ? {transitions: []}
+          : {transitions: [PENDING], transitions_truncated: true})});
       }
       const undo = p.match(/^\/api\/v2\/settings\/history\/([^/]+)\/undo$/);
       if (undo && request.method() === 'POST') {
@@ -90,6 +92,8 @@ const {unrouted} = require('./support/routes.cjs');
     assert.deepEqual(calls.at(-1), {bot: '', before: 'o1'});
     assert.equal(await page.locator(`${owner} [data-transition-review]`).count(), 1,
       'the change in progress is not drawn twice');
+    assert.equal(await page.locator(owner, {hasText: 'Some older in-progress changes are not listed here.'}).count(), 1,
+      'the list still says older in-progress changes are left out');
     await showMore(owner).click();
     await waitForChanges(owner, 6);
     assert.deepEqual(calls.at(-1), {bot: '', before: 'h3'});
