@@ -78,6 +78,33 @@ def forget_retired_resumes(c):
             c.execute("UPDATE tasks SET blocked_from_step=NULL,blocked_from_status='open' WHERE id=?", (task_id,))
 
 
+def leave_retired_blocked(c):
+    """Holds an earlier version parked in its own Blocked step go back to a working step: the one they left when it
+    still exists, else On Deck (after forget_retired_resumes, so a stale step is already gone). The hold itself stays,
+    reason and clock unchanged; a person's manual hold stays put. The Blocked step is left empty for the team to delete.
+    Writes only when a ticket is in that step, as stamp_builds does."""
+    from . import hubdb as H
+    rows = c.execute(
+        "SELECT t.id,t.type_id,t.blocked_from_step,t.step_id FROM tasks t "
+        "JOIN task_types ty ON ty.id=t.type_id JOIN task_steps s ON s.id=t.step_id "
+        "WHERE ty.role='engineering' AND t.status='waiting' AND t.blocked_since IS NOT NULL "
+        "AND coalesce(t.blocked_kind,'')<>'manual' AND s.name='Blocked' AND s.status='waiting'").fetchall()
+    for task_id, type_id, saved, step_id in rows:
+        steps = {s[0]: (s[1], s[2]) for s in c.execute(
+            "SELECT id,name,status FROM task_steps WHERE type_id=?", (type_id,)).fetchall()}
+        target = None
+        if saved in steps and steps[saved][1] in H.ACTIVE_STATUSES and steps[saved][1] != 'waiting':
+            target = saved
+        else:
+            target = next((sid for sid, (name, status) in steps.items()
+                           if name == 'On Deck' and status == 'open'), None)
+        if not target:
+            continue
+        c.execute("UPDATE tasks SET step_id=?,step_rank=? WHERE id=?",
+                  (target, H._step_end(c, target, task_id), task_id))
+        H._task_event(c, task_id, H.KEEPER, 'step', step_id, target, 'Its hold left the retired Blocked step')
+
+
 def seconds(start, at):
     if not start:
         return 0
@@ -120,6 +147,13 @@ def transition(c, row, effective, step_id, note, at, manual=False):
             # for the hold it replaces, never stays on a ticket parked by hand.
             text = str(note).strip().splitlines()[0][:1000] if str(note or '').strip() else 'Waiting on a hold'
             c.execute("UPDATE tasks SET blocked_reason=?,blocked_kind='manual' WHERE id=?", (text, row['id']))
+        if row.get('blocked_since') and step_id and step_id != row.get('step_id'):
+            # A move to another working step while held (a person's, or a retry's that stays held): the hold clears
+            # onto the step it was moved to, not the one it left (hubdb._task_state's resume).
+            landed = c.execute('SELECT status FROM task_steps WHERE id=?', (step_id,)).fetchone()
+            if landed and landed[0] != 'waiting':
+                c.execute('UPDATE tasks SET blocked_from_step=?,blocked_from_status=? WHERE id=?',
+                          (step_id, landed[0], row['id']))
     elif row.get('blocked_since'):
         c.execute('UPDATE tasks SET blocked_since=NULL,blocked_reason=NULL,blocked_kind=NULL,blocked_from_step=NULL,blocked_from_status=NULL,blocked_gate_json=NULL'
                   + (',holds_cleared_at=NULL' if 'holds_cleared_at' in row else '') + ' WHERE id=?', (row['id'],))

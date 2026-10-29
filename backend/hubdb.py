@@ -1370,6 +1370,7 @@ def migrate(conn, adopt_legacy=False):
     task_blocked.stamp_builds(conn)
     task_blocked.backfill(conn)
     task_blocked.forget_retired_resumes(conn)
+    task_blocked.leave_retired_blocked(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
     conn.execute("CREATE INDEX IF NOT EXISTS messages_open_asks_to ON messages(to_actor, created) "
                  "WHERE kind='ask' AND answered_by IS NULL AND deleted_at IS NULL")

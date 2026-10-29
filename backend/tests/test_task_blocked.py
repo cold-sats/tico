@@ -541,3 +541,60 @@ def test_an_old_blocker_does_not_put_a_merged_ticket_back_on_hold(api):
         assert (row['step_id'], row['blocked_since']) == (task['step_id'], None)
         other = next(s['id'] for s in H.type_get(c, task['type_id'])['steps'] if s['id'] != task['step_id'])
         assert step_flow.can_hold(c, other), "other steps still hold"
+
+
+def _old_board(api, task):
+    """The board an earlier version left: its Blocked step, and an On Deck to fall back to."""
+    with api.app.state.store.transaction() as c:
+        typ = H.type_get(c, task['type_id'])
+        H.type_update(c, H.KEEPER, typ['id'], steps=[*typ['steps'], {'name': 'On Deck', 'status': 'open'},
+                                                       {'name': 'Blocked', 'status': 'waiting'}])
+
+
+def test_a_ticket_an_old_version_parked_in_blocked_returns_to_its_step_and_stays_held(api):
+    """A startup moves a held ticket out of the Blocked step an earlier version made, back to the step it left. The hold
+    stays as it was; a person's manual hold stays put; a from-step that is gone or finished falls back to On Deck; a
+    second start writes nothing."""
+    from backend import task_relations as TR, task_blocked
+    dependency = ticket(api)
+    _old_board(api, dependency)
+    typ = dependency['type_id']
+    manual, stale = (post(api, 'tasks', {'owner': 'cpo', 'title': title, 'body': 'Build it.', 'type': typ,
+                                         'step': 'In Progress'}) for title in ('Build the manual one', 'Build the stale one'))
+    blocker = post(api, 'tasks', {'owner': 'cmo', 'title': 'Ship the dependency', 'body': 'Build it.'})
+    with api.app.state.store.transaction() as c:
+        steps = {s['name']: s['id'] for s in H.type_get(c, dependency['type_id'])['steps']}
+        TR.relate(c, H.KEEPER, dependency['id'], blocker['id'], 'blocked_by')
+        TR.relate(c, H.KEEPER, stale['id'], blocker['id'], 'blocked_by')
+        H.task_update(c, 'human:ana', manual['id'], step='Blocked', note='Waiting for a test machine')
+        held = H.task(c, dependency['id'])
+        from_step = held['step_id']
+        assert held['blocked_kind'] == 'dependency' and held['blocked_from_step'] == from_step
+        c.execute("UPDATE tasks SET step_id=? WHERE id IN (?,?)", (steps['Blocked'], dependency['id'], stale['id']))
+        c.execute("UPDATE tasks SET blocked_from_step=? WHERE id=?", (steps['Done'], stale['id']))
+        task_blocked.leave_retired_blocked(c)
+        back = H.task(c, dependency['id'])
+        assert (back['step_id'], back['status'], back['blocked_kind'], back['blocked_since'], back['blocked_reason']) == (
+            from_step, 'waiting', held['blocked_kind'], held['blocked_since'], held['blocked_reason'])
+        assert H.task(c, manual['id'])['step_id'] == steps['Blocked'] and H.task(c, manual['id'])['blocked_kind'] == 'manual'
+        assert H.task(c, stale['id'])['step_id'] == steps['On Deck']
+        before = c.execute('SELECT total_changes()').fetchone()[0]
+        task_blocked.leave_retired_blocked(c)
+        assert c.execute('SELECT total_changes()').fetchone()[0] == before
+
+
+def test_a_move_made_while_held_is_where_the_hold_clears_to(api):
+    from backend import task_relations as TR, task_blocked
+    task = ticket(api)
+    blocker = post(api, 'tasks', {'owner': 'cmo', 'title': 'Ship the dependency', 'body': 'Build it.'})
+    with api.app.state.store.transaction() as c:
+        TR.relate(c, H.KEEPER, task['id'], blocker['id'], 'blocked_by')
+        task_blocked.sweep(c, H.now())
+        review = next(s['id'] for s in H.type_get(c, task['type_id'])['steps'] if s['name'] == 'Review 1 Fixes')
+        H.task_update(c, 'human:ana', task['id'], step='Review 1 Fixes')
+        moved = H.task(c, task['id'])
+        assert (moved['step_id'], moved['status'], moved['blocked_from_step']) == (review, 'waiting', review)
+        H.task_update(c, H.KEEPER, blocker['id'], status='done')
+        cleared = H.task(c, task['id'])
+        assert cleared['blocked_since'] is None
+        assert cleared['step_id'] == review, 'the hold clears where the person put it, not where it was held from'
