@@ -503,6 +503,71 @@ def test_a_run_that_only_read_waits_out_a_lapsed_lease_for_the_runner_to_restore
     assert 'only read (Read)' in claim(api, machine)['message']['body']
 
 
+def hub_update(api, shift=0):
+    """The events Tico's own update writes (app.py, hosted_updates.py), at now; `shift` moves both that many seconds
+    into the past, as an update that finished before the run began."""
+    from backend.store import H
+    with api.app.state.store.transaction() as c:
+        H.event(c, H.KEEPER, 'system.update.started', '0.4.17', {'from': '0.4.16', 'to': '0.4.17'})
+        H.event(c, H.KEEPER, 'system.update.finished', '0.4.17',
+                {'outcome': 'succeeded', 'from': '0.4.16', 'to': '0.4.17', 'message': ''})
+        if shift:
+            for row in c.execute("SELECT id,ts FROM events WHERE action LIKE 'system.update.%'").fetchall():
+                c.execute("UPDATE events SET ts=? WHERE id=?", (H.shift(row[1], seconds=shift), row[0]))
+
+
+def lapsed_shell_run(api, summary='ls notes', update=None):
+    """A run that ran one shell command, then its lease lapsed. `update` is None for no update during the run, or
+    the seconds hub_update moves its events (0 for an update during the run)."""
+    machine, message, attempt = setup_attempt(api)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'updated'}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}},
+        {'seq': 2, 'kind': 'tool', 'payload': {'tool': 'shell', 'status': 'started', 'item_id': 'sh1',
+                                               'summary': summary}}]},
+        machine['token'])
+    if update is not None:
+        hub_update(api, shift=update)
+    expire(api, attempt['id'])
+    assert claim(api, machine) is None
+    assert job_state(api, attempt['job_id']) == 'uncertain'
+    return machine, message, attempt
+
+
+@pytest.mark.parametrize('update', [0, -300])
+def test_a_lapse_during_tico_s_update_with_only_a_shell_command_is_retried_by_the_sweep(api, update):
+    """An update restarts the computer under a run with no report. A shell command that names no outside action is
+    what a computer's own restart report is judged by, so the sweep resumes it at once. The updater restarts the
+    runners after it reports its finish, so a run that began minutes after the update finished is cut by it too."""
+    machine, message, attempt = lapsed_shell_run(api, update=update)
+    [review] = get(api, 'bots/ops/execution-review')['jobs']
+    assert review['stopped'] == 'restarted' and "Tico's update restarted the computer" in review['reason']
+    assert [d['state'] for d in sweep(api)] == ['queued']
+    ready(api, machine, ['ops'])
+    body = claim(api, machine)['message']['body']
+    assert "interrupted at " in body and "by Tico's update restarting its computer" in body
+    assert 'Check what already happened first' in body
+
+
+def test_a_lapse_during_tico_s_update_that_ran_a_named_outside_action_stays_held(api):
+    machine, message, attempt = lapsed_shell_run(api, summary='gh pr merge 12', update=0)
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    [review] = get(api, 'bots/ops/execution-review')['jobs']
+    assert review['stopped'] == 'changed'
+    assert ("Tico's update restarted the computer under the run after the run recorded merge pull request"
+            in review['reason'])
+
+
+@pytest.mark.parametrize('update', [None, -3600])
+def test_a_lapse_with_no_hub_update_during_the_run_stays_held(api, update):
+    """A lapsed lease is also what a computer that went offline looks like, so with no update during the run it is
+    held like any other run that acted (an update an hour before the run began is no cause for it either)."""
+    machine, message, attempt = lapsed_shell_run(api, update=update)
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    [review] = get(api, 'bots/ops/execution-review')['jobs']
+    assert review['stopped'] == 'changed' and "Tico's update" not in review['reason']
+
+
 @pytest.mark.parametrize('writer', [('Bash', None), ('Write', 'call-1'), ('mcp__hub__hub_task_update', None)])
 def test_a_run_that_used_a_tool_that_writes_waits_and_its_review_lists_the_calls(api, writer):
     """Any call outside the reads, a subagent's included, holds the run for review; the card names every call."""
@@ -1300,7 +1365,7 @@ def test_stopped_runs_in_needs_you_are_one_line_per_run_and_a_restart_says_it_is
     issue = stopped_issue(api)
     assert issue['title'].endswith('has 1 stopped run holding up work')
     assert issue['detail'] == (f'Its computer interrupted this run at {H.parse_ts(finished):%H:%M} UTC, usually for a '
-                               'restart or update, not a bug. 1 queued request waits until you decide.')
+                               'restart, not a bug. 1 queued request waits until you decide.')
     [line] = issue['runs']
     assert (line['title'], line['cause'], line['why'], line['routine']) == (
         'Ship the receipts fix', 'interrupted', 'Interrupted on its computer', True)
@@ -1401,7 +1466,9 @@ def test_a_stops_cause_comes_from_what_the_run_recorded_not_from_its_text():
     assert stop_cause(attempt('expired')) == 'timeout'
     assert stop_cause(attempt('interrupted', stop='human:ana')) == 'stopped'
     assert stop_cause(None) == 'partway'
-    assert {'stopped', 'partway'}.isdisjoint(ROUTINE_STOPS)
+    assert stop_cause(attempt('expired'), update=True) == 'update'   # the update's lapse, not a lost computer
+    assert stop_cause(attempt('interrupted', limited=True), update=True) == 'quota'  # a usage limit still says so
+    assert {'stopped', 'partway'}.isdisjoint(ROUTINE_STOPS) and 'update' in ROUTINE_STOPS
 
 
 def stop_partway(api, machine, attempt, thread):

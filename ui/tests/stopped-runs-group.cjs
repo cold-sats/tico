@@ -1,0 +1,136 @@
+// Tico's own update restarts every computer at once, so the runs it stops arrive together. Needs you groups the ones
+// safe to try again under one row with "Try all again" (one request per run) and "Don't retry", with each run's own
+// line under Details. A run that is not safe keeps its own line and choices outside the group. Someone who may not
+// decide the runs sees the same row with no buttons. Checked at desktop and phone widths.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {html, uiFile} = require('./support/page.cjs');
+const {unrouted} = require('./support/routes.cjs');
+const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();
+
+// Two bots' runs stopped by the update within ten minutes, plus one run that may have acted.
+const update = (title, at, retry, id) => ({title, cause: 'update', why: 'Tico’s update', routine: true, retry,
+  at, decided: null, jobs: [{id, attempt_id: `a-${id}`, decided: null}]});
+const issues = canReview => [
+  {kind: 'uncertain_work', title: 'ops has 2 stopped runs holding up work', bot: 'ops', severity: 'error',
+    detail: 'Tico’s update stopped these runs at 14:02 UTC, not a bug. 1 queued request waits until you decide.',
+    needs_person: true, action: 'review', can_review: canReview, more_runs: 0,
+    runs: [update('Ship the receipts fix', '2026-10-28T14:02:10Z', true, 'u1'),
+      update('Weekly numbers', '2026-10-28T14:03:40Z', true, 'u2')].map(run => canReview ? run : {...run, jobs: undefined})},
+  {kind: 'uncertain_work', title: 'builder has 2 stopped runs holding up work', bot: 'builder', severity: 'error',
+    detail: 'Tico’s update stopped these runs at 14:04 UTC, not a bug.', needs_person: true, action: 'review',
+    can_review: canReview, more_runs: 0,
+    runs: [update('Billing 3/5', '2026-10-28T14:04:05Z', true, 'u3'),
+      update('Review the migration plan', '2026-10-28T14:04:05Z', false, 'u4')].map(run => canReview ? run : {...run, jobs: undefined})},
+];
+
+(async () => {
+  const t0 = Date.now();
+  const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
+  const shot = async (page, name) => { if (process.env.SHOTS) await page.screenshot({path: `${process.env.SHOTS}/${name}.png`}); };
+  // Opens Needs you on a fresh page for the runs above; `canReview` is what the server says this person may decide.
+  async function open({canReview, width, height}) {
+    const page = await browser.newPage({viewport: {width, height}, serviceWorkers: 'block'});
+    const errors = [], decisions = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.route('**/*', route => {
+      const p = new URL(route.request().url()).pathname;
+      const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
+      const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
+      if (ui && fs.existsSync(uiFile(ui[1])))
+        return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
+      if (p.startsWith('/vendor/') && fs.existsSync(uiFile(p.slice(1)))) return route.fulfill({body: fs.readFileSync(uiFile(p.slice(1))),
+        contentType: p.endsWith('.woff2') ? 'font/woff2' : 'application/javascript'});
+      if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
+      if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+      const config = {version: '0.4.17', app_name: 'Tico'};
+      if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
+      if (p === '/api/v2/config') return json(config);
+      if (p === '/api/v2/health') return json({audience: 'owner', attention: 0, checks: [], computers: [], waiting: [], slow: [],
+        failures: [], stuck: [], checked: new Date().toISOString()});
+      if (p === '/api/v2/health-monitor') return json({state: 'active', on: true, findings: []});
+      if (p === '/api/v2/system/metrics') return json({});
+      if (p === '/api/employees' || p === '/api/issues') return json([]);
+      if (p === '/api/humans' || p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}], teams: {}});
+      if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true,
+        health_issues: issues(canReview)});
+      if (p === '/api/v2/status') return json({bots: []});
+      if (p === '/api/v2/needs-you') return json({items: []});
+      if (p === '/api/v2/operations') return json({machines: [], services: [], issues: issues(canReview)});
+      const reconcile = p.match(/^\/api\/v2\/jobs\/([^/]+)\/reconcile$/);
+      if (reconcile) {
+        const body = route.request().postDataJSON();
+        decisions.push({id: reconcile[1], ...body});
+        return json({job_id: reconcile[1], state: body.decision === 'resume' ? 'queued' : 'cancelled', deferred: false});
+      }
+      if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+      return json(unrouted(p));
+    });
+    await page.goto('https://tico-ui.test/#/settings');
+    const panel = page.locator('.needs-you');
+    await panel.waitFor({timeout: t(5000)});
+    return {page, panel, errors, decisions};
+  }
+
+  try {
+    // A person who may decide: one row for the three safe runs, the unsafe one stays on its own line.
+    {
+      const {page, panel, errors, decisions} = await open({canReview: true, width: 1280, height: 800});
+      const group = panel.locator('[data-update-group]');
+      assert.match(await group.locator('strong').innerText(), /Tico.s update at 14:02 UTC stopped 3 runs/);
+      assert.deepEqual(await group.locator('.issue-buttons > button').allInnerTexts(), ['Try all again', 'Don’t retry', 'Details']);
+      assert.equal(await group.locator('[data-group-runs]').isVisible(), false);
+      await group.locator('[data-group-details]').click();
+      assert.equal(await group.locator('[data-group-details]').innerText(), 'Hide details');
+      assert.deepEqual(await group.locator('[data-group-runs] .stopped-name').allInnerTexts(),
+        ['Ship the receipts fix', 'Weekly numbers', 'Billing 3/5']);
+      await group.locator('[data-group-details]').click();
+      assert.equal(await group.locator('[data-group-runs]').isVisible(), false);
+      // The unsafe run is not in the group: it keeps its own line and its own choices, Don't retry first.
+      const risky = panel.locator('.stopped-line', {hasText: 'Review the migration plan'});
+      assert.equal(await group.locator('[data-group-runs]', {hasText: 'Review the migration plan'}).count(), 0);
+      assert.deepEqual(await risky.locator('button').allInnerTexts(), ['Don’t retry', 'Try again']);
+      await shot(page, 'stopped-group-desktop');
+      // Try all again posts each run's own request once, then every grouped line says what was queued.
+      await group.locator('[data-group-decision=resume]').click();
+      await group.locator('[data-group-result]', {hasText: 'Queued to try again.'}).waitFor();
+      assert.deepEqual(decisions.map(d => [d.id, d.decision]), [['u1', 'resume'], ['u2', 'resume'], ['u3', 'resume']]);
+      await group.locator('[data-group-details]').click();
+      assert.deepEqual(await group.locator('[data-group-runs] [data-result]').allInnerTexts(),
+        ['Queued to try again.', 'Queued to try again.', 'Queued to try again.']);
+      assert.deepEqual(await risky.locator('button:enabled').allInnerTexts(), ['Don’t retry', 'Try again']);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // Phone: the row keeps inside the panel, its buttons as tall as their words, and nothing scrolls sideways.
+    {
+      const {page, panel, errors} = await open({canReview: true, width: 390, height: 800});
+      const fit = await panel.locator('[data-update-group]').evaluate(el => {
+        const box = node => node.getBoundingClientRect();
+        const host = el.closest('.needs-you');
+        return {group: box(el), panel: box(host), buttons: [...el.querySelectorAll('button')].map(b => box(b).height),
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth};
+      });
+      assert.ok(fit.group.left >= fit.panel.left && fit.group.right <= fit.panel.right, `group fits the panel: ${JSON.stringify(fit)}`);
+      assert.ok(fit.buttons.every(h => h < 44), `buttons sized to their words: ${fit.buttons}`);
+      assert.ok(fit.overflow <= 0, `no sideways scroll on a phone: ${fit.overflow}`);
+      await shot(page, 'stopped-group-phone');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // Someone who may not decide: the same group and times, no buttons, and no choice on any line.
+    {
+      const {page, panel, errors, decisions} = await open({canReview: false, width: 1280, height: 800});
+      const group = panel.locator('[data-update-group]');
+      assert.match(await group.locator('strong').innerText(), /stopped 3 runs/);
+      assert.deepEqual(await group.locator('.issue-buttons > button').allInnerTexts(), ['Details']);
+      assert.equal(await panel.locator('[data-run-decision], [data-group-decision]').count(), 0);
+      assert.equal(await panel.locator('.stopped-picks').count(), 0);
+      assert.deepEqual(decisions, []);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    console.log(`PASS: Tico's update stops are grouped in Needs you, at desktop and phone widths (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

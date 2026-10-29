@@ -178,14 +178,7 @@ function bindStoppedLines(panel, list) {
         buttons.forEach(b => b.disabled = true);
         result.classList.remove('err'); result.textContent = 'Saving choice…';
         try {
-          // A message folded into the run rides on it: one choice settles them all. A request already settled, by an
-          // earlier click that stopped partway or a choice saved while the bot was busy, is not sent again.
-          for (const job of run.jobs.filter(job => !job.decided)) {
-            const done = await reconcileStopped(job, decision);
-            job.decided = decision; job.deferred = !!done.deferred;
-          }
-          // Kept on the run itself, so Needs you closed and reopened before a refresh still shows the outcome.
-          run.decided = run.jobs.every(job => job.decided === decision) ? decision : 'mixed';
+          await decideRun(run, decision);
           li.dataset.decided = run.decided;
           result.textContent = stoppedOutcome(run.decided, stoppedWaits(run));
         } catch (e) {
@@ -198,9 +191,80 @@ function bindStoppedLines(panel, list) {
     });
   });
 }
+// Saves one run's choice on each of its requests. A message folded into the run rides on it, so one choice settles them
+// all; a request already settled (an earlier click that stopped partway, or a choice saved while the bot was busy) is
+// not sent again. The run keeps the outcome, so Needs you closed and reopened before a refresh still shows it.
+async function decideRun(run, decision) {
+  for (const job of run.jobs.filter(job => !job.decided)) {
+    const done = await reconcileStopped(job, decision);
+    job.decided = decision; job.deferred = !!done.deferred;
+  }
+  run.decided = run.jobs.every(job => job.decided === decision) ? decision : 'mixed';
+  return run.decided;
+}
+// Tico's own update restarts every computer at once, so the runs it stops arrive together. Those safe to try again (the
+// rule the sweep and the review card share) are grouped under one choice when two or more stopped within ten minutes.
+// Each keeps its own line under Details, and a run that is not safe keeps its own choice outside the group.
+const UPDATE_GROUP_MS = 10 * 60e3;
+function updateGroup(issues) {
+  const members = issues.flatMap(issue => (issue.runs || []).map((run, i) => ({issue, run, i, at: Date.parse(run.at || '')})))
+    .filter(m => m.run.cause === 'update' && m.run.retry && !m.run.decided && Number.isFinite(m.at));
+  if (members.length < 2) return null;
+  const first = Math.min(...members.map(m => m.at));
+  if (Math.max(...members.map(m => m.at)) - first > UPDATE_GROUP_MS) return null;
+  return {members, at: new Date(first)};
+}
+// Only the people who may decide a run see its buttons: the others read the same line with no choice to make.
+const updateGroupRow = group => {
+  const n = group.members.length, deciding = group.members.filter(m => m.issue.can_review && m.run.jobs).length;
+  const scope = deciding === n ? 'all of them' : `the ${deciding} you can decide`;
+  return `<div class="settings-issue stopped-group" data-update-group>
+    <div><strong>Tico’s update at ${group.at.toISOString().slice(11, 16)} UTC stopped ${n} run${n === 1 ? '' : 's'}</strong>
+    <p>${deciding ? `Try all again applies to ${scope}. Each bot checks what already happened first.` : 'Only the operator of each bot, or BotOps, can decide them.'}</p></div>
+    <div class="issue-buttons">${deciding ? '<button class="primary" type="button" data-group-decision="resume">Try all again</button><button class="ghost" type="button" data-group-decision="dismiss">Don’t retry</button>' : ''}<button class="ghost" type="button" data-group-details aria-expanded="false">Details</button></div>
+    <ul class="stopped-lines" data-group-runs hidden></ul><p class="stopped-result" data-group-result role="status" aria-live="polite"></p></div>`;
+};
+function bindUpdateGroup(panel, group, stopped) {
+  const el = panel.querySelector('[data-update-group]');
+  if (!el) return;
+  const runs = el.querySelector('[data-group-runs]'), result = el.querySelector('[data-group-result]');
+  // Each member's own line moves under Details, keeping the buttons bound by bindStoppedLines.
+  for (const m of group.members) {
+    m.li = panel.querySelector(`[data-runs="${stopped.indexOf(m.issue)}"] [data-run-row="${m.i}"]`);
+    if (m.li) runs.append(m.li);
+  }
+  const details = el.querySelector('[data-group-details]');
+  details.onclick = () => {
+    runs.hidden = !runs.hidden;
+    details.setAttribute('aria-expanded', String(!runs.hidden));
+    details.textContent = runs.hidden ? 'Details' : 'Hide details';
+  };
+  const picks = [...el.querySelectorAll('[data-group-decision]')];
+  picks.forEach(button => button.onclick = async () => {
+    const decision = button.dataset.groupDecision;
+    const todo = group.members.filter(m => m.issue.can_review && m.run.jobs && !m.run.decided && m.li);
+    picks.forEach(b => b.disabled = true);
+    result.classList.remove('err'); result.textContent = 'Saving choices…';
+    try {
+      // One request per run, in order: a refusal stops the rest and shows here, and the runs already saved stay saved.
+      for (const m of todo) {
+        await decideRun(m.run, decision);
+        m.li.dataset.decided = m.run.decided;
+        m.li.querySelector('[data-result]').textContent = stoppedOutcome(m.run.decided, stoppedWaits(m.run));
+      }
+    } catch (e) {
+      result.classList.add('err'); result.textContent = e.message;
+      picks.forEach(b => b.disabled = false);
+      return;
+    }
+    result.textContent = decision === 'resume' ? 'Queued to try again.' : 'Dismissed. Tico won’t retry these runs.';
+    void refresh(false);
+  });
+}
 function needsYou() {
   document.querySelector('.needs-you')?.remove();
   const issues = (S.status?.health_issues || []).filter(needsPerson);
+  const group = updateGroup(issues);
   const panel = document.createElement('section'); panel.className = 'needs-you';
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Needs you');
   const stopped = [];
@@ -208,7 +272,7 @@ function needsYou() {
   const row = issue => `<div class="settings-issue" data-key="${esc(needsYouKey(issue))}"><div><strong>${esc(issue.title)}</strong><p>${esc(issue.detail)}</p>${issue.action && issue.action !== 'review' ? `<p class="muted">${esc(issue.action)}</p>` : ''}${stoppedLines(issue, stopped)}</div>
     <div class="issue-buttons">${issue.kind === 'uncertain_work' ? `<button class="ghost" data-execution-review="${esc(issue.bot)}">${issue.runs?.length ? 'Details' : 'Review now'}</button>` : ''}${runnerRestartButton(issue)}${issue.bot ? `<a class="ghost" href="#/bot/${esc(issue.bot)}/more">Open bot</a>` : ''}</div></div>`;
   panel.innerHTML = `<header><h2>${issues.length === 1 ? 'One thing needs you' : `${issues.length} things need you`}</h2><button class="ghost" data-close aria-label="Close">Close</button></header>
-    <div data-list>${issues.map(row).join('') || '<p>Nothing needs you right now.</p>'}</div>
+    <div data-list>${group ? updateGroupRow(group) : ''}${issues.map(row).join('') || '<p>Nothing needs you right now.</p>'}</div>
     <div class="row"><button class="ghost" data-snooze>Snooze for an hour</button><a class="ghost" href="#/settings">Open Settings</a></div>`;
   const close = () => { needsYouRemember({seen: issues.map(needsYouKey)}); panel.remove(); };
   panel.querySelector('[data-close]').onclick = close;
@@ -219,6 +283,7 @@ function needsYou() {
   panel.querySelectorAll('a[href]').forEach(a => a.addEventListener('click', close));
   bindRunnerRestart(panel);
   bindStoppedLines(panel, stopped);
+  if (group) bindUpdateGroup(panel, group, stopped);
   document.body.appendChild(panel);
   return panel;
 }
