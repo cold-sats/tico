@@ -36,9 +36,17 @@ LOG = logging.getLogger("tico.system_routines")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS system_runs(
  id TEXT PRIMARY KEY, job TEXT NOT NULL, started TEXT NOT NULL, finished TEXT, ok INTEGER NOT NULL DEFAULT 1,
- result TEXT NOT NULL DEFAULT '', route TEXT, fallback TEXT, cost_usd REAL, runs INTEGER NOT NULL DEFAULT 1);
+ result TEXT NOT NULL DEFAULT '', route TEXT, fallback TEXT, cost_usd REAL, runs INTEGER NOT NULL DEFAULT 1,
+ first_started TEXT);
 CREATE INDEX IF NOT EXISTS system_runs_job ON system_runs(job, started);
 """
+
+
+def ensure(c):
+    """Add what SCHEMA's table gained since a database was made: `first_started`, the first of a folded row's quiet
+    repeats (its `started` moves to the latest), so counts can spread `runs` over the time they happened."""
+    if "first_started" not in {row[1] for row in c.execute("PRAGMA table_info(system_runs)")}:
+        c.execute("ALTER TABLE system_runs ADD COLUMN first_started TEXT")
 
 KEEP = 50                   # rows per job
 QUIET_WRITE_SECONDS = 60    # a repeated quiet run moves its row at most this often
@@ -536,9 +544,10 @@ def save(c, run, finished=None):
         c.execute("UPDATE system_runs SET started=?,finished=?,runs=runs+1 WHERE id=?", (run.started, finished, last["id"]))
         return last["id"]
     rid = H.new_id()
-    c.execute("INSERT INTO system_runs(id,job,started,finished,ok,result,route,fallback,cost_usd) VALUES(?,?,?,?,?,?,?,?,?)",
+    c.execute("INSERT INTO system_runs(id,job,started,finished,ok,result,route,fallback,cost_usd,first_started) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?)",
               (rid, run.job, run.started, finished, 0 if run.error else 1, run.error or run.result or "Done",
-               run.route, run.fallback, run.cost_usd))
+               run.route, run.fallback, run.cost_usd, run.started))
     return rid
 
 

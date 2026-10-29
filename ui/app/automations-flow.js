@@ -69,10 +69,10 @@ function auContainer(steps, key) {
 }
 
 function auTriggerCard(a) {
-  const t = a.trigger, src = auSource(t);
+  const t = a.trigger, system = a.kind === 'system', src = system ? a.schedule || a.controls?.schedule || '' : auSource(t);
   return `<div class="au-card au-trig${AU.ed?.kind === 'trigger' ? ' sel' : ''}" role="button" tabindex="0" data-open="trigger">
-    <div class="au-cr"><span class="nav-icon" aria-hidden="true">${AU_TRIGGER_ICONS[t.type] || 'schedule'}</span><span class="au-ct">${esc(AU_TRIGGER_WORDS[t.type] || auCap(t.type))}</span></div>
-    ${src || (t.filters || []).length ? `<div class="au-chips">${src ? `<span class="au-c1"${t.type === 'event' && t.name ? ` title="${esc(t.name)}"` : ''}>${esc(src)}</span>` : ''}${(t.filters || []).map(c => `<span class="au-c1">${esc(auCondText(c))}</span>`).join('')}</div>` : ''}
+    <div class="au-cr"><span class="nav-icon" aria-hidden="true">${system ? 'settings' : AU_TRIGGER_ICONS[t.type] || 'schedule'}</span><span class="au-ct">${esc(system ? 'System job' : AU_TRIGGER_WORDS[t.type] || auCap(t.type))}</span></div>
+    ${src || (t.filters || []).length ? `<div class="au-chips">${src ? `<span class="au-c1"${!system && t.type === 'event' && t.name ? ` title="${esc(t.name)}"` : ''}>${esc(src)}</span>` : ''}${(t.filters || []).map(c => `<span class="au-c1">${esc(auCondText(c))}</span>`).join('')}</div>` : ''}
   </div>`;
 }
 const auTag = type => `<span class="au-tag${['llm', 'bot_turn', 'paths'].includes(type) ? ' acc' : ''}">${esc(AU_STEP_WORDS[type] || type)}</span>`;
@@ -133,8 +133,14 @@ function auPathsHTML(s) {
     <div class="au-dots" role="tablist" aria-label="Paths">${cols.map(({p, i}, n) => `<button type="button" role="tab" data-dot="${i}" aria-label="${esc(p.name || 'Path')}" aria-selected="${n === 0}"></button>`).join('')}</div>
   </div>`;
 }
+// A built-in says what it does; one Tico runs from its own code also says it is fixed.
+function auAboutHTML(a) {
+  if (!a.builtin || !(a.description || a.readonly)) return '';
+  return `<div class="au-about">${a.description ? `<p>${esc(a.description)}</p>` : ''}
+    ${a.readonly ? '<p class="au-lock"><span class="nav-icon" aria-hidden="true">lock</span>Built-in: can’t be edited or deleted</p>' : ''}</div>`;
+}
 function auFlowHTML(a) {
-  return `<div class="au-track">${auTriggerCard(a)}${auStepsHTML(a.steps, 'root')}</div>`;
+  return `<div class="au-track">${auAboutHTML(a)}${auTriggerCard(a)}${auStepsHTML(a.steps, 'root')}</div>`;
 }
 
 // The phone's dots follow the swipe; a tap on one scrolls to its path.

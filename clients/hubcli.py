@@ -243,6 +243,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub automation delete <id>
     hub automation run <id> [--input JSON] run now with a sample trigger output; prints the run
     hub automation runs <id> [--limit N] [--before RUN]
+    hub automation recent-runs [--range 5m|1h|24h|7d] [--status S] [--trigger T] [--owner O] [--limit N] [--before B]
+                                           runs across every automation you may see, newest first
+    hub automation stats [--range 5m|1h|24h|7d]
+                                           runs, failures and cost per automation over the range
     hub automation versions <id> [--pending]
     hub automation restore <id> <n>        make version n current (a pending one keeps its number)
     hub automation discard <id> <n>        drop a pending version (a proposal); the automation stays as it is
@@ -1889,6 +1893,17 @@ def parser():
     s.add_argument("--limit", type=int)
     s.add_argument("--before", help="`next` from the page before")
     s.set_defaults(fn="automation runs")
+    s = auto.add_parser("recent-runs", help="runs across every automation you may see, newest first")
+    s.add_argument("--range", choices=["5m", "1h", "24h", "7d"])
+    s.add_argument("--status", choices=["done", "failed", "waiting", "running"])
+    s.add_argument("--trigger", help="message, task_received, schedule, webhook, listening, event or system")
+    s.add_argument("--owner", help="person:<id>, bot:<slug> or group:<id>")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--before", help="`next` from the page before")
+    s.set_defaults(fn="automation recent-runs")
+    s = auto.add_parser("stats", help="runs, failures and cost per automation over a range")
+    s.add_argument("--range", choices=["5m", "1h", "24h", "7d"])
+    s.set_defaults(fn="automation stats")
     s = auto.add_parser("versions")
     s.add_argument("id")
     s.add_argument("--pending", action="store_true", help="proposals only")

@@ -562,7 +562,9 @@ Do not ask about anything a sensible default answers.
 
 ## Commands
 - Read: `hub automation list`, `hub automation show <id>`, `hub automation runs <id>`, `hub automation versions <id>`,
-  `hub automation question-sets` (the saved question sets a Decide step can name).
+  `hub automation question-sets` (the saved question sets a Decide step can name). Across every automation:
+  `hub automation recent-runs [--range 1h] [--status failed]` and `hub automation stats [--range 24h]` (which fail or
+  cost the most). A message from the Automations page may carry its filters (`automations_filter` in its refs).
 - New: `hub automation create --file -` (the flow as JSON on stdin). Its owner is the asker unless they named another.
   It is saved off; send `"enabled": true` only when the request said to turn it on.
 - Edit: when the message names an automation (its `automation` reference), `hub automation update <id> --file -` with the

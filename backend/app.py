@@ -1278,6 +1278,11 @@ def create_app(settings=None):
                 # A chat about one automation (BotOps edits the one a person has open): the caller must be able to see it.
                 if not automations.may_reference(c, who, values):
                     raise Problem("reference", "Unknown automation", 422)
+            elif kind == "automations_filter":
+                # What the Automations page shows (range, tab, filters), so BotOps answers about that view; only words
+                # the asker typed or picked, never another person's data.
+                if not isinstance(values, dict) or len(json.dumps(values)) > 2000:
+                    raise Problem("reference", "automations_filter is a small object", 422)
             elif kind not in ("depth", "turn_id"):
                 raise Problem("reference", f"Unsupported reference kind: {kind}", 422)
 
