@@ -45,8 +45,8 @@ an `Option` with that fallback. An answer it cannot read at all is a `protocol` 
 `MIN_RUNNER_RELEASE` in `backend/runner_versions.py` is the oldest runner release the server gives work to. A runner
 below it is paused: its claims answer `{"attempt": null, "paused": "<why>"}`, it logs the reason, and Computers shows it
 as incompatible. It is not refused outright. A runner that does not report a release (a development checkout) is never
-paused. Today the floor is 0.1.0, wider than the window. Raise it to the previous minor in any release that drops
-something older runners still need.
+paused. The floor is 0.4.0, the previous minor release, matching the supported window. Raise it with the window at
+each new minor release.
 
 ## Changing the contract
 
