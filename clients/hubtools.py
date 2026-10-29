@@ -3135,7 +3135,8 @@ def inbox_send(api, args):
 
 @tool("hub_bot_update", "Change a bot's settings (reports to, name, description, status) with your own rights. "
       "BotOps acts as the person who asked, citing their message. "
-      "A manager bot changes only its direct report's name and description.",
+      "A manager bot changes only its direct reports: their model, task model, name and description. Creating, archiving "
+      "or restoring a report goes through BotOps the same way, within the weekly limit.",
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
        "description": _s("New description"), "template": _s("Correct the template metadata; use hub_template_list"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
