@@ -20,14 +20,13 @@
 .ask-sees{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:140px;padding:1px 8px;border-radius:999px;
   font-size:var(--t-xs);color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .ask-sees[hidden]{display:none}
-.ask-sees .nav-icon{font-size:13px}
 .ask-sees [data-ask-sees-name]{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ask-full{margin-left:auto;font-size:var(--t-sm);white-space:nowrap;color:var(--accent-quiet)}
 .ask-full:hover{color:var(--accent)}
 .ask-ib{width:32px;height:32px;flex:0 0 32px;border:0;border-radius:8px;background:transparent;color:var(--muted);display:inline-flex;
-  align-items:center;justify-content:center;cursor:pointer}
+  align-items:center;justify-content:center;cursor:pointer;font:inherit;font-size:15px;line-height:1}
 .ask-ib:hover{background:var(--surface2);color:var(--ink)}
-.ask-ib .nav-icon{font-size:20px}
+#ask-add{font-size:22px;font-weight:300}
 .ask-head .ask-sees+.ask-ib,.ask-head h2+.ask-ib{margin-left:auto}
 .ask-head .ask-ib+.ask-full{margin-left:4px}
 .ask-menu{display:flex;flex-direction:column;padding:4px;border-bottom:1px solid var(--line)}
@@ -43,7 +42,7 @@
 .ask-member{border:0;background:transparent;color:var(--ink);font:inherit;font-weight:600;cursor:pointer;padding:2px 4px;border-radius:6px}
 .ask-member:hover{background:var(--surface2)}
 .ask-drop{margin-left:auto;width:28px;height:28px;flex-basis:28px}
-.ask-drop .nav-icon{font-size:16px}
+.ask-drop{font-size:13px}
 .ask-thread{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;padding:8px 12px;display:flex;flex-direction:column}
 .ask-thread .conv-run.chat{border:0;padding:6px 0}
 .ask-thread .conv-run-head{display:none}

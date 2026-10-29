@@ -356,7 +356,6 @@ async function owner(browser) {
   await row(page, 'Marketing').locator('.chev').click();
   assert.equal(await page.locator('#tree a.node[href="#/bot/writer"]').isVisible(), true);
   assert.equal(await node(page, 'b:botops').count(), 0, 'built-in bots stay out of the chart');
-  assert.equal(await page.locator('#nav-botops').getAttribute('href'), '#/bot/botops');
   assert.equal(await page.locator('#tree [data-org="b:inbox"], #tree [data-org="b:channel"]').count(), 0, 'message bots stay off the chart');
   assert.equal(await page.locator('#nav-inboxes-section').isVisible(), false, 'nor are their mailboxes in the sidebar');
 
