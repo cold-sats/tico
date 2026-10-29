@@ -455,6 +455,21 @@ def to_qa(api, task):
         H.task_update(c, "bot:cpo", task["id"], step="In QA")
 
 
+def test_a_same_company_bot_finishing_a_check_leaves_a_waiting_one_to_a_free_bot_of_another_company(api):
+    """Both reviewers were busy, so the QA check waits. rev-a, on another company than the builder, frees up without a
+    pass seeing it; then rev-c, on the builder's company, finishes its check. rev-a takes the waiting one."""
+    team(api)
+    task = qa_ticket(api)
+    set_pool(api, task, "In QA", ["rev-c", "rev-a"], limit=1)
+    held_a, held_c = busy(api, "rev-a"), busy(api, "rev-c")
+    to_qa(api, task)
+    assert checks(api, task) == []
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='done' WHERE id=?", (held_a["id"],))
+        H.task_update(c, "bot:rev-c", held_c["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
 def test_qa_goes_to_the_builders_company_bot_when_the_other_company_bot_is_at_its_limit(api):
     team(api)
     task = qa_ticket(api)

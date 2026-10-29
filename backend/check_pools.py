@@ -607,7 +607,12 @@ def _take(c, wait, only=None):
         return None
     free, reason = ranked(c, ticket, step, slugs, limit)
     if only is not None:
-        free = [s for s in free if s == only]
+        builder = builder_makers(c, ticket)
+        def same(slug):
+            return bool(makers(c, slug, known_only=True) & builder)
+        # The bot that just finished takes the wait, unless it runs on the builder's company and a free bot does not:
+        # then the best free one does, as `ranked` orders them.
+        free = [] if only not in free else [only] if not same(only) or same(free[0]) else free
     for slug in free:
         # Taken before the request is filed, so the one-check-per-head rule does not see its own wait.
         c.execute("UPDATE check_waits SET state='filed',updated=? WHERE id=?", (H.now(), wait["id"]))
@@ -617,7 +622,7 @@ def _take(c, wait, only=None):
                                   note="Tico routed this waiting check to the first available reviewer.")
         else:
             child = _file(c, ticket, step, slug, wait["title"], heads, None,
-                          "it finished a check and took the next waiting one" if only else _why(c, slug))
+                          "it finished a check and took the next waiting one" if slug == only else _why(c, slug))
         if child:
             c.execute("UPDATE check_waits SET child_id=? WHERE id=?", (child["id"], wait["id"]))
             return child
@@ -634,7 +639,8 @@ def _all_waiting(c):
 
 
 def freed(c, row):
-    """A check request left the board (done, declined or closed): its bot takes the oldest waiting check it may."""
+    """A check request left the board (done, declined or closed): its bot takes the oldest waiting check it may. A wait
+    a free bot of a better company takes instead does not stop it looking at the next."""
     parent = H.TR.parent_of(c, row["id"]) if H.is_bot(row.get("owner")) else None
     if not parent or not is_check_title(c, H.task(c, parent), row.get("title")):
         return None
@@ -646,7 +652,7 @@ def freed(c, row):
         if not found or slug not in found[1]:
             continue
         child = _take(c, wait, only=slug)
-        if child:
+        if child and child["owner"] == "bot:" + slug:
             return child
     return None
 
