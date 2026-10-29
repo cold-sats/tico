@@ -288,6 +288,11 @@ async function deliveryChoice(viewport, shot) {
     assert.equal(await main.innerText(), 'Steer');
     assert.equal(await hint.innerText(), 'Steer: reaches Head of Engineering now.');
     assert.ok(await caret.isVisible(), 'a bot gets the split send');
+    // Nothing picked, so nothing is sent: the server reads the comment, and the default is what the button shows.
+    await modal.locator('textarea').fill('Which is first?');
+    await main.click();
+    await modal.locator('.task-comments', {hasText: 'Which is first?'}).waitFor();
+    assert.equal('delivery' in posted.at(-1), false);
     await caret.click();
     assert.deepEqual(await menu.locator('button').allInnerTexts(), ['Queue', 'Set as goal']);
     const box = await menu.boundingBox(), arrow = await caret.boundingBox();
@@ -336,6 +341,30 @@ async function deliveryChoice(viewport, shot) {
     await hint.filter({hasText: 'Queue:'}).waitFor();
     assert.equal(await main.innerText(), 'Queue');
     assert.equal(await caret.isHidden(), true);
+
+    // A participant's plain comment waits for the bot's next turn, and nothing is picked: the send carries no delivery,
+    // so an @mention of the bot that filed the task wakes it as the server reads the text. The button says so first.
+    await page.evaluate(() => localStorage.removeItem('hub.task.delivery'));
+    choices = {default: 'queue', steer: true, steers: true, goal: true};
+    to = {bot: 'lead', wakes: false, mention: ['lead']};
+    await page.evaluate(() => taskChatRead(TASK_CHAT));
+    await hint.filter({hasText: 'Queue: saved'}).waitFor();
+    assert.equal(await main.innerText(), 'Queue');
+    await modal.locator('textarea').fill('Billing first; @lead, is the API page in?');
+    await hint.filter({hasText: 'Steer: reaches'}).waitFor();
+    assert.equal(await main.innerText(), 'Steer');
+    await main.click();
+    await modal.locator('.task-comments', {hasText: 'Billing first; @lead'}).waitFor();
+    assert.equal('delivery' in posted.at(-1), false);
+    // A way the person picks is sent, and the @mention does not change it: the menu keeps the draft and sets the way.
+    await modal.locator('textarea').fill('Also the API page, @lead.');
+    assert.equal(await main.innerText(), 'Steer');
+    await caret.click();
+    await menu.locator('[data-deliver="queue"]').click();
+    assert.equal(await main.innerText(), 'Queue');
+    await main.click();
+    await modal.locator('.task-comments', {hasText: 'Also the API page, @lead.'}).waitFor();
+    assert.equal(posted.at(-1).delivery, 'queue');
 
     // A task with no bot keeps the plain arrow, and its comment carries no delivery.
     to = {bot: null, wakes: false, mention: []}; choices = null;

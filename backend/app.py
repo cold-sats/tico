@@ -3423,8 +3423,9 @@ def create_app(settings=None):
     def delivery_choices(c, who, row):
         """What a comment's `delivery` can do for this reader on this task (docs/tasks.md): `default`, the choice
         a comment with none named gets (steer when it wakes its bot, queue when not; null when no bot is on the task);
-        `steer`, whether the reader may steer (may_steer); `steers`, whether that bot's harness writes a steer into its
-        running turn; `goal`, whether the reader may set the task session's goal. None for a bot reader."""
+        `steer`, whether the reader may steer (chat_goals.may_direct); `steers`, whether that bot's harness writes a
+        steer into its running turn; `goal`, whether the reader may set the task session's goal (chat_goals.may_set).
+        None for a bot reader."""
         if who.role == "bot":
             return None
         target = H.comment_target(c, who.actor, row)
@@ -3435,15 +3436,9 @@ def create_app(settings=None):
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(target),)).fetchone()
         config = json.loads(config[0] or "{}") if config else {}
         from .harnesses import steers
-        from .chat_goals import may_set
-        return {"default": "steer" if wakes else "queue", "steer": may_steer(c, who, row, moves),
+        from .chat_goals import may_direct, may_set
+        return {"default": "steer" if wakes else "queue", "steer": may_direct(c, who, row),
                 "steers": steers(config, config.get("runtime")), "goal": may_set(c, auth, who, row["conversation_id"])}
-
-    def may_steer(c, who, row, moves):
-        """Whether a person's comment may wake the task's bot by choice: the ones the wake rule treats as directing its
-        work (H.comment_wakes), a mover or someone on the task. Anyone else's comment waits for the bot's next turn,
-        as it does without a delivery, so a reader never spends a bot's turns on a task that isn't theirs."""
-        return moves or H.task_participant(c, who.actor, row)
 
     def task_runs(c, who, tid, limit=200):
         """The runs that worked this task, each with the model that actually ran it (`ran_on`). A review that
@@ -4165,6 +4160,7 @@ def create_app(settings=None):
             mark = H.jobs_mark(c)
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
+            from .chat_goals import may_direct, set_goal
             from .task_review import comment_rights, check_ask
             comment_rights(c, auth, who, task_id)
             ask = check_ask(c, task_id, body.ask, auth, who)
@@ -4181,9 +4177,11 @@ def create_app(settings=None):
             # plain comment. Queue and goal never wake it: a goal's own control does (set_goal below).
             target = H.comment_target(c, who.actor, row)
             steered = body.delivery == "steer" and H.is_bot(target)
-            if steered and who.role != "bot" and not may_steer(c, who, row, moves):
+            if steered and who.role != "bot" and not may_direct(c, who, row):
                 raise Problem("delivery", "Only someone on this task can steer its bot: send it with queue, or "
                               "@name the bot that filed it", 403)
+            if body.delivery == "goal" and who.role != "bot" and not may_direct(c, who, row):
+                raise Problem("delivery", "Only someone on this task can set its goal: send it with queue", 403)
             if steered:
                 wakes_bot = True
             elif body.delivery:
@@ -4211,7 +4209,6 @@ def create_app(settings=None):
             goal = None
             if body.delivery == "goal":
                 # The task session's goal, set as a chat's is (chat_goals.set_goal): its /goal control wakes the bot.
-                from .chat_goals import set_goal
                 goal = set_goal(c, auth, who, row["conversation_id"], "set", body.text, send)
             if gate and not ask_ingest.matches(ingest, msg.get("to_actor")):
                 gate = None

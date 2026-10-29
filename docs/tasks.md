@@ -1080,9 +1080,11 @@ default when your comment would wake the bot, Queue when not) reaches the bot no
 the bot's harness can steer (otherwise the bot takes it after that turn); **Queue** waits for the bot's next turn on
 this task without waking it now; **Set as goal** makes the text the goal of the bot's session for this task, as `/goal`
 does in a chat (no files, not public; [chat goals](chat-goals.md)). Only someone on the task (its owner, requester or a
-mover) may steer; anyone else's comment is queued, as it always was. The caret opens the other two, and the choice is
-kept per task in this browser. Before you send, the box says what the chosen way does. With no bot on the task (everyone
-on it is a person) the send is a plain arrow, and the box says no bot gets the message. `GET /v2/tasks/{id}` carries
+mover) may steer or set the goal; anyone else's comment is queued, as it always was. The caret opens the other two, and
+the choice is kept per task in this browser. Only a choice made there is sent: with none, the comment reads as any
+other does, so an @mention of the bot that filed the task wakes it. Before you send, the box says what the chosen way
+does. With no bot on the task (everyone on it is a person) the send is a plain arrow, and the box says no bot gets the
+message. `GET /v2/tasks/{id}` carries
 this view: each bot reply in `comments` has its `run`; `execution` is the owning bot's newest run in the task's own
 room, or a newer one for a person's message there, shaped as in a conversation snapshot with `from_person`; `comment_to`
 (`bot`, `wakes`, `mention`) is who your next comment reaches; and `comment_delivery` (`default`, `steer`, `steers`,
@@ -1093,8 +1095,8 @@ rooms) has no `execution`: that room's runs belong to the chat.
 `hub task comment <id> "<text>" --steer|--queue|--goal` (one of the three), `hub_task_comment` with `delivery`, and
 `POST /v2/tasks/{id}/comments` with `delivery` choose the same ways. Without one a comment wakes the bot as it always
 has. A question (`ask`) always wakes the one it is for, so it takes no delivery; `needs_action` takes none or `steer`;
-a `goal` takes no files and cannot be public. A refused combination is a 422, a steer by someone not on the task a
-403, and nothing is saved.
+a `goal` takes no files and cannot be public. A refused combination is a 422, a steer or goal by someone not on the task
+a 403, and nothing is saved.
 
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
 that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished

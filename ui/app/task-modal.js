@@ -553,19 +553,21 @@ function taskLiveHTML(x, stopping = '', sent = '') {
   return `<div class="thinking task-live" role="status" aria-label="${esc(t.tip)}${step ? ': ' + esc(step) : ''}">${
     working && x.attempt_id ? taskStepsFold(x.attempt_id, label, true) : label}${pendingHintHTML(run)}${stop}</div>`;
 }
+// Whether the draft @mentions one of `names`, as the server reads an @mention (backend/hubdb.py _at): the name, not
+// inside a word or another @name.
+const taskNamed = (names, draft) => (names || []).some(n =>
+  new RegExp('(?<![\\w@])@' + n.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&') + '(?![\\w-])', 'i').test(draft || ''));
 // Who the comment being written will reach (GET /v2/tasks/{id} `comment_to`), said before it is sent: no bot at all,
 // or a bot that reads it on its next run on the task unless the draft @mentions it.
 function taskComposerTo(to, draft) {
   if (!to) return '';
   if (!to.bot) return 'No bot gets this message: it is saved on the task for the people on it.';
-  // As the server reads an @mention (backend/hubdb.py _at): the name, not inside a word or another @name.
-  const at = n => new RegExp('(?<![\\w@])@' + n.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&') + '(?![\\w-])', 'i');
-  const named = (to.mention || []).some(n => at(n).test(draft || ''));
-  if (to.wakes || named) return '';
+  if (to.wakes || taskNamed(to.mention, draft)) return '';
   return `Saved for ${botDisplayName(to.bot)}'s next run on this task.${to.mention?.length ? ` Write @${to.mention[0]} to ask now.` : ''}`;
 }
 // How a comment reaches its bot (docs/tasks.md "Comments"): steer reaches it now, queue waits for its next turn on this
-// task, goal makes the text the goal of its task session. Steer is the default; the choice is kept per task.
+// task, goal makes the text the goal of its task session. With no pick the server reads the comment; the pick is kept
+// per task.
 const TASK_DELIVERIES = ['steer', 'queue', 'goal'];
 const TASK_DELIVERY_LABEL = {steer: 'Steer', queue: 'Queue', goal: 'Set as goal'};
 const TASK_DELIVERY_KEY = 'hub.task.delivery';
@@ -594,12 +596,21 @@ function taskDeliveryWays(state) {
   const cd = state.data?.comment_delivery || {};
   return TASK_DELIVERIES.filter(m => (m !== 'steer' || cd.steer) && (m !== 'goal' || cd.goal));
 }
-// The way the next comment is sent: the one chosen for this task, else the server's default (steer when the comment
-// would wake the bot anyway, queue when not).
+// The way the person picked for this task from the caret menu, or null. Only a pick is sent: with none, the server
+// reads the comment as it reads any other, and an @mention of the bot that filed the task wakes it.
+function taskDeliveryPicked(state) {
+  const saved = taskDeliveryRows().find(([k]) => k === String(state.id))?.[1];
+  return taskDeliveryWays(state).includes(saved) ? saved : null;
+}
+// The way the next comment is shown to go: the pick, else the way the server reads the draft (steer when it @mentions
+// the bot that filed the task, else the server's default for a comment with no text, steer when it would wake the bot
+// anyway and queue when not).
 function taskDeliveryMode(state) {
-  const saved = taskDeliveryRows().find(([k]) => k === String(state.id))?.[1], ways = taskDeliveryWays(state);
-  const fallback = state.data?.comment_delivery?.default;
-  return ways.includes(saved) ? saved : ways.includes(fallback) ? fallback : 'queue';
+  const picked = taskDeliveryPicked(state);
+  if (picked) return picked;
+  const to = state.data?.comment_to, draft = $('textarea', state.host)?.value;
+  const fallback = taskNamed(to?.mention, draft) ? 'steer' : state.data?.comment_delivery?.default;
+  return taskDeliveryWays(state).includes(fallback) ? fallback : 'queue';
 }
 // What the chosen way does, said before sending: the server's own words for each way (docs/tasks.md).
 function taskDeliveryHint(state) {
@@ -800,7 +811,8 @@ async function taskCommentSend(state) {
   button.disabled = box.disabled = true; caret.disabled = true; button.title = 'Sending…'; status.textContent = '';
   try {
     const body = {text, public: !!$('[data-comment-public]', form)?.checked};
-    if (taskDeliverySplit(state)) body.delivery = taskDeliveryMode(state);
+    const picked = taskDeliverySplit(state) ? taskDeliveryPicked(state) : null;
+    if (picked) body.delivery = picked;
     const data = await post(`/v2/tasks/${encodeURIComponent(state.id)}/comments`, body);
     if (!taskChatCurrent(state)) return;
     box.value = ''; box.style.height = ''; TASK_DRAFTS.delete(String(state.id)); state.sending = false;

@@ -71,6 +71,31 @@ def test_only_someone_on_the_task_may_steer_its_bot(api):
     assert queued["woke"] is False
 
 
+def test_only_someone_on_the_task_may_set_its_goal(api):
+    machine, tid = world(api)
+    cid = get(api, f"tasks/{tid}")["task"]["conversation_id"]
+    # Ben can read the task and write its bot, but he is not on it: the send offers no goal, and a goal comment
+    # is refused.
+    assert get(api, f"tasks/{tid}", "ben-test")["comment_delivery"]["goal"] is False
+    r = api.post(f"/api/v2/tasks/{tid}/comments", json={"text": "Drop the billing work.", "delivery": "goal"},
+                 headers=headers("ben-test"))
+    assert r.status_code == 403 and "delivery" in r.text, r.text
+    assert all(c["body"] != "Drop the billing work." for c in get(api, f"tasks/{tid}")["comments"])
+    assert get(api, f"conversations/{cid}/goal")["goal"] is None
+
+
+def test_the_goal_route_sets_no_task_sessions_goal_for_someone_off_the_task(api):
+    machine, tid = world(api)
+    cid = get(api, f"tasks/{tid}")["task"]["conversation_id"]
+    r = api.post(f"/api/v2/conversations/{cid}/goal", json={"action": "set", "objective": "Drop the billing work."},
+                 headers=headers("ben-test"))
+    assert r.status_code == 403, r.text
+    assert get(api, f"conversations/{cid}/goal")["goal"] is None
+    # Ana, on the task, sets it.
+    done = post(api, f"conversations/{cid}/goal", {"action": "set", "objective": "Finish the billing work."})
+    assert done["goal"]["objective"] == "Finish the billing work."
+
+
 def test_a_bot_whose_harness_cannot_take_goals_offers_no_goal(api):
     machine, tid = world(api, goals=False)
     cd = get(api, f"tasks/{tid}")["comment_delivery"]

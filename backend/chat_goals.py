@@ -220,10 +220,19 @@ def install(app, store, auth, mutate, send):
         return mutate(request, body, work)
 
 
+def may_direct(c, who, task):
+    """Whether `who` may direct a task's bot by choice, with a steer or a goal: someone on the task, or a person who
+    may move any task (the owner, a mover). Anyone else's comment waits for the bot's next turn, as it does without a
+    delivery, so a reader never spends a bot's turns on a task that isn't theirs."""
+    mover = who.role == "owner" or who.role == "human" and H.can_move(c, who.actor)
+    return mover or H.task_participant(c, who.actor, task)
+
+
 def access(c, auth, who, cid):
     """Who may change a conversation's goal: the one rule for the goal route and for a task comment that sets the
     task session's goal (delivery goal). The caller may write the conversation and its bot, the bot's harness keeps
-    goals, and the room is open. Returns (conversation, bot); refuses with the Problem a goal change gets."""
+    goals, and the room is open. A task's own room is directed by someone on the task (may_direct), as its bot is
+    steered. Returns (conversation, bot); refuses with the Problem a goal change gets."""
     conv = auth.conversation(c, who, cid, write=True)
     bot, supported, _ = capabilities(c, auth, conv)
     if bot:
@@ -233,6 +242,9 @@ def access(c, auth, who, cid):
         raise Problem("goal_unsupported", "This bot's harness doesn't support goals", 409)
     if conv.get("closed_at"):
         raise Problem("closed", "Start a new chat first", 409)
+    task = H.task(c, conv["task_id"]) if conv.get("kind") == "task" and conv.get("task_id") else None
+    if task and who.role != "bot" and not may_direct(c, who, task):
+        raise Problem("forbidden", "Only someone on this task can set its goal", 403)
     return conv, bot
 
 
