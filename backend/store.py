@@ -865,6 +865,8 @@ class Store:
             H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
+            from . import cards as _cards
+            c.executescript(_cards.SCHEMA)
             from . import task_manager as _task_manager
             c.executescript(_task_manager.SCHEMA)
             from . import health_monitor as _health_monitor

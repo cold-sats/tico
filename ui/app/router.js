@@ -20,7 +20,7 @@ function route() {
     DECIDE_WANT = q.get('item') || q.get('task') || q.get('approval') || '';
     location.replace(NEEDS_YOU); return;
   }
-  overviewStop();
+  overviewStop(); DASH = null;
   $('#main').classList.remove('overview-layout');
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;
@@ -67,7 +67,9 @@ function route() {
     location.hash = MEETINGS + (id ? '?meeting=' + encodeURIComponent(id) : ''); return;
   }
   else if (S.route === '#/inbox' || S.route.startsWith('#/inbox?')) { location.hash = MAIL; return; }
-  else if (S.route === OVERVIEW) pageOverview();
+  else if (S.route === OVERVIEW) pageDashboard('dashboard');
+  else if (S.route === OVERVIEW_CAMPUS) pageOverview();
+  else if (S.route.startsWith(TEAM_PAGE)) pageDashboard('team:' + decodeURIComponent(S.route.slice(TEAM_PAGE.length).split('?')[0]));
   else if (S.route === WELCOME) pageWelcome();
   else if (S.route === '#/roadmap') pageRoadmap();
   else if (S.route === '#/tags') pageTags();

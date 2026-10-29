@@ -112,7 +112,10 @@ A file inherits the visibility of where it came from:
   to its participants and to the team owner, who can open direct chats. Personal Assistant rooms are the exception:
   only their human sees them, the owner included. In a shared bot room, only its members do. Anyone else does not learn a file name, a count, a version or an
   activity entry from it, on the bot's page or anywhere else;
-- **bot-wide**: anyone with **Read** permission on the bot ([See, Read and Write](permissions.md)). **See** alone lets them reach the bot's page, not read its files.
+- **bot-wide**: anyone with **Read** permission on the bot ([See, Read and Write](permissions.md)). **See** alone lets them reach the bot's page, not read its files;
+- **pinned wider**: a page a person pinned to the Dashboard or a team page is also readable by that place's audience
+  ([Overview](overview.md)). A bot's own pins never widen, and a private task's file is never pinned there. Each pin and
+  unpin is in the file's activity (`pinned`, `unpinned`, with the place).
 
 The check applies to every list row, the total, metadata, activity, versions and every download.
 

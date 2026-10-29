@@ -672,7 +672,7 @@ function renderTree() {
       const renaming = manage && ORG_EDIT?.rename === node.id;
       return `<li class="dept org-group"><div class="noderow" data-org="${esc(key)}"${manage && !renaming ? ' draggable="true"' : ''}>
         <button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.name)}">›</button>
-        ${renaming ? orgGroupFieldHTML(node.name) : `<span class="dept-label" data-toggle="${esc(key)}" role="button" tabindex="0">${esc(node.name)}</span>`}
+        ${renaming ? orgGroupFieldHTML(node.name) : (here => `<a class="dept-label${here ? ' cur' : ''}" href="${TEAM_PAGE}${esc(encodeURIComponent(node.id))}" draggable="false"${here ? ' aria-current="page"' : ''}>${esc(node.name)}</a>`)(S.route === TEAM_PAGE + encodeURIComponent(node.id))}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button>${orgMayBet() ? `<button type="button" class="org-tool${orgGroupBet(node.id) ? ' on' : ''}" data-group-bet="${esc(node.id)}" title="Bet" aria-label="Bet for ${esc(node.name)}" aria-expanded="${ORG_BET === node.id}"><span class="nav-icon" aria-hidden="true">flag</span></button>` : ''}<button type="button" class="org-tool" data-group-delete="${esc(node.id)}" title="Delete group" aria-label="Delete group ${esc(node.name)}"${ORG_DELETING.has(node.id) ? ' disabled' : ''}><span class="nav-icon" aria-hidden="true">delete</span></button></span>` : ''}</div>
         ${manage && ORG_BET === node.id && orgMayBet() ? orgBetPopHTML({id: node.id, bet_id: orgGroupBet(node.id)}) : ''}
@@ -791,8 +791,8 @@ function renderTree() {
   };
   document.querySelectorAll('[data-nav]').forEach(a => {
     // More is current only for pages the bottom bar does not have its own button for.
-    const mobilePrimary = S.route === OVERVIEW || S.route === UPDATES || S.route.startsWith(UPDATES + '?') || isTasksRoute(S.route) || S.route.startsWith('#/task/') || S.route === '#/roadmap';
-    const isCurrent = (a.dataset.nav === 'overview' && S.route === OVERVIEW) ||
+    const mobilePrimary = S.route === OVERVIEW || S.route === OVERVIEW_CAMPUS || S.route === UPDATES || S.route.startsWith(UPDATES + '?') || isTasksRoute(S.route) || S.route.startsWith('#/task/') || S.route === '#/roadmap';
+    const isCurrent = (a.dataset.nav === 'overview' && (S.route === OVERVIEW || S.route === OVERVIEW_CAMPUS)) ||
       (a.dataset.nav === 'welcome' && S.route === WELCOME) ||
       (a.dataset.nav === 'meetings' && (S.route === MEETINGS || S.route.startsWith(MEETINGS + '?'))) ||
       (a.dataset.nav === 'mail' && (S.route === MAIL || S.route.startsWith(MAIL + '?') || S.route.startsWith(MESSAGING))) ||

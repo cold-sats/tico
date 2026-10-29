@@ -88,6 +88,15 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub file touch <file-id|url>           you edited a linked document again: it moves to the top
     hub file import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
     hub file list [--bot X] [--limit N]    what is on the page, newest activity first
+    hub card list [--place P]              what is pinned at dashboard, team:<group>, bot:<slug> or task:<id>
+    hub card add <template> [--place P] [--team G] [--weeks N] [--count N] [--kpi ID] [--title T] [--size S]
+                                           tasks_by_status, done_per_week, needs_you, spend, kpi, automation_runs,
+                                           latest_pages; a bot pins to its own sidebar or task
+    hub card update <id> [--title T] [--team G] [--weeks N] [--count N] [--kpi ID]
+    hub card remove <id>
+    hub pin add <place> <page:FILE|card:ID> [--size small|medium|large] [--position N]
+    hub pin update <pin-id> [--size S] [--position N]
+    hub pin remove <pin-id>
     hub doc list [--prefix sales/]         the company's internal docs by path
     hub doc read <id|path|external:id|manual:name>  one doc in full, with its revision and provenance
     hub doc search "<words>" [--manual] [--market]
@@ -795,6 +804,40 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--task")
     s.set_defaults(fn="file import")
+    cards = sub.add_parser("card", help="Tico's built-in cards on the Dashboard, team pages, sidebars and tasks").add_subparsers(dest="sub")
+    s = cards.add_parser("list", help="what is pinned at a place, with what each card shows you")
+    s.add_argument("--place")
+    s.set_defaults(fn="card list")
+    for name, helptext in (("add", "add a built-in card, pinned at --place"), ("update", "change a card's heading or settings")):
+        s = cards.add_parser(name, help=helptext)
+        s.add_argument("template" if name == "add" else "card")
+        s.add_argument("--title")
+        s.add_argument("--team")
+        s.add_argument("--weeks", type=int)
+        s.add_argument("--count", type=int)
+        s.add_argument("--kpi")
+        if name == "add":
+            s.add_argument("--place")
+            s.add_argument("--size", choices=["small", "medium", "large"])
+        s.set_defaults(fn="card " + name)
+    s = cards.add_parser("remove", help="remove a card and its pins")
+    s.add_argument("card")
+    s.set_defaults(fn="card remove")
+    pins = sub.add_parser("pin", help="pin a page or a card at a place").add_subparsers(dest="sub")
+    s = pins.add_parser("add", help="pin page:<file id> or card:<id> at a place")
+    s.add_argument("place")
+    s.add_argument("item")
+    s.add_argument("--size", choices=["small", "medium", "large"])
+    s.add_argument("--position", type=int)
+    s.set_defaults(fn="pin add")
+    s = pins.add_parser("update", help="resize or move a pin")
+    s.add_argument("pin")
+    s.add_argument("--size", choices=["small", "medium", "large"])
+    s.add_argument("--position", type=int)
+    s.set_defaults(fn="pin update")
+    s = pins.add_parser("remove", help="unpin")
+    s.add_argument("pin")
+    s.set_defaults(fn="pin remove")
     docs = sub.add_parser("doc", help="read and search team docs and external sources, write internal docs, ask the Librarian").add_subparsers(dest="sub")
     s = docs.add_parser("archive", help="archive an internal Doc with your rights")
     s.add_argument("ref")

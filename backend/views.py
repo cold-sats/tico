@@ -1778,22 +1778,28 @@ def needs_bots(items, me):
     the sidebar's numbers do not wait for every page."""
     counts = {}
     for it in items:
-        actor = None
-        if it.get("kind") == "approval":
-            actor = it.get("requested_by") or it.get("requester")
-        elif it.get("kind") == "ask":
-            actor = it.get("requester")
-        elif it.get("kind") in ("task", "question", "waiting"):
-            ask = it.get("ask") or {}
-            on = it.get("waiting_on") if it.get("status") == "waiting" and H.is_human(it.get("waiting_on")) else None
-            if it.get("owner") == me or ask.get("to_actor") == me or on == me:
-                asked = (it.get("origin_actor") or "keeper") if it.get("requester") == "keeper" else it.get("requester")
-                options = [it.get("owner")] if on == me else [ask.get("from_actor"), asked, it.get("owner")]
-                actor = (next((a for a in options if H.is_bot(a) and a != me), None)
-                         or next((a for a in options if a and a != me), None))
+        actor = needs_actor(it, me)
         if H.is_bot(actor):
             counts[actor] = counts.get(actor, 0) + 1
     return counts
+
+
+def needs_actor(it, me):
+    """The teammate one Needs-you item goes with (needs_bots), or None."""
+    actor = None
+    if it.get("kind") == "approval":
+        actor = it.get("requested_by") or it.get("requester")
+    elif it.get("kind") == "ask":
+        actor = it.get("requester")
+    elif it.get("kind") in ("task", "question", "waiting"):
+        ask = it.get("ask") or {}
+        on = it.get("waiting_on") if it.get("status") == "waiting" and H.is_human(it.get("waiting_on")) else None
+        if it.get("owner") == me or ask.get("to_actor") == me or on == me:
+            asked = (it.get("origin_actor") or "keeper") if it.get("requester") == "keeper" else it.get("requester")
+            options = [it.get("owner")] if on == me else [ask.get("from_actor"), asked, it.get("owner")]
+            actor = (next((a for a in options if H.is_bot(a) and a != me), None)
+                     or next((a for a in options if a and a != me), None))
+    return actor
 _FLEET_CACHE = {}
 
 

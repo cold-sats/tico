@@ -1680,6 +1680,40 @@ PROBLEM = {"type": "object", "required": ["error"], "properties": {"error": {
     "properties": {"code": {"type": "string"}, "detail": {"type": "string"}, "retryable": {"type": "boolean"},
                    "sign_in": {"type": "string", "description": "On a 401 with built-in sign-in: the login path"}}}}}
 
+TAGS['Cards and pins'] = ("Tico's built-in cards and where pages and cards are pinned: the Dashboard, team pages, bot "
+                          "sidebars and tasks (docs/overview.md). A card shows each reader only what they may see.")
+STABLE.extend([
+    ('/api/v2/places/{place}', 'get', 'Cards and pins', 'getPlace', 'A place\'s pins in order (dashboard, team:<group>, '
+     'bot:<slug>, task:<id>), each card with what it shows the caller; unreadable pages are left out', 'Place'),
+    ('/api/v2/places/{place}', 'put', 'Cards and pins', 'savePlace', 'Save a Dashboard or team page (its default cards '
+     'become pins) and a team page\'s audience', 'Place'),
+    ('/api/v2/places/{place}/order', 'post', 'Cards and pins', 'orderPlace', 'Put every pin at a place in this order', 'Place'),
+    ('/api/v2/pins', 'post', 'Cards and pins', 'addPin', 'Pin page:<file id> or card:<id> at a place: a bot its own, to '
+     'its sidebar or task; a person who arranges the Dashboard or a team page there', 'Place'),
+    ('/api/v2/pins/{pid}', 'patch', 'Cards and pins', 'updatePin', 'Resize or move a pin', 'Place'),
+    ('/api/v2/pins/{pid}', 'delete', 'Cards and pins', 'removePin', 'Unpin; a card pinned nowhere else goes with it', None),
+    ('/api/v2/cards', 'get', 'Cards and pins', 'listCards', 'Cards the caller made or sees pinned, with their data; '
+     '`ids` reads up to 50', 'CardList'),
+    ('/api/v2/cards', 'post', 'Cards and pins', 'addCard', 'A built-in card, pinned at `place` in the same write', None),
+    ('/api/v2/cards/choices', 'get', 'Cards and pins', 'getCardChoices', 'Card templates and their settings, the teams, '
+     'and the KPIs and pages the caller may pick', None),
+    ('/api/v2/cards/{cid}', 'patch', 'Cards and pins', 'updateCard', 'Change a card\'s heading or settings', None),
+    ('/api/v2/cards/{cid}', 'delete', 'Cards and pins', 'removeCard', 'Remove a card and every pin of it', None),
+])
+SCHEMAS['Card'] = obj({'id': 'n', 'template': {'enum': ['tasks_by_status', 'done_per_week', 'needs_you', 'spend', 'kpi',
+                                                        'automation_runs', 'latest_pages']},
+                       'title': 's', 'heading': 's', 'name': 's', 'team_name': 's', 'settings': 'o', 'hidden': 'b',
+                       'data': {'type': ['object', 'null'], 'description': 'What the card shows the caller; null when hidden'}},
+                      required=['id', 'template', 'heading', 'settings', 'hidden', 'data'])
+SCHEMAS['CardList'] = obj({'cards': items(ref('Card')), 'next': 'n'})
+SCHEMAS['Place'] = obj({'place': 's', 'kind': {'enum': ['dashboard', 'team', 'bot', 'task']}, 'saved': 'b', 'can_edit': 'b',
+                        'pins': items(obj({'id': 'n', 'item': 'n', 'position': 'i', 'size': {'enum': ['small', 'medium', 'large']},
+                                           'card': ref('Card'),
+                                           'page': obj({'file_id': 's', 'title': 's', 'bot': 's', 'updated': 's', 'archived': 'b'})},
+                                          required=['id', 'item', 'position', 'size'])),
+                        'audience': {'type': 'object', 'description': 'A team page: who sees it (docs/permissions.md)'},
+                        'name': 's', 'group': 's'}, required=['place', 'kind', 'saved', 'can_edit', 'pins'])
+
 DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "
     "never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. "
