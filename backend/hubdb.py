@@ -6086,15 +6086,16 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         waiting_row["waiting_on"] = (waiting_on or None) if waiting_on is not None else None
         if (status == "waiting" and row["status"] != "waiting" and is_bot(row["owner"])
                 and not waiting_for(conn, waiting_row)):
-            if row["owner"] == row["requester"] and not str(note or "").strip():
+            # A move by hand into a waiting step is a manual hold (declared_hold, the same rule as _set_status), which
+            # never reopens by itself. A person's move needs no note: nobody has to answer a hold they declared.
+            durable = declared_hold(conn, actor, row, step, step_id)
+            if row["owner"] == row["requester"] and not str(note or "").strip() and not (durable and is_human(actor)):
                 refuse(conn, actor, "lint",
                        "You asked for this task yourself, so nobody will answer it: say what you are waiting on "
                        "in a note, file the child task, blocker or approval first, name the person with --on, "
                        "or keep working")
             # A note naming what it waits on parks it, but a note wakes nobody (bots parked tasks "waiting on
-            # BotOps" that BotOps never heard of): the hint goes back with the write. A move by hand into a waiting
-            # step is a manual hold (declared_hold, the same rule as _set_status), which never reopens by itself.
-            durable = declared_hold(conn, actor, row, step, step_id)
+            # BotOps" that BotOps never heard of): the hint goes back with the write.
             self_wait = self_wait if durable else [f"nothing this task waits on is recorded, so it goes back to open in "
                          f"{STRANDED_GRACE_HOURS} hours: file a subtask for whoever must act (hub task create "
                          f"--parent {task_id} --owner <bot or person>), relate a blocker, name the person with --on, "
