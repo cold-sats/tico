@@ -137,7 +137,7 @@ def check(base_ref):
     for path, code in sorted(pairs.keys() - baseline):
         problems.append(f"new finding: {path} {code} x{pairs[(path, code)]}")
     for path, code in sorted(baseline - pairs.keys()):
-        problems.append(f"stale baseline entry (no longer fires, remove with --write): {path} {code}")
+        problems.append(f"stale baseline entry (no longer fires; drop it with `python3 scripts/lint_baseline.py --write`): {path} {code}")
     for path, code in sorted(baseline):
         if code in NEVER_BASELINED:
             problems.append(f"{code} may not be baselined: {path}")
