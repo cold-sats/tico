@@ -1106,21 +1106,32 @@ def ensure_market_reads(conn):
 
 
 def _rename_strategy_tables(conn):
-    """Rename each table the Strategy Bot had under its old name, before the migrations below create the new name
-    empty. Only when the old table exists and the new one does not: when both are there the new one is kept and the
-    old one is left as it is, so no row is dropped. The indexes are recreated under their new names on the table."""
-    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    """Move each table the Strategy Bot had under its old name to its new one, before the migrations below create the
+    new name empty. The old table is looked for again under the write lock, so two servers starting together move it
+    once. When both names are there (an older release reopened the file and wrote to the old one), the old rows the
+    new table lacks are copied in and the old table goes, so the log and merges read every row. The indexes take the
+    new names on the table."""
+    def tables():
+        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for old, new, schema, old_indexes in (
             ("ceo_merges", "strategy_merges", STRATEGY_MERGES_SCHEMA, ("ceo_merges_original", "ceo_merges_person")),
             ("ceo_actions", "strategy_actions", STRATEGY_ACTIONS_SCHEMA, ("ceo_actions_created",))):
-        if old not in tables or new in tables:
+        if old not in tables():
             continue
         conn.execute("BEGIN IMMEDIATE")
         try:
-            conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
+            found = tables()
+            if old in found and new in found:
+                kept = {row[1] for row in conn.execute(f"PRAGMA table_info({new})")}
+                columns = ",".join(row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept)
+                conn.execute(f"INSERT OR IGNORE INTO {new}({columns}) SELECT {columns} FROM {old}")
+                conn.execute(f"DROP TABLE {old}")
+            elif old in found:
+                conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
             for index in old_indexes:
                 conn.execute(f"DROP INDEX IF EXISTS {index}")
-            _apply(conn, schema)            # its CREATE TABLE is a no-op now; its indexes take the new names
+            if old in found:
+                _apply(conn, schema)        # its CREATE TABLE is a no-op now; its indexes take the new names
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
