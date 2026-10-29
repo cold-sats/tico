@@ -58,10 +58,10 @@ def compact_at(config):
 
 # The fields a manager bot changes on its report (report_managers.SCOPES). Anyone who manages the bot may undo them.
 REPORT_UNDO = ("model", "task_model", "identity")
-# A page of the settings history carries at most this many bytes of before and after values, and each row's other fields
-# count HISTORY_ROW_BYTES more; a change past that starts the next page (`next_before`).
+# A page of the settings history is at most this many bytes of JSON as it is sent, counted in UTF-8 (an emoji is four
+# bytes, not one character). A change past that starts the next page (`next_before`); one bigger than a page on its own
+# is sent without its values (`truncated`), so the page still moves on past it.
 HISTORY_PAGE_BYTES = 256 * 1024
-HISTORY_ROW_BYTES = 512
 
 
 class SettingsAdmin:
@@ -1033,7 +1033,8 @@ class SettingsAdmin:
         """One page of the settings changes the caller may see, newest first, and `next_before` for the page after it.
         The owner sees every change, and every transition on the first page. A person who manages a bot sees only the
         changes its manager bots made to the bots they manage (via `report_manager`), and no transitions. Anyone else
-        sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes."""
+        sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. A page stays within
+        HISTORY_PAGE_BYTES (a change alone over that comes without its values, `truncated`)."""
         if who.role not in ("owner", "human"):
             raise Problem("forbidden", "Only the owner, or a person who manages the bot, sees its settings changes",
                           403)
@@ -1041,29 +1042,11 @@ class SettingsAdmin:
         limit = max(1, min(int(limit), 200))
         # The bots first: a caller who manages none reads no change at all, and anyone else reads only theirs.
         bots = None if owner and not bot else self._history_bots(c, who, bot)
-        rows = []
-        if bots is None or bots:
-            where, args = [], []
-            if not owner:
-                where.append("via=?")
-                args.append(report_managers.VIA)
-            if bots is not None:
-                where.append(f"bot IN ({','.join('?' * len(bots))})")
-                args.extend(bots)
-            if before:
-                where.append("(created,id) < (SELECT created,id FROM settings_changes WHERE id=?)")
-                args.append(before)
-            sql = "SELECT * FROM settings_changes" + (" WHERE " + " AND ".join(where) if where else "")
-            rows = c.execute(sql + " ORDER BY created DESC, id DESC LIMIT ?", (*args, limit + 1)).fetchall()
-        page, used = [], 0
-        for row in rows[:limit]:
-            weight = len(row["before_json"]) + len(row["after_json"]) + HISTORY_ROW_BYTES
-            if page and used + weight > HISTORY_PAGE_BYTES:
+        rows = self._history_rows(c, owner, bots, before, limit)
+        changes, used = [], 2   # the page's JSON: its brackets, then each change with the comma after it
+        for row in rows:
+            if len(changes) == limit:
                 break
-            page.append(row)
-            used += weight
-        changes = []
-        for row in page:
             value = dict(row)
             value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
             try:
@@ -1079,14 +1062,45 @@ class SettingsAdmin:
                            and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
             value["can_undo"] = bool(not row["undone_at"] and current == value["after"]
                                      and ((owner and owners_undo) or self._report_undo(row)))
+            value["truncated"] = False
+            size = len(encode(value).encode())
+            if size > HISTORY_PAGE_BYTES:
+                # Bigger than a page on its own (a long list of people, say): sent without its values. It is still
+                # taken here, so the page moves on past it.
+                value.update(before=None, after=None, truncated=True)
+                size = len(encode(value).encode())
+            if changes and used + size + 1 > HISTORY_PAGE_BYTES:
+                break
             changes.append(value)
+            used += size + 1
         transitions = []
         if owner and not before:
             ids = c.execute("SELECT id FROM bot_transitions" + (" WHERE bot=?" if bot else "")
                             + " ORDER BY created DESC LIMIT ?", ([bot] if bot else []) + [limit]).fetchall()
             transitions = [self.get(c, who, row[0]) for row in ids]
         return {"changes": changes, "transitions": transitions,
-                "next_before": page[-1]["id"] if len(rows) > len(page) else None}
+                "next_before": changes[-1]["id"] if len(rows) > len(changes) else None}
+
+    @staticmethod
+    def _history_rows(c, owner, bots, before, limit):
+        """The newest `limit` + 1 changes the caller may see, newest first (`bots` None: every bot's). Each bot is its
+        own query, an index seek (`settings_changes_bot`, or `settings_changes_bot_via` for a person's view) that reads
+        at most `limit` + 1 rows, so a bot's ordinary history is never read by a person who sees none of it."""
+        rows = []
+        for slug in [None] if bots is None else bots:
+            where, args = [], []
+            if not owner:
+                where.append("via=?")
+                args.append(report_managers.VIA)
+            if slug is not None:
+                where.append("bot=?")
+                args.append(slug)
+            if before:
+                where.append("(created,id) < (SELECT created,id FROM settings_changes WHERE id=?)")
+                args.append(before)
+            sql = "SELECT * FROM settings_changes" + (" WHERE " + " AND ".join(where) if where else "")
+            rows += c.execute(sql + " ORDER BY created DESC, id DESC LIMIT ?", (*args, limit + 1)).fetchall()
+        return sorted(rows, key=lambda row: (row["created"], row["id"]), reverse=True)[:limit + 1]
 
     def _history_bots(self, c, who, bot):
         """The bots whose settings changes the caller may see, as a list that may be empty: the one named, else every

@@ -229,3 +229,45 @@ def test_a_person_sees_only_the_manager_changes_to_the_bots_they_manage(api):
     newer_changes(api, "helper", 2, lambda i: H.shift(H.now(), seconds=i))
     listed = get(api, "settings/history", token="cara-test")["changes"]
     assert [row["bot"] for row in listed] == ["helper", "helper"]
+
+
+def settings_reads(api, monkeypatch, path, token):
+    """The answer to a GET of the settings history, and the query plan of each statement it runs on settings_changes."""
+    store = api.app.state.store
+    read, statements = store.read, []
+
+    @contextmanager
+    def traced():
+        with read() as c:
+            c.set_trace_callback(statements.append)
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
+
+    monkeypatch.setattr(store, "read", traced)
+    answer = get(api, path, token=token)
+    with read() as c:
+        plans = [" ".join(row[3] for row in c.execute("EXPLAIN QUERY PLAN " + sql))
+                 for sql in statements if "FROM settings_changes" in sql]
+    return answer, plans
+
+
+def test_a_persons_view_of_a_bots_changes_is_an_index_seek_whatever_the_bots_history(api, monkeypatch):
+    bot(api, "lead", reports_to="human:ben")
+    bot(api, "counsel", reports_to="lead")
+    # Counsel's history is 3,000 people's changes and no manager's: Ben's reads of it find nothing, and seek past it.
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), "counsel", "owners", encode([]), encode(["human:ana"]), "human:ana", None,
+                        H.shift(H.now(), seconds=-i), None) for i in range(3000)])
+    for path in ("settings/history?bot=counsel", "settings/history"):
+        answer, plans = settings_reads(api, monkeypatch, path, "ben-test")
+        assert answer["changes"] == [] and plans, path
+        assert all("USING INDEX settings_changes_bot_via" in plan and "SCAN settings_changes" not in plan
+                   for plan in plans), (path, plans)
+    # The owner's view of one bot reads it by its own index: the newest 100 of its 3,000.
+    answer, plans = settings_reads(api, monkeypatch, "settings/history?bot=counsel", "ana-test")
+    assert len(answer["changes"]) == 100 and plans
+    assert all("USING INDEX settings_changes_bot (" in plan for plan in plans), plans

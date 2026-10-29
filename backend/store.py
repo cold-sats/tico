@@ -1550,6 +1550,9 @@ class Store:
                                    # but runs before cloud migration 57 adds tasks.private on an upgraded database.
                                    ("tasks_private_parties",
                                     "tasks(id, requester, owner, guest, private) WHERE private IS NOT 0"),
+                                   # A person's view of a bot's settings changes (settings_admin.history): the manager
+                                   # bots' changes, found by seek. It needs the `via` column, added above.
+                                   ("settings_changes_bot_via", "settings_changes(bot, via, created)"),
                                    ("conversations_id_task", "conversations(id, task_id)")):
                     c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
                 c.execute("DROP INDEX IF EXISTS jobs_state_bot_created")

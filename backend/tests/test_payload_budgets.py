@@ -116,3 +116,43 @@ def test_a_settings_history_page_is_byte_capped(api):
     page = opened.json()
     assert 0 < len(page["changes"]) < 200 and page["next_before"]
     assert len(opened.content) <= 300 * KB
+
+
+def test_a_settings_history_page_counts_utf8_bytes_not_characters(api):
+    # 200 changes whose descriptions are the 2,000 characters a description may hold, all emoji (four bytes each):
+    # a page counted in characters would send four times its budget.
+    text = {"display_name": "Ops", "description": "🙂" * 2000}
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), "ops", "definition", encode(text), encode(text), "human:ana", None,
+                        H.shift(H.now(), seconds=i), None) for i in range(200)])
+    opened = api.get("/api/v2/settings/history?limit=200", headers=headers())
+    page = opened.json()
+    assert 0 < len(page["changes"]) < 200 and page["next_before"]
+    assert size(page["changes"]) <= 256 * KB and len(opened.content) <= 257 * KB
+
+
+def test_a_settings_change_bigger_than_a_page_comes_without_its_values_and_paging_passes_it(api):
+    # The owner's list of 40,000 people (about 900 KB of JSON) between two small changes.
+    ids = [H.new_id() for _ in range(3)]
+    people = [f"human:person-{i:05d}" for i in range(40000)]
+    values = [(["human:ana"], ["human:ana", "human:ben"]), ([], people), ([], ["human:ana"])]
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(ids[i], "ops", "owners", encode(before), encode(after), "human:ana", None,
+                        H.shift(H.now(), seconds=-i), None) for i, (before, after) in enumerate(values)])
+    first = api.get("/api/v2/settings/history?limit=2", headers=headers()).json()
+    assert [row["id"] for row in first["changes"]] == ids[:2] and first["next_before"] == ids[1]
+    big = first["changes"][1]
+    assert big["truncated"] is True and big["before"] is None and big["after"] is None
+    assert size(first["changes"]) <= 256 * KB
+    rest = api.get(f"/api/v2/settings/history?limit=2&before={ids[1]}", headers=headers()).json()
+    assert [row["id"] for row in rest["changes"]] == [ids[2]] and rest["next_before"] is None
+    # A page whose first change is the big one sends it the same way, and the next page starts past it.
+    alone = api.get(f"/api/v2/settings/history?limit=1&before={ids[0]}", headers=headers()).json()
+    assert [row["id"] for row in alone["changes"]] == [ids[1]] and alone["next_before"] == ids[1]
+    assert alone["changes"][0]["truncated"] is True
+    past = api.get(f"/api/v2/settings/history?limit=1&before={ids[1]}", headers=headers()).json()
+    assert [row["id"] for row in past["changes"]] == [ids[2]] and past["changes"][0]["truncated"] is False

@@ -99,7 +99,9 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
       compact_at:'compact at',wake_preset:'wakes',profile:'profile',keep_tasks_going:'keep tasks going',
       turns_at_once:'Turns at once',definition:'setup',task_model:'task model',identity:'name and description',
       manages_reports:'manages its reports'}[change.field] || change.field;
-    const what = change.field === 'definition' ? settingsDefinitionChange(change.before, change.after)
+    // A change too big for a page comes without its values (backend/settings_admin.py `truncated`).
+    const what = change.truncated ? 'Too big to show here.'
+      : change.field === 'definition' ? settingsDefinitionChange(change.before, change.after)
       : `${settingsValue(change.field, change.before)} → ${settingsValue(change.field, change.after)}`;
     // A manager bot's change says so: it acted for the bot, as its manager (backend/report_managers.py).
     const by = change.via === 'report_manager' ? `${actorLabel(change.actor)}, as its manager` : actorLabel(change.actor);
