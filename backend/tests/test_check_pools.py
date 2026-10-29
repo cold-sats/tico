@@ -607,6 +607,37 @@ def test_other_company_prefer_gives_a_same_company_bot_the_check_when_no_other_i
     assert get(api, "tasks/" + task["id"])["task"]["check_waits"] == []
 
 
+def task_model(api, slug, model, harness):
+    """Give `slug` a task model: the model a task filed to it, a check included, runs on."""
+    with api.app.state.store.transaction() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()[0])
+        config["task_model"] = {"model": model, "harness": harness}
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(config), slug))
+
+
+def test_require_goes_by_the_task_model_a_check_runs_on_not_the_bots_own_model(api):
+    """rev-a is configured on OpenAI but its tasks run on Anthropic, the builder's company, so a required check never
+    goes to it, even free. rev-c is configured on Anthropic, and its last turn (a chat, not a task) ran there, but its
+    tasks run on OpenAI: the check waits for it while it is busy and goes to it when it frees up."""
+    team(api)
+    task = qa_ticket(api)
+    task_model(api, "rev-a", "claude-haiku-5-5", "claude")
+    task_model(api, "rev-c", "gpt-6-sol", "codex")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO turns(id,bot,started,finished) VALUES('chat','rev-c',?,?)", (H.now(), H.now()))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('chat',0,'claude-haiku-5-5','anthropic')")
+    set_pool(api, task, "In QA", ["rev-a", "rev-c"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    held = busy(api, "rev-c")
+    to_qa(api, task)
+    assert checks(api, task) == [], "rev-a is free, but its checks run on the builder's company"
+    assert len(get(api, "tasks/" + task["id"])["task"]["check_waits"]) == 1
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-c", held["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"]
+
+
 def test_other_company_is_prefer_or_require_and_only_on_a_check_step(api):
     team(api)
     task = qa_ticket(api)

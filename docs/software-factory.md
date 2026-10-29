@@ -53,8 +53,8 @@ approval before merge even when the team's task review policy allows a fixes-onl
 2. **Prefer different models for checks.** Reviewers and QA prefer a bot of a different model company than the Builder
    actually ran on. When none is free or healthy, a bot of the Builder's company takes the check rather than the check
    waiting, unless the check step requires another company (Another model company: Require in Settings → Tasks), and
-   then it waits. Tico records the configured and executed families on the check. Set this per bot (its model), or use a
-   check model on a subtask (see [Tasks](tasks.md)).
+   then it waits. Tico records the configured and executed families on the check. Set this per bot (its task model, which its checks run on, or
+   its model), or use a check model on a subtask (see [Tasks](tasks.md)).
 3. **Reviewers advise; the Builder decides.** The Builder answers each comment it doesn't take with a one-line
    reason on the ticket. There is no second round of the same review after fixes.
 4. **QA runs tests it didn't write.** Head of Product writes the acceptance tests in Given/When/Then form. Each is
