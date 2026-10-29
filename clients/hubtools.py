@@ -2926,6 +2926,26 @@ def automation_runs(api, args):
     return _as_person(api).get(f"automations/{args['id']}/runs" + ("?" + query if query else ""))
 
 
+@tool("hub_automation_recent_runs", "Runs across every automation you may see in the last `range`, newest first: what "
+      "started each, its outcome or failing step, steps, time and cost. `trigger: system` is Tico's own jobs.",
+      {"range": {"type": "string", "enum": ["5m", "1h", "24h", "7d"], "default": "1h"},
+       "status": {"type": "string", "enum": ["done", "failed", "waiting", "running"]},
+       "trigger": _s("message, task_received, schedule, webhook, listening, event or system; comma-separated"),
+       "owner": _s("person:<id>, bot:<slug> or group:<id>"), "limit": {"type": "integer", "default": 50},
+       "before": _s("`next` from the page before")})
+def automation_recent_runs(api, args):
+    query = "&".join(f"{k}={quote(str(args[k]), safe=',')}" for k in ("range", "status", "trigger", "owner", "limit", "before")
+                     if args.get(k) not in (None, ""))
+    return _as_person(api).get("automations/runs" + ("?" + query if query else ""))
+
+
+@tool("hub_automation_stats", "Runs, failures and cost per automation you may see over the last `range`, in time "
+      "buckets oldest first, with totals: which automations fail or cost the most.",
+      {"range": {"type": "string", "enum": ["5m", "1h", "24h", "7d"], "default": "1h"}})
+def automation_stats(api, args):
+    return _as_person(api).get("automations/stats?range=" + quote(str(args.get("range") or "1h"), safe=""))
+
+
 @tool("hub_automation_versions", "An automation's versions, newest first; `status: pending` for proposals only.",
       {"id": _s("auto_..."), "status": {"type": "string", "enum": ["active", "pending"]}}, required=("id",))
 def automation_versions(api, args):

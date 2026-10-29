@@ -3,7 +3,8 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
    The chat is BotOps' ordinary room (POST /v2/chat/botops, the conversation's snapshot and live events, as the CEO
    Bot's chat on Goals); BotOps builds with the viewer's rights. A message names the open automation in
-   refs.automation, and the edit it asks for is saved as the new version. What BotOps makes from New is saved off: its
+   refs.automation, and the edit it asks for is saved as the new version; with none open it carries what the list
+   shows (refs.automations_filter: range, tab, filters). What BotOps makes from New is saved off: its
    card's Turn on is PATCH {enabled: true}. A bot's proposal is a pending version (GET .../versions?status=pending);
    Turn on restores it (POST .../versions/{n}/restore), Discard deletes it. */
 'use strict';
@@ -85,7 +86,7 @@ function auBotMount(host) {
     const scope = sessionScope(pq(P, '.p-text'));
     B.known ||= new Set((AU.list || []).map(a => a.id));   // what exists before BotOps answers, to spot what it made
     try {
-      const out = await cloudCompose('/v2/chat/' + AU_BOT, {text, refs: AU.cur ? {automation: AU.cur.id} : {}});
+      const out = await cloudCompose('/v2/chat/' + AU_BOT, {text, refs: AU.cur ? {automation: AU.cur.id} : auBotScope()});
       pillAcknowledge(P, text, [], scope);
       if (!live()) return;
       const fresh = out.conversation && out.conversation.id !== B.conv?.id;

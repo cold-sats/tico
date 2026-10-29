@@ -102,7 +102,11 @@ async function ask(page, text) {
       await page.waitForSelector('.au-card[data-open="f1"]');
       assert.equal(await page.locator('.au-botp').isVisible(), true);
       assert.equal(await page.locator('.au-botbtn').isVisible(), false);
-      assert.equal(await page.locator('.au-row[data-row="au_inbox"] .pill:text-is("Pending")').count(), 1);
+      // The list says it waits for a person.
+      await page.locator('.au-crumb .au-up').click();
+      await page.waitForSelector('tr.au-row[data-row="au_inbox"] .pill:text-is("Pending")');
+      await page.locator('tr.au-row[data-row="au_inbox"] a').click();
+      await page.waitForSelector('.au-card[data-open="f1"]');
       const card = page.locator('.au-prop[data-n="8"]');
       await card.waitFor();
       assert.match(await card.innerText(), /Inbox · dana@acme\.example · v8[\s\S]*Archive receipts before triage/);
@@ -126,7 +130,11 @@ async function ask(page, text) {
       await made.waitFor();
       assert.equal(await made.locator('.pill.ok').innerText(), 'On');
       assert.equal(await made.getByRole('button', {name: 'Turn on'}).count(), 0);
-      assert.equal(await page.locator('.au-row[data-row="au_new"] .au-sw').isChecked(), true);
+      // Beside BotOps, the list shows it, on.
+      const fresh = page.locator('tr.au-row[data-row="au_new"]');
+      await fresh.waitFor();
+      assert.equal(await fresh.isVisible(), true);
+      assert.doesNotMatch(await fresh.innerText(), /Off/);
       await shot(page, 'desktop-new');
       assert.equal(await sideways(page), false);
       assert.deepEqual(errors, []);
@@ -134,19 +142,23 @@ async function ask(page, text) {
     }
     // A draft (a bot's: off, version 1 pending): Pending and Off in the list; Turn on enables it and clears Pending.
     {
-      const {page, errors, writes} = await openAutomations(browser, {viewport: DESKTOP, hash: '#/automations/au_draft', draft: true});
-      await page.waitForSelector('.au-card[data-open="f1"]');
-      const row = page.locator('.au-row[data-row="au_draft"]');
+      const {page, errors, writes} = await openAutomations(browser, {viewport: DESKTOP, draft: true});
+      const row = page.locator('tr.au-row[data-row="au_draft"]');
+      await row.waitFor();
       assert.equal(await row.locator('.pill:text-is("Pending")').count(), 1);
-      assert.equal(await row.locator('.au-sw').isChecked(), false, 'a draft is off');
+      assert.equal(await row.locator('.pill:text-is("Off")').count(), 1, 'a draft is off');
+      await row.locator('a').click();
+      await page.waitForSelector('.au-card[data-open="f1"]');
       const card = page.locator('.au-prop[data-n="1"]');
       await card.waitFor();
       assert.match(await card.innerText(), /Receipts to archive · v1/);
       await card.getByRole('button', {name: 'Turn on'}).click();
       await page.waitForSelector('.au-prop[data-n="1"] .pill.ok');
       assert.deepEqual(writes.at(-1), {method: 'POST', path: '/api/v2/automations/au_draft/versions/1/restore', body: {}});
-      assert.equal(await row.locator('.pill:text-is("Pending")').count(), 0);
-      assert.equal(await row.locator('.au-sw').isChecked(), true);
+      assert.equal(await page.locator('.au-hd [data-on-cur]').isChecked(), true);
+      await page.locator('.au-crumb .au-up').click();
+      await page.waitForSelector('tr.au-row[data-row="au_draft"]');
+      assert.equal(await row.locator('.pill').count(), 0, 'no Pending, no Off');
       assert.deepEqual(errors, []);
       await page.close();
     }

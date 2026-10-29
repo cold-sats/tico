@@ -28,6 +28,22 @@ An install that had routines moved them once, on the upgrade to Automations; see
   `{"type": "webhook", "id": "<trigger id>"}` (`hub trigger list` shows the ids). A new automation is saved off
   unless the flow sends `"enabled": true`.
 
+## Seeing them all
+
+**Automations** opens on a list of every automation you may see, Tico's own jobs included (trigger **System job**).
+Filter by trigger, status, team and owner on the left; pick a range (5m, 1h, 24h, 7d) at the top for each row's runs,
+failures, cost and trend. The **Runs** tab shows every run in that range, newest first, with what started it and how it
+ended. A built-in automation can't be edited or deleted; only the top of the org can turn one off.
+
+```
+hub automation recent-runs [--range 1h] [--status failed] [--trigger system] [--owner O]
+hub automation stats [--range 24h]
+```
+
+These are `hub_automation_recent_runs` and `hub_automation_stats` over MCP, and `GET /api/v2/automations/runs` and
+`GET /api/v2/automations/stats` in the API. A system job counts once per recorded run; quiet repeats with the same result
+fold into one row (`count`).
+
   A Bot turn step can also name the model its run's task runs on, with `"model"`, and optionally `"effort"` and
   `"harness"` (`"model": "<model id>", "effort": "high"`). The task the run opens is stamped with that choice
   ([Choosing the model a task runs on](tasks.md#choosing-the-model-a-task-runs-on)). Leave them out to use the bot's

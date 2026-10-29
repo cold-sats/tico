@@ -82,6 +82,9 @@ def automation(client, args):
             raise APIError("input", "--input must be JSON") from None
     elif args.sub == "runs":
         fields.update({k: getattr(args, k) for k in ("limit", "before") if getattr(args, k) is not None})
+    elif args.sub in ("recent-runs", "stats"):
+        fields.update({k: getattr(args, k) for k in ("range", "status", "trigger", "owner", "limit", "before")
+                       if getattr(args, k, None) is not None})
     elif args.sub == "versions" and args.pending:
         fields["status"] = "pending"
     elif args.sub in ("restore", "discard"):

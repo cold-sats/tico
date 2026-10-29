@@ -1301,6 +1301,172 @@
         ]
       }
     },
+    "/api/v2/automations/runs": {
+      "get": {
+        "summary": "Runs across every automation you may see in the last range (5m, 1h, 24h, 7d), newest first: what started each, its outcome or failing step, steps, time and cost; status, trigger, owner and ids narrow it (before \u2192 next)",
+        "operationId": "listAllAutomationRuns",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1h",
+              "title": "Range"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "trigger",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Trigger"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Owner"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Ids"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationOverviewRuns"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
+        ]
+      }
+    },
+    "/api/v2/automations/stats": {
+      "get": {
+        "summary": "Runs, failures and cost per automation you may see over the range, in buckets oldest first, with totals",
+        "operationId": "getAutomationStats",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1h",
+              "title": "Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationStats"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Automations"
+        ]
+      }
+    },
     "/api/v2/automations/{aid}": {
       "get": {
         "summary": "One automation with set questions filled in, today's counts and, for a schedule, next_run",
@@ -24778,6 +24944,18 @@
           },
           "warning": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "description": "The trigger as the overview groups it; system for Tico's own jobs"
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Off because the run guard paused it"
+          },
+          "schedule": {
+            "type": "string",
+            "description": "A system job's schedule in words"
           }
         },
         "required": [
@@ -24913,6 +25091,97 @@
         "required": [
           "automations",
           "next"
+        ],
+        "additionalProperties": true
+      },
+      "AutomationOverviewRuns": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "automation_id": {
+                  "type": "string"
+                },
+                "automation_name": {
+                  "type": "string"
+                },
+                "trigger": {
+                  "enum": [
+                    "message",
+                    "task_received",
+                    "schedule",
+                    "webhook",
+                    "listening",
+                    "event",
+                    "system"
+                  ]
+                },
+                "owner": {
+                  "type": "string"
+                },
+                "started": {
+                  "type": "string"
+                },
+                "finished": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "cost": {
+                  "type": "number"
+                },
+                "started_by": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "step_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "description": "Quiet system-job runs folded into this row"
+                }
+              },
+              "required": [
+                "automation_id",
+                "automation_name",
+                "id",
+                "started",
+                "status",
+                "trigger"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "since": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "next",
+          "runs",
+          "since"
         ],
         "additionalProperties": true
       },
@@ -25151,6 +25420,119 @@
           "daily",
           "next",
           "runs"
+        ],
+        "additionalProperties": true
+      },
+      "AutomationStats": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "until": {
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "type": "integer"
+          },
+          "automations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "runs": {
+                  "type": "integer"
+                },
+                "failed": {
+                  "type": "integer"
+                },
+                "cost": {
+                  "type": "number"
+                },
+                "buckets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ok": {
+                        "type": "integer"
+                      },
+                      "failed": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "failed",
+                      "ok"
+                    ],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "buckets",
+                "cost",
+                "failed",
+                "id",
+                "runs"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "runs": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              },
+              "cost": {
+                "type": "number"
+              },
+              "buckets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "integer"
+                    },
+                    "failed": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "failed",
+                    "ok"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "buckets",
+              "cost",
+              "failed",
+              "runs"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "automations",
+          "bucket_seconds",
+          "range",
+          "since",
+          "totals",
+          "until"
         ],
         "additionalProperties": true
       },

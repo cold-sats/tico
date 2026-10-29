@@ -1,6 +1,7 @@
-/* ui/styles/automations.css — Automations (redesign, ui/app/automations*.js): the list, the flow, the editor, runs and
-   the BotOps chat. A computer shows list | flow | editor-or-bot; a phone shows one screen at a time
-   (#au-root[data-screen]: list, detail, bot) and the editor as a sheet.
+/* ui/styles/automations.css — Automations (redesign, ui/app/automations*.js): the filters, the list and its Runs tab,
+   the flow, the editor, runs and the BotOps chat. A computer shows filters | list-or-flow | editor-or-bot; a phone
+   shows one screen at a time (#au-root[data-screen]: list, detail, bot), its filters behind a button and the editor
+   as a sheet.
    The cascade runs in the order index.html links these files; keep rules in order. */
 #main.au-layout{max-width:none;padding:0;overflow:hidden;height:100%}
 .au{display:flex;flex-direction:column;height:100%;min-height:0}
@@ -11,22 +12,82 @@
 .au-sp-phone{display:none}
 .au-pad{padding:14px}
 .au-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.au-body{flex:1;min-height:0;display:grid;grid-template-columns:304px minmax(0,1fr) var(--rail-right,340px)}
+.au-body{flex:1;min-height:0;display:grid;grid-template-columns:216px minmax(0,1fr) var(--rail-right,340px)}
 .au [hidden]{display:none!important}
 
-/* the list */
-.au-list{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+/* the range: 5m, 1h, 24h, 7d */
+.au-range button{padding:3px 10px;border:0;border-radius:6px;background:none;color:var(--muted);font:inherit;font-size:var(--t-sm);font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer}
+.au-range button[aria-pressed="true"]{background:var(--raised);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+
+/* the filters */
+.au-rail{display:flex;flex-direction:column;min-height:0;overflow-y:auto;border-right:1px solid var(--line)}
 .au-s{padding:12px}
-.au-scroll{flex:1;min-height:0;overflow-y:auto;padding:0 8px 16px}
-.au-gh{display:flex;justify-content:space-between;padding:14px 6px 6px;color:var(--muted);font-size:var(--t-label);letter-spacing:var(--track-caps);text-transform:uppercase}
-.au-row{display:flex;align-items:center;gap:8px;padding-right:8px;border:1px solid transparent;border-radius:7px;min-height:32px}
-.au-row:hover{background:var(--surface)}
-.au-row.sel{background:var(--surface2);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
-.au-row a{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:6px 8px;color:var(--ink);text-decoration:none}
-.au-row .nav-icon{font-size:17px;width:18px;height:18px;color:var(--muted)}
+.au-facets{display:grid;align-content:start;gap:14px;padding:0 8px 16px}
+.au-fg{display:grid;gap:1px}
+.au-fg .au-lb{padding:0 6px 4px}
+.au-fb{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 6px;border:0;border-radius:6px;background:none;color:var(--g7);font:inherit;font-size:var(--t-base);text-align:left;cursor:pointer}
+.au-fb:hover{background:var(--surface)}
+.au-fb[aria-pressed="true"]{background:var(--surface2);color:var(--ink)}
+.au-fb[aria-pressed="true"] .nav-icon{color:var(--accent)}
+.au-fb .nav-icon{font-size:17px;width:18px;height:18px;color:var(--muted)}
+.au-fb .au-dot{margin:0 5px}
+.au-ft{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au-fn{margin-left:auto;color:var(--muted);font-size:var(--t-xs);font-weight:400;font-variant-numeric:tabular-nums}
+
+/* the list: every automation, or every run (the Runs tab) */
+.au-ov{display:flex;flex-direction:column;flex:1;min-height:0}
+.au[data-screen="detail"] .au-ov,.au:not([data-screen="detail"]) :is(.au-crumb,.au-hd,.au-pane){display:none}
+.au-ctl{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:8px 16px;border-bottom:1px solid var(--line)}
+.au-tabs{display:flex;gap:2px}
+.au-tabs button{padding:4px 10px;border:0;border-radius:6px;background:none;color:var(--muted);font:inherit;font-weight:600;cursor:pointer}
+.au-tabs button[aria-selected="true"]{background:var(--surface2);color:var(--ink)}
+.au-sel{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--t-sm)}
+.au-sel select{width:auto;height:28px;padding:0 6px;font-size:var(--t-sm)}
+.au-fbtn{display:none}
+.au-tbl{flex:1;min-height:0;overflow:auto}
+.au-tbl-t{width:100%;border-collapse:collapse;font-size:var(--t-base)}
+.au-tbl-t th{position:sticky;top:0;z-index:1;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--bg);color:var(--muted);font-size:var(--t-label);font-weight:500;letter-spacing:var(--track-caps);text-transform:uppercase;text-align:left;white-space:nowrap}
+.au-tbl-t td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.au-row,.au-arow{cursor:pointer}
+.au-row:hover td,.au-arow:hover td{background:var(--surface)}
+.au-tn>div{display:flex;align-items:center;gap:8px;min-width:0;max-width:320px}
+.au-tn a{display:flex;align-items:center;gap:8px;min-width:0;color:var(--ink);text-decoration:none;font-weight:500}
+.au-tn .nav-icon{font-size:17px;width:18px;height:18px;flex:none;color:var(--muted)}
 .au-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .au-row.off .au-nm{color:var(--muted)}
+.au-tt{max-width:220px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.au-to>span{display:inline-flex;align-items:center;gap:6px;color:var(--g7)}
+.au-lr{display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.au-spark{display:block}
+.au-bad{color:var(--fail)}
+.au-grp td{padding:6px 10px;background:var(--surface);font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.au-grp td>*{vertical-align:middle}
+.au-grp td>.nav-icon{font-size:17px;width:18px;height:18px;margin-right:6px;color:var(--muted)}
+.au-grp .au-chev{transition:transform var(--dur-fast,.12s)}
+.au-grp.closed .au-chev{transform:rotate(-90deg)}
+.au-grp .au-fn{margin-left:8px}
+.au-why{max-width:320px;overflow:hidden;text-overflow:ellipsis;color:var(--g7)}
+.au-out{max-width:240px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.au-out.au-bad{color:var(--fail)}
+.au-chart{padding:12px 16px 6px;border-bottom:1px solid var(--line)}
+.au-chart svg{display:block}
+.au-chart-h{display:flex;align-items:center;gap:14px;margin-bottom:6px;color:var(--muted);font-size:var(--t-xs);font-variant-numeric:tabular-nums}
+.au-key{display:inline-flex;align-items:center;gap:5px}
+.au-key i{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--g5)}
+.au-key i.fail{background:var(--fail)}
+.au-ticks{display:flex;justify-content:space-between;padding-top:3px;color:var(--muted);font-size:var(--t-2xs);font-variant-numeric:tabular-nums}
 .au-sw{flex:none}
+
+/* an open automation: back to the list, and what a built-in is */
+.au-crumb{padding:8px 16px 0}
+.au-crumb:empty{display:none}
+.au-up{display:inline-flex;align-items:center;gap:2px;padding:2px 6px 2px 0;border-radius:6px;color:var(--muted);font-size:var(--t-sm);text-decoration:none}
+.au-up:hover{color:var(--ink)}
+.au-up .nav-icon{font-size:18px;width:18px;height:18px}
+.au-lock{display:inline-flex;align-items:center;gap:5px;margin:0;color:var(--muted);font-size:var(--t-sm);white-space:nowrap}
+.au-lock .nav-icon{font-size:15px;width:15px;height:15px}
+.au-about{display:grid;gap:6px;margin-bottom:14px;color:var(--muted);font-size:var(--t-base)}
+.au-about p{margin:0}
 
 /* the header */
 .au-c{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -211,26 +272,34 @@ button.au-chip:hover{background:var(--surface2)}
 .au-sl>span:nth-child(2){flex:1;min-width:0}
 .au-more{display:flex;justify-content:center;padding:12px}
 
-@media (max-width:1099px) and (min-width:761px){.au-body{grid-template-columns:232px minmax(0,1fr) 300px}}
+@media (max-width:1099px) and (min-width:761px){.au-body{grid-template-columns:184px minmax(0,1fr) 300px}}
 
 /* a phone: one screen at a time, the editor a sheet from the bottom, the paths a swipe with dots */
 @media (max-width:760px){
   #main.au-layout{overflow:auto;height:auto;padding:0 0 calc(var(--mobile-nav-height) + env(safe-area-inset-bottom))}
   .au{height:auto;min-height:0}
   .au-ph{padding:12px}
+  .au-ph{flex-wrap:wrap}
   .au-body{display:block}
-  .au-list,.au-c,.au-side{display:none;border:0}
+  .au-rail,.au-c,.au-side{display:none;border:0}
   .au:not([data-screen="list"]) .au-ph{display:none}
-  .au[data-screen="list"] .au-list{display:flex}
-  .au[data-screen="detail"] .au-c{display:flex}
+  .au[data-screen="list"].filters-open .au-rail{display:flex;overflow:visible;border-bottom:1px solid var(--line)}
+  .au[data-screen="list"] .au-c,.au[data-screen="detail"] .au-c{display:flex}
   .au-s{padding:0 12px 8px}
-  .au-scroll{padding:0 12px 12px;overflow:visible}
-  .au-row{min-height:44px}
-  .au-row a{font-size:var(--t-md)}
+  .au-facets{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));padding:0 12px 12px}
+  .au-fb{min-height:36px}
+  .au-fbtn{display:inline-flex}
+  .au-ctl{padding:8px 12px}
+  .au-ctl .au-sp,.au-sel{display:none}
+  /* the table scrolls sideways in its own box; the page scrolls down */
+  .au-tbl{flex:none;overflow-x:auto;overflow-y:visible;padding-bottom:76px}
+  .au-tbl-t{min-width:760px}
+  .au-tn>div{max-width:200px}
+  .au-crumb{padding:8px 12px 0}
   .au-hd{padding:8px 12px;border:0;flex-wrap:wrap}
-  .au-back,.au-botbtn{display:inline-flex}
+  .au-botbtn{display:inline-flex}
   .au[data-screen="bot"] .au-botbtn,.au.ed-open .au-botbtn{display:none}
-  .au-back{margin-left:-6px}
+  .au-bh .au-back{display:inline-flex;margin-left:-6px}
   .au-own,.au-hd>.au-sp{display:none}
   .au-name{flex:1 1 0}
   .au-hd2{order:10;flex-basis:100%}
@@ -238,7 +307,7 @@ button.au-chip:hover{background:var(--surface2)}
   .au-icon{width:40px;height:40px}
   .au-pane{padding:4px 12px 24px;overflow:visible}
   /* room under the last row for the BotOps button */
-  .au-scroll,.au-pane{padding-bottom:76px}
+  .au-pane{padding-bottom:76px}
   .au-paths{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
   .au-paths::-webkit-scrollbar{display:none}
   .au-pth{flex:0 0 84%;scroll-snap-align:start}
