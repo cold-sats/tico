@@ -555,7 +555,7 @@ def test_a_lapse_during_tico_s_update_is_named_and_grouped_but_not_retried_on_ti
     assert review['stopped'] != 'restarted' and 'restart' not in review['reason'].lower()
     line = update_line(api)
     assert (line['cause'], line['why'], line['update_group']) == ('update', "Stopped during Tico's update", True)
-    # The shell command is one Tico cannot check, so the group's row leads with Don't retry for this run.
+    # The shell command is one Tico cannot check, so the group's row offers no Try all again for this run.
     assert line['retry'] is False
 
 

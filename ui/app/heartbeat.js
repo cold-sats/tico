@@ -173,10 +173,13 @@ function bindStoppedLines(panel, list) {
     const issue = list[+ul.dataset.runs];
     ul.querySelectorAll('[data-run-row]').forEach(li => {
       const run = issue.runs[+li.dataset.runRow], buttons = li.querySelectorAll('button'), result = li.querySelector('[data-result]');
+      // A group holding this line (bindUpdateGroup) hears when its choice starts and ends saving, so no run gets both.
+      const saving = on => { run.saving = on; li.dispatchEvent(new Event('run-saving', {bubbles: true})); };
       buttons.forEach(button => button.onclick = async () => {
         const decision = button.dataset.runDecision;
         buttons.forEach(b => b.disabled = true);
         result.classList.remove('err'); result.textContent = 'Saving choice…';
+        saving(true);
         try {
           await decideRun(run, decision);
           li.dataset.decided = run.decided;
@@ -185,7 +188,7 @@ function bindStoppedLines(panel, list) {
           result.classList.add('err'); result.textContent = e.message;
           buttons.forEach(b => b.disabled = !!stoppedChosen(run) && b.dataset.runDecision !== stoppedChosen(run));
           return;
-        }
+        } finally { saving(false); }
         if (!ul.querySelector('[data-run-row]:not([data-decided])')) void refresh(false);
       });
     });
@@ -220,19 +223,21 @@ function updateGroups(issues) {
   return groups.filter(g => g.members.length > 1).map((g, k) => ({...g, k, at: new Date(g.at)}));
 }
 // Only the people who may decide a run see its buttons: the others read the same line with no choice to make.
-// The update's stop is timing, not proof its computer restarted, so the row says how many ran commands Tico cannot
-// check, and the safe pick leads by the rule each run's own line uses: Don't retry first when any of them is unsafe.
+// The update's stop is timing, not proof its computer restarted, so Try all again is offered only when every run is
+// one the review card recommends retrying. Otherwise the row says how many ran commands Tico cannot check and offers
+// Don't retry for all of them; retrying any of them is that run's own choice under Details.
 const updateGroupRow = group => {
   const n = group.members.length, deciding = group.members.filter(m => m.issue.can_review && m.run.jobs).length;
   const scope = deciding === n ? 'all of them' : `the ${deciding} you can decide`;
   const risky = group.members.filter(m => !m.run.retry).length;
-  const risk = risky ? `${risky === n ? (n === 1 ? 'It' : 'All of them') : `${risky} of them`} ran commands Tico can’t check. ` : '';
+  const risk = `${risky === n ? 'All of them' : `${risky} of them`} ran commands Tico can’t check: try ${risky === 1 ? 'it' : 'them'} one at a time under Details.`;
   const resume = cls => `<button class="${cls}" type="button" data-group-decision="resume">Try all again</button>`;
   const dismiss = cls => `<button class="${cls}" type="button" data-group-decision="dismiss">Don’t retry</button>`;
   return `<div class="settings-issue stopped-group" data-update-group="${group.k}">
     <div><strong>${n} run${n === 1 ? '' : 's'} stopped during Tico’s update at ${group.at.toISOString().slice(11, 16)} UTC</strong>
-    <p>${risk}${deciding ? `Try all again applies to ${scope}; each bot checks what already happened before repeating anything.` : 'Only the operator of each bot, or BotOps, can decide them.'}</p></div>
-    <div class="issue-buttons">${deciding ? (risky ? dismiss('primary') + resume('ghost') : resume('primary') + dismiss('ghost')) : ''}<button class="ghost" type="button" data-group-details aria-expanded="false">Details</button></div>
+    <p>${!deciding ? 'Only the operator of each bot, or BotOps, can decide them.' : risky ? `${risk} Don’t retry applies to ${scope}.`
+      : `Try all again applies to ${scope}; each bot checks what already happened before repeating anything.`}</p></div>
+    <div class="issue-buttons">${deciding ? (risky ? dismiss('primary') : resume('primary') + dismiss('ghost')) : ''}<button class="ghost" type="button" data-group-details aria-expanded="false">Details</button></div>
     <ul class="stopped-lines" data-group-runs hidden></ul><p class="stopped-result" data-group-result role="status" aria-live="polite"></p></div>`;
 };
 function bindUpdateGroup(panel, group, stopped) {
@@ -251,7 +256,12 @@ function bindUpdateGroup(panel, group, stopped) {
     details.textContent = runs.hidden ? 'Details' : 'Hide details';
   };
   const picks = [...el.querySelectorAll('[data-group-decision]')];
+  // The group's choices wait while a run's own choice saves, and stay closed once the group's are saved.
+  let busy = false;
+  const free = () => picks.forEach(b => b.disabled = busy || group.members.some(m => m.run.saving));
+  el.addEventListener('run-saving', free);
   picks.forEach(button => button.onclick = async () => {
+    if (busy || group.members.some(m => m.run.saving)) return;
     const decision = button.dataset.groupDecision;
     const todo = group.members.filter(m => m.issue.can_review && m.run.jobs && !stoppedChosen(m.run) && m.li);
     // Each run's own choices wait while the group's are saved, so no run gets both; afterwards they show what was
@@ -259,7 +269,7 @@ function bindUpdateGroup(panel, group, stopped) {
     const lines = todo.map(m => [m.run, [...m.li.querySelectorAll('[data-run-decision]')]]);
     const settle = () => lines.forEach(([run, buttons]) => buttons.forEach(b =>
       b.disabled = !!run.decided || !!stoppedChosen(run) && b.dataset.runDecision !== stoppedChosen(run)));
-    picks.forEach(b => b.disabled = true);
+    busy = true; free();
     lines.forEach(([, buttons]) => buttons.forEach(b => b.disabled = true));
     result.classList.remove('err'); result.textContent = 'Saving choices…';
     try {
@@ -272,7 +282,7 @@ function bindUpdateGroup(panel, group, stopped) {
       }
     } catch (e) {
       result.classList.add('err'); result.textContent = e.message;
-      picks.forEach(b => b.disabled = false);
+      busy = false; free();
       settle();
       return;
     }

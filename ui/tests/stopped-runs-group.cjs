@@ -1,8 +1,8 @@
 // Tico's own update restarts every computer at once, so the runs it stops arrive together. Needs you groups the ones
-// the server puts in the update's group under one row with "Try all again" (one request per run) and "Don't retry",
-// with each run's own line under Details, one row per cluster of stops within ten minutes. A run that recorded an
-// outside action, a run with a choice already saved for one of its requests, and a lone later stop keep their own
-// lines. Someone who may not decide the runs sees the same rows with no buttons. Checked at desktop and phone widths.
+// the server puts in the update's group under one row with "Don't retry" and, when the review card would retry every
+// run, "Try all again" (one request per run), with each run's own line under Details, one row per cluster of stops
+// within ten minutes. A run that recorded an outside action, a run with a choice already saved for one of its
+// requests, and a lone later stop keep their own lines. A group's choice and a run's own never save at once. Someone who may not decide the runs sees the same rows with no buttons. Checked at desktop and phone widths.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -94,10 +94,11 @@ const issues = canReview => [
       assert.match(await panel.locator('[data-update-group="1"] strong').innerText(), /^2 runs stopped during Tico.s update at 14:30 UTC$/);
       assert.deepEqual(await group.locator('.issue-buttons > button').allInnerTexts(), ['Try all again', 'Don’t retry', 'Details']);
       assert.doesNotMatch(await group.locator('p').first().innerText(), /can.t check/);
-      // A group with a run that ran commands Tico cannot check says so and leads with Don't retry.
+      // A group with a run that ran commands Tico cannot check says so and offers no Try all again: retrying that run
+      // is its own choice under Details.
       const later = panel.locator('[data-update-group="1"]');
-      assert.match(await later.locator('p').first().innerText(), /^1 of them ran commands Tico can.t check\. /);
-      assert.deepEqual(await later.locator('.issue-buttons > button').allInnerTexts(), ['Don’t retry', 'Try all again', 'Details']);
+      assert.match(await later.locator('p').first().innerText(), /^1 of them ran commands Tico can.t check: try it one at a time/);
+      assert.deepEqual(await later.locator('.issue-buttons > button').allInnerTexts(), ['Don’t retry', 'Details']);
       assert.equal(await group.locator('[data-group-runs]').isVisible(), false);
       await group.locator('[data-group-details]').click();
       assert.equal(await group.locator('[data-group-details]').innerText(), 'Hide details');
@@ -114,20 +115,29 @@ const issues = canReview => [
       assert.equal(await panel.locator('[data-group-runs]', {hasText: 'Draft the release notes'}).count(), 0);
       assert.deepEqual(await chosen.locator('button:enabled').allInnerTexts(), ['Don’t retry']);
       await shot(page, 'stopped-group-desktop');
-      // Try all again posts each run's own request once, then every grouped line says what was queued. While the
-      // choices are saved, no grouped run offers its own choice.
+      // While one grouped run's own choice saves, the group offers no choice; afterwards it does again.
+      await group.locator('[data-group-details]').click();
+      const own = group.locator('.stopped-line', {hasText: 'Ship the receipts fix'});
       slow(300);
+      await own.locator('[data-run-decision=dismiss]').click();
+      await own.locator('[data-result]', {hasText: 'Saving choice'}).waitFor();
+      assert.equal(await group.locator('[data-group-decision]:enabled').count(), 0);
+      await own.locator('[data-result]', {hasText: /^(?!Saving)./}).waitFor();
+      assert.equal(await group.locator('[data-group-decision]:enabled').count(), 2);
+      await group.locator('[data-group-details]').click();
+      // Try all again posts each other run's own request once, then every grouped line says what was saved. While the
+      // choices are saved, no grouped run offers its own choice.
       await group.locator('[data-group-decision=resume]').click();
       await group.locator('[data-group-result]', {hasText: 'Saving choices'}).waitFor();
       assert.equal(await group.locator('[data-group-runs] [data-run-decision]:enabled').count(), 0);
       await group.locator('[data-group-result]', {hasText: 'Queued to try again.'}).waitFor();
       assert.equal(await group.locator('[data-group-runs] [data-run-decision]:enabled').count(), 0);
       slow(0);
-      assert.deepEqual(decisions.map(d => [d.id, d.decision]), [['u1', 'resume'], ['u2', 'resume'], ['u3', 'resume']]);
-      assert.ok(decisions.every(d => /Check existing work/.test(d.note)), 'each retry tells the bot to check first');
+      assert.deepEqual(decisions.map(d => [d.id, d.decision]), [['u1', 'dismiss'], ['u2', 'resume'], ['u3', 'resume']]);
+      assert.ok(decisions.slice(1).every(d => /Check existing work/.test(d.note)), 'each retry tells the bot to check first');
       await group.locator('[data-group-details]').click();
-      assert.deepEqual(await group.locator('[data-group-runs] [data-result]').allInnerTexts(),
-        ['Queued to try again.', 'Queued to try again.', 'Queued to try again.']);
+      assert.deepEqual((await group.locator('[data-group-runs] [data-result]').allInnerTexts()).slice(1),
+        ['Queued to try again.', 'Queued to try again.']);
       assert.deepEqual(await risky.locator('button:enabled').allInnerTexts(), ['Don’t retry', 'Try again']);
       assert.deepEqual(errors, []);
       await page.close();
