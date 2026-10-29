@@ -742,6 +742,40 @@ def test_require_never_gives_the_check_to_a_bot_whose_model_company_is_unknown(a
     assert "can't name" in wait["reason"], wait["reason"]
 
 
+def test_require_waits_while_the_builders_model_company_is_unknown(api):
+    """The builder's run has no usage record and its config names no model Tico knows, so no bot can be shown to run
+    on another company: a required check waits and says why."""
+    team(api)
+    task = qa_ticket(api, built=False)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='cpo'",
+                  (encode({"name": "cpo", "runtime": "fake", "status": "active"}),))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
+    assert "the builder ran on" in wait["reason"], wait["reason"]
+
+
+def test_require_never_gives_the_check_to_a_bot_whose_recent_run_has_a_segment_of_unknown_company(api):
+    """rev-a is configured on OpenAI, but part of its last run has no company Tico can name, and may have fallen back
+    to the builder's: a required check waits, where a preferred one would take it."""
+    team(api)
+    task = qa_ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO turns(id,bot,started,finished) VALUES('mixed','rev-a',?,?)", (H.now(), H.now()))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('mixed',0,'gpt-6.1-sol','openai'),('mixed',1,'','')")
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+    set_other_company(api, task, "In QA", "prefer")
+    to_qa(api, task)
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
 def test_a_recent_check_on_a_check_model_says_nothing_about_a_bot_with_no_task_model(api):
     """rev-a runs on OpenAI with no task model; its last check ran on Anthropic because it had a check model. A
     required check for an Anthropic build still goes to it."""

@@ -349,13 +349,15 @@ def _earlier_reviewers(c, ticket, step):
 def ranked(c, ticket, step, slugs, limit, exclude=()):
     """(free members best first, why none is) for this ticket's check at `step`. A check ranks a bot of another model
     company than the builder's (`builder_makers`) ahead of a bot of the builder's company, which is still free when no
-    other is, unless the step's `other_company` is `require`: then such a bot is never free for the ticket. Then
-    eligibility from `assess`, fewest open checks, the longest idle (no turn yet counts as longest), then by name."""
+    other is, unless the step's `other_company` is `require`: then such a bot is never free for the ticket, nor is any
+    bot while Tico cannot name the builder's company or the bot's. Then eligibility from `assess`, fewest open checks,
+    the longest idle (no turn yet counts as longest), then by name."""
     from . import step_flow
     from .check_independence import assess
     excluded = set(exclude) | _earlier_reviewers(c, ticket, step)
-    builder = builder_makers(c, ticket) if step_flow.check_kind(step) else set()
-    required = bool(builder) and step_flow.other_company(step) == "require"
+    kind = step_flow.check_kind(step)
+    builder = builder_makers(c, ticket) if kind else set()
+    required = bool(kind) and step_flow.other_company(step) == "require"
     free, why = [], set()
     for slug in slugs:
         if slug in excluded or "bot:" + slug == ticket["owner"]:
@@ -369,11 +371,12 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
             why.add("busy")
             continue
         idle = (c.execute("SELECT last_turn_at FROM bots WHERE slug=?", (slug,)).fetchone() or [None])[0] or ""
-        known = makers(c, slug, known_only=True) if builder else set()
+        # Require needs both companies named and apart: a company Tico cannot name, or a run with a segment it cannot
+        # name, may be the builder's.
+        known = makers(c, slug, known_only=not required) if builder else set()
         same = bool(known & builder)
-        # Require needs the bot shown to run elsewhere: a company Tico cannot name may be the builder's.
-        if required and (same or not known):
-            why.add("company" if same else "unknown")
+        if required and (not builder or same or not known):
+            why.add("builder" if not builder else "company" if same else "unknown")
             continue
         # Model company only orders the free bots, so it ranks first; eligibility, workload and idle time break ties.
         free.append((same, 0 if decision["eligible"] else 1, held, idle, slug))
@@ -382,7 +385,10 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
         return [slug for _, _, _, _, slug in free], ""
     base = ("every reviewer in the pool is at its limit of open checks" if "busy" in why
             else "no reviewer in the pool is online" if "offline" in why else "")
-    if "unknown" in why:
+    if "builder" in why:
+        rest = "Tico can't name the model company the builder ran on, so no bot is shown to run on another"
+        reason = f"{base}; {rest}" if base else rest
+    elif "unknown" in why:
         rest = "the builder's model company or one Tico can't name" if "company" in why else \
             "a model company Tico can't name"
         reason = f"{base}; the rest run on {rest}" if base else f"every free bot in the pool runs on {rest}"
