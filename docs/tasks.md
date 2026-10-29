@@ -134,7 +134,7 @@ kept by id, so renaming a step keeps its flow. All keys are optional:
 | `status_hours`, `late_hours` | A ticket quiet this long at the step gets its bot owner one status check; one this long at the step gets its manager one notice. Dev working steps default to 2 and 4. |
 | `assign` | `{pool, slots}`: an unowned ticket here goes to the least busy pool bot with a free slot (tickets past this step it holds). |
 | `backlog` | `{over, per, notify, every_hours}`: more than `over` tickets at the step (`per: step`) or for one owner (`per: owner`) tells `notify`: `manager` (the type's), `owner`, `owner_manager` (one level up on the org chart), or a named bot or person. Once every `every_hours` (4) while over. |
-| `can_hold` | `false`: a ticket here is never put on hold (Blocked); a merged change is reverted or fixed forward. |
+| `can_hold` | `false`: a ticket here is never put on hold; a merged change is reverted or fixed forward. |
 | `gate` | Entering the step needs green CI and a test receipt at the head (the review gate above). |
 | `check` | The kind of check the step asks for: `review`, `qa` or `release_qa`. Review pools, the one-open-check rule, Review 2 never going to an earlier review's bot, QA waivers and blocked checks find their steps by this, so a renamed check step keeps working. A check request is titled with the step's name (`QA` for a QA step); `Review <n>`, `QA` and `Post Release QA` still name the board's nth review, its QA and its after-release check. |
 | `other_company` | On a check step only: `prefer` (the default, also when left out) or `require`. Prefer gives the check to a bot of another model company than the Builder's before one of the Builder's company, which takes it only when no other is free. Require never gives it to one of the Builder's company: the check waits when every free bot runs on that company. See Check pools. |
@@ -254,7 +254,7 @@ its body is the note, and Decide shows it with Yes and No when it asks a yes-or-
 bot's: it is Waiting, blocked on that subtask, with the note "Blocked on Ana: <the ask>", and it is not itself a card
 in Ana's **Needs you**. The update returns the subtask as `asked_in`. When Ana marks it done or declines it (Yes or
 No on her card), the task opens again with "Ana answered: <what she said>" as its note and the bot is woken once on
-it; a board ticket the ask held in Blocked goes back to the step it left. Nobody asks her again whether she answered.
+it; a board ticket the ask held stays at the step it was in, and its hold clears there. Nobody asks her again whether she answered.
 
 One question, one card. If this rule already filed that person a card in the task's tree (its root and everything
 under it), no second card is made: the task is blocked on the existing one, and a different ask is added to it as a
@@ -798,20 +798,23 @@ are not asked "Still wanted?", their goal asks the bot to move them to a step an
 rather than marking them done or closed. Without steps only, a bare status lands the task in the first step
 with that status, which on a board is rarely the one anyone meant.
 
-Engineering boards include **Blocked** immediately before In Progress. Its status is `waiting`;
-it does not change a task's labels. The owner can select Blocked and write the reason in its note:
+Engineering boards have no required steps, and no Blocked column. A hold is a mark on the ticket, not a step:
+a held ticket keeps the step it is in, and its status is `waiting`, which is what stops it being claimed or
+woken and pauses its Building clock. The owner can hold a ticket by moving it into a waiting step the team
+made (a step whose status is waiting) and writing the reason in its note:
 
 ```sh
-hub task update <task-id> --step "Blocked" --note "Waiting for a test machine"
+hub task update <task-id> --step "Waiting for a test machine" --note "Waiting for a test machine"
 ```
 
-A ticket in a waiting step of the team's own stays there while it is held, and a new hold on another ticket
-puts it in Blocked, never in the team's step.
+A ticket parked by hand in a team's waiting step stays a declared hold, and clearing it means moving it back
+to a working step. Deleting a waiting step returns its tickets to the step they were parked from, or to On Deck
+when that step is gone, so no ticket is lost to a deleted column.
 
 A refused software review gate, an open dependency or a person/milestone wait also blocks the task.
 Review, QA and Security check children keep the ticket in its pipeline step; only an explicit
 dependency on one of those checks holds it. A Review or QA check that is itself Waiting, or blocked by
-an open task, holds its ticket Blocked with the check's reason ("QA blocked: GitHub refused the remote
+an open task, holds its ticket at its step with the check's reason ("QA blocked: GitHub refused the remote
 test run, waiting on Ana"), and the ticket's builder gets one notice in the ticket's room for that
 hold. When the check works again, the ticket returns to its step.
 

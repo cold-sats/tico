@@ -29,10 +29,9 @@ def test_a_ticket_parked_by_hand_in_a_teams_waiting_step_stays_and_holds_never_l
         H.migrate(c)
         assert H.task(c, parked['id'])['step_id'] == step
         assert any(s['id'] == step for s in H.type_get(c, parked['type_id'])['steps'])
-        # A hold Tico finds goes to Blocked, never to the team's step.
+        # A hold Tico finds keeps the ticket in its step, and never moves it into the team's.
         task_blocked.hold(c, held['id'], 'Waiting on a dependency')
-        blocked = next(s['id'] for s in H.type_get(c, held['type_id'])['steps'] if s['name'] == 'Blocked')
-        assert H.task(c, held['id'])['step_id'] == blocked
+        assert (H.task(c, held['id'])['step_id'], H.task(c, held['id'])['status']) == (held['step_id'], 'waiting')
         # A status write on the parked ticket keeps it in its step.
         H._set_status(c, H.KEEPER, H.task(c, parked['id']), 'waiting', note='Still waiting')
         assert H.task(c, parked['id'])['step_id'] == step
@@ -40,6 +39,38 @@ def test_a_ticket_parked_by_hand_in_a_teams_waiting_step_stays_and_holds_never_l
     with api.app.state.store.transaction() as c:
         row = H.task(c, parked['id'])
         assert (row['status'], row['blocked_since']) == ('doing', None)
+
+
+def _without_step(api, task, step):
+    with api.app.state.store.transaction() as c:
+        typ = H.type_get(c, task['type_id'])
+        H.type_update(c, H.KEEPER, typ['id'], steps=[s for s in typ['steps'] if s['id'] != step])
+
+
+def test_deleting_a_waiting_step_returns_its_parked_ticket_to_the_step_it_left(api):
+    parked = ticket(api)
+    step = _park_step(api, parked)
+    assert move(api, parked, 'Waiting On Dependency').status_code == 200
+    _without_step(api, parked, step)
+    with api.app.state.store.transaction() as c:
+        row = H.task(c, parked['id'])
+        assert (row['step_id'], row['status'], row['blocked_since']) == (parked['step_id'], 'doing', None)
+
+
+def test_deleting_a_waiting_step_sends_a_ticket_whose_return_step_is_gone_to_on_deck(api):
+    parked = ticket(api)
+    step = _park_step(api, parked)
+    with api.app.state.store.transaction() as c:
+        typ = H.type_get(c, parked['type_id'])
+        H.type_update(c, H.KEEPER, typ['id'], steps=[{'name': 'On Deck', 'status': 'open'}, *typ['steps']])
+        deck = next(s['id'] for s in H.type_get(c, typ['id'])['steps'] if s['name'] == 'On Deck')
+    assert move(api, parked, 'Waiting On Dependency').status_code == 200
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET blocked_from_step='a step long gone' WHERE id=?", (parked['id'],))
+    _without_step(api, parked, step)
+    with api.app.state.store.transaction() as c:
+        row = H.task(c, parked['id'])
+        assert (row['step_id'], row['status'], row['blocked_since']) == (deck, 'open', None)
 
 
 def _dev(tmp_path):
@@ -53,6 +84,7 @@ def _dev(tmp_path):
         c.execute('INSERT INTO task_steps(id,type_id,name,position,status) VALUES(?,?,?,?,?)',
                   (ident, 'dev', name, position, status))
     for ident in ('retired', 'chosen'):
+        # Held in the working step they are in: a hold moves no ticket, so only its status says it waits.
         c.execute("INSERT INTO tasks(id,title,status,body,note,type_id,step_id) VALUES(?,?,'waiting','x','','dev','staging')",
                   (ident, 'A ticket'))
         H._task_event(c, ident, 'human:ana', 'step', 'progress', 'staging')
@@ -64,9 +96,8 @@ def _dev(tmp_path):
 def test_a_return_step_an_upgrade_made_resumes_at_on_deck_and_a_chosen_one_is_kept(tmp_path):
     c = _dev(tmp_path)
     H.migrate(c)
-    blocked = next(s['id'] for s in H.type_get(c, 'dev')['steps'] if s['name'] == 'Blocked')
     retired, chosen = H.task(c, 'retired'), H.task(c, 'chosen')
-    assert retired['step_id'] == chosen['step_id'] == blocked
+    assert retired['step_id'] == chosen['step_id'] == 'staging'
     assert (retired['blocked_from_step'], retired['blocked_from_status']) == (None, 'open')
     assert chosen['blocked_from_step'] == 'staging'
     events = c.execute('SELECT count(*) FROM task_events').fetchone()[0]

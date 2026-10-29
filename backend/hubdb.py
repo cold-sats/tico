@@ -1367,7 +1367,7 @@ def migrate(conn, adopt_legacy=False):
     roadmap_ready_step(conn)
     # Won't do is no longer a board step (`_task_state`): move its tasks off, then delete it.
     retire_held_steps(conn)
-    task_blocked.ensure_steps(conn)
+    task_blocked.stamp_builds(conn)
     task_blocked.backfill(conn)
     task_blocked.forget_retired_resumes(conn)
     # A person's open asks, read on every Needs-you load (loose_asks_to).
@@ -3685,11 +3685,13 @@ def _type_steps(conn, actor, type_id, steps):
                       "position": raw.get("position") if raw.get("position") is not None else position,
                       "status": status, "public_name": str(raw.get("public_name") if raw.get("public_name") is not None else
                           existing.get(ident, {}).get("public_name", name if unnamed is None else unnamed)).strip()})
+    def in_trash(ident):
+        return _has_table(conn, "task_trash") and _one(conn,
+            "SELECT 1 FROM task_trash WHERE purged_at IS NULL "
+            "AND json_extract(rows_json,'$.rows.tasks[0].step_id')=? LIMIT 1", (ident,))
+
     def in_use(ident):
-        return (_one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (ident,))
-                or _has_table(conn, "task_trash") and _one(conn,
-                    "SELECT 1 FROM task_trash WHERE purged_at IS NULL "
-                    "AND json_extract(rows_json,'$.rows.tasks[0].step_id')=? LIMIT 1", (ident,)))
+        return _one(conn, "SELECT 1 FROM tasks WHERE step_id=? LIMIT 1", (ident,)) or in_trash(ident)
 
     if flows:
         step_flow.resolve(conn, actor, clean)
@@ -3699,8 +3701,26 @@ def _type_steps(conn, actor, type_id, steps):
             refuse(conn, actor, "in-use", "Move tasks off this step before changing its status, including tasks in the trash, or create a new step")
     removed = set(existing) - ids
     for ident in removed:
-        if in_use(ident):
+        # A waiting step's tickets are its holds' places, not work in the way: they move, below.
+        if in_trash(ident) or existing[ident]["status"] != "waiting" and in_use(ident):
             refuse(conn, actor, "in-use", "Move tasks off this step before deleting it, including tasks in the trash")
+    # A ticket in a waiting step that goes goes back to the step its hold came from while that still exists and works,
+    # else to On Deck, before the step row does. Only steps that stay and keep their status are landing places.
+    kept = sorted((r for r in clean if r["id"] in existing and existing[r["id"]]["status"] == r["status"]),
+                  key=lambda r: (r["position"], r["id"]))
+    working = {r["id"] for r in kept if r["status"] in ("open", "doing", "review", "ready")}
+    deck = (next((r["id"] for r in kept if r["name"] == "On Deck" and r["status"] == "open"), None)
+            or next((r["id"] for r in kept if r["status"] == "open"), None))
+    moving = []
+    for ident in removed:
+        if existing[ident]["status"] == "waiting":
+            for task in _rows(conn.execute("SELECT * FROM tasks WHERE step_id=?", (ident,))):
+                target = task.get("blocked_from_step") if task.get("blocked_from_step") in working else deck
+                if not target:
+                    refuse(conn, actor, "in-use", "Move tasks off this step before deleting it: no step is left for them")
+                moving.append((task, target))
+    for task, target in moving:
+        _set_status(conn, KEEPER, task, step=target, note="Its waiting step was removed")
     for ident in removed:
         conn.execute("DELETE FROM task_steps WHERE id=?", (ident,))
     # Temporary names let retained steps swap names without dropping referenced rows.
@@ -3766,8 +3786,6 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None, bots=No
         _type_steps(conn, actor, row["id"], steps)
         from . import check_pools
         check_pools.safely(conn, check_pools.drain)     # a pool that grew may take a check that waits
-        from .task_blocked import ensure_steps
-        ensure_steps(conn)
     if bots is not None:
         conn.execute("UPDATE task_types SET bots=? WHERE id=?", (_type_bots(conn, actor, bots), row["id"]))
     conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
@@ -3818,10 +3836,6 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
             refuse(conn, actor, "not-found", "No such step in this task type")
         if chosen:
             effective = chosen["status"]
-    elif (effective == "waiting" and typ.get("role") == "engineering"
-          and not (current and current["status"] == "waiting") and (blocked := next(
-              (s for s in typ["steps"] if s["name"] == "Blocked" and s["status"] == "waiting"), None))):
-        chosen = blocked
     elif typ.get("role") == "engineering" and row.get("blocked_from_step") and status != "open" and effective in ("open", "doing") and (resume := next(
             (s for s in typ["steps"] if s["id"] == row["blocked_from_step"]), None)):
         chosen, effective = resume, resume["status"]
@@ -3848,10 +3862,11 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
         held = task_blocked.wait(conn, row, include_manual=False)
         if held or (step is None and effective in ('open', 'doing') and row.get('blocked_kind') == 'gate'
                     and review_gate.problem(conn, row, row['owner'])):
+            # A hold is a mark on the ticket, not a column: a held ticket keeps the step it is in (or the step it was
+            # moved to) and its status is waiting, which is what wakes, claims and the build clock read.
             effective = 'waiting'
-            # Still held: a ticket parked in a team's own waiting step stays there, and any other enters Blocked.
-            chosen = current if step is None and current and current['status'] == 'waiting' else next(
-                (s for s in typ['steps'] if s['name'] == 'Blocked' and s['status'] == 'waiting'), current)
+            if step is None and current:
+                chosen = current
     if effective not in TASK_STATUSES:
         refuse(conn, actor, "kind", f"A status is {'|'.join(TASK_STATUSES)}, not {effective}")
     # On a steps-only type a task is finished or brought back only by a step move: a bare close, decline,
@@ -3942,26 +3957,20 @@ def steps_only(conn, row):
     return [s["name"] for s in typ["steps"]] if typ.get("steps_only") else []
 
 
-def own_blocked_step(role, step):
-    """Whether a step is Tico's own Blocked column, where its holds land: the waiting step named Blocked on an
-    engineering type, which `task_blocked.ensure_steps` places there. A team's waiting step of that name on any other
-    board is its column for parked work."""
-    return role == "engineering" and step.get("name") == "Blocked" and step.get("status") == "waiting"
-
-
 def declared_hold(conn, actor, row, step, step_id):
     """A move by hand into a waiting step declares a hold, which never reopens by itself: the owner's move into a
-    waiting step, or a person's move into a waiting step the team made, its column for parked work. Tico's own Blocked
-    step is left out, since a hold Tico finds lands there without a person."""
+    waiting step, or a person's move into one. A hold Tico finds keeps the ticket's step, so no move into a working
+    step counts."""
     if step is None:
         return False
-    chosen = _one(conn, "SELECT s.name,s.status,ty.role FROM task_steps s JOIN task_types ty ON ty.id=s.type_id "
-                        "WHERE s.id=?", (step_id,)) or {}
+    chosen = _one(conn, "SELECT s.name,s.status FROM task_steps s WHERE s.id=?", (step_id,)) or {}
     if step not in (step_id, chosen.get("name")):
         return False        # a hold put it elsewhere than the step it was moved to
+    if chosen.get("status") != "waiting":
+        return False
     if actor == row.get("owner"):
         return True
-    return is_human(actor) and chosen.get("status") == "waiting" and not own_blocked_step(chosen.get("role"), chosen)
+    return is_human(actor)
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *, skip_step_wake=()):
@@ -6155,7 +6164,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     closing_step = status == "closed" and step is not None
     self_wait = []
     if state_change and effective == 'waiting' and row.get('blocked_since') and (
-            requested_status not in (None, 'waiting') or step is not None and step_id != step and step != 'Blocked'):
+            requested_status not in (None, 'waiting') or step is not None and not _one(
+                conn, "SELECT 1 FROM task_steps WHERE status='waiting' AND (id=? OR name=?)", (step, step))):
+        # The hold keeps the ticket where it asked to go, but not in the working step it named.
         self_wait.append('Task remains Blocked: ' + (row.get('blocked_reason') or 'a hold is still outstanding'))
     if closing_step:
         _task_close_allowed(conn, actor, row, note, mover)
