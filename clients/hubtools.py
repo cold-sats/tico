@@ -1065,10 +1065,16 @@ def task_type_delete(api, args):
        "visuals": VISUALS, "on_behalf_of": ASKED,
        "needs_action": {"type": "boolean", "default": False,
                         "description": "To a bot: wake it now. Without this a bot's message to a bot waits for that "
-                        "bot's next run, whatever starts it"}},
+                        "bot's next run, whatever starts it"},
+       "delivery": {"type": "string", "enum": ["steer", "queue", "goal"],
+                    "description": "What the comment does to the task's bot. steer: reach it now, folded into a running "
+                    "turn if its harness can steer. queue: wait for its next turn on this task. goal: make the text the "
+                    "goal of its task session (no attachments or visuals; not public, not a question). Omitted, the "
+                    "comment wakes the bot as it always has."}},
       required=("id", "text"), writes=True)
 def task_comment(api, args):
-    body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id", "needs_action") if k in args}
+    body = {k: args[k] for k in ("text", "ask", "attachments", "public", "approval_id", "needs_action",
+                                 "delivery") if k in args}
     local = []
     if args.get("visuals"):
         added, local = _visuals(api, args["visuals"], lambda index, name, data: _uploaded(_posted_file(

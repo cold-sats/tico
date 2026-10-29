@@ -1481,11 +1481,16 @@ def _unreviewed_runs(c, who, auth):
     for slug in slugs:
         if not readable.get(slug, auth.FULL)["read"]:
             continue
-        count, oldest = 0, None
+        count, oldest, seen = 0, None, set()
         for row in held.get(slug, []):
             if not (privacy.message_readable(c, privacy.actor(who), row)
                     and (not row["attempt_id"] or privacy.attempt_readable(c, privacy.actor(who), row["attempt_id"]))):
                 continue
+            # Per stopped run: requests folded into one run share its attempt.
+            key = row["attempt_id"] or row["id"]
+            if key in seen:
+                continue
+            seen.add(key)
             count += 1
             oldest = oldest or row["since"]
         hours = int((H.parse_ts(H.now()) - H.parse_ts(oldest)).total_seconds() // 3600) if oldest else 0
