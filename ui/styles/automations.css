@@ -23,7 +23,7 @@
 .au-rail{display:flex;flex-direction:column;min-height:0;overflow-y:auto;border-right:1px solid var(--line)}
 .au-s{padding:12px}
 .au-facets{display:grid;align-content:start;gap:14px;padding:0 8px 16px}
-.au-fg{display:grid;gap:1px}
+.au-fg{display:grid;align-content:start;gap:1px}
 .au-fg .au-lb{padding:0 6px 4px}
 .au-fb{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 6px;border:0;border-radius:6px;background:none;color:var(--g7);font:inherit;font-size:var(--t-base);text-align:left;cursor:pointer}
 .au-fb:hover{background:var(--surface)}
@@ -43,20 +43,39 @@
 .au-tabs button[aria-selected="true"]{background:var(--surface2);color:var(--ink)}
 .au-sel{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--t-sm)}
 .au-sel select{width:auto;height:28px;padding:0 6px;font-size:var(--t-sm)}
-.au-fbtn{display:none}
-.au-tbl{flex:1;min-height:0;overflow:auto}
-.au-tbl-t{width:100%;border-collapse:collapse;font-size:var(--t-base)}
+.au-ctl .au-fbtn{display:none}
+.au-tbl{flex:1;min-height:0;overflow:auto;container-type:inline-size}
+/* fixed columns: long names and triggers end in "…" so the counts on the right always show */
+.au-tbl-t{width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--t-base)}
 .au-tbl-t th{position:sticky;top:0;z-index:1;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--bg);color:var(--muted);font-size:var(--t-label);font-weight:500;letter-spacing:var(--track-caps);text-transform:uppercase;text-align:left;white-space:nowrap}
-.au-tbl-t td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.au-tbl-t td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
+.au-tbl-t th.au-tt{width:18%}
+.au-tbl-t th.au-to{width:150px}
+.au-tbl-t th.au-cl{width:78px}
+.au-tbl-t th.au-cx{width:64px}
+.au-tbl-t th.au-cs{width:104px;padding-right:0}
+.au-tbl-t th.au-n{width:58px}
+.au-tbl-t th.au-n:last-child{width:74px}
+.au-tbl-t th.au-cw{width:84px}
+.au-tbl-t th.au-cst{width:92px}
+.au-tbl-t th.au-why{width:24%}
+.au-tbl-t th.au-out{width:20%}
+/* a narrow table folds Owner and Next to nothing (the Owner filter still has them), and a run's Steps and Time; folded,
+   not removed, so a group row's colspan still matches the columns */
+@container (max-width:1000px){
+  .au-tbl-t th.au-to,.au-tbl-t th.au-cx{width:0}
+  .au-tbl-t .au-to,.au-tbl-t .au-cx{padding:0;border-left:0;font-size:0}
+}
 .au-row,.au-arow{cursor:pointer}
 .au-row:hover td,.au-arow:hover td{background:var(--surface)}
-.au-tn>div{display:flex;align-items:center;gap:8px;min-width:0;max-width:320px}
+.au-tn>div{display:flex;align-items:center;gap:8px;min-width:0}
 .au-tn a{display:flex;align-items:center;gap:8px;min-width:0;color:var(--ink);text-decoration:none;font-weight:500}
 .au-tn .nav-icon{font-size:17px;width:18px;height:18px;flex:none;color:var(--muted)}
 .au-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .au-row.off .au-nm{color:var(--muted)}
-.au-tt{max-width:220px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
-.au-to>span{display:inline-flex;align-items:center;gap:6px;color:var(--g7)}
+.au-tt{color:var(--muted)}
+.au-to>span{display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--g7)}
+.au-to>span>span{overflow:hidden;text-overflow:ellipsis}
 .au-lr{display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
 .au-spark{display:block}
 .au-bad{color:var(--fail)}
@@ -66,8 +85,8 @@
 .au-grp .au-chev{transition:transform var(--dur-fast,.12s)}
 .au-grp.closed .au-chev{transform:rotate(-90deg)}
 .au-grp .au-fn{margin-left:8px}
-.au-why{max-width:320px;overflow:hidden;text-overflow:ellipsis;color:var(--g7)}
-.au-out{max-width:240px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.au-why{color:var(--g7)}
+.au-out{color:var(--muted)}
 .au-out.au-bad{color:var(--fail)}
 .au-chart{padding:12px 16px 6px;border-bottom:1px solid var(--line)}
 .au-chart svg{display:block}
@@ -288,13 +307,12 @@ button.au-chip:hover{background:var(--surface2)}
   .au-s{padding:0 12px 8px}
   .au-facets{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));padding:0 12px 12px}
   .au-fb{min-height:36px}
-  .au-fbtn{display:inline-flex}
+  .au-ctl .au-fbtn{display:inline-flex}
   .au-ctl{padding:8px 12px}
   .au-ctl .au-sp,.au-sel{display:none}
   /* the table scrolls sideways in its own box; the page scrolls down */
   .au-tbl{flex:none;overflow-x:auto;overflow-y:visible;padding-bottom:76px}
   .au-tbl-t{min-width:760px}
-  .au-tn>div{max-width:200px}
   .au-crumb{padding:8px 12px 0}
   .au-hd{padding:8px 12px;border:0;flex-wrap:wrap}
   .au-botbtn{display:inline-flex}

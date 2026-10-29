@@ -124,7 +124,7 @@ function auCtlDraw() {
   ctl.innerHTML = `<div class="au-tabs" role="tablist" aria-label="View">
       <button type="button" role="tab" data-tab="list" aria-selected="${list}">Automations</button>
       <button type="button" role="tab" data-tab="runs" aria-selected="${!list}">Runs</button></div>
-    <button type="button" class="au-chip au-fbtn" data-filters aria-expanded="${AU.root.classList.contains('filters-open')}">${auIcon('tune')}Filters${n ? ' · ' + n : ''}</button>
+    <button type="button" class="au-chip au-fbtn" data-filters aria-expanded="${AU.root.classList.contains('filters-open')}">${auIcon('filter_alt')}Filters${n ? ' · ' + n : ''}</button>
     <span class="au-sp"></span>
     ${list ? `<label class="au-sel">Group <select data-group>${opts([['trigger', 'Trigger'], ['owner', 'Owner'], ['none', 'None']], AU.group)}</select></label>
       <label class="au-sel">Sort <select data-sort>${opts(AU_SORTS, AU.sort)}</select></label>`
@@ -148,7 +148,7 @@ function auSpark(b, w = 84, h = 18) {
 function auPill(a) {
   const st = auState(a);
   return (a.pending ? '<span class="pill">Pending</span>' : '')
-    + (st === 'paused' ? '<span class="pill waiting">Paused</span>' : st === 'off' ? '<span class="pill">Off</span>' : a.builtin ? '<span class="pill">Built-in</span>' : '');
+    + (st === 'paused' ? '<span class="pill waiting">Paused</span>' : st === 'off' ? '<span class="pill">Off</span>' : '');
 }
 const AU_DOTS = {ok: 'ok', empty: 'ok', skipped: 'ok', failed: 'fail', waiting: 'wait'};
 
@@ -174,9 +174,9 @@ function auTableHTML() {
       <td class="au-tn"><div><a href="${auHref(a.id)}">${auIcon(AU_KIND_ICONS[auKind(a)] || 'bolt')}<span class="au-nm">${esc(a.name || 'Untitled')}</span></a>${auPill(a)}</div></td>
       <td class="au-tt" title="${esc(auTrigLine(a))}">${esc(auTrigLine(a))}</td>
       <td class="au-to"><span>${personCircle(auActorName(a.owner), 16)}<span>${esc(auActorName(a.owner))}</span></span></td>
-      <td>${lr ? `<span class="au-lr"><span class="au-dot ${AU_DOTS[lr.status] || 'idle'}" role="img" aria-label="${esc(AU_RUN_STATUS[lr.status] || lr.status)}"></span>${esc(auAge(lr.started))}</span>` : '<span class="muted">—</span>'}</td>
-      <td class="muted">${next ? (next === 'now' ? 'due' : 'in ' + esc(next)) : '—'}</td>
-      <td>${auSpark(s.buckets || zero)}</td>
+      <td class="au-cl">${lr ? `<span class="au-lr"><span class="au-dot ${AU_DOTS[lr.status] || 'idle'}" role="img" aria-label="${esc(AU_RUN_STATUS[lr.status] || lr.status)}"></span>${esc(auAge(lr.started))}</span>` : '<span class="muted">—</span>'}</td>
+      <td class="au-cx muted">${next ? (next === 'now' ? 'due' : 'in ' + esc(next)) : '—'}</td>
+      <td class="au-cs">${auSpark(s.buckets || zero)}</td>
       <td class="au-n">${s.runs ? s.runs.toLocaleString() : '<span class="muted">0</span>'}</td>
       <td class="au-n${s.failed ? ' au-bad' : ' muted'}">${s.failed || '—'}</td>
       <td class="au-n">${money(s.cost)}</td></tr>`;
@@ -185,7 +185,7 @@ function auTableHTML() {
     `<tr class="au-grp${AU.closed.has(g.k) ? ' closed' : ''}" data-agrp="${esc(g.k)}" role="button" tabindex="0" aria-expanded="${!AU.closed.has(g.k)}"><td colspan="9">${auIcon('expand_more', 'au-chev')}${label(g.k)}<span class="au-fn">${g.rows.length}</span></td></tr>`)
     + (AU.closed.has(g.k) && AU.group !== 'none' ? '' : g.rows.map(tr).join(''))).join('')
     : `<tr><td colspan="9" class="muted au-pad">${(AU.list || []).length ? 'No automations match these filters' : 'No automations'}</td></tr>`;
-  return `<table class="au-tbl-t"><thead><tr><th>Name</th><th>Trigger</th><th>Owner</th><th>Last run</th><th>Next</th><th>Last ${AU.range}</th>
+  return `<table class="au-tbl-t"><thead><tr><th>Name</th><th class="au-tt">Trigger</th><th class="au-to">Owner</th><th class="au-cl">Last run</th><th class="au-cx">Next</th><th class="au-cs">Last ${AU.range}</th>
     <th class="au-n">Runs</th><th class="au-n">Failed</th><th class="au-n">Cost</th></tr></thead><tbody>${body}</tbody></table>
     ${st?.error ? `<p class="err au-pad">${esc(st.error)}</p>` : ''}`;
 }
@@ -212,15 +212,15 @@ function auAllHTML() {
   const r = AU.all, shown = new Set(auShown().map(a => a.id));
   const rows = (r?.rows || []).filter(x => shown.has(x.automation_id));
   const kindOf = id => auKind((AU.list || []).find(a => a.id === id) || {});
-  const table = rows.length ? `<table class="au-tbl-t au-all"><thead><tr><th>When</th><th>Status</th><th>Automation</th><th>Started by</th><th>Outcome</th>
-      <th class="au-n">Steps</th><th class="au-n">Time</th><th class="au-n">Cost</th></tr></thead><tbody>
+  const table = rows.length ? `<table class="au-tbl-t au-all"><thead><tr><th class="au-cw">When</th><th class="au-cst">Status</th><th>Automation</th><th class="au-why">Started by</th><th class="au-out">Outcome</th>
+      <th class="au-n au-cx">Steps</th><th class="au-n au-cx">Time</th><th class="au-n">Cost</th></tr></thead><tbody>
       ${rows.map(x => `<tr class="au-arow" role="button" tabindex="0" data-arun="${esc(x.id)}" data-aid="${esc(x.automation_id)}">
         <td class="muted" title="${esc(fmt(x.started))}">${esc(auAge(x.started) === 'now' ? 'now' : auAge(x.started) + ' ago')}</td>
         <td><span class="pill ${AU_RUN_PILLS[x.status] || ''}">${esc(AU_RUN_STATUS[x.status] || auCap(x.status))}</span></td>
         <td class="au-tn"><div>${auIcon(AU_KIND_ICONS[x.trigger || kindOf(x.automation_id)] || 'bolt')}<span class="au-nm">${esc(x.automation_name || '')}</span></div></td>
         <td class="au-why" title="${esc(x.started_by || '')}">${esc(x.started_by || '')}</td>
         <td class="au-out${x.status === 'failed' ? ' au-bad' : ''}" title="${esc(x.outcome || '')}">${esc(x.outcome || '')}${x.count > 1 ? ` <span class="muted">×${x.count}</span>` : ''}</td>
-        <td class="au-n muted">${x.step_count ?? '—'}</td><td class="au-n muted">${esc(auDur(x)) || '—'}</td>
+        <td class="au-n au-cx muted">${x.step_count ?? '—'}</td><td class="au-n au-cx muted">${esc(auDur(x)) || '—'}</td>
         <td class="au-n muted">${x.cost ? esc(auMoney(x.cost)) : '—'}</td></tr>`).join('')}</tbody></table>`
     : `<p class="muted au-pad">${!r || r.loading ? 'Loading…' : r.error ? '' : 'No runs in the last ' + AU.range}</p>`;
   return auChartHTML() + table

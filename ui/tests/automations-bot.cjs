@@ -64,7 +64,8 @@ async function ask(page, text) {
       await ask(page, 'Label demo requests in the sales inbox');
       const card = page.locator('.au-made[data-made="au_new"]');
       await card.waitFor();
-      assert.deepEqual(writes.at(-1).body.refs, {});
+      // With nothing open, the ask carries what the list shows instead of an automation.
+      assert.deepEqual(writes.at(-1).body.refs, {automations_filter: {range: '1h', tab: 'list', shown: 4}});
       assert.match(await card.innerText(), /Sales leads[\s\S]*Off/);
       assert.equal(await sideways(page), false);
       await shot(page, 'phone-made');
