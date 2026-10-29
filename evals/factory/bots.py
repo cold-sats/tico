@@ -420,14 +420,16 @@ class Builder(Bot):
         if pr and w.ci_state(pr) == "failing":
             self.push(task, pr)
             return "pushed a fix for failing CI"
-        judged = w.judged(task["id"], step.name)
-        if not judged or not pr or judged.get("verdict_head") != w.prs[pr]["head"]:
+        # Only the round the ticket waits on counts: an earlier round's verdict, from before the ticket came back to
+        # this step, is no reason to move it by hand while the new round is still open.
+        current = w.current_check(task["id"], step.name)
+        if not current or not current.get("verdict") or not pr or current.get("verdict_head") != w.prs[pr]["head"]:
             return None
-        if judged["verdict"] in ("approve", "pass"):
+        if current["verdict"] in ("approve", "pass"):
             if check.passed == MERGE:
                 return self.merge(task, pr)
             return self.fallback(task, check.passed, "passed, still at " + step.name)
-        return self.fallback(task, check.other, judged["verdict"] + ", still at " + step.name)
+        return self.fallback(task, check.other, current["verdict"] + ", still at " + step.name)
 
     def push(self, task, pr, clean=False):
         self.world.push(pr)

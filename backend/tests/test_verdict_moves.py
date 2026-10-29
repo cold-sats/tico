@@ -657,6 +657,25 @@ def test_a_round_timed_out_after_a_pass_at_the_head_says_it_passed(api):
     assert "no usable verdict" not in note and f"pass at head {HEAD[:12]}" in note, note
 
 
+def test_a_round_timed_out_after_a_fail_at_the_head_goes_to_on_fail_and_never_to_the_merge(api):
+    """A ticket back in QA at a head QA already failed, with a fresh round nobody judged: the round times out, and the
+    head is still failed, so the ticket goes to QA Fixes rather than being cleared to merge on green CI."""
+    task = ticket(api, step="In QA")
+    _suite(api, "github-actions", "completed", "success", sha=HEAD)
+    verdict(api, check(api, task, "QA: PR #412"), "fail")
+    assert step(api, task) == "QA Fixes"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:cpo", task["id"], step="In QA")
+        c.execute("DELETE FROM jobs")
+    check(api, task, "QA: PR #412")
+    with api.app.state.store.transaction() as c:
+        assert V.timeouts(c, H.shift(H.now(), hours=24 * 7)) == [task["id"]]
+    assert step(api, task) == "QA Fixes"
+    handoffs = [m for m in builder_jobs(api) if m["refs"].get(V.HANDOFF)]
+    assert [m["refs"][V.HANDOFF] for m in handoffs] == ["verdict"], handoffs
+    assert handoffs[0]["refs"]["verdict"] == "fail" and "QA Fixes" in handoffs[0]["body"], handoffs[0]
+
+
 def test_a_finished_suite_with_no_check_run_keeps_its_failure(api, monkeypatch):
     """Only a suite still waiting to start is left out: one GitHub finished as failed, runs or none, still fails."""
     from backend import github as G

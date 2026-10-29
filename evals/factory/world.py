@@ -443,6 +443,7 @@ class World:
         if self.prs[number]["merged"]:
             return
         self.prs[number]["merged"] = True
+        self.prs[number]["merged_at"] = self.H.now()
         self.hook("pull_request", self.pr_payload(number, "closed", merged=True))
 
     # ------------------------------------------------------------------ fake GitHub reads (opt in)
@@ -547,6 +548,13 @@ class World:
     def judged(self, task_id, step=None):
         """The ticket's newest check with a verdict (for `step` when given)."""
         found = [c for c in self.checks(task_id) if c.get("verdict") and (step is None or self.check_step(c) == step)]
+        return found[-1] if found else None
+
+    def current_check(self, task_id, step):
+        """The round the ticket is waiting on at `step`: its newest check there filed since the ticket entered the
+        step, whether or not that check has a verdict yet. A check from before a return to the step is a past round."""
+        entered = self.step_entered_at(task_id) or ""
+        found = [c for c in self.checks(task_id) if self.check_step(c) == step and c["created"] >= entered]
         return found[-1] if found else None
 
     def checks(self, task_id):

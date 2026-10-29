@@ -133,17 +133,33 @@ def qa_down_then_waive(run, w, team, i):
 
 
 # ---------------------------------------------------------------------------------------------- checks
+def passed_by(w, ticket_id, head, when):
+    """Whether QA passed `head` on a check whose pass was recorded at or before `when` (a task timestamp). The verdict
+    event reads "pass <head>"."""
+    for c in qa_children(w, ticket_id):
+        if c["verdict"] != "pass" or c["verdict_head"] != head:
+            continue
+        found = w.sql("SELECT min(ts) ts FROM task_events WHERE task_id=? AND field='verdict' AND lower(new)=?",
+                      (c["id"], f"pass {head}"))
+        if found and found[0]["ts"] and w.H.parse_ts(found[0]["ts"]) <= w.H.parse_ts(when):
+            return True
+    return False
+
+
 def merged_on_pass_or_waiver(run):
-    """Every merged ticket's final head has a QA pass or a person's waiver for that exact head, and at least one
-    ticket merged on a waiver: nothing merges on a stale waiver."""
+    """Every merged ticket's head had a QA pass or a person's waiver for it by the time its pull request merged, and at
+    least one ticket merged on a waiver: nothing merges on a stale waiver. A pass QA records after the merge does not
+    make the merge right, so a ticket that merged on its waiver stays a waiver merge when QA judges the head later."""
     w, bad, on_waiver = run.w, [], 0
     for t in run.final:
         if t["id"] not in run.merged_at:
             continue
         pr = w.pr_of(t["id"])
         head = w.prs[pr]["head"] if pr else None
-        passed = any(c["verdict"] == "pass" and c["verdict_head"] == head for c in qa_children(w, t["id"]))
-        waived = any(e["head"] == head and e["actor"].startswith("human:") for e in waiver_events(w, t["id"]))
+        merged = (w.prs[pr] if pr else {}).get("merged_at") or w.H.now()
+        passed = passed_by(w, t["id"], head, merged)
+        waived = any(e["head"] == head and e["actor"].startswith("human:") and
+                     w.H.parse_ts(e["ts"]) <= w.H.parse_ts(merged) for e in waiver_events(w, t["id"]))
         on_waiver += waived and not passed
         if not (passed or waived):
             bad.append(f"{t['title']} merged at {str(head)[:7]} with no QA pass or waiver there")
