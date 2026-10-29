@@ -113,7 +113,9 @@ html:not(.has-librarian) [data-librarian-open]{display:none}
   // What each page keeps between opening and closing the panel: the conversation, so a follow-up has context,
   // and what was asked and answered, so closing it does not lose the thread.
   const sessions = {docs: {conversationId: '', turns: []}};
+  // Questions an empty chat offers, on Docs only: the Librarian reads docs and public links, not meetings or tools.
   const HINTS = ['How do we handle a refund?', 'Who helps new hires?', 'Where is the pricing?'];
+  const onDocs = () => /^#\/docs(?:[/?]|$)/.test(location.hash);
   const PLACEHOLDER = 'Ask the Librarian…';
   const TURN_LIMIT = 50;
   let panel = null, opener = null, es = null, poll = null, busy = false;
@@ -261,8 +263,8 @@ html:not(.has-librarian) [data-librarian-open]{display:none}
     // At the bottom the answer is followed as it streams in; scrolled up, nothing moves and a pill says it came.
     stickScroll(body).update(() => {
       body.innerHTML = turns.length ? turns.map(turnHtml).join('')
-        : `<div class="dask-empty">
-            <div class="dask-hints">${HINTS.map(h => `<button class="ghost" type="button" data-hint="${esc(h)}">${esc(h)}</button>`).join('')}</div></div>`;
+        : `<div class="dask-empty">${onDocs()
+            ? `<div class="dask-hints">${HINTS.map(h => `<button class="ghost" type="button" data-hint="${esc(h)}">${esc(h)}</button>`).join('')}</div>` : ''}</div>`;
       decorate(body);
       body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => ask(b.dataset.hint); });
       body.querySelectorAll('[data-collection]').forEach(select => {
@@ -368,9 +370,9 @@ html:not(.has-librarian) [data-librarian-open]{display:none}
     const note = document.createElement('div');
     note.className = 'dask-off';
     note.dataset.off = '';
-    note.innerHTML = `<p><strong>The Librarian is ${info.state === 'missing' ? 'not set up yet' : esc(info.state)}.</strong> ${info.can_turn_on
-      ? 'Turning it on adds it to a computer and it starts answering.' : 'Ask the owner of this team to turn it on.'}</p>
-      ${info.can_turn_on ? '<button class="primary" type="button" data-turn-on>Turn on the Librarian</button><span class="dask-empty" data-turn-status role="status"></span>' : ''}`;
+    note.innerHTML = `<p><strong>The Librarian is ${info.state === 'missing' ? 'not set up yet' : esc(info.state)}.</strong>${info.can_turn_on
+      ? '' : ' Ask the owner to turn it on.'}</p>
+      ${info.can_turn_on ? '<button class="primary" type="button" data-turn-on>Turn on</button><span class="dask-empty" data-turn-status role="status"></span>' : ''}`;
     panel.querySelector('.dask-body').append(note);
     const on = note.querySelector('[data-turn-on]');
     if (on) on.onclick = async () => {
@@ -481,7 +483,7 @@ html:not(.has-librarian) [data-librarian-open]{display:none}
     document.documentElement.classList.toggle('has-librarian', has);
     if (!railPage() || !has) { close(false); return; }
     if (desktop()) {
-      if (panel) setMode();
+      if (panel) { setMode(); if (!session().turns.length && !openingConversation) draw(); }   // the hints follow the page
       else if (!railHidden()) open(undefined, false);
     } else if (panel?.getAttribute('role') === 'complementary') close(false);
   };
