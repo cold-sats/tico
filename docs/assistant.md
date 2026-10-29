@@ -1,12 +1,37 @@
 # The Assistant
 
 Every human has one private chat with the team's assistant (the `coo` bot; you may have renamed it): a personal
-bot that knows how Tico is laid out and does things in it on your behalf. **Assistant** in the main left rail opens it
+bot that knows how Tico is laid out and does things in it on your behalf. **Ask** opens it from any page: the round
+button at the bottom left (or ⌘J / Ctrl+J) opens a small panel over the page, and on a phone the **Ask** tab in the
+middle of the tab bar opens it as a sheet. The panel names the page it sees, and a message sent from it carries that
+page, so "this" and "here" mean what you are looking at. **Show chat** in the panel opens it
 as a page of its own (`#/assistant`): the assistant's name, then the same thread and composer as a bot's chat, with a
 few things to ask while it is empty. The **Assistant** tab, first on your own page (`#/person/<you>`), opens the same
-page, and so does **Ask the Assistant…** at the bottom of search (⌘K), with your words in the box. An Assistant's room
-takes text only, so the composer has no attach button (the owner's Strategy Bot chat takes files: [Strategy Bot](strategy-bot.md)). **BotOps** beside it in the rail opens BotOps' bot page. These built-ins stay out of the team chart and Goals tree; Settings > Bots still manages all four.
+page. An Assistant's room
+takes text only, so the composer has no attach button (the owner's Strategy Bot chat takes files: [Strategy Bot](strategy-bot.md)). There is no BotOps or Assistant row in the rail: you ask the Assistant, and it hands BotOps whatever needs BotOps
+(below). BotOps' own chat is still at `#/bot/botops`. These built-ins stay out of the team chart and Goals tree; Settings > Bots still manages all four.
 It works on a phone too.
+
+The **+** in the panel loops in help: **Tico support** (free) or **Tico team** (full management of your company).
+Either opens Support over the page for a request. While a request is open it is a member of the chat: its messages flow
+in with the Assistant's, by time, as green bubbles (yours on the right), and a reply seen there is read. Tap
+**Tico support** at the top to see only that conversation; the box then writes to support, and another tap shows the
+whole chat again. Its **×** takes it out of the panel (the request itself stays in Support).
+
+What waits on you from elsewhere comes at the end of the chat as cards: a Confirm card BotOps (or another bot) left in
+its own chat, with its Confirm and Cancel, and up to three bots' questions to you from Needs you. A question with two to
+six picks is answered with a tap, any other with a line of words (a question with several picks at once links to its
+task). You can also just tell the Assistant: "tell BotOps yes" answers BotOps' open question in your words (`hub
+question answer --on-behalf-of turn`, below). A Confirm card always needs your own tap.
+
+## BotOps through the Assistant
+
+When you ask for something only BotOps can do (a new bot, a change to one, a credential), the Assistant files BotOps a
+task with `--request-id turn`, citing your own message. BotOps then acts with your rights, exactly as if you had asked
+it in its own chat, and the task opens with your words quoted. The citation holds only for a message you wrote in your
+own Assistant chat in the last 30 minutes, only for a task owned by BotOps, and only while that message is under a week
+old; otherwise BotOps works with its own rights and asks you on a card. The owner's rule "Assistant acts without
+asking" must be on; with it off the task is filed without your rights. The event `botops.asked_via_assistant` records it.
 
 Ask it to find a meeting, a doc, a file or a task; to tell you what needs you; to make a task; to hand work to the
 right bot; to ask BotOps for a new bot; or how something works. It answers briefly and links what it names (tasks,

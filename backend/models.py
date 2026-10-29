@@ -2465,10 +2465,17 @@ class StopTurn(Contract):
     redirect: ID | None = None     # the caller's queued message the next turn starts with (Stop and redirect)
 
 
+class AssistantPage(Contract):
+    path: Annotated[str, Field(max_length=300)]
+    title: Annotated[str, Field(max_length=200)] = ""
+
+
 class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
     # Sent from the Updates chat (backend/updates_chat.py): the turn is handed the updates the person may read.
     place: Literal["updates"] | None = None
+    # Sent from the Ask panel (ui/app/ask-panel.js): the page the person is looking at, handed to the turn as a hint.
+    page: AssistantPage | None = None
 
 
 class AssistantUpload(Contract):

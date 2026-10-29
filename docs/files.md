@@ -191,13 +191,15 @@ and keeps the bytes; the file returns when the bot publishes a changed version. 
 
 ### Prepared file-distribution edge
 
-`infra/files-edge/template.py` renders an **edge-only, disabled** CloudFormation template to stdout;
-it never calls AWS. This is preparation for managed file hosting, not an available storage option.
-The stand-up still requires the owner's cost approval, private bucket and bucket policy, certificate,
-logging and broker provisioning, HQ key synchronization and DNS. Do not create or deploy AWS resources
-before that approval. The template takes `FilesDomain`, `CertificateArn` and `BucketRegionalDomainName`;
-it creates the distribution, OAC, key store, functions and response policies. Its OAC needs a bucket
-policy restricted to this distribution's ARN. Keep Block Public Access on; never grant public reads.
+`infra/files-edge/template.py` renders an **edge-only** CloudFormation template to stdout; it never
+calls AWS. The stand-up supplies the private bucket and bucket policy, certificate, log bucket, broker
+provisioning, HQ key synchronization and DNS. The template takes `FilesDomain`, `CertificateArn` and
+`BucketRegionalDomainName`; it creates the distribution, OAC, key store, functions and response policies.
+The distribution stays **disabled** unless `Enabled=true` is passed: enable it only once the bucket policy
+and certificate are in place. `LogBucketDomainName` (`<bucket>.s3.amazonaws.com`, ACLs enabled, as CloudFront
+standard logs require) and `LogPrefix` (default `cloudfront/`) turn on the standard logs HQ meters delivery
+from. Its OAC needs a bucket policy restricted to this distribution's ARN. Keep Block Public Access on;
+never grant public reads.
 
 The v1 edge contract is:
 

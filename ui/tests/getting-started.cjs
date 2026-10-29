@@ -310,9 +310,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     page = await open('#/updates');
     const hint = page.locator('#gs-org-hint');
     await hint.waitFor();
-    assert.equal(await hint.textContent(), 'Talk to BotOps to add or edit your bots');
-    assert.equal(await hint.locator('a').textContent(), 'BotOps');
-    assert.equal(await hint.locator('a').getAttribute('href'), '#/bot/botops');
+    assert.equal(await hint.textContent(), 'Ask to add or edit your bots');
+    assert.equal(await hint.locator('a').textContent(), 'Ask');
     assert.equal(await hint.locator('button').count(), 0);                 // no buttons, no X
     assert.equal(await page.locator('#gs-org-card, [data-gs-build], [data-gs-connect], [data-gs-dismiss]').count(), 0);
     if (shots) for (const colorScheme of ['light', 'dark']) {
@@ -322,7 +321,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       await page.screenshot({path: path.join(shots, `sidebar-botops-line-${colorScheme}.png`)});
     }
     await hint.locator('a').click();
-    await page.waitForFunction(() => location.hash === '#/bot/botops');
+    await page.locator('#ask-panel').waitFor();          // it opens Ask, staying on the page
+    assert.equal(await page.evaluate(() => location.hash), '#/updates');
     await page.close();
     // ...and it is gone once there is a bot of your own, and never shown to someone who cannot add bots.
     items = items.map(row => row.id === 'first_bot' ? {...row, done: true, why: ''} : row);

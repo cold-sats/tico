@@ -107,8 +107,14 @@ pub fn replayed(attempt: &Value, names: &Names, after: Option<&str>, resumed: bo
             "This provider session and its conversation history belong only to that person. Never copy personal preferences, messages, or attachments into shared repository files.".into(),
             "For live questions about running, queued, blocked, waiting, unhealthy, or approval work, run `hub health check`. Its response is already filtered to the signed-in person you represent.".into(),
             "You may explain or propose an action, but only the human-facing Hub can record an approval decision.".into(),
-            "For requests to create, modify, debug, test, deploy, or maintain bots, delegate the substantive engineering to BotOps with `hub task create --owner botops`. Keep this low-reasoning assistant turn responsive: confirm the handoff, then report BotOps's result when the task returns.".into(),
+            "For requests to create, modify, debug, test, deploy, or maintain bots, delegate the substantive engineering to BotOps with `hub task create --owner botops --request-id turn`, so BotOps acts with the person's own rights. Keep this low-reasoning assistant turn responsive: confirm the handoff, then report BotOps's result when the task returns.".into(),
         ]);
+        // Asked from the Ask panel on another page (backend/assistant.py post_message_sync `refs.page`).
+        let page = &attempt["message"]["refs"]["page"];
+        if page["path"].is_string() {
+            lines.push(format!("They asked from the {:?} page ({}). Read that page's subject if their words point at it (\"this\", \"here\").",
+                               s(&page["title"]), s(&page["path"])));
+        }
     }
     // The team's published strategy: every turn carries it once one is published (backend/strategy.py summary_text,
     // handed over in `learned.strategy` by backend/learned.py for_turn). Rendered on its own, before what the bot learned.
@@ -381,6 +387,17 @@ mod tests {
         assert!(asked.contains(UPDATES_HEADER) && asked.contains("#/updates?kind=daily&day=2026-10-24&update=u1"));
         // Any other turn, the menu tab's included, is handed none and says nothing about it.
         assert!(!prompt(&turn(Value::Null), &names, None, false).contains("They asked from the Updates page"));
+    }
+
+    #[test]
+    fn a_turn_from_the_ask_panel_names_the_page_it_was_asked_from() {
+        let names = Names { company: "Acme".into(), app: "Tico".into() };
+        let turn = |refs: Value| json!({"id": "a8", "bot": "coo",
+            "conversation": {"id": "c8", "kind": "chat", "scope": "personal", "owner_actor": "human:ben", "room_key": "assistant"},
+            "message": {"id": "m8", "from_actor": "human:ben", "body": "Who changed this?", "refs": refs}, "history": []});
+        let asked = prompt(&turn(json!({"assistant": true, "page": {"path": "#/docs/pricing", "title": "Pricing 2027"}})), &names, None, false);
+        assert!(asked.contains("They asked from the \"Pricing 2027\" page (#/docs/pricing)"));
+        assert!(!prompt(&turn(json!({"assistant": true})), &names, None, false).contains("They asked from the"));
     }
 
     #[test]

@@ -3513,6 +3513,8 @@ def create_app(settings=None):
         handoff = who.role == "bot" and who.actor != "bot:" + BOTOPS and not who.via
         if request_id and handoff:
             request_id = None          # a bot cites the person it is handing on; it never acts as them itself
+        elif request_id and who.via == "assistant":
+            pass                       # the person's own words to their Assistant, checked once the owner is known
         elif request_id:
             who = delegated_identity(c, who, request_id, new_task=True)
         parents = [r.task for r in body.relations if r.kind == "parent"]
@@ -3524,6 +3526,15 @@ def create_app(settings=None):
         original = auth.target(c, who, body.owner, need="write")
         owner = auth.target(c, who, route(c, who.actor, original), need="write")
         task_caps.check(c, who.actor, owner)      # the first hub check on a send (CONTRACT §1): nothing is written
+        asked_botops = None
+        if request_id and who.via == "assistant":
+            # The Assistant handing BotOps what the person asked for in their own Assistant chat, citing that message
+            # (`--request-id turn`): BotOps then acts with the person's rights (delegated_identity, `assistant`).
+            # Only BotOps carries it, and only while the owner lets the Assistant act without asking.
+            if owner != "bot:" + BOTOPS:
+                raise Problem("request_id", "Only a task for BotOps carries the person's request", 422)
+            asked_botops = assistant_instruction(c, who, request_id) if assistant_direct() else None
+            request_id = None
         # The same checks the dry-run makes (task_privacy.require_create); a subtask for a person under a private
         # task with no person on it, filed by the bot that owns it, makes them its one guest.
         guest = privacy.require_create(c, source, body.private, owner, H.task(c, parent_id) if parent_id else None,
@@ -3676,6 +3687,15 @@ def create_app(settings=None):
                                      {"task": row["id"], "comment": True, "quiet": True, "carried": True}, None, None)
         elif handoff and body.request_id:
             raise Problem("request_id", "Only a task for BotOps carries a person's request", 422)
+        if asked_botops:
+            request_id = asked_botops["cited"]
+            H.event(c, who.actor, "botops.asked_via_assistant", row["id"], asked_botops)
+            words = (H.message(c, request_id) or {}).get("body") or ""
+            name = (H.human(c, H.actor_id(who.actor)) or {}).get("name") or H.actor_id(who.actor)
+            H._write_message(c, H.KEEPER, owner, f"{name} asked the {settings.assistant_name} for this, in their words:\n\n> "
+                             + "\n> ".join(words[:2000].splitlines() or [""]),
+                             H.conversation(c, row["conversation_id"]), "say",
+                             {"task": row["id"], "comment": True, "quiet": True, "carried": True}, None, None)
         inherited_request = parent.get("request_id") if parent and H.is_human(who.actor) and who.actor == parent["requester"] else None
         if request_id in ("turn", "default"):
             # `turn` names the run's own request: store that message, which delegated_identity resolved, so the task's
@@ -4977,6 +4997,18 @@ def create_app(settings=None):
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
                     return acting_as(person, task_id)
+            asked = c.execute("SELECT detail_json FROM events WHERE action='botops.asked_via_assistant' AND target=? "
+                              "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone() if task else None
+            if asked and task["owner"] == who.actor and H.is_human(task["requester"]) and open_task(task):
+                # The person's own words to their Assistant, checked when it filed this (task_create): BotOps acts
+                # as them, as if they had asked it in their BotOps chat.
+                origin = H.message(c, (H._json(asked["detail_json"], {}) or {}).get("cited") or "")
+                if (not origin or origin.get("deleted_at") or origin["from_actor"] != task["requester"]
+                        or week_old(origin["created"])):
+                    raise Problem("on_behalf_of", "The request the Assistant handed on no longer stands; ask the "
+                                  "person again", 403)
+                H.VIA.set("botops")
+                return acting_as(auth.identity_for_actor(c, task["requester"]), origin["id"], "assistant")
             if task and task.get("request_id") in ("turn", "default"):
                 # Tasks filed before the request was stored by id: the person's message the filing cited.
                 made = c.execute("SELECT detail_json FROM events WHERE action='task.create' AND target=? ORDER BY ts,id LIMIT 1",

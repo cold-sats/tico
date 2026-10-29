@@ -79,10 +79,8 @@ const view = (over) => ({available: true, state: 'active', can_turn_on: false, r
       const {page, errors, read, sent} = await open(browser, owner, strategy, 'Chief');
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#chat-composer .p-text').waitFor();
-      assert.equal(await page.locator('#nav-assistant [data-nav-name]').innerText(), 'Chief', 'owner: the menu tab is the Strategy Bot by its name');
       assert.equal(await page.locator('#main .asst-top h1').innerText(), 'Chief', 'owner: the page is the Strategy Bot');
       assert.doesNotMatch(await page.locator('#main').innerText(), /Assistant/, 'owner: no Assistant wording on the page');
-      assert.doesNotMatch(await page.locator('#nav-assistant').innerText(), /Assistant/, 'owner: nor on the tab');
       // Paste works as in any bot chat: words land in the box and send as words; a screenshot attaches and goes to the
       // Strategy Bot with the message (it once was dropped without a word, the page taking text only).
       const box = page.locator('#chat-composer .p-text');
@@ -150,7 +148,6 @@ const view = (over) => ({available: true, state: 'active', can_turn_on: false, r
       const {page, errors, sent} = await open(browser, admin, view({bot: 'coo', strategy_bot: false, name: 'Assistant'}), 'Strategy Bot');
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#chat-composer .p-text').waitFor();
-      assert.equal(await page.locator('#nav-assistant [data-nav-name]').innerText(), 'Assistant', 'admin: the Assistant tab');
       assert.equal(await page.locator('#main .asst-top h1').innerText(), 'Assistant', 'admin: the Assistant page');
       assert.equal(await page.locator('#asst-earlier').isHidden(), true, 'admin: no Earlier chats');
       // The Assistant takes words only: pasted words land, a pasted picture attaches nothing.
