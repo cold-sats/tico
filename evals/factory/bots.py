@@ -427,6 +427,10 @@ class Builder(Bot):
         current = w.current_check(task["id"], step.name)
         if not current or not current.get("verdict") or not pr or current.get("verdict_head") != w.prs[pr]["head"]:
             return None
+        # A pass at a head a fail still stands on is no approval: only a new head clears it (World.failed_at).
+        if current["verdict"] in ("approve", "pass") and w.failed_at(task["id"], step.name, w.prs[pr]["head"]):
+            self.push(task, pr)
+            return "pushed a fix for the head QA failed"
         if current["verdict"] in ("approve", "pass"):
             if check.passed == MERGE:
                 return self.merge(task, pr)
