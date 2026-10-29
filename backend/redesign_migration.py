@@ -1043,7 +1043,7 @@ def _missing_steps(c, scope, when):
     return [(value, [name for _, name in steps]) for value in named if value.lower() not in known]
 
 
-def _why(value, names):
+def _missing_why(value, names):
     return f'The wake rule names step "{value}", which its task type does not have. Its steps are: ' \
            f'{", ".join(names) or "none"}. Use one of those names, or its id.'
 
@@ -1055,7 +1055,7 @@ def wake_problems(c, aid, flow):
         rows = wake_rules_of(aid, flow)
     except ValueError:
         return []
-    return [{"rule": row["id"], "step": value, "why": _why(value, names)}
+    return [{"rule": row["id"], "step": value, "why": _missing_why(value, names)}
             for row in rows for value, names in _missing_steps(c, flow.get("wakes") or {}, _json(row["when_json"], {}))]
 
 
@@ -1082,7 +1082,7 @@ def check_wakes(flow, c=None, saved=None, aid=None):
     for row in rows:
         for value, names in _missing_steps(c, flow["wakes"], _json(row["when_json"], {})):
             if (row["id"], value.lower()) not in kept:
-                raise Problem("invalid", _why(value, names), 422)
+                raise Problem("invalid", _missing_why(value, names), 422)
 
 
 def wakes_naming(c, type_id, steps):
