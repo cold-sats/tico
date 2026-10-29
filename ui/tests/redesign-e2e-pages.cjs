@@ -88,7 +88,11 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   await hit.waitFor({timeout: t(5000)});
   assert.match(await hit.innerText(), /file/);
   await shot(page, `${tag}-05-search-box`);
-  await page.keyboard.press('Escape');
+  // A file that is not a page opens Library › Files searched for the same words.
+  await hit.click();
+  await page.waitForFunction(() => location.hash.startsWith('#/library/files') && location.hash.includes('q=funnel')
+    && !document.querySelector('#search-modal').open, null, {timeout: t(5000)});
+  await page.locator('.lf-row', {hasText: 'Signup funnel'}).waitFor({timeout: t(5000)});
 
   if (!phone) {
     // A framed page takes the height it reports in the full view, and a small card cuts it at its own height.
