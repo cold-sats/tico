@@ -3,7 +3,7 @@
 Every task starts on **General**, with the same statuses and behavior as before. To give work a
 pipeline such as Marketing, a mover makes a type in **Settings → Tasks**, adds named steps, and
 chooses the status each step means. Types belong to the whole team. General keeps one step for
-each standard status except waiting and declined: no step has those statuses (below).
+each standard status except waiting and declined (below).
 
 Choose **Type** when creating a task, or change it in the task modal. A custom type shows a **Step**
 dropdown; General shows **Status**. Beside task search, **General** and **Dev tickets** select the task type; the arrow menu lists
@@ -31,8 +31,11 @@ existing scripts can keep setting `status`:
   someone picks a step.
 - Waiting is not a step: a waiting task stays in its working step (or the type's first open or doing
   step) and shows a **Waiting** tag on its card and row. A declined task goes to the type's closed
-  step. A step can't be given status waiting or declined; the Product roadmap keeps its public
-  Declined step.
+  step. A step can't be given status declined; the Product roadmap keeps its public Declined step.
+- A team can add a step with status waiting, a column of its own for parked work such as "Waiting On
+  Dependency". Only a move by hand fills it: a task that starts waiting never lands there by itself.
+  A person's move into it is a hold that stays until someone moves the task on, and updates leave the
+  step and its tasks where they are.
 
 Changing a task's type preserves its status and finds a matching step in the new type. Use an
 empty step to clear just the step. Status permissions, completion notes, closing and reopening
@@ -782,6 +785,9 @@ it does not change a task's labels. The owner can select Blocked and write the r
 ```sh
 hub task update <task-id> --step "Blocked" --note "Waiting for a test machine"
 ```
+
+A ticket in a waiting step of the team's own stays there while it is held, and a new hold on another ticket
+puts it in Blocked, never in the team's step.
 
 A refused software review gate, an open dependency or a person/milestone wait also blocks the task.
 Review, QA and Security check children keep the ticket in its pipeline step; only an explicit
