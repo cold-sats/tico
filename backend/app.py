@@ -4575,9 +4575,12 @@ def create_app(settings=None):
             if same:
                 return {"key": key, "value": body.value}
         def work(c):
+            at = H.now()
             c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) "
                       "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
-                      (who.actor, key, encode(body.value), H.now()))
+                      (who.actor, key, encode(body.value), at))
+            if key == strategy_bot.HIDE_PREF:
+                strategy_bot.mirror_hide(c, who.actor, encode(body.value), at)
             return {"key": key, "value": body.value}
         return mutate(request, body, work)
 

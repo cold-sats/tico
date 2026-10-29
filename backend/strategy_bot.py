@@ -34,7 +34,9 @@ def encode(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 KEY = "strategy-bot"
-# The registry row under its old key: `migrate` moves it to KEY when KEY is absent, and nothing else reads it.
+# The registry row and "Hide from my chart" under their old keys, which an older release reopened on the file after a
+# rollback reads and writes. For one release this one writes both keys alike (`_save`, `mirror_hide`), and `migrate`
+# takes what that release wrote there since.
 OLD_KEY = "ceo-bot"
 SLUG = "goal-manager"
 NAME = "Strategy Bot"
@@ -96,14 +98,15 @@ def _rename(c, actor, display_name):
 
 def migrate(c):
     """Every start, once the tables are renamed (backend/hubdb.py `migrate`). Each step does nothing once it is done:
-    the registry row moves to KEY; "Hide from my chart" moves to HIDE_PREF; a withdrawn recovery with an old note
+    the registry row and "Hide from my chart" take what their old keys hold; a withdrawn recovery with an old note
     reads the current note; and the bot's name becomes "Strategy Bot" where it had none or an old one, a name the
-    owner chose stays. Where both an old and a new key are there, an older release reopened the file and wrote the
-    old one since: what it holds wins (each of its fields over the record; the later "Hide from my chart"), so a
-    choice the owner made then is kept. Also run where the bot is built in later (backend/onboarding.py names it with
-    `name`)."""
-    old = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (OLD_KEY,)).fetchone()
-    if old:
+    owner chose stays. The old keys stay, kept equal to the new ones (OLD_KEY): where one differs, an older release
+    reopened the file and wrote it since, so what it holds wins (each of its fields over the record; the later "Hide
+    from my chart"), and a choice the owner made then is kept. Also run where the bot is built in later
+    (backend/onboarding.py names it with `name`)."""
+    old, new = (c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (key,)).fetchone()
+                for key in (OLD_KEY, KEY))
+    if old and (not new or old[0] != new[0]):
         try:
             since = json.loads(old[0])
         except ValueError:
@@ -111,16 +114,21 @@ def migrate(c):
         if isinstance(since, dict):
             _save(c, {**_record(c), **since})
         else:
-            c.execute("UPDATE registry_metadata SET key=? WHERE key=? "
-                      "AND NOT EXISTS (SELECT 1 FROM registry_metadata WHERE key=?)", (KEY, OLD_KEY, KEY))
-        c.execute("DELETE FROM registry_metadata WHERE key=?", (OLD_KEY,))
-    c.execute("DELETE FROM preferences WHERE key=? AND EXISTS (SELECT 1 FROM preferences AS p "
-              "WHERE p.actor=preferences.actor AND p.key=? AND p.updated>preferences.updated)",
-              (HIDE_PREF, OLD_HIDE_PREF))
-    c.execute("UPDATE preferences SET key=? WHERE key=? AND NOT EXISTS "
-              "(SELECT 1 FROM preferences AS p WHERE p.actor=preferences.actor AND p.key=?)",
+            c.execute("INSERT OR IGNORE INTO registry_metadata(key,value_json) SELECT ?, value_json "
+                      "FROM registry_metadata WHERE key=?", (KEY, OLD_KEY))
+    elif new and not old:
+        _save(c, _record(c))
+    c.execute("INSERT INTO preferences(actor,key,value_json,updated) SELECT actor, ?, value_json, updated "
+              "FROM preferences AS o WHERE key=? AND NOT EXISTS (SELECT 1 FROM preferences AS p "
+              "WHERE p.actor=o.actor AND p.key=? AND p.updated>=o.updated) "
+              "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
               (HIDE_PREF, OLD_HIDE_PREF, HIDE_PREF))
-    c.execute("DELETE FROM preferences WHERE key=?", (OLD_HIDE_PREF,))
+    # Then each old key reads as its new one, for an older release to read after a rollback.
+    c.execute("INSERT INTO preferences(actor,key,value_json,updated) SELECT actor, ?, value_json, updated "
+              "FROM preferences AS n WHERE key=? AND NOT EXISTS (SELECT 1 FROM preferences AS p "
+              "WHERE p.actor=n.actor AND p.key=? AND p.updated>=n.updated) "
+              "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
+              (OLD_HIDE_PREF, HIDE_PREF, OLD_HIDE_PREF))
     from . import strategy_suggest
     c.execute("UPDATE goal_proposals SET decision_note=? WHERE decision_note IN (?, ?)",
               (strategy_suggest.WITHDRAWN, *OLD_WITHDRAWN))
@@ -395,8 +403,16 @@ def set_level(c, actor, value):
 
 
 def _save(c, record):
-    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
-              (KEY, encode(record)))
+    for key in (KEY, OLD_KEY):
+        c.execute("INSERT INTO registry_metadata VALUES(?,?) "
+                  "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json", (key, encode(record)))
+
+
+def mirror_hide(c, actor, value_json, updated):
+    """Write a person's "Hide from my chart" under its old key too (OLD_KEY)."""
+    c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,?,?) ON CONFLICT(actor,key) "
+              "DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
+              (actor, OLD_HIDE_PREF, value_json, updated))
 
 
 # ----------------------------------------------------------------------------- what it asked today

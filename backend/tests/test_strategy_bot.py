@@ -133,7 +133,7 @@ def test_an_install_from_before_becomes_the_strategy_bot_once_at_upgrade(environ
     api = company(environment)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bots SET display_name='Goal Manager' WHERE slug='goal-manager'")     # as an older release left it
-        c.execute("DELETE FROM registry_metadata WHERE key=?", (strategy_bot.KEY,))
+        c.execute("DELETE FROM registry_metadata WHERE key IN (?,?)", (strategy_bot.KEY, strategy_bot.OLD_KEY))
     from backend.app import create_app
     from fastapi.testclient import TestClient
     with TestClient(create_app(api.app.state.store.settings)):                   # the upgrade: a restart
@@ -143,7 +143,7 @@ def test_an_install_from_before_becomes_the_strategy_bot_once_at_upgrade(environ
         assert strategy_bot._record(c)["on"] is True
         assert strategy_bot.migrate(c) is False                                       # once
         c.execute("UPDATE bots SET display_name='Chief' WHERE slug='goal-manager'")
-        c.execute("DELETE FROM registry_metadata WHERE key=?", (strategy_bot.KEY,))
+        c.execute("DELETE FROM registry_metadata WHERE key IN (?,?)", (strategy_bot.KEY, strategy_bot.OLD_KEY))
         assert strategy_bot.migrate(c) is True
     assert stored(api)[1]["goal-manager"] == "Chief"                             # a person's name is theirs
 
@@ -336,11 +336,11 @@ def test_hiding_the_strategy_bot_is_a_persons_own_yes_or_no(environment):
 def test_the_settings_an_install_from_before_stored_under_old_keys_move_to_the_new_ones(environment):
     """The registry row and each person's "Hide from my chart" move to their new keys with their values. Where a person
     has both, the later stays: an older release reopened the file and wrote the old one since, or the new one is the
-    choice made since."""
+    choice made since. The old keys then read the same, for an older release after a rollback."""
     api = company(environment)
     with api.app.state.store.transaction() as c:
         c.execute("DELETE FROM registry_metadata WHERE key=?", (strategy_bot.KEY,))
-        c.execute("INSERT INTO registry_metadata(key,value_json) VALUES(?,?)",
+        c.execute("INSERT OR REPLACE INTO registry_metadata(key,value_json) VALUES(?,?)",
                   (strategy_bot.OLD_KEY, '{"migrated_at":"2026-01-01T00:00:00Z","on":true}'))
         for person in ("human:ana", "human:ben"):
             c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,'true',?)",
@@ -360,9 +360,10 @@ def test_the_settings_an_install_from_before_stored_under_old_keys_move_to_the_n
                              "FROM registry_metadata WHERE key=?", (strategy_bot.OLD_KEY,)).fetchone()[0]
         hidden = {r[0]: r[1] for r in c.execute("SELECT actor, value_json FROM preferences WHERE key=?",
                                                 (strategy_bot.HIDE_PREF,))}
-        left = c.execute("SELECT COUNT(*) FROM preferences WHERE key=?", (strategy_bot.OLD_HIDE_PREF,)).fetchone()[0]
-    assert record["migrated_at"] == "2026-01-01T00:00:00Z" and old_rows == 0
-    assert hidden == {"human:ana": "true", "human:ben": "false", "human:cara": "false"} and left == 0
+        left = {r[0]: r[1] for r in c.execute("SELECT actor, value_json FROM preferences WHERE key=?",
+                                              (strategy_bot.OLD_HIDE_PREF,))}
+    assert record["migrated_at"] == "2026-01-01T00:00:00Z" and old_rows == 1
+    assert hidden == {"human:ana": "true", "human:ben": "false", "human:cara": "false"} and left == hidden
 
 
 def test_a_level_and_checks_chosen_while_an_older_release_ran_win_over_the_record(environment):
@@ -372,14 +373,34 @@ def test_a_level_and_checks_chosen_while_an_older_release_ran_win_over_the_recor
     api = company(environment)
     with api.app.state.store.transaction() as c:
         strategy_bot._save(c, {**strategy_bot._record(c), "level": 3, "checks": True, "review_settled": True})
-        c.execute("INSERT INTO registry_metadata(key,value_json) VALUES(?,?)",
+        c.execute("INSERT OR REPLACE INTO registry_metadata(key,value_json) VALUES(?,?)",
                   (strategy_bot.OLD_KEY, '{"on":true,"level":1,"checks":false}'))
     with api.app.state.store.transaction() as c:
         strategy_bot.migrate(c)
         record = strategy_bot._record(c)
-        old_rows = c.execute("SELECT COUNT(*) FROM registry_metadata WHERE key=?",
-                             (strategy_bot.OLD_KEY,)).fetchone()[0]
-    assert (record["level"], record["checks"], record.get("review_settled"), old_rows) == (1, False, True, 0)
+        old = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key=?",
+                                   (strategy_bot.OLD_KEY,)).fetchone()[0])
+    assert (record["level"], record["checks"], record.get("review_settled")) == (1, False, True)
+    assert old == record
+
+
+def test_an_older_release_after_a_rollback_reads_the_owners_settings_and_hide_choice(environment):
+    """Every setting this release saves, and each person's "Hide from my chart", is under the old keys too, so a
+    Passive bot with its checks off stays so when an older release reopens the file."""
+    api = company(environment)
+    with api.app.state.store.transaction() as c:
+        strategy_bot._save(c, {**strategy_bot._record(c), "level": 1, "checks": False})
+    r = api.post("/api/v2/preferences/" + strategy_bot.HIDE_PREF, json={"value": True}, headers=signed_in())
+    assert r.status_code == 200, r.text
+    with api.app.state.store.transaction() as c:
+        old = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key=?",
+                                   (strategy_bot.OLD_KEY,)).fetchone()[0])
+        hide = c.execute("SELECT value_json FROM preferences WHERE key=?", (strategy_bot.OLD_HIDE_PREF,)).fetchall()
+        assert (old["level"], old["checks"]) == (1, False) and [tuple(h) for h in hide] == [("true",)]
+        # A second start with nothing changed under the old keys leaves the record as it is.
+        before = strategy_bot._record(c)
+        strategy_bot.migrate(c)
+        assert strategy_bot._record(c) == before
 
 
 def test_a_withdrawn_recovery_reads_the_current_note_and_another_note_is_kept(environment):
