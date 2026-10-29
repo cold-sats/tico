@@ -25,7 +25,6 @@ def ensure(c):
 
 def stamp_builds(c):
     """Stamp the start of every active build that predates the building clock's own column. Runs at every start."""
-    from . import hubdb as H
     for typ in c.execute("SELECT id FROM task_types WHERE role='engineering'").fetchall():
         # Upgrade active builds without restarting their age at server startup. This runs inside a deferred
         # transaction that has already read, so a write statement, even one matching nothing, fails at once with
