@@ -37,7 +37,8 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--if-no-answer "Yes" --default-kind reversible|send|spend|delete] [--by D]
                                            what you do if they don't answer: a reversible step goes ahead
                                            after the team's days (3); asks expire after 14 days
-    hub task comment <id> "<text>"         on the record with your name
+    hub task comment <id> "<text>" [--steer | --queue | --goal]   on the record with your name
+                                           --steer reaches its bot now, --queue at its next turn, --goal sets its goal
     hub task comment-edit <id> <comment-id> "<text>"   change a comment you wrote; wakes nobody
     hub task comment-delete <id> <comment-id>          take back a comment you wrote
     hub task ask-resolve <id> <question-id> [--quote "<their words>"]
@@ -1074,6 +1075,13 @@ def parser():
     choices.add_argument("--ask", help="JSON file containing structured questions")
     choices.add_argument("--choices", help="comma-separated options, each \"LABEL -> WHAT HAPPENS\" (a question to a "
                                            "person needs the what-happens line)")
+    delivery = s.add_mutually_exclusive_group()
+    delivery.add_argument("--steer", dest="delivery", action="store_const", const="steer",
+                          help="reach the task's bot now; a running turn takes it in if its harness can steer")
+    delivery.add_argument("--queue", dest="delivery", action="store_const", const="queue",
+                          help="wait for the task's bot to take its next turn on this task")
+    delivery.add_argument("--goal", dest="delivery", action="store_const", const="goal",
+                          help="make the text the goal of the task's bot session (plain text, no files)")
     s.add_argument("--on-behalf-of", metavar="MESSAGE_ID", help=ASKED)
     s.add_argument("--needs-action", dest="needs_action", action="store_true", help="a bot's message to a bot waits for that bot's next run; this wakes it now")
     s.set_defaults(fn="task comment")

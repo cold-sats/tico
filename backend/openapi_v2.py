@@ -858,9 +858,12 @@ SCHEMAS = {
                              "the model catalog, when every counted segment agrees; null is unknown (mixed, Cursor "
                              "auto, OpenRouter, an unlisted model, nothing counted). Never the bot's configured model."}}),
     "TaskRun": obj({"run": "s", "bot": "s", "started": "n", "finished": "n", "outcome": "n", "ran_on": ref("RanOn")}),
+    "CommentDelivery": obj({"default": {"type": ["string", "null"], "enum": ["steer", "queue", None]},
+                            "steer": "b", "steers": "b", "goal": "b"}, required=["default", "steer", "steers", "goal"]),
     "TaskDetail": obj({"task": ref("Task"), "events": "a", "children": "a", "comments": items(ref("Message")),
                        "messages": items(ref("Message")), "has_more": "b", "can_comment": "b", "mover": "b",
-                       "runs": items(ref("TaskRun"))},
+                       "runs": items(ref("TaskRun")),
+                       "comment_delivery": {"oneOf": [ref("CommentDelivery"), {"type": "null"}]}},
                        required=["task", "events", "children", "comments", "messages", "has_more"], actors=ACTORS),
     "TaskReviewAskView": obj({"questions": "a", "who": "n", "by": "s"}),
     "ReviewAnswer": {"oneOf": [
@@ -884,7 +887,7 @@ SCHEMAS = {
     # `warning`: the bot it went to is paused or quarantined; the comment is kept and runs when it is back.
     # `held`: a bot's comment to a bot waits for that bot's next run; it says how to wake it now.
     "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b", "delivered": "b",
-                          "warning": "s", "held": "s"},
+                          "warning": "s", "held": "s", "goal": "o"},
                          required=["comment", "comments", "woke"]),
     "InboundTaskResult": obj({"task": {"oneOf": [obj({"id": "s"}), {"type": "null"}]}, "created": "b", "changed": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
