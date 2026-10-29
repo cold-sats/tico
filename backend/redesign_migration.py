@@ -1175,11 +1175,7 @@ def main(argv=None):
     database is never written: it is copied (sqlite backup), the copy is brought up to this version (schema and the
     cutover, as the server does at startup, with nothing scheduled), the report is read from the copy and the copy is
     deleted. Before an upgrade it is the dry run (what would move, stay or wait); after, the record of what did. It
-    needs no opt-in: only the copy moves.
-
-    `python -m backend.redesign_migration guard [--db PATH]` (default $TICO_DB): exit 1 with the refusal when the
-    database still holds what the cutover would change and TICO_MIGRATE_TO_AUTOMATIONS is not set; the container runs
-    it before anything else opens the database (docker/entrypoint.sh)."""
+    writes nothing: only the copy moves."""
     import argparse
     import os
     import sys
@@ -1188,19 +1184,12 @@ def main(argv=None):
     from .config import Settings
     from .store import Store
     parser = argparse.ArgumentParser(prog="python -m backend.redesign_migration")
-    parser.add_argument("command", choices=("report", "guard"))
+    parser.add_argument("command", choices=("report",))
     parser.add_argument("--db", default=os.environ.get("TICO_DB"), help="the install's database (only read)")
     parser.add_argument("--json", action="store_true", help="print JSON instead of text")
     args = parser.parse_args(argv)
     if not args.db:
         raise SystemExit("redesign_migration: name the database with --db (or TICO_DB)")
-    if args.command == "guard":
-        logging.basicConfig(format="%(message)s")
-        try:
-            guard(args.db)
-        except NotOptedIn:
-            raise SystemExit(1)
-        return {}
     source = Path(args.db).expanduser().resolve()
     if not source.is_file():
         raise SystemExit(f"redesign_migration: no database at {source}")
@@ -1227,36 +1216,18 @@ def main(argv=None):
         json.dump(found, sys.stdout, indent=2, default=str)
         sys.stdout.write("\n")
     else:
-        starts = ("yes: nothing waits to move" if not waits else "no, it needs " + OPT_IN + "=1 (waiting to move: "
-                  + ", ".join(f"{k} {v}" for k, v in sorted(waits.items())) + ")")
-        print(f"Database: {source}\nStarts this version without {OPT_IN}: {starts}\n\n== As it is now ==\n"
+        moves = ("nothing to move" if not waits
+                 else "moves " + ", ".join(f"{k} {v}" for k, v in sorted(waits.items())))
+        print(f"Database: {source}\nOn the next start: {moves}\n\n== As it is now ==\n"
               f"{_text(before)}\n\n== After this version starts on it (rehearsed on a copy) ==\n{_text(after)}")
     return found
-
-
-# ---------------------------------------------------------------------------------------------------- the opt-in
-# An install moves once, when its operator chooses: a database that still holds what the cutover would change starts
-# only with TICO_MIGRATE_TO_AUTOMATIONS=1 (docs/updates.md, "Moving to Automations (one time)"). Before that the
-# server refuses to start without opening the database for writing, so the updater rolls back to the release before.
-OPT_IN = "TICO_MIGRATE_TO_AUTOMATIONS"
-REFUSAL = ("This release moves rules and routines to Automations once. Set TICO_MIGRATE_TO_AUTOMATIONS=1 to go ahead; "
-           "see docs/updates.md#moving-to-automations-one-time")
-
-
-class NotOptedIn(RuntimeError):
-    """The database holds old-system objects the cutover has not taken and the install has not opted in."""
-
-
-def opted_in(environ=None):
-    import os
-    return (environ if environ is not None else os.environ).get(OPT_IN, "").strip().lower() in ("1", "true", "yes")
 
 
 def pending(c):
     """What the cutover would still change in this database, counted by kind ({} for nothing). Read only, and from
     plain SQL so a database an older release wrote is read as it is: routines, wake rules (not Tico Team's notice
     rules), inboxes, hourly spend limits, turn budgets below the guard, the stale review job when on, and the Strategy
-    bot's rename. Nothing once the cutover started (the install opted in) or finished; read-only mirrors of jobs Tico
+    bot's rename. Nothing once the cutover started or finished; read-only mirrors of jobs Tico
     keeps running count for nothing."""
     from . import strategy_bot, team_rules, tico_notices, turn_budgets as TB, usage_limits
     if not _table(c, "registry_metadata") or state(c):
@@ -1322,23 +1293,12 @@ def waiting(path):
             return pending(c)
         finally:
             c.close()
-    with tempfile.TemporaryDirectory(prefix="tico-guard-") as directory:
+    with tempfile.TemporaryDirectory(prefix="tico-waiting-") as directory:
         copy = Path(directory) / "hub.db"
         shutil.copyfile(path, copy)
         shutil.copyfile(wal, str(copy) + "-wal")
         with sqlite_ro(copy) as c:
             return pending(c)
-
-
-def guard(path, allowed=None):
-    """Refuse to start (NotOptedIn) when the database at `path` still holds what the cutover would change and the
-    install has not opted in. Reads only: a refused start leaves the database byte for byte as it was."""
-    if allowed if allowed is not None else opted_in():
-        return
-    found = waiting(path)
-    if found:
-        log.error("%s (waiting to move: %s)", REFUSAL, ", ".join(f"{k} {v}" for k, v in sorted(found.items())))
-        raise NotOptedIn(REFUSAL)
 
 
 class sqlite_ro:
