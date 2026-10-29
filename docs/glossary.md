@@ -53,7 +53,9 @@ The words Tico uses, and what each replaces.
 - **Proposal**: a suggested change to a goal, a KPI or the strategy draft, for its owner to confirm. A `strategy_draft` proposal is how the Strategy Bot puts a draft or a bet change in front of the owner.
 - **Run**: one time a bot works.
 - **Update**: a bot's daily or weekly post, and a new Tico version.
-- **Message**, **Comment**, **Note**: a message is chat. A comment is on a task. A note is quiet, for a bot's next run ([leave work for the next run](using-tico.md#leave-work-for-the-next-run)).
+- **Message**, **Comment**: a message is chat. A comment is on a task.
+- **Steer**, **Queue**, **Defer**: how a message, comment or new task reaches a bot. Steer: into its running turn now. Queue: right after that turn, or now. Defer: with its next turn there, at the latest after a deadline ([Steer, queue or defer](using-tico.md#steer-queue-or-defer)).
+- **Deferred message**, **deferred task**: deferred to a bot's next run of any kind; once called a quiet note and a next-run task ([leave work for the next run](using-tico.md#leave-work-for-the-next-run)).
 - **Decision**: the typed-question model that classifies and decides.
 - **Handoff**: delegating work by opening a child task and setting the parent to waiting.
 - **Session**: one model conversation a bot resumes (a Claude Code or Codex thread). A bot has several ([Sessions](sessions.md)).

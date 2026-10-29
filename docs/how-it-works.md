@@ -53,10 +53,13 @@ Words are defined in the [Glossary](glossary.md).
   `waiting`, `review`, `ready`, `done`, `closed`, `declined` (`review` and `ready` belong to the
   product lane). The owner marks it `done`; only the requester, a person who can edit it, or the person it waits on closes it. Every
   task has a comment thread, on the record with the author.
-- **Message** — one line in a conversation. Kinds: `say`, `ask`, `answer`, `notice`, `steer`. A message sent while
-  its bot answers in the same conversation goes into that turn when the harness can steer (`steer` in its manifest)
-  and otherwise waits for the next turn; chat says which, and Stop and redirect ends the turn so the next one starts
-  with that message. A requesting bot steers its delegated task's running turn with `hub message send --steer --ref task:<id>`.
+- **Message** — one line in a conversation. Kinds: `say`, `ask`, `answer`, `notice`, `steer`. How it reaches a bot
+  is one of three ways ([Steer, queue or defer](using-tico.md#steer-queue-or-defer)): **Steer** goes into the bot's
+  turn running in that conversation now (when the harness can steer, `steer` in its manifest; otherwise right after
+  it; a person's default), **Queue** goes right after that turn or now when the bot is idle, and **Defer** wakes
+  nobody until the bot's next turn there or a deadline. Chat says which, and Stop and redirect ends the turn so the next
+  one starts with that message. A requesting bot steers its delegated task's running turn with
+  `hub message send --steer --ref task:<id>`.
   A bot's `ask` to a human is what lands in **Needs you**.
 - **Approval** — a human's yes or no to one exact action. Kinds: `send`, `spend`, `publish`,
   `merge`. A bot may request one when uncertain about a specific action; authorized work needs no separate
@@ -234,7 +237,7 @@ the bot's main chat gets one-line reports ([Sessions](sessions.md)).
 an ask, an approval and a gate verdict always wake the bot (`person_message`, `ask`, `approval`, `verdict`), except that a
 Manager hears of a verdict as a note (`profile_manager_note`); a bot's own
 write (`own_write`), news about a task that waits on something (`parked`), a stall check on a task that has not moved
-(`same_state`; Quiet task triage can let one wake through, see [Tasks](tasks.md)) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a finished request and a
+(`same_state`; Stalled task check can let one wake through, see [Tasks](tasks.md)) and a plain bot-to-bot message (`bot_to_bot`) wait for the bot's next run; a deferred item waits too, until its deadline (`deferred`, [Steer, queue or defer](using-tico.md#steer-queue-or-defer)); a finished request and a
 person's review comments are batched (`batch_*`); one check finishing is ignored (`pr_check`) and a head whose checks
 all finished wakes the ticket's owner at a working step (`pr_checks_done`) or is a note (`pr_checks_note`); work wakes
 (an assignment, a review request, a blocker, a routine, a due date, a finished subtask, a published release) and anything

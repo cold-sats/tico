@@ -76,6 +76,7 @@ from urllib.parse import urlsplit
 from pathlib import Path
 
 from .batch_work import isolated
+from . import delivery
 from . import idempotency_messages
 from . import task_relations as TR
 from .task_rights import represents as task_represents, participant as task_participant, mover as task_mover
@@ -1407,6 +1408,13 @@ def migrate(conn, adopt_legacy=False):
                  "WHERE cancelled_at IS NULL AND settled_at IS NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS notes_unsettled_carried ON notes(carried_by) "
                  "WHERE carried_by IS NOT NULL AND settled_at IS NULL")
+    # A deferred item and its deadline (backend/delivery.py). No foreign keys: a row outlives a deleted task or
+    # message and is settled `moot` by the next pass. `conversation_id` '' is the bot's next turn of any kind.
+    conn.execute("CREATE TABLE IF NOT EXISTS deferrals(id TEXT PRIMARY KEY, bot TEXT NOT NULL, kind TEXT NOT NULL, "
+                 "item TEXT NOT NULL, conversation_id TEXT NOT NULL DEFAULT '', task_id TEXT, due TEXT, "
+                 "created TEXT NOT NULL, fired_job TEXT, settled TEXT, how TEXT, attempt TEXT)")
+    conn.execute("CREATE INDEX IF NOT EXISTS deferrals_waiting ON deferrals(bot, conversation_id) WHERE settled IS NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS deferrals_due ON deferrals(due) WHERE settled IS NULL AND due IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_owner_rank ON tasks(owner, rank)")
     # Health's waits-on-a-person check (backend/health.py silent_waits) reads only these few rows.
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_waiting_on ON tasks(waiting_on) WHERE waiting_on IS NOT NULL")
@@ -5304,26 +5312,55 @@ def comment_target(conn, actor, row):
     return next((a for a in others if is_bot(a)), None) or (others[0] if others else None)
 
 
-def comment_wakes(conn, actor, row, text, *, mover=False):
-    """Whether a comment from `actor` wakes the bot on the other side of the task. A bot's comment
-    does. A person's does when they are a mover, the owner or the requester, and the bot owns the
-    task (they are directing its work), or when no bot is on the task at all. On a task a bot
-    requested, which a person owns, the owner's comment wakes it (the bot asked them, so they are
-    answering it). Anyone else's wakes the bot only when it names the bot with an @ or the task waits
-    on that person; otherwise it is saved for the bot's next turn on the task."""
+def comment_way(conn, actor, row, text, *, mover=False):
+    """How a comment from `actor` with no delivery named reaches the bot on the task (backend/delivery.py): `steer`,
+    `queue` or `defer`, with the defer's deadline (`24h`, `never`) or None. A comment that wakes the bot steers, as a
+    person's comment always has: it joins the bot's turn running on the task.
+
+    A bot's comment goes as bot messages always have (steer), or waits on a snoozed task. A person's:
+    - someone neither on the task nor a mover: defer, no deadline, so a reader never spends a bot's turns on a task
+      that isn't theirs;
+    - no bot on the task: steer (it reaches a person, who has no turns);
+    - the task waits on them: steer, they are answering it;
+    - a task a bot filed for a person (its requester or origin a bot, its owner not): defer 24h, unless the comment
+      @names a bot on the task: queue. Such a comment is most often a progress note, not a question for the bot;
+    - a task a bot owns: steer, the person is directing its work."""
     if is_bot(actor):
-        return not TS.snoozed(row)
+        return ("steer", None) if not TS.snoozed(row) else ("defer", "never")
     if not (mover or task_participant(conn, actor, row)):
-        return False
-    if not any(is_bot(a) for a in (row["owner"], row["requester"], task_origin(conn, row))):
-        return True
-    if is_bot(row["owner"]):
-        return True
-    if task_represents(conn, actor, row["owner"]) and is_bot(row["requester"]):
-        return True
+        return "defer", "never"
+    origin = task_origin(conn, row)
+    if not any(is_bot(a) for a in (row["owner"], row["requester"], origin)):
+        return "steer", None
     if row.get("waiting_on") == actor:
-        return True
-    return names_a_filer(conn, text, row)
+        return "steer", None
+    if not is_bot(row["owner"]) and (is_bot(row["requester"]) or is_bot(origin)):
+        return ("queue", None) if names_a_bot(conn, text, row) else ("defer", "24h")
+    return "steer", None
+
+
+def comment_wakes(conn, actor, row, text, *, mover=False):
+    """Whether a comment from `actor` with no delivery named wakes the bot on the other side of the task."""
+    return comment_way(conn, actor, row, text, mover=mover)[0] != "defer"
+
+
+def task_bots(conn, row):
+    """The bots on the task: its owner, requester and origin."""
+    return [a for a in dict.fromkeys([row["owner"], row["requester"], task_origin(conn, row)]) if is_bot(a)]
+
+
+def names_a_bot(conn, text, row):
+    """`text` @mentions a bot on the task (its owner, requester or origin)."""
+    return any(_mentions_bot(conn, text, a) for a in task_bots(conn, row))
+
+
+def bot_handles(conn, row):
+    """The @names that reach the bots on the task (names_a_bot): each one's slug and name."""
+    handles = []
+    for a in task_bots(conn, row):
+        name = (bot(conn, actor_id(a)) or {}).get("name")
+        handles += [actor_id(a)] + ([name] if name else [])
+    return handles
 
 
 def names_a_filer(conn, text, row):
@@ -5525,7 +5562,8 @@ def is_comment(msg):
     approval, a bot's reply to its run or a chat message that only mentions the task."""
     refs = msg.get("refs") or {}
     return (msg.get("kind") == "say" and bool(refs.get("comment"))
-            and not (set(refs) - {"task", "comment", "quiet", "via", "rule", "wake_immediate"}))
+            and not (set(refs) - {"task", "comment", "quiet", "via", "rule", "wake_immediate",
+                                         "delivery"}))
 
 
 
@@ -7610,6 +7648,8 @@ def stalled_tasks(conn, at=None, task_ids=None, queued_here=None):
             continue
         if row.get("next_run") and row["updated"] > shift(at, seconds=-STALL_NEXT_RUN_MINUTES * 60):
             continue
+        if row.get("next_run") and delivery.holds_task(conn, row["id"]):
+            continue        # deferred: its deadline brings it (backend/delivery.py)
         if row.get("resume_json"):
             continue        # a run said when to pick it up (backend/quiet_work.py): that brings it back
         own = own_stuck_blockers(conn, row, at)

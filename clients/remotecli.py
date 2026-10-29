@@ -35,6 +35,12 @@ def visuals_from_args(args):
     return out
 
 
+def _delivery(args):
+    """The request's delivery fields from the command's --steer, --queue or --defer (clients/hubcli.py)."""
+    from clients.hubcli import delivery_of
+    return delivery_of(args)
+
+
 def via_tool(client, args, **more):
     """Run the tool of the command's own name with the command's flags as its arguments."""
     from clients import hubtools
@@ -427,7 +433,7 @@ def run(args, who=None):
         return hubtools.BY_NAME["hub_message_send"]["fn"](client, {
             "to": args.to, "text": args.text, "fyi": args.fyi, "conversation_id": args.conversation,
             "refs": args.ref or [], "steer": getattr(args, "steer", False),
-            "needs_action": getattr(args, "needs_action", False), "operation_id": key,
+            "needs_action": getattr(args, "needs_action", False), "operation_id": key, **_delivery(args),
             **({"visuals": visuals_from_args(args)} if getattr(args, "visual", None) else {})})
     if fn == "question answer":
         return post(f"messages/{args.message_id}/answer", {"text": args.text or args.unknown,
@@ -445,7 +451,8 @@ def run(args, who=None):
         return {**failed, **hubtools.ask_wait(client, pending, wait, fields)}
     if fn == "note create":
         text = Path(args.text_file).read_text() if args.text_file else args.text
-        payload = {"to": target(args.to), "text": text}
+        payload = {"to": target(args.to), "text": text,
+                   **({"defer_for": args.defer_for} if getattr(args, "defer_for", None) else {})}
         links = s3links.apply(client, payload, ("text",))
         return s3links.annotate(post("notes", payload)["note"], links)
     if fn == "note list":
@@ -510,6 +517,7 @@ def run(args, who=None):
                 payload["links"] = list(args.link)
             if getattr(args, "next_run", False):
                 payload["next_run"] = True
+            payload.update(_delivery(args))
             if getattr(args, "request_id", None):
                 payload["request_id"] = args.request_id
             for field in ("model", "effort", "harness"):
@@ -525,8 +533,8 @@ def run(args, who=None):
             return client.get("tasks/" + ids[0])
         if sub == "run":
             return post(f"tasks/{args.id}/run-now", {})
-        if sub == "defer":
-            return post(f"tasks/{args.id}/defer", {"after": args.after, "at": args.at,
+        if sub in ("later", "defer"):           # `defer` is the older name
+            return post(f"tasks/{args.id}/later", {"after": args.after, "at": args.at,
                                                    "next_run": bool(args.next_run), "handled": bool(args.handled)})
         if sub == "waive-qa":
             return post(f"tasks/{args.id}/qa-waiver", {"head": args.head, "reason": args.reason})
@@ -557,8 +565,7 @@ def run(args, who=None):
                 body["ask"] = ask
             if getattr(args, "needs_action", False):
                 body["needs_action"] = True
-            if getattr(args, "delivery", None):
-                body["delivery"] = args.delivery
+            body.update(_delivery(args))
             if getattr(args, "public", None):
                 body["public"] = True
             if getattr(args, "approval_id", None):

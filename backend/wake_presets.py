@@ -414,9 +414,9 @@ def classify(message):
         return "gate", "A review request"
     if refs.get("run_now"):
         return "person", "Run now"
-    if wake in ("due", "snooze", "next-run", "update", "restate_ask"):
+    if wake in ("due", "snooze", "next-run", "update", "restate_ask", "deferred"):
         return "scheduled", {"due": "A due date", "snooze": "A snooze ending", "update": "An update request",
-                             "restate_ask": "An unanswered ask"}.get(wake, "A next-run task")
+                             "restate_ask": "An unanswered ask", "deferred": "A defer deadline"}.get(wake, "A deferred task")
     return "notice", "A Tico notice"
 
 

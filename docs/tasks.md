@@ -769,11 +769,12 @@ the label, then add it on the task as above.
 Lane and number are a mover's alone ([Permissions](permissions.md#tags)).
 A bot's comment is a message to the people on the task, under the usual rules for reaching them.
 
-A person's comment wakes the task's bot when the bot owns the task, and is never quiet on a task
-with no bot on it. On a task a bot filed and a
-person owns, the owner's comment wakes the bot that asked them, @mention or not: it is almost always
-a reply. Anyone else's comment there wakes the bot only when it @mentions the bot (`@ops`, or its
-name) or the task waits on that person; any other comment reaches the bot on its next turn. A person @mentioned in a
+A person's comment with no way named is a **Steer** when the bot owns the task (see Conversation below), and is never
+quiet on a task with no bot on it. On a task a bot filed and a person owns, a comment is most often a progress note:
+it is a **Defer** with a 24-hour deadline, reaching the bot that asked on its next turn on the task, or in a day at the
+latest. A comment that @mentions a bot on the task (`@ops`, or its name) is a **Queue**; one from the person the task
+waits on is a Steer. A comment from someone not on the task (not its owner, requester or a mover) is a Defer with no deadline,
+so a reader never spends a bot's turns on a task that is not theirs. A person @mentioned in a
 comment (by id, the part of their email before the @, full name, or first name when no one else
 shares it) gets the comment as a question, which puts the task in their Needs you; when the
 comment also wakes the bot, or names several people, each person gets their own copy of the question.
@@ -1051,7 +1052,7 @@ preference: with none that can run, it runs on an author's own, and the subtask'
 
 - The subtask is the filing bot's own, under a task it owns. Its turns run on the named runtime and model with no
   fallback to another provider, always in a session of their own, and read only the subtask's room: name the PR
-  or files in its body. Its turns carry none of the bot's next-run tasks or notes.
+  or files in its body. Its turns carry none of the bot's deferred tasks or messages.
 - Only the runtime, model, harness and effort change. The bot's repository, tools, credentials and isolation are
   its own, so a check never runs with more than the bot has.
 - Only a provider the company has enabled (Settings > Computers > Models) and a current model can be named, and the
@@ -1109,28 +1110,33 @@ line from the bot's chat shows what happens to it: **Sent**, **Queued** (and why
 failed** when the turn errors. It follows the bot your message went to, which on a task you own that a bot asked is that
 bot, and the owner's own runs as before; a bot's message to another bot does not take it. Whoever manages the bot gets
 **Stop** beside it, the same stop as in the bot's chat (`POST /v2/bots/{slug}/stop`). The box at the foot is the chat's
-composer, and what you type there is a comment. Where a bot gets it, the send says how it arrives: **Steer** (the
-default when your comment would wake the bot, Queue when not) reaches the bot now, and joins a turn already running if
-the bot's harness can steer (otherwise the bot takes it after that turn); **Queue** waits for the bot's next turn on
-this task without waking it now; **Set as goal** makes the text the goal of the bot's session for this task, as `/goal`
-does in a chat (no files, not public; [chat goals](chat-goals.md)). Only someone on the task (its owner, requester or a
-mover) may steer or set the goal; anyone else's comment is queued, as it always was. The caret opens the other two, and
-the choice is kept per task in this browser. Only a choice made there is sent: with none, the comment reads as any
-other does, so an @mention of the bot that filed the task wakes it. Before you send, the box says what the chosen way
-does. With no bot on the task (everyone on it is a person) the send is a plain arrow, and the box says no bot gets the
+composer, and what you type there is a comment. Where a bot gets it, the send says how it arrives, in the words a
+bot's chat uses ([Steer, queue or defer](using-tico.md#steer-queue-or-defer)): **Steer** goes into the bot's turn running on this task
+now (right after it, if the bot's harness cannot steer); **Queue** goes right after that turn, or now when the bot is
+idle; **Defer** wakes nobody and goes in with the bot's next turn on this task, at the latest after the time picked
+under it (30m to 7d, or Never; 24h unless picked). A Defer sent while the bot works on this task goes in queued; a turn
+on another task does not count. **Set as goal**, apart in the menu, makes the text the goal of the bot's session for
+this task, as `/goal` does in a chat (no files, not public; [chat goals](chat-goals.md)). Only someone on the task (its
+owner, requester or a mover) may steer, queue or set the goal; anyone else may defer. The caret opens the ways, and the
+choice is kept per task in this browser. Only a choice made there is sent: with none, the comment goes the way the
+paragraph on comments above says. Before you send, the box says what the chosen way does, and after, if the server
+sent it another way (a defer that rode along). With no bot on the task (everyone on it is a person) the send is a plain arrow, and the box says no bot gets the
 message. `GET /v2/tasks/{id}` carries
 this view: each bot reply in `comments` has its `run`; `execution` is the owning bot's newest run in the task's own
 room, or a newer one for a person's message there, shaped as in a conversation snapshot with `from_person`; `comment_to`
-(`bot`, `wakes`, `mention`) is who your next comment reaches; and `comment_delivery` (`default`, `steer`, `steers`,
-`goal`) is how it can reach them: `default` is what a comment without a delivery does (`steer` when it wakes the bot,
-else `queue`), `steer` says you may steer, `steers` says the bot's harness can take a message into a running turn, and
-`goal` says a goal can be set (both null without a bot). A task still in a chat room (one filed into a chat before task
+(`bot`, `wakes`, `mention`) is who your next comment reaches; and `comment_delivery` (`default`, `default_for`,
+`steer`, `queue`, `steers`, `goal`) is how it can reach them: `default` is what a comment without a delivery does
+(`steer`, `queue` or `defer`) and `default_for` that defer's deadline (`24h`, `never`), `steer` and `queue` say you may wake the
+bot, `steers` says the bot's harness can take a message into a running turn, and `goal` says a goal can be set (null
+and false without a bot). A task still in a chat room (one filed into a chat before task
 rooms) has no `execution` and no goal of its own: that room's runs and goal belong to the chat, so `goal` is false.
-`hub task comment <id> "<text>" --steer|--queue|--goal` (one of the three), `hub_task_comment` with `delivery`, and
-`POST /v2/tasks/{id}/comments` with `delivery` choose the same ways. Without one a comment wakes the bot as it always
-has. A question (`ask`) always wakes the one it is for, so it takes no delivery; `needs_action` takes none or `steer`;
-a `goal` takes no files and cannot be public. A refused combination is a 422, a steer or goal by someone not on the task
-a 403, a goal on a task still in a chat room a 409, and nothing is saved.
+`hub task comment <id> "<text>" --steer|--queue|--defer [30m|4h|2d|never]|--goal` (one at most), `hub_task_comment`
+with `delivery` and `defer_for`, and `POST /v2/tasks/{id}/comments` with `delivery` and `defer_for` choose the same
+ways; the answer's `sent_as` (`delivery`, `until`) says how it went. In v0.5.0 `queue` on a comment meant what `defer`
+means now; it now wakes the bot after its turn. A question (`ask`) always wakes the one it is for, so it takes no
+delivery; `needs_action` takes none or `steer`; a `goal` takes no files and cannot be public. A refused combination is
+a 422, a steer, queue or goal by someone not on the task a 403, a goal on a task still in a chat room a 409, and nothing
+is saved.
 
 Tico spot-checks running work. A bot's open or doing task whose own session ran in the last day (or runs now) and
 that has made no progress for 30 minutes (no checkpoint, comment, status change, message from its bot or finished
@@ -1144,7 +1150,7 @@ Changed state or a missing checkpoint leaves the check eligible under the usual 
 wake the bot as before ([details](hub-sql.md#what-woke-each-run-and-what-it-did)). A running session is not sent status
 checks or retries; they resume once its turn ends without progress.
 
-With the team's **Quiet task triage** switched on (Settings > System routines, on by default, needs Tico Decide), a
+With the team's **Stalled task check** switched on (Settings > System routines, on by default, needs Tico Decide), a
 quiet task that stands as at its owner's last checkpoint is no longer left silent. Decide reads its last six messages
 once for that state and answers one of four things. *Waiting on someone*: the wait it names is set (a task the messages
 mention as a blocker, a date they mention as a snooze, or a person they name as the owner's own waiting-on, with a
@@ -1307,8 +1313,8 @@ The version's metadata points to its ask message. These routes use the usual Ide
   `file` and `link` fields.
 - `GET /api/v2/tasks/{id}/files` returns files, including archived files, with versions newest first.
 - `PATCH /api/v2/files/{id}/versions/{n}` accepts `note` and `ask`, by the version's uploader.
-- `POST /api/v2/tasks/{id}/comments` accepts `text`, `ask`, version references in `attachments`, and `delivery`
-  (`steer`, `queue` or `goal`, see Conversation above).
+- `POST /api/v2/tasks/{id}/comments` accepts `text`, `ask`, version references in `attachments`, `delivery`
+  (`steer`, `queue`, `defer` or `goal`) and `defer_for` (see Conversation above).
   `GET` lists the comments, including `ask` and `answers` on questions, and `answer` on responses.
 - `POST /api/v2/tasks/{id}/answers` accepts `target: {comment: id}` or
   `target: {file: id, version: n}`, `answers: {question_id: [label, ...]}`, optional `other`,

@@ -821,9 +821,10 @@ def free_turn(c, bot, location, human=False):
     return (machine.get("label") or "its computer") if sum(held.values()) >= turn_limit(row) else ""
 
 
-def queued_label(c, bot, location, settings=None, human=False, behind=False):
+def queued_label(c, bot, location, settings=None, human=False, behind=False, queued=False):
     """(label, readiness_reason) for a bot's queued work: what it is waiting for, in a person's words. `human`: a
-    person's message; `behind`: the bot is still answering earlier work in this same conversation."""
+    person's message; `behind`: the bot is still answering earlier work in this same conversation; `queued`: it was
+    sent with queue, so it waits for that turn to end rather than steering into it (backend/delivery.py)."""
     from .performance import load_status
     from . import org_turns
     bot_state = H.bot(c, bot)["state"]
@@ -868,7 +869,7 @@ def queued_label(c, bot, location, settings=None, human=False, behind=False):
         from .harnesses import steers
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
         config = json.loads(config[0]) if config else {}
-        label = ("Saved — steering this turn" if steers(config, config.get("runtime"))
+        label = ("Saved — steering this turn" if not queued and steers(config, config.get("runtime"))
                  else "Saved — queued for the next turn")
     elif runner_versions.holding_since(c, (location.get("machine") or {}).get("runner_id")):
         # Its computer takes no new work until its running turns end and it updates (docs/updates.md).
@@ -974,7 +975,8 @@ def conversation_execution(c, cid, who=None, settings=None, bot=None, auth=None,
                                "WHERE m.conversation_id=? AND j.bot=? AND a.state IN ('leased','running') LIMIT 1",
                                (cid, job["bot"])).fetchone()
             label, readiness_reason = queued_label(c, job["bot"], location, settings,
-                                                   human=H.is_human(message.get("from_actor") or ""), behind=bool(behind))
+                                                   human=H.is_human(message.get("from_actor") or ""), behind=bool(behind),
+                                                   queued=(message.get("refs") or {}).get("delivery") == "queue")
             if ((H.status(c, job['bot']) or {}).get('state') == 'limited'
                     and (reason := login_holds.fallback_resume_reason(c, job['attempt_id']))):
                 label = 'Saved — ' + reason

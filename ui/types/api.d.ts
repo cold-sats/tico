@@ -605,6 +605,8 @@ export type ChangelogReadResult = {
 export type ChatCreate = {
   attachments?: Array<string | VisualRef>;
   command?: boolean;
+  defer_for?: string | null;
+  delivery?: "steer" | "queue" | "defer" | null;
   refs?: Record<string, unknown>;
   text: string;
   titles?: Array<string>;
@@ -639,8 +641,10 @@ export type ClarifyAsk = {
 };
 
 export type CommentDelivery = {
-  default: "steer" | "queue" | null;
+  default: "queue" | "defer" | null;
+  default_for: string | null;
   goal: boolean;
+  queue: boolean;
   steer: boolean;
   steers: boolean;
 };
@@ -651,6 +655,7 @@ export type CommentResult = {
   delivered?: boolean;
   goal?: Record<string, unknown>;
   held?: string;
+  sent_as?: SentAs;
   warning?: string;
   woke: boolean;
 };
@@ -1849,6 +1854,7 @@ export type Message = {
   job_id?: string;
   state?: "started_run" | "added_to_run";
 };
+  sent_as?: SentAs;
   to_actor: string;
   to_name?: string;
   woke?: boolean;
@@ -1858,6 +1864,8 @@ export type MessageCreate = {
   attachments?: Array<string | VisualRef>;
   command?: boolean;
   conversation_id?: string | null;
+  defer_for?: string | null;
+  delivery?: "steer" | "queue" | "defer" | null;
   in_reply_to?: string | null;
   kind?: "say" | "ask" | "notice" | "steer";
   needs_action?: boolean;
@@ -2523,6 +2531,11 @@ export type SeatUpdate = {
   title?: string | null;
 };
 
+export type SentAs = {
+  delivery: "steer" | "queue" | "defer";
+  until: string | null;
+};
+
 export type ServiceKeyCreate = {
   label: string;
   scope?: "tasks" | "update";
@@ -3030,7 +3043,8 @@ export type TaskComment = {
   approval_id?: string | null;
   ask?: ReviewAsk | null;
   attachments?: Array<string | VisualRef>;
-  delivery?: "steer" | "queue" | "goal" | null;
+  defer_for?: string | null;
+  delivery?: "steer" | "queue" | "defer" | "goal" | null;
   needs_action?: boolean;
   public?: boolean;
   text: string;
@@ -3047,6 +3061,8 @@ export type TaskCreate = {
   change_paths?: Array<string>;
   check_model?: string | null;
   check_role?: "review" | "check" | null;
+  defer_for?: string | null;
+  delivery?: "steer" | "queue" | "defer" | null;
   due?: string | null;
   effort?: string | null;
   from_private?: boolean;
