@@ -163,7 +163,10 @@ def pages(world):
     filed on the task is pinned to its top; the replaced one is left out there. Dana names the bot "Engineering Lead",
     so the status lines name it, not its slug."""
     from .harness import DANA
-    _ok(world.api("post", "/api/v2/bots/engineering-lead/definition", {"display_name": "Engineering Lead"}, who=DANA),
+    bots = _ok(world.api("get", "/api/v2/bots", who=DANA), "bots")
+    revision = next(b for b in (bots if isinstance(bots, list) else bots["bots"]) if b["slug"] == "engineering-lead")
+    _ok(world.api("post", "/api/v2/bots/engineering-lead/definition",
+                  {"display_name": "Engineering Lead", "expected_revision": revision["revision"]}, who=DANA),
         "the Engineering Lead's name")
     made = _ok(world.api("post", "/api/v2/tasks", {"title": "Q3 launch", "body": "Plan the Q3 launch.",
                                                     "owner": "engineering-lead"}, who=DANA), "task")
