@@ -120,7 +120,10 @@ def test_a_deferred_comment_reaches_the_bots_next_prompt_once(api):
     second = claim(api, machine)
     assert second["message"]["id"] == later["comment"]["id"]
     assert "Billing first, then the docs." in forwarded(second, first["message"]["id"])
-    assert second["deferred"] == "Deferred since your last turn: 1 comment"
+    head, *body = second["deferred"].split("\n")
+    assert head == "Deferred since your last turn: 1 comment"
+    assert any(held["comment"]["id"] in line and "Billing first, then the docs." in line for line in body)
+    assert "Also the API page." not in second["deferred"], "the turn's own message is its Current message"
     assert deferrals(api, held["comment"]["id"])[0]["how"] == "carried"
     post(api, f"attempts/{second['id']}/started", {"thread_id": "plan"}, machine["token"])
     post(api, f"attempts/{second['id']}/complete", {"outcome": "completed", "text": "API page noted.", "last_seq": 0},

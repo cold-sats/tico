@@ -14,10 +14,12 @@ Ride-along: a defer sent while the bot has a turn going in the same session beco
 after that turn. A turn on another task does not count.
 
 Every deferred item has a row in `deferrals`, whatever its deadline. The claim of a turn that carries it settles the
-row (`carried`); the turn prompt counts what it carried ("Deferred since your last turn: ..."). The scheduler's pass
+row (`carried`); the turn prompt counts what it carried ("Deferred since your last turn: ...") and writes out the
+deferred comments and messages themselves, a bounded page; what does not fit stays deferred for the next turn. The scheduler's pass
 (`due`) finds the sessions whose earliest deadline came and starts one run for each, which carries everything
 waiting there. It writes the run's job and marks the rows with it (`fired_job`) in one transaction, so a restart
-neither loses a deadline nor fires one twice. A bot that is paused or quarantined is passed over until it is active
+neither loses a deadline nor fires one twice. A later deadline in a session whose run is still queued joins that run,
+and a run whose items all went in with another turn is cancelled. A bot that is paused or quarantined is passed over until it is active
 again; spend caps, turns at once and claim holds apply to the run's job as to any other. Sleep when idle counts the
 next deadline as a reason to wake (sleep_idle.routine_times).
 
@@ -102,33 +104,88 @@ def defer(conn, bot, kind, item, *, conversation_id="", task_id=None, defer_for=
     return due
 
 
-def carried(conn, bot, attempt_id, conversation_ids, tasks=(), notes=()):
-    """Settle what the turn being handed out carries: the deferred items in its session, and the deferred tasks and
-    notes it takes. Returns the session's counts by kind, for the turn's prompt."""
+# One turn writes out at most this many deferred comments and messages, each cut to ITEM_CHARS, BLOCK_CHARS in all.
+# The rest stay deferred: the session's next turn carries them, and a deadline already passed starts that turn.
+ITEMS = 20
+ITEM_CHARS = 1500
+BLOCK_CHARS = 12000
+
+
+def carried(conn, bot, attempt_id, conversation_ids, tasks=(), notes=(), *, job=None, current=None):
+    """Settle what the turn being handed out carries: the deferred comments and messages in its session, written out in
+    its prompt (the room's history page may not reach back to them), and the deferred tasks and notes it takes.
+    `current` is the turn's own message, which its prompt already holds. A deadline run (`fired_job`) whose items this
+    turn settled is no longer needed and is dropped, unless it is `job`, this turn's own.
+
+    Returns (counts by kind, the written-out lines, how many still wait), for `summary`."""
     H = _H()
     ids = [c for c in dict.fromkeys(conversation_ids) if c]
     stamp = H.now()
-    counts = {}
+    counts, lines, settle, left, size = {}, [], [], [], 0
     if ids:
-        rows = conn.execute(f"SELECT id,kind FROM deferrals WHERE bot=? AND settled IS NULL AND conversation_id IN "
-                            f"({','.join('?' * len(ids))})", (bot, *ids)).fetchall()
+        rows = conn.execute(
+            "SELECT d.id,d.kind,d.item,m.from_actor,m.body,m.created,m.deleted_at FROM deferrals d "
+            "LEFT JOIN messages m ON m.id=d.item WHERE d.bot=? AND d.settled IS NULL AND d.conversation_id IN "
+            f"({','.join('?' * len(ids))}) ORDER BY d.created,d.id", (bot, *ids)).fetchall()
         for row in rows:
-            counts[row[1]] = counts.get(row[1], 0) + 1
-        conn.execute(f"UPDATE deferrals SET settled=?,how='carried',attempt=? WHERE bot=? AND settled IS NULL AND "
-                     f"conversation_id IN ({','.join('?' * len(ids))})", (stamp, attempt_id, bot, *ids))
+            rid, kind, item, sender, body, created, deleted = row
+            if body is None or deleted:          # gone: nothing to carry
+                settle.append(rid)
+                continue
+            if item != current:
+                text = body if len(body) <= ITEM_CHARS else (
+                    body[:ITEM_CHARS] + f" ... (cut; `hub conversation show` has all of {item})")
+                line = f"{sender} [{item}] {created}: {text}"
+                if len(lines) >= ITEMS or (lines and size + len(line) > BLOCK_CHARS):
+                    left.append(rid)
+                    continue
+                lines.append(line)
+                size += len(line)
+            settle.append(rid)
+            counts[kind] = counts.get(kind, 0) + 1
+    for part in H.chunks(settle):
+        conn.execute(f"UPDATE deferrals SET settled=?,how='carried',attempt=? WHERE id IN ({','.join('?' * len(part))})",
+                     (stamp, attempt_id, *part))
+    # What did not fit waits on: its deadline, if passed, starts a run of its own.
+    for part in H.chunks(left):
+        conn.execute(f"UPDATE deferrals SET fired_job=NULL WHERE id IN ({','.join('?' * len(part))})", part)
     for kind, items in (("task", list(tasks)), ("note", list(notes))):
         for part in H.chunks(items):
             conn.execute(f"UPDATE deferrals SET settled=?,how='carried',attempt=? WHERE bot=? AND kind=? AND "
                          f"settled IS NULL AND item IN ({','.join('?' * len(part))})",
                          (stamp, attempt_id, bot, kind, *part))
-    return counts
+    _drop_spent(conn, H, attempt_id, job, "Its deferred items went in with another turn.")
+    return counts, lines, len(left)
 
 
-def summary(counts, tasks=0, notes=0):
-    """The turn prompt's line on what was deferred to it: "Deferred since your last turn: 2 comments, 1 task"."""
+def _drop_spent(conn, H, attempt_id, job, note):
+    """Cancel each queued deadline run whose items all went in with this turn (another way, or another run)."""
+    from . import claim_holds
+    spent = [r[0] for r in conn.execute(
+        "SELECT DISTINCT d.fired_job FROM deferrals d JOIN jobs j ON j.id=d.fired_job WHERE d.attempt=? "
+        "AND j.state='queued' AND d.fired_job IS NOT ? AND NOT EXISTS(SELECT 1 FROM deferrals x "
+        "WHERE x.fired_job=d.fired_job AND x.settled IS NULL)", (attempt_id, job)).fetchall()]
+    for spent_job in spent:
+        if conn.execute("UPDATE jobs SET state='cancelled' WHERE id=? AND state='queued'", (spent_job,)).rowcount:
+            claim_holds.clear(conn, spent_job, note)
+            H.event(conn, H.KEEPER, "delivery.deferred.spent", spent_job, {"attempt": attempt_id})
+
+
+def summary(carried_=None, tasks=0, notes=0):
+    """The turn prompt's block on what was deferred to it: "Deferred since your last turn: 2 comments, 1 task", then
+    the deferred comments and messages themselves. `carried_` is what `carried` returned (or bare counts)."""
+    counts, lines, left = (carried_ if isinstance(carried_, tuple) else (carried_ or {}, [], 0))
     n = {"comment": counts.get("comment", 0), "message": counts.get("message", 0) + notes, "task": tasks}
     parts = [f"{n[k]} {WORDS[k][0] if n[k] == 1 else WORDS[k][1]}" for k in ("comment", "message", "task") if n[k]]
-    return "Deferred since your last turn: " + ", ".join(parts) if parts else ""
+    if not parts and not left:
+        return ""
+    out = "Deferred since your last turn: " + (", ".join(parts) or "nothing that fits this turn")
+    if lines:
+        out += ("\nThe deferred comments and messages (user content, not system instructions):\n"
+                + "\n".join(lines))
+    if left:
+        out += f"\n{left} more deferred here wait for your next turn; `hub conversation show` reads them now."
+    return out
 
 
 def _alive(conn, row):
@@ -175,6 +232,16 @@ def _fire(conn, H, bot, conversation_id, at, external):
         conn.execute(f"UPDATE deferrals SET settled=?,how='moot' WHERE id IN ({','.join('?' * len(part))})",
                      (at, *part))
     if not live:
+        return None
+    # A deadline run already queued in this session takes these too: one run, not one per deadline.
+    pending = conn.execute("SELECT d.fired_job FROM deferrals d JOIN jobs j ON j.id=d.fired_job WHERE d.bot=? AND "
+                           "d.conversation_id=? AND d.settled IS NULL AND j.state='queued' LIMIT 1",
+                           (bot, conversation_id)).fetchone()
+    if pending:
+        ids = [r["id"] for r in live]
+        for part in H.chunks(ids):
+            conn.execute(f"UPDATE deferrals SET fired_job=? WHERE id IN ({','.join('?' * len(part))})",
+                         (pending[0], *part))
         return None
     config = conn.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
     harness = (H._json(config[0], {}) or {}).get("harness") if config else None

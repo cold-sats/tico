@@ -249,8 +249,9 @@ pub fn replayed(attempt: &Value, names: &Names, after: Option<&str>, resumed: bo
     if truthy(refs.get("attachments").unwrap_or(&Value::Null)) {
         lines.push(format!("Current attachments: {}", py_dumps(&refs["attachments"])));
     }
-    // "Deferred since your last turn: 2 comments, 1 task" (backend/delivery.py summary): what was sent without
-    // waking this bot and reaches it now, in this room's history or in the blocks below.
+    // "Deferred since your last turn: 2 comments, 1 task" and the deferred comments and messages, one a line
+    // (backend/delivery.py summary): what was sent without waking this bot and reaches it now; tasks and notes are
+    // in the blocks below.
     if let Some(deferred) = attempt["deferred"].as_str().filter(|d| !d.is_empty()) {
         lines.push(deferred.to_string());
     }

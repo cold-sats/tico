@@ -3385,14 +3385,15 @@ class Execution:
             bot_to_bot.continue_backlog(c, row["bot"])
             if notes:
                 H.event(c, H.KEEPER, "note.carried", aid, {"bot": row["bot"], "notes": [n["id"] for n in notes]})
-        # What was deferred to this turn (backend/delivery.py): the session's comments and messages, which its room's
-        # history holds, and the deferred tasks and notes above. Their deadlines are met. A deferred task this turn
-        # works as its own is met too, though not counted: it is the turn's task.
+        # What was deferred to this turn (backend/delivery.py): the session's comments and messages, written out in the
+        # prompt since the history page may not reach them, and the deferred tasks and notes above. Their deadlines are
+        # met. A deferred task this turn works as its own is met too, though not counted: it is the turn's task.
         from . import delivery
         own = [task["id"]] if task and task.get("id") else []
         deferred = delivery.summary(
             delivery.carried(c, row["bot"], aid, [conv["id"], (task or {}).get("conversation_id")],
-                             [item["id"] for item in carried] + own, [item["id"] for item in notes]),
+                             [item["id"] for item in carried] + own, [item["id"] for item in notes],
+                             job=row["id"], current=msg["id"]),
             tasks=len(carried), notes=len(notes))
         from .views import roster
         people = roster(c)
