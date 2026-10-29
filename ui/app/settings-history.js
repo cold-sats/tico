@@ -52,7 +52,7 @@ function settingsHistoryShow(view = SETTINGS_HISTORY_VIEW) {
 const settingsRunTokens = new Intl.NumberFormat(undefined, {notation: 'compact', maximumFractionDigits: 1});
 const settingsRunTook = s => s == null ? '' : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
 function settingsRunsHTML(list) {
-  if (!list.length) return `<div class="empty">No runs yet.${window.talkLineHTML?.() || ''}</div>`;
+  if (!list.length) return `<div class="empty">No runs yet.</div>`;
   return `<div class="runs-list"><div class="run-row run-head"><span>Bot</span><span>Result</span><span>Model</span><span>Took</span><span>Cost</span><span>Finished</span><span></span></div>
     ${list.map(r => {
       const attempt = r.record_kind === 'attempt', ok = !attempt && r.exit === 0;

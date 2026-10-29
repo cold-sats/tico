@@ -197,7 +197,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
       ? [...(folders.get('') || []).map(docItem),
          ...dirs.map(dir => `<details open data-docs-folder="${esc(dir)}"><summary title="${esc(dir)}">${esc(docsFolderWords(dir))} <span class="muted">${folders.get(dir).length}</span></summary>${folders.get(dir).map(docItem).join('')}</details>`)].join('')
       : `<div class="docs-empty-note"><p>No docs yet.</p>
-          <div class="docs-empty-actions"><a class="docs-new" href="${docsHref('new')}" role="button">Write a doc</a><button class="docs-new" type="button" data-docs-import>Import a file</button></div></div>`;
+          <div class="docs-empty-actions"><button class="docs-new" type="button" data-docs-import>Import a file</button></div></div>`;
     const links = linked.length ? linked.map(linkRow).join('')
       : '<div class="docs-empty-note"><p>No sources yet.</p></div>';
     browser.innerHTML = `<details class="docs-section docs-internal-section" data-docs-group="internal" open><summary class="docs-section-head"><h2 id="docs-h-internal">${archived ? 'Archived docs' : 'Internal docs'} <span class="muted">${docs.length}</span></h2></summary><div class="docs-group-scroll">${internal}</div></details>
@@ -273,10 +273,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   const back = `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">‹ Docs</a>`;
   // No doc open: the docs changed most recently, so the page opens on something to read.
   function drawLanding() {
-    if (!docs.length && !linked.length) {
-      reader.innerHTML = '<div class="docs-welcome"><h2>No docs yet</h2><p class="muted">Write what your team and your bots should know, import files, or link docs that live elsewhere.</p></div>';
-      return;
-    }
+    if (!docs.length && !linked.length) { reader.innerHTML = ''; return; }   // the list says so, and the header has New doc
     const recent = [...docs].sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || ''))).slice(0, 12);
     reader.innerHTML = `<div class="docs-welcome docs-recent"><h2 class="docs-recent-head">${archived ? 'Archived' : 'Recent'}</h2>${recent.map(d =>
       `<a class="docs-recent-row" href="${docsHref(d.id, archived ? {archived: 1} : {})}"><span class="docs-recent-title">${esc(d.title)}</span>
