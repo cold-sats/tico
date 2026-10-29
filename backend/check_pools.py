@@ -218,57 +218,73 @@ def online(c, slug):
 
 
 def _task_model(c, slug):
-    """(config, task model or None): the bot's config, and the task model a task filed to it runs on. A check is a task
-    the bot owns, so it runs on the bot's task model whenever the bot gives its tasks their own sessions
-    (backend/task_models.py `pick`); otherwise on the bot's own model."""
+    """(config, task model or None, whether it can run): the bot's config, and the task model a task filed to it runs
+    on. A check is a task the bot owns, so it runs on the bot's task model whenever the bot gives its tasks their own
+    sessions, and on the bot's own model when the task model cannot run on its computer (backend/task_models.py
+    `pick`, `readiness`)."""
     from clients import sessions
     from . import task_models
     from .shared_bots import follow
     row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
     config = follow(c, slug, H._json(row["config_json"], {}) or {}) if row else {}
     keyed = sessions.session_key(config, slug, "check", None).startswith("task:")
-    return config, task_models.of(config) if keyed else None
+    task = task_models.of(config) if keyed else None
+    return config, task, bool(task) and task_models.readiness(c, slug, task).get("can_run") is not False
+
+
+def _company(names):
+    from . import providers
+    return next((found for found in map(providers.author_provider, names) if found), "")
+
+
+def _own(c, config):
+    """The model company of the bot's own model, '' when its config names none Tico knows."""
+    from . import providers
+    runtime, model = providers.bot_choice(c, None, config)
+    return _company((model, config.get("model"), runtime, config.get("runtime")))
 
 
 def maker(c, slug):
     """The model company a task filed to the bot runs on (`anthropic`, `openai`, ...): its task model's when it has
-    one, else its own model's; '' when its config names none Tico knows."""
-    from . import providers
-    config, task = _task_model(c, slug)
-    if task:
-        named = (task.get("model"), task.get("runtime"))
-    else:
-        runtime, model = providers.bot_choice(c, None, config)
-        named = (model, config.get("model"), runtime, config.get("runtime"))
-    for name in named:
-        found = providers.author_provider(name)
-        if found:
-            return found
-    return ""
+    one that can run, else its own model's; '' when its config names none Tico knows."""
+    config, task, ready = _task_model(c, slug)
+    return _company((task["model"], task["runtime"])) if ready else _own(c, config)
 
 
 RECENT_TURNS = 3
+TASK_TURNS_READ = 20
+
+
+def _recent_turns(c, slug, task):
+    """The bot's last few finished turns. With a task model, only its turns on tasks that run on that model: its other
+    turns run on its own model, and a task with a model of its own or a check model ran on that, neither of which a
+    check filed to it does."""
+    from . import task_run_models
+    if not task:
+        return [r[0] for r in c.execute("SELECT id FROM turns WHERE bot=? AND finished IS NOT NULL ORDER BY finished DESC "
+                                        "LIMIT ?", (slug, RECENT_TURNS))]
+    rows = c.execute("SELECT id,task_id FROM turns WHERE bot=? AND finished IS NOT NULL AND task_id IS NOT NULL "
+                     "ORDER BY finished DESC LIMIT ?", (slug, TASK_TURNS_READ)).fetchall()
+    return [r[0] for r in rows if not task_run_models.of(c, r[1]) and not H.check_model(c, r[1])][:RECENT_TURNS]
 
 
 def makers(c, slug, known_only=False):
-    """Every model company a checker may run on: the one a task filed to it runs on (`maker`), and what its last few
-    runs actually ran on (a bot whose model is not signed in runs on its fallback, which is the company that would do
-    the check). With a task model, only its runs on tasks count: its other turns run on its own model, which a check
-    does not. A run with an unknown segment makes the answer empty, or with `known_only` adds nothing, leaving what is
-    known."""
+    """Every model company a checker may run on: the one a task filed to it runs on (`maker`), its own model's too
+    while its task model cannot run (the check would fall back to it), and what its last few runs actually ran on (a
+    bot whose model is not signed in runs on its fallback, which is the company that would do the check). A run with
+    an unknown segment makes the answer empty, or with `known_only` adds nothing, leaving what is known."""
     from .usage_records import ran_on
-    _, task = _task_model(c, slug)
-    turns = [r[0] for r in c.execute("SELECT id FROM turns WHERE bot=? AND finished IS NOT NULL"
-                                     + (" AND task_id IS NOT NULL" if task else "")
-                                     + " ORDER BY finished DESC LIMIT ?", (slug, RECENT_TURNS))]
-    recent = ran_on(c, turns).values()
+    config, task, ready = _task_model(c, slug)
+    recent = ran_on(c, _recent_turns(c, slug, task)).values()
     found = set()
     for run in recent:
         segments = run["segments"]
         if not known_only and (not segments or any(not segment.get("family") for segment in segments)):
             return set()
         found.update(segment["family"] for segment in segments if segment.get("family"))
-    return (found | {maker(c, slug)}) - {""}
+    configured = {_company((task["model"], task["runtime"])), _own(c, config)} if task and not ready \
+        else {maker(c, slug)}
+    return (found | configured) - {""}
 
 
 def builder_makers(c, ticket):

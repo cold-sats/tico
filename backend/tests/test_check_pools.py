@@ -638,6 +638,46 @@ def test_require_goes_by_the_task_model_a_check_runs_on_not_the_bots_own_model(a
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"]
 
 
+def test_a_task_model_that_cannot_run_counts_the_bots_own_model_for_require(api):
+    """rev-c's task model is on OpenAI, but codex is not installed on its computer, so a check given to it would fall
+    back to its own model, on Anthropic like the builder: a required check waits for rev-a instead."""
+    team(api)
+    task = qa_ticket(api)
+    task_model(api, "rev-c", "gpt-6-sol", "codex")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET readiness_json=? WHERE id='r1'",
+                  (json.dumps({"schema_version": 1, "bots": {}, "runtimes": {"codex": {"installed": False}}}),))
+    set_pool(api, task, "In QA", ["rev-c", "rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    held = busy(api, "rev-a")
+    to_qa(api, task)
+    assert checks(api, task) == [], "rev-c's check would run on the builder's company"
+    with api.app.state.store.transaction() as c:
+        H.task_update(c, "bot:rev-a", held["id"], status="done", note="VERDICT: approve")
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
+def test_a_recent_task_on_its_own_model_says_nothing_about_where_a_check_runs(api):
+    """rev-c's last task, a check, ran on Anthropic because it had a model of its own; its task model, which a check
+    given to it runs on, is OpenAI, so a required check goes to it."""
+    team(api)
+    task = qa_ticket(api)
+    task_model(api, "rev-c", "gpt-6-sol", "codex")
+    own = busy(api, "rev-c")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO task_run_models(task_id,runtime,model,harness) VALUES(?,'claude','claude-haiku-5-5',"
+                  "'claude')", (own["id"],))
+        c.execute("UPDATE tasks SET status='done' WHERE id=?", (own["id"],))
+        c.execute("INSERT INTO turns(id,bot,started,finished,task_id) VALUES('own','rev-c',?,?,?)",
+                  (H.now(), H.now(), own["id"]))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('own',0,'claude-haiku-5-5','anthropic')")
+    set_pool(api, task, "In QA", ["rev-c"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-c"]
+
+
 def test_other_company_is_prefer_or_require_and_only_on_a_check_step(api):
     team(api)
     task = qa_ticket(api)
