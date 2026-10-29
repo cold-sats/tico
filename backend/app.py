@@ -3385,6 +3385,7 @@ def create_app(settings=None):
                                                                           H.task_comments(c, tid, actor=privacy.actor(who)))),
                     "execution": task_execution(c, who, row),
                     "comment_to": comment_to(c, who, row) if can_comment else None,
+                    "comment_delivery": delivery_choices(c, who, row) if can_comment else None,
                     "mover": mover(c, request.state.identity),
                     "waiting_for": task_wait(c, tid, settings),
                     "runs": task_runs(c, who, tid),
@@ -3421,6 +3422,27 @@ def create_app(settings=None):
         mention = [] if wakes else [n for n in H.filer_handles(c, row)
                                     if H.comment_wakes(c, who.actor, row, "@" + n, mover=moves)]
         return {"bot": H.actor_id(target), "wakes": wakes, "mention": mention}
+
+    def delivery_choices(c, who, row):
+        """What a comment's `delivery` can do for this reader on this task (docs/tasks.md): `default`, the choice
+        a comment with none named gets (steer when it wakes its bot, queue when not; null when no bot is on the task);
+        `steer`, whether the reader may steer (chat_goals.may_direct); `steers`, whether that bot's harness writes a
+        steer into its running turn; `goal`, whether the reader may set the task session's goal (chat_goals.own_room
+        and chat_goals.may_set). None for a bot reader."""
+        if who.role == "bot":
+            return None
+        target = H.comment_target(c, who.actor, row)
+        if not H.is_bot(target):
+            return {"default": None, "steer": False, "steers": False, "goal": False}
+        moves = mover(c, who)
+        wakes = H.comment_wakes(c, who.actor, row, "", mover=moves)
+        config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (H.actor_id(target),)).fetchone()
+        config = json.loads(config[0] or "{}") if config else {}
+        from .harnesses import steers
+        from .chat_goals import may_direct, may_set, own_room
+        return {"default": "steer" if wakes else "queue", "steer": may_direct(c, who, row),
+                "steers": steers(config, config.get("runtime")),
+                "goal": own_room(c, row) and may_set(c, auth, who, row["conversation_id"])}
 
     def task_runs(c, who, tid, limit=200):
         """The runs that worked this task, each with the model that actually ran it (`ran_on`). A review that
@@ -4115,9 +4137,17 @@ def create_app(settings=None):
     @app.post("/api/v2/tasks/{tid}/comments")
     def task_comment(request: Request, tid: str, body: M.TaskComment):
         """A comment on a task. It wakes the bot on the task when the comment is meant for it
-        (H.comment_wakes); anyone else's is saved for the bot's next turn on the task. A bot's question to a person
-        passes ask ingest first (backend/ask_ingest.py): sent back, it is withdrawn as soon as it is asked."""
+        (H.comment_wakes); anyone else's is saved for the bot's next turn on the task. `delivery` overrides that:
+        steer wakes the bot now, queue never does, goal sets the task session's goal to the text
+        (chat_goals.set_goal). A bot's question to a person passes ask ingest first (backend/ask_ingest.py): sent
+        back, it is withdrawn as soon as it is asked."""
         who = request.state.identity
+        if body.delivery and (body.ask or (body.needs_action and body.delivery != "steer")):
+            raise Problem("delivery", "A question always wakes the one it is for, and needs_action is steer: send it "
+                          "without a delivery, or with steer", 422)
+        if body.delivery == "goal" and (body.attachments or body.public):
+            raise Problem("delivery", "A goal is the comment's text: send it without files or as a public comment",
+                          422)
         ingest = None
         if body.ask and ask_ingest.gated(who, settings.assistant_bot):
             with store.read() as c:
@@ -4134,6 +4164,7 @@ def create_app(settings=None):
             mark = H.jobs_mark(c)
             task_id = auth.resolve_task(c, who, tid)
             row = auth.task(c, who, task_id)
+            from .chat_goals import may_direct, own_room, set_goal
             from .task_review import comment_rights, check_ask
             comment_rights(c, auth, who, task_id)
             ask = check_ask(c, task_id, body.ask, auth, who)
@@ -4143,23 +4174,50 @@ def create_app(settings=None):
             # The comment itself is the question to the first one, unless it would wake a bot, which
             # must hear it; everyone else mentioned gets their own copy. A task with no bot on it has
             # no one else to hear the comment, so a copy there would only show it twice.
-            people = [] if ask or who.role == "bot" else H.mentioned_people(c, body.text, row, who.actor)
-            wakes_bot = H.is_bot(H.comment_target(c, who.actor, row)) and H.comment_wakes(
-                c, who.actor, row, body.text, mover=moves)
+            # A goal is the comment's text, so it is not turned into a question to anyone.
+            people = [] if ask or who.role == "bot" or body.delivery == "goal" \
+                else H.mentioned_people(c, body.text, row, who.actor)
+            # Steer reaches the bot on the task (a bot's steer is its needs_action); with no bot on the task it is a
+            # plain comment. Queue and goal never wake it: a goal's own control does (set_goal below).
+            target = H.comment_target(c, who.actor, row)
+            steered = body.delivery == "steer" and H.is_bot(target)
+            if steered and who.role != "bot" and not may_direct(c, who, row):
+                raise Problem("delivery", "Only someone on this task can steer its bot: send it with queue, or "
+                              "@name the bot that filed it", 403)
+            if body.delivery == "goal" and who.role != "bot" and not may_direct(c, who, row):
+                raise Problem("delivery", "Only someone on this task can set its goal: send it with queue", 403)
+            # A goal is set in the task's own room only. In a chat the task was filed into, the goal is the chat's
+            # (chat_goals.own_room), so nothing is saved and no control is queued or cancelled there.
+            if body.delivery == "goal" and not own_room(c, row):
+                raise Problem("delivery", "This task has no room of its own: send it with steer or queue", 409)
+            if steered:
+                wakes_bot = True
+            elif body.delivery:
+                wakes_bot = False
+            else:
+                wakes_bot = H.is_bot(target) and H.comment_wakes(c, who.actor, row, body.text, mover=moves)
             if people and not wakes_bot:
                 ask, people = H.mention_ask(body.text, people[0]), people[1:]
-            if ask:
+            if body.delivery in ("queue", "goal"):
+                wake = False
+            elif steered:
+                wake = True
+            elif ask:
                 wake = who.role == "bot" or H.task_participant(c, who.actor, row) or moves
             else:
                 wake = H.comment_wakes(c, who.actor, row, body.text, mover=moves) or (
                     who.role == "bot" and body.needs_action)
             extra = {"attachments": attached, "files": [a["ref"] for a in attached]} if attached else {}
-            if body.needs_action:
+            if body.needs_action or (steered and who.role == "bot"):
                 extra["needs_action"] = True
             # Judged against the plate before the question is on it.
             gate = ask_ingest.apply(c, ingest) if ingest and ask else None
             msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake, ask=ask, public=body.public, approval_id=body.approval_id,
                                  extra_refs=extra or None)
+            goal = None
+            if body.delivery == "goal":
+                # The task session's goal, set as a chat's is (chat_goals.set_goal): its /goal control wakes the bot.
+                goal = set_goal(c, auth, who, row["conversation_id"], "set", body.text, send)
             if gate and not ask_ingest.matches(ingest, msg.get("to_actor")):
                 gate = None
             if gate:
@@ -4179,7 +4237,8 @@ def create_app(settings=None):
             waits = bot_to_bot.held_reason(msg)
             return {"comment": msg, "comments": comments, **H.comment_delivery(c, msg, copies, since=mark),
                     **({"warning": held} if held else {}), **({"held": waits} if waits else {}),
-                    **({"visuals": report} if report else {}), **ask_ingest.reply(gate)}
+                    **({"visuals": report} if report else {}), **({"goal": goal} if goal else {}),
+                    **ask_ingest.reply(gate)}
         result = mutate(request, body, work)
         if body.attachments:
             app.state.file_metadata.wake.set()   # a chat file shared here is a new task copy: preview it now

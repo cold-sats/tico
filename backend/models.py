@@ -480,6 +480,9 @@ class TaskComment(Contract):
     text: Text
     ask: ReviewAsk | None = None
     attachments: list[Attachment] = Field(default_factory=list, max_length=10)
+    # What the comment does on the task (docs/tasks.md): steer reaches its bot now, queue waits for the bot's next
+    # turn on the task, goal makes the task session's goal the text. Omitted, the wake rule decides as before.
+    delivery: Literal["steer", "queue", "goal"] | None = None
 
 
 class TaskAskResolve(Contract):
