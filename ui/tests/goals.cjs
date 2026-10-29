@@ -17,7 +17,7 @@ const bots = [
   bot('cmo', 'AI CMO', 'p:ana'), bot('seo', 'SEO', 'b:cmo'), bot('sales', 'Sales', 'p:ana'),
   bot('support', 'Support', 'p:ana', {status: 'paused', onboarding_state: 'needs_setup'}),
   bot('old', 'Old bot', 'p:ana', {status: 'archived'}),
-  bot('coo', 'Assistant', ''), bot('librarian', 'Librarian', ''), bot('botops', 'BotOps', ''), bot('goal-manager', 'CEO Bot', 'p:ana', {reports_to: ''}), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox'}),
+  bot('coo', 'Assistant', ''), bot('librarian', 'Librarian', ''), bot('botops', 'BotOps', ''), bot('goal-manager', 'Strategy Bot', 'p:ana', {reports_to: ''}), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox'}),
   bot('channel', 'Channel Inbox', 'b:botops', {helper: true}),
 ];
 const day = Date.now() - 2 * 86400000;
@@ -77,6 +77,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/api/issues') return json([]);
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: [{bot: 'goal-manager', state: 'idle', last_turn_at: '2026-10-01T09:00:00Z', last_result: 'Updated KPI readings.'}]});
+      // The server keeps the owner's Strategy Bot chat under room_key "ceo" (STRATEGY_ROOM, backend/rooms.py).
       if (p === '/api/v2/conversations' && posted.some(r => r.path === '/api/v2/chat/goal-manager')) return json({conversations: [{id: 'gm-chat', kind: 'chat', scope: 'personal', owner_actor: 'human:ana', room_key: 'ceo', participants: ['human:ana', 'bot:goal-manager']}]});
       if (p === '/api/v2/goal-manager/turn-on' && post) { bots.find(b => b.name === 'goal-manager').status = 'active'; return json({state: 'active'}); }
       if (p === '/api/v2/chat/goal-manager' && post) return json({conversation: {id: 'gm-chat'}, message: {id: 'gm-q', from_actor: 'human:ana', body: body.text}});
@@ -191,7 +192,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.equal(await row('company').locator('.gt-goal .gdot').getAttribute('class'), 'gdot red');
     // Needs you: a count and its lines; a proposal is confirmed there.
     assert.match(await page.locator('#goal-needs').innerText(), /Needs you\s*2[\s\S]*Activation on Double organic signups/i);
-    // Each line is the CEO Bot's task, linked; the link opens the task, not the KPI.
+    // Each line is the Strategy Bot's task, linked; the link opens the task, not the KPI.
     assert.equal(await page.locator('#goal-needs .need-row [data-need-task]').getAttribute('href'), '#/task/t-red');
     await page.locator('#goal-needs [data-decide=confirm]').click();
     await until(() => page.locator('#goal-needs .kpi-prop').count().then(n => n === 0), 'proposal gone');

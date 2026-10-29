@@ -8,19 +8,21 @@
 // assistant has any of them; with none, the chat alone. GET /v2/assistant gives your own Assistant room with its
 // messages; a message goes to /v2/assistant/messages, which answers a lookup at once and hands the rest to a turn of the assistant bot, shown
 // live like any bot's reply. Proposals are Confirm / Cancel cards (ui/assistant.js). An Assistant room takes text only,
-// so its composer has no attach button. For the owner the page is their CEO Bot chat, by its name, with no "Assistant"
-// wording (ui/app/state.js meCeo), and it takes files like any bot chat: attach, drop or paste a screenshot
+// so its composer has no attach button. For the owner the page is their Strategy Bot chat, by its name, with no
+// "Assistant"
+// wording (ui/app/state.js meStrategyBot), and it takes files like any bot chat: attach, drop or paste a screenshot
 // (/v2/uploads/assistant/messages). Their own Assistant chats from before stay readable under "Earlier chats".
 // "What it has learned" at the top opens ui/app/learned.js.
 const ASSISTANT_HINTS = ["What's waiting on me?", 'Find the launch plan', 'How do I add a bot?'];
 let ASSISTANT_PILL = null, ASSISTANT_LOAD = 0;
-// `files`: the server says this chat is the CEO Bot's (GET /v2/assistant `ceo`), the only one whose uploads it takes.
+// `files`: the server says this chat is the Strategy Bot's (GET /v2/assistant `strategy`), the only one whose uploads
+// it takes.
 function assistantPill(files) {
   const slug = myChatBot();
   if (ASSISTANT_PILL?.slug === slug && ASSISTANT_PILL.attach === files) return ASSISTANT_PILL;
   if (ASSISTANT_PILL) PILLS.delete(ASSISTANT_PILL);
   ASSISTANT_PILL = pillRestore(makePill({mode: 'chat', slug, files, send: assistantSend,
-    label: meCeo() ? `Message ${myChatName()}` : 'Message the Assistant', placeholder: 'Ask anything…'}));
+    label: meStrategyBot() ? `Message ${myChatName()}` : 'Message the Assistant', placeholder: 'Ask anything…'}));
   ASSISTANT_PILL.attach = files;
   return ASSISTANT_PILL;
 }
@@ -56,13 +58,13 @@ async function pageAssistant() {
     return;
   }
   if (load !== ASSISTANT_LOAD || S.route !== ASSISTANT) return;
-  // Earlier chats are stored history: readable while the CEO Bot is paused too.
+  // Earlier chats are stored history: readable while the Strategy Bot is paused too.
   assistantEarlier(d.earlier, load);
   if (!d.available) {
     window.assistantChat?.off($('#conv-thread'), d, {post, esc, after: () => { if (S.route === ASSISTANT) pageAssistant(); }});
     return;
   }
-  const files = !!d.ceo && d.bot === slug, P = assistantPill(files), thread = $('#conv-thread');
+  const files = !!d.strategy_bot && d.bot === slug, P = assistantPill(files), thread = $('#conv-thread');
   $('#chat-composer').append(P.el);
   if (files) chatDropZone($('#pane-chat'), P);
   bindChatSwipe(thread);
@@ -92,7 +94,8 @@ async function assistantSend(P, text) {
   finally { P.sending = false; pillBtnSay(btn, ''); pillLabel(P); pillButtons(P); }
 }
 
-// "Earlier chats": the owner's own Assistant chats from before the CEO Bot took its place, read-only, newest page first
+// "Earlier chats": the owner's own Assistant chats from before the Strategy Bot took its place, read-only, newest page
+// first
 // and older pages on request. Loaded when opened; nothing is sent from here.
 function assistantEarlier(earlier, load) {
   const box = $('#asst-earlier');

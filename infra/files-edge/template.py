@@ -1,6 +1,8 @@
 """Render the edge-only CloudFormation template to stdout. Never calls AWS.
 
-The private bucket, its policy and the certificate are supplied by the stand-up.
+The private bucket, its policy and the certificate are supplied by the stand-up. The distribution stays disabled
+unless the stand-up passes Enabled=true, and writes CloudFront standard logs (HQ meters delivery from them,
+tico-services billing/files_aws.py) when it is given LogBucketDomainName.
 """
 import json
 from pathlib import Path
@@ -64,7 +66,10 @@ def template():
 
     visual_behavior = dict(behavior('Visuals'), PathPattern='/visuals/*')
     resources['Distribution'] = {'Type': 'AWS::CloudFront::Distribution', 'Properties': {'DistributionConfig': {
-        'Enabled': False, 'Comment': 'Prepared edge; activation requires stand-up approval and bucket policy',
+        'Enabled': {'Fn::If': ['Activate', True, False]},
+        'Comment': 'Tico file edge; enable only after the bucket policy and certificate are in place',
+        'Logging': {'Fn::If': ['Logs', {'Bucket': {'Ref': 'LogBucketDomainName'}, 'Prefix': {'Ref': 'LogPrefix'},
+                                        'IncludeCookies': False}, {'Ref': 'AWS::NoValue'}]},
         'Aliases': [{'Fn::Sub': '*.${FilesDomain}'}], 'PriceClass': 'PriceClass_100',
         'ViewerCertificate': {'AcmCertificateArn': {'Ref': 'CertificateArn'},
                               'SslSupportMethod': 'sni-only', 'MinimumProtocolVersion': 'TLSv1.2_2021'},
@@ -72,10 +77,17 @@ def template():
                      'OriginAccessControlId': {'Ref': 'OriginAccess'}, 'S3OriginConfig': {'OriginAccessIdentity': ''}}],
         'DefaultCacheBehavior': behavior('Files'), 'CacheBehaviors': [visual_behavior],
         'CustomErrorResponses': [{'ErrorCode': code, 'ErrorCachingMinTTL': 0} for code in [400, 403, 404, 500, 502, 503, 504]]}}}
-    return {'AWSTemplateFormatVersion': '2010-09-09', 'Description': 'Prepared file edge; no stand-up authorization',
+    return {'AWSTemplateFormatVersion': '2010-09-09', 'Description': 'Tico file edge (signed company files and visuals)',
             'Parameters': {
                 'FilesDomain': {'Type': 'String', 'AllowedPattern': '[a-z0-9]+([.-][a-z0-9]+)*'},
-                'CertificateArn': {'Type': 'String'}, 'BucketRegionalDomainName': {'Type': 'String'}},
+                'CertificateArn': {'Type': 'String'}, 'BucketRegionalDomainName': {'Type': 'String'},
+                'Enabled': {'Type': 'String', 'AllowedValues': ['false', 'true'], 'Default': 'false'},
+                # Standard (legacy) logs: the bucket needs ACLs enabled (ObjectOwnership BucketOwnerPreferred).
+                'LogBucketDomainName': {'Type': 'String', 'Default': '',
+                                        'AllowedPattern': '([a-z0-9][a-z0-9.-]*\\.s3\\.amazonaws\\.com)?'},
+                'LogPrefix': {'Type': 'String', 'Default': 'cloudfront/'}},
+            'Conditions': {'Activate': {'Fn::Equals': [{'Ref': 'Enabled'}, 'true']},
+                           'Logs': {'Fn::Not': [{'Fn::Equals': [{'Ref': 'LogBucketDomainName'}, '']}]}},
             'Resources': resources,
             'Outputs': {'DistributionId': {'Value': {'Ref': 'Distribution'}},
                         'KeysArn': {'Value': {'Fn::GetAtt': ['Keys', 'Arn']}}}}

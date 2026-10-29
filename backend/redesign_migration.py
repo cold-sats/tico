@@ -386,19 +386,19 @@ def _inboxes(c, done):
 
 
 def _bots(c, done):
-    from . import ceo_bot
+    from . import strategy_bot
     out = []
-    ceo = H.bot(c, ceo_bot.SLUG)
-    if ceo and ("bot", "bot:" + ceo_bot.SLUG) not in done:
-        current = (ceo.get("display_name") or "").strip()
-        default = current in ("", ceo_bot.NAME, ceo_bot.OLD_NAME, STRATEGY_NAME)
-        flags = [] if default else [_flag("bot:" + ceo_bot.SLUG, "custom_name",
+    row = H.bot(c, strategy_bot.SLUG)
+    if row and ("bot", "bot:" + strategy_bot.SLUG) not in done:
+        current = (row.get("display_name") or "").strip()
+        default = current in ("", strategy_bot.NAME, STRATEGY_NAME, *strategy_bot.OLD_NAMES)
+        flags = [] if default else [_flag("bot:" + strategy_bot.SLUG, "custom_name",
                                           f"Someone named it {current}; it keeps that name and becomes the Strategy "
                                           "bot")]
-        out.append({"kind": "bot", "id": "bot:" + ceo_bot.SLUG, "title": current or ceo_bot.NAME,
-                    "becomes": {"slug": ceo_bot.SLUG, "display_name": STRATEGY_NAME if default else current,
+        out.append({"kind": "bot", "id": "bot:" + strategy_bot.SLUG, "title": current or strategy_bot.NAME,
+                    "becomes": {"slug": strategy_bot.SLUG, "display_name": STRATEGY_NAME if default else current,
                                 "role": "the strategy bot"},
-                    "flags": flags, "_do": ("rename", {"before": ceo.get("display_name"), "rename": default})})
+                    "flags": flags, "_do": ("rename", {"before": row.get("display_name"), "rename": default})})
     return out
 
 
@@ -502,7 +502,7 @@ def _mark(c, kind, ident, mid, aid, outcome="converted", why="", title=""):
 
 def _convert_one(c, who, mid, obj, group_done):
     """One object, in the caller's transaction. Returns the automation id (or None) it made."""
-    from . import ceo_bot, team_rules, turn_budgets as TB, usage_limits
+    from . import strategy_bot, team_rules, turn_budgets as TB, usage_limits
     kind, args = obj["_do"]
     now = _now()
     if kind in ("routine", "adopt_briefing"):
@@ -552,7 +552,7 @@ def _convert_one(c, who, mid, obj, group_done):
         return aid
     if kind == "rename":
         if args["rename"]:
-            ceo_bot._rename(c, who.actor, STRATEGY_NAME)
+            strategy_bot._rename(c, who.actor, STRATEGY_NAME)
         _mark(c, "bot", obj["id"], mid, None)
         return None
     if kind == "limit":
@@ -1255,10 +1255,10 @@ def opted_in(environ=None):
 def pending(c):
     """What the cutover would still change in this database, counted by kind ({} for nothing). Read only, and from
     plain SQL so a database an older release wrote is read as it is: routines, wake rules (not Tico Team's notice
-    rules), inboxes, hourly spend limits, turn budgets below the guard, the stale review job when on, and the CEO
+    rules), inboxes, hourly spend limits, turn budgets below the guard, the stale review job when on, and the Strategy
     bot's rename. Nothing once the cutover started (the install opted in) or finished; read-only mirrors of jobs Tico
     keeps running count for nothing."""
-    from . import ceo_bot, team_rules, tico_notices, turn_budgets as TB, usage_limits
+    from . import strategy_bot, team_rules, tico_notices, turn_budgets as TB, usage_limits
     if not _table(c, "registry_metadata") or state(c):
         return {}
     done = ({(r[0], r[1]) for r in c.execute("SELECT kind, id FROM redesign_migrated")}
@@ -1293,11 +1293,12 @@ def pending(c):
         add("turn_budget", sum(low(_json(r[0], {})) for r in c.execute("SELECT config_json FROM bot_config")))
     if team_rules.load(c).get("stale_review") and ("system_job", "job:stale_review") not in done:
         add("system_job", 1)
-    ceo = bots.get(ceo_bot.SLUG)
-    if ceo and ceo != "archived" and ("bot", "bot:" + ceo_bot.SLUG) not in done:
-        name = (c.execute("SELECT display_name FROM bots WHERE slug=?", (ceo_bot.SLUG,)).fetchone()[0] or "").strip() \
+    row = bots.get(strategy_bot.SLUG)
+    if row and row != "archived" and ("bot", "bot:" + strategy_bot.SLUG) not in done:
+        name = (c.execute("SELECT "
+                          "display_name FROM bots WHERE slug=?", (strategy_bot.SLUG,)).fetchone()[0] or "").strip() \
             if "display_name" in _columns(c, "bots") else ""
-        add("bot", int(name in ("", ceo_bot.NAME, ceo_bot.OLD_NAME)))
+        add("bot", int(name in ("", strategy_bot.NAME, STRATEGY_NAME, *strategy_bot.OLD_NAMES)))
     return found
 
 

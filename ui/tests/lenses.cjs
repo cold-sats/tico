@@ -27,7 +27,7 @@ const shot = async (page, name, themes = ['dark', 'light']) => {
 const PHONE = {width: 400, height: 844}, DESKTOP = {width: 1280, height: 900};
 
 const bot = (name, display_name, org_parent, over) => ({name, display_name, org_parent, host: 'keeper', status: 'active', can_chat: true, ...over});
-const bots = [bot('coo', 'Assistant', ''), bot('botops', 'BotOps', ''), bot('librarian', 'Librarian', ''), bot('goal-manager', 'CEO Bot', 'p:ana', {reports_to: ''})];
+const bots = [bot('coo', 'Assistant', ''), bot('botops', 'BotOps', ''), bot('librarian', 'Librarian', ''), bot('goal-manager', 'Strategy Bot', 'p:ana', {reports_to: ''})];
 const bets = () => [
   {id: 'b-price', statement: 'Price at half the market and still make money.', why: '', rules_out: 'Premium add-ons.',
    wrong_if: {kind: 'text', text: 'Margin under 25%', check_by: '2027-01-31'}, cites: [], status: 'active', rank: 0, since_n: 1, until_n: null},

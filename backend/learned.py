@@ -1,13 +1,14 @@
-"""What a person's chat bot has learned (docs/assistant.md, docs/ceo-bot.md; spec: CEO Bot v3, section 10.7), in two layers.
+"""What a person's chat bot has learned (docs/assistant.md, docs/strategy-bot.md; spec: Strategy Bot v3, section 10.7),
+in two layers.
 
-- The personal layer: how one person likes things ranked and summarised. One per person, whichever bot they talk to
-  (the CEO Bot for the owner, the Assistant for everyone else), so it goes with them when ownership moves on. Private to
+- The personal layer: how one person likes things ranked and summarised. One per person, whichever bot they talk to (the
+  Strategy Bot for the owner, the Assistant for everyone else), so it goes with them when ownership moves on. Private to
   that person: only they read it, change it or delete it, and only a turn in their own chat is handed it. No one else,
   the owner and admins included, reads it, and it is not in SQL (backend/sql.py denies a table it does not name).
-- The company layer: the vision, the company's priorities (its live company goals) and what the owner taught the CEO
-  Bot about the company. Only the owner reads it and adds to it: on their own click, or in their chat with the CEO Bot,
-  whose turn there acts as them. The vision and the goals are changed where they live, on Goals. Only the CEO Bot uses
-  it, in the owner's chat; Assistants never see it.
+- The company layer: the vision, the company's priorities (its live company goals) and what the owner taught the
+  Strategy Bot about the company. Only the owner reads it and adds to it: on their own click, or in their chat with the
+  Strategy Bot, whose turn there acts as them. The vision and the goals are changed where they live, on Goals. Only the
+  Strategy Bot uses it, in the owner's chat; Assistants never see it.
 
 Teaching happens in chat: the bot saves one short line with `hub assistant learn` (POST /api/v2/assistant/learned) and
 says so. The person edits and deletes entries on "What it has learned" (ui/app/learned.js). Nothing is cached: each turn
@@ -15,12 +16,11 @@ in a person's chat is handed both layers as they are when it starts (`for_turn`,
 deleted now is gone from the next turn. A deleted entry is deleted, not kept: its audit event names it by id only, as do
 the others, so no entry's words are in the audit log.
 
-Unversioned and idempotent, like the task tabs (backend/bot_task_tabs.py): an older release never reads the table.
-"""
+Unversioned and idempotent, like the task tabs (backend/bot_task_tabs.py): an older release never reads the table."""
 
 from fastapi import Request
 
-from . import ceo_bot, rooms
+from . import strategy_bot, rooms
 from . import goals as G
 from . import company as C
 from . import models as M
@@ -41,11 +41,11 @@ CREATE INDEX IF NOT EXISTS learned_entries_layer ON learned_entries(layer, perso
 
 
 def _person(who, settings):
-    """The person whose layers these are: a person, on their own or through a turn of their own chat bot (the
-    Assistant, or the CEO Bot in the owner's chat; backend/auth.py assistant_principal). Never a bot, nor a bot that
-    borrows the person's rights for other work: BotOps doing what they asked is not their chat."""
+    """The person whose layers these are: a person, on their own or through a turn of their own chat bot (the Assistant,
+    or the Strategy Bot in the owner's chat; backend/auth.py assistant_principal). Never a bot, nor a bot that borrows
+    the person's rights for other work: BotOps doing what they asked is not their chat."""
     own_turn = (who.via == "assistant" and not who.confirmed and bool(who.attempt_id)
-                and who.task_actor in ("bot:" + settings.assistant_bot, "bot:" + ceo_bot.SLUG))
+                and who.task_actor in ("bot:" + settings.assistant_bot, "bot:" + strategy_bot.SLUG))
     if who.role not in ("owner", "human") or not H.is_human(who.actor) or (who.via and not own_turn):
         raise Problem("forbidden", "What a chat bot has learned belongs to its person: only they, or their own chat's "
                       "turn, read or change it", 403)
@@ -53,14 +53,14 @@ def _person(who, settings):
 
 
 def company_reader(c, who):
-    """The owner, once the company has its CEO Bot: on their own, or in their CEO Bot chat. An Assistant's turn never,
-    not even the owner's own from before."""
+    """The owner, once the company has its Strategy Bot: on their own, or in their Strategy Bot chat. An Assistant's
+    turn never, not even the owner's own from before."""
     if who.role != "owner" or not H.is_human(who.actor):
         return False
-    row = H.bot(c, ceo_bot.SLUG)
+    row = H.bot(c, strategy_bot.SLUG)
     if not row or row["state"] in ("archived", "planned"):
         return False
-    return not who.via or who.task_actor == "bot:" + ceo_bot.SLUG
+    return not who.via or who.task_actor == "bot:" + strategy_bot.SLUG
 
 
 def _view(row):
@@ -93,9 +93,9 @@ def view(c, who, settings):
 
 
 def for_turn(c, settings, conversation, bot):
-    """What a turn in a person's own chat is handed, read now: their personal layer, and in the owner's CEO Bot chat
-    the company layer too. Neither for any other turn (a task, a shared room, the CEO Bot's goals session). Every
-    turn, whoever it is for, also carries the team's published strategy as `strategy` (the text of GET
+    """What a turn in a person's own chat is handed, read now: their personal layer, and in the owner's Strategy Bot
+    chat the company layer too. Neither for any other turn (a task, a shared room, the Strategy Bot's goals session).
+    Every turn, whoever it is for, also carries the team's published strategy as `strategy` (the text of GET
     /api/v2/strategy/summary, backend/strategy.py) once one is published; None when there is nothing to hand over."""
     from . import strategy
     layers = _layers(c, settings, conversation, bot)
@@ -111,7 +111,7 @@ def _layers(c, settings, conversation, bot):
     if conversation.get("scope") != rooms.PERSONAL or not H.is_human(owner) or conversation.get("closed_at"):
         return None
     key = conversation.get("room_key")
-    if bot == ceo_bot.SLUG and key == rooms.CEO_ROOM:
+    if bot == strategy_bot.SLUG and key == rooms.STRATEGY_ROOM:
         return {"personal": [e["text"] for e in entries(c, "personal", owner)],
                 "company": {**{k: v for k, v in company_layer(c).items() if k != "entries"},
                             "priorities": [g["title"] for g in priorities(c)],
@@ -133,7 +133,7 @@ def _clean(text):
 def _may_write(c, who, layer, settings):
     person = _person(who, settings)
     if layer == "company" and not company_reader(c, who):
-        raise Problem("forbidden", f"Only the owner teaches the {ceo_bot.name(c)} about the company, on their own "
+        raise Problem("forbidden", f"Only the owner teaches the {strategy_bot.name(c)} about the company, on their own "
                       "or in their chat with it; an admin, a member or an Assistant cannot", 403)
     return person if layer == "personal" else ""
 

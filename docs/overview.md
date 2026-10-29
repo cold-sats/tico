@@ -30,7 +30,7 @@ grid is one column.
 | Spend | This month's spend against the monthly budget | team |
 | KPI | One KPI's latest value and trend | kpi |
 | Automation runs | Runs in the last 24 hours, failures first | team |
-| Latest pages | The newest pages | team, count (1 to 10) |
+| Latest pages | The newest current [pages](pages.md): not archived or replaced | team, count (1 to 10) |
 
 Every card is drawn for whoever reads it, from what they may already see: tasks they may read, their own Needs you, KPIs
 whose owner they may read, automations they may see. Spend shows to the owner and admins, and to a lead for a group they
@@ -40,6 +40,7 @@ lead. A card that shows the reader nothing is hidden for them.
 a page's data from spreading on its own: a bot pins only its own pages and cards, to its own sidebar or a task it holds or
 asked for. A person pins to the Dashboard or a team page, and a page they pin there may be read by that place's audience;
 a private task's file is never pinned there. Each pin and unpin of a page is in the file's activity (docs/files.md).
+A page published with `--task` pins itself to the top of that task; a page's full view says where it is pinned.
 A bot's sidebar pins are its sidebar widgets: `page:<file id>` and `card:<id>` beside Tasks, Updates and Files, any
 number, and the built-ins may be hidden so the sidebar is only pages. The Assistant's sidebar keeps its own widgets.
 

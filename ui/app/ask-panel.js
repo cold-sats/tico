@@ -2,7 +2,7 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// Ask (docs/assistant.md). The one way in to the Assistant (the owner's CEO Bot), to BotOps behind it, and to Tico
+// Ask (docs/assistant.md). The one way in to the Assistant (the owner's Strategy Bot), to BotOps behind it, and to Tico
 // support. On a computer a round button at the bottom left of the page (or ⌘J) opens a panel above it; on a phone the
 // Ask tab opens it as a sheet over the page, and the tab closes it again. It is the same conversation as the Assistant
 // page (#/assistant, "Show chat"): GET /v2/assistant reads it and POST /v2/assistant/messages sends with the page the
@@ -267,7 +267,7 @@ async function askLoad(chat) {
   thread.setAttribute('aria-label', info.name + ' conversation');
   if (!info.available) {
     // Support stays a tap away in the + even then.
-    if (!info.can_turn_on && !info.ceo) { thread.innerHTML = `<p class="muted">${esc(info.name)} is off. Ask the team owner to turn it on.</p>`; return; }
+    if (!info.can_turn_on && !info.strategy_bot) { thread.innerHTML = `<p class="muted">${esc(info.name)} is off. Ask the team owner to turn it on.</p>`; return; }
     window.assistantChat?.off(thread, info, {post, esc, after: () => { if (current()) void askLoad(chat); }});
     return;
   }

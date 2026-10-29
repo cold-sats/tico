@@ -1,7 +1,7 @@
-// The owner talks to the CEO Bot in place of an Assistant (ui/app/assistant-page.js, ui/app/state.js meCeo): the menu tab
-// and the page read the CEO Bot's name (renamed or not) with no "Assistant" wording, and the owner's own Assistant chats
+// The owner talks to the Strategy Bot in place of an Assistant (ui/app/assistant-page.js, ui/app/state.js meStrategyBot): the menu tab
+// and the page read the Strategy Bot's name (renamed or not) with no "Assistant" wording, and the owner's own Assistant chats
 // from before stay readable under "Earlier chats". Everyone else, an admin included, keeps the Assistant. Pasting works as
-// in any bot chat: the owner's screenshot attaches and sends to the CEO Bot; the Assistant takes words only. Fixtures only.
+// in any bot chat: the owner's screenshot attaches and sends to the Strategy Bot; the Assistant takes words only. Fixtures only.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,7 +12,7 @@ const now = new Date().toISOString();
 const msg = (id, from, body) => ({id, from_actor: from, body, refs: {}, created: now, kind: 'say'});
 const bot = (name, display_name) => ({name, display_name, host: 'keeper', status: 'active', can_chat: false});
 
-async function open(browser, me, view, ceoName) {
+async function open(browser, me, view, strategyName) {
   const context = await browser.newContext({viewport: {width: 1280, height: 900}, serviceWorkers: 'block'});
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], {origin: 'https://tico-ui.test'});
   const page = await context.newPage();
@@ -28,7 +28,7 @@ async function open(browser, me, view, ceoName) {
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json(me);
     if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}, {id: 'ben', name: 'Ben'}]});
-    if (p === '/api/employees') return json([bot('coo', 'Assistant'), bot('botops', 'BotOps'), bot('goal-manager', ceoName)]);
+    if (p === '/api/employees') return json([bot('coo', 'Assistant'), bot('botops', 'BotOps'), bot('goal-manager', strategyName)]);
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: [], schedules: []});
     if (p === '/api/v2/status') return json({bots: []});
     if (p === '/api/v2/tasks') return json({tasks: []});
@@ -71,18 +71,18 @@ const view = (over) => ({available: true, state: 'active', can_turn_on: false, r
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    // The owner: the tab and the page are the CEO Bot, by the name they gave it, and nothing says "Assistant".
+    // The owner: the tab and the page are the Strategy Bot, by the name they gave it, and nothing says "Assistant".
     const owner = {id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.test', cloud: true};
-    const ceo = view({bot: 'goal-manager', ceo: true, name: 'Chief', room_id: 'ceo1', messages: [msg('c1', 'bot:goal-manager', 'Revenue is on track.')],
+    const strategy = view({bot: 'goal-manager', strategy_bot: true, name: 'Chief', room_id: 'strategy1', messages: [msg('c1', 'bot:goal-manager', 'Revenue is on track.')],
       earlier: {room_id: 'old1', bot: 'coo', name: 'Morgan'}});
     {
-      const {page, errors, read, sent} = await open(browser, owner, ceo, 'Chief');
+      const {page, errors, read, sent} = await open(browser, owner, strategy, 'Chief');
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#chat-composer .p-text').waitFor();
-      assert.equal(await page.locator('#main .asst-top h1').innerText(), 'Chief', 'owner: the page is the CEO Bot');
+      assert.equal(await page.locator('#main .asst-top h1').innerText(), 'Chief', 'owner: the page is the Strategy Bot');
       assert.doesNotMatch(await page.locator('#main').innerText(), /Assistant/, 'owner: no Assistant wording on the page');
       // Paste works as in any bot chat: words land in the box and send as words; a screenshot attaches and goes to the
-      // CEO Bot with the message (it once was dropped without a word, the page taking text only).
+      // Strategy Bot with the message (it once was dropped without a word, the page taking text only).
       const box = page.locator('#chat-composer .p-text');
       assert.equal(await page.locator('#chat-composer .p-attach').count(), 1, 'owner: the box can attach files');
       await paste(page, 'text');
@@ -116,9 +116,9 @@ const view = (over) => ({available: true, state: 'active', can_turn_on: false, r
       assert.deepEqual(errors, [], 'owner: no page errors');
       await page.close();
     }
-    // While the CEO Bot is paused the owner is told so, with nothing to send, and Earlier chats stay readable.
+    // While the Strategy Bot is paused the owner is told so, with nothing to send, and Earlier chats stay readable.
     {
-      const {page, errors, read} = await open(browser, owner, {...ceo, available: false, state: 'paused'}, 'Chief');
+      const {page, errors, read} = await open(browser, owner, {...strategy, available: false, state: 'paused'}, 'Chief');
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#conv-thread .asst-off').waitFor();
       assert.match(await page.locator('#conv-thread .asst-off').innerText(), /Chief is not answering right now/, 'paused: the off notice');
@@ -133,19 +133,19 @@ const view = (over) => ({available: true, state: 'active', can_turn_on: false, r
       assert.deepEqual(errors, [], 'paused: no page errors');
       await page.close();
     }
-    // An owner whose chat the server does not give to the CEO Bot (not set up yet) gets no attach: the server takes words only there.
+    // An owner whose chat the server does not give to the Strategy Bot (not set up yet) gets no attach: the server takes words only there.
     {
-      const {page, errors} = await open(browser, owner, view({bot: 'coo', ceo: false, name: 'Assistant'}), 'Chief');
+      const {page, errors} = await open(browser, owner, view({bot: 'coo', strategy_bot: false, name: 'Assistant'}), 'Chief');
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#chat-composer .p-text').waitFor();
-      assert.equal(await page.locator('#chat-composer .p-attach').count(), 0, 'owner without the CEO Bot chat: no attach button');
-      assert.deepEqual(errors, [], 'owner without the CEO Bot chat: no page errors');
+      assert.equal(await page.locator('#chat-composer .p-attach').count(), 0, 'owner without the Strategy Bot chat: no attach button');
+      assert.deepEqual(errors, [], 'owner without the Strategy Bot chat: no page errors');
       await page.close();
     }
     // An admin is not the owner: the Assistant, as before, and no Earlier chats.
     {
       const admin = {id: 'ben', role: 'human', bot_admin: true, name: 'Ben', email: 'ben@example.test', cloud: true};
-      const {page, errors, sent} = await open(browser, admin, view({bot: 'coo', ceo: false, name: 'Assistant'}), 'CEO Bot');
+      const {page, errors, sent} = await open(browser, admin, view({bot: 'coo', strategy_bot: false, name: 'Assistant'}), 'Strategy Bot');
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#chat-composer .p-text').waitFor();
       assert.equal(await page.locator('#main .asst-top h1').innerText(), 'Assistant', 'admin: the Assistant page');

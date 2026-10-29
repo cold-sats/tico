@@ -12,22 +12,24 @@ SHARED = "shared"
 # The one private room each person has with the Assistant (backend/assistant.py); distinct from the
 # room the person's tasks for the assistant bot land in, so its history is only what they said to it.
 ASSISTANT_ROOM = "assistant"
-# The owner's chat with the CEO Bot (backend/ceo_bot.py), which the owner has in place of an Assistant room: one per
-# company, belonging to the owner seat, so a transfer of ownership moves it to the new owner (backend/assistant.py).
-CEO_ROOM = "ceo"
+# The owner's chat with the Strategy Bot (backend/strategy_bot.py), which the owner has in place of an Assistant room:
+# one per company, belonging to the owner seat, so a transfer of ownership moves it to the new owner
+# (backend/assistant.py). Its stored value stays "ceo": a runner one version behind marks this chat by that value
+# (runner-rs/src/prompt.rs), and the rows stored so far carry it.
+STRATEGY_ROOM = "ceo"
 # The one private room each person has with the Librarian (backend/librarian.py): their Ask the Librarian questions.
 DOCS_ROOM = "docs"
 
 
 def session_config(conversation, bot, config):
-    """The config a turn is handed. In the owner's CEO Bot chat it keys its session on that conversation
-    (clients/sessions.py, `session: task`), so the owner's chat is one session and the CEO Bot's goals session (its
+    """The config a turn is handed. In the owner's Strategy Bot chat it keys its session on that conversation
+    (clients/sessions.py, `session: task`), so the owner's chat is one session and the Strategy Bot's goals session (its
     regular checks and goal work) another, and neither shares the other's context. The bot's own `session` setting
     never applies here: `session: bot` would put the owner's chat on the thread its goals session and other bots'
     messages use. Every runner reads `session` from the turn it is handed, so none needs to know this room."""
-    from .ceo_bot import SLUG
+    from .strategy_bot import SLUG
     if (bot == SLUG and conversation and conversation.get("scope") == PERSONAL
-            and conversation.get("room_key") == CEO_ROOM):
+            and conversation.get("room_key") == STRATEGY_ROOM):
         return {**(config or {}), "session": "task"}
     return config
 

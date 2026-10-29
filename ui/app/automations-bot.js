@@ -1,8 +1,8 @@
 /* ui/app/automations-bot.js — BotOps beside the flow (its own screen on a phone): the viewer's chat with it, the
    automations it makes from New, and proposals as cards
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
-   The chat is BotOps' ordinary room (POST /v2/chat/botops, the conversation's snapshot and live events, as the CEO
-   Bot's chat on Goals); BotOps builds with the viewer's rights. A message names the open automation in
+   The chat is BotOps' ordinary room (POST /v2/chat/botops, the conversation's snapshot and live events, as the
+   Strategy Bot's chat on Goals); BotOps builds with the viewer's rights. A message names the open automation in
    refs.automation, and the edit it asks for is saved as the new version; with none open it carries what the list
    shows (refs.automations_filter: range, tab, filters). What BotOps makes from New is saved off: its
    card's Turn on is PATCH {enabled: true}. A bot's proposal is a pending version (GET .../versions?status=pending);

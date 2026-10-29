@@ -403,10 +403,10 @@ def refused(c, identity, exc, savepoint="domain_write"):
     write undone: the whole request's, or one task's of a bulk change (app.py task_bulk), which goes on to the next."""
     c.execute("ROLLBACK TO " + savepoint)
     c.execute("RELEASE " + savepoint)
-    from . import ceo_acts
-    if isinstance(exc, ceo_acts.Proposed):
+    from . import strategy_acts
+    if isinstance(exc, strategy_acts.Proposed):
         # Not a mistake to count toward quarantine: what stays the owner's becomes their proposal instead.
-        ceo_acts.settle(c, exc)
+        strategy_acts.settle(c, exc)
         return Problem(exc.rule, exc.detail, 409)
     # Gate notifications survive the refused move, while its step and reviewer wake roll back.
     if getattr(exc, "review_gate", None):
@@ -1439,6 +1439,12 @@ class Store:
                 ensure_market_briefing(c)
                 from .market import ensure_turn_sources
                 ensure_turn_sources(c)                  # which automation turn changed the graph (redesign)
+                # Pages, the files' search text and hard deletes (backend/pages.py, backend/file_library.py).
+                # Unversioned the same way: an older release never reads the tables.
+                from .pages import ensure as ensure_pages
+                from .file_library import ensure as ensure_file_library
+                ensure_pages(c)
+                ensure_file_library(c)
                 # Temporary task assignments are retired (#420): their actors are archived and off every computer,
                 # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
                 from .shared_bots import retire_assignments
@@ -1601,9 +1607,10 @@ class Store:
                 # so no migration number to collide with another branch's.
                 from . import groups as Groups
                 Groups.migrate(c, self.settings)
-                # The Goal Manager becomes the CEO Bot on every install, once (backend/ceo_bot.py). Idempotent.
-                from . import ceo_bot as CeoBot
-                CeoBot.migrate(c)
+                # The Goal Manager becomes the Strategy Bot on every install, once (backend/strategy_bot.py).
+                # Idempotent.
+                from . import strategy_bot as StrategyBot
+                StrategyBot.migrate(c)
                 # Every bot gets a profile by its name, once; a bot that has one is left alone (backend/profiles.py).
                 from . import profiles as Profiles
                 Profiles.migrate(c)

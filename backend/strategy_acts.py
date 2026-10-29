@@ -1,31 +1,30 @@
-"""What the CEO Bot does alone at level 3, and what it never does (docs/goals-and-kpis.md, "Your CEO Bot"; spec: Head
-of Product, CEO Bot, tests 9, 12 and 15).
+"""What the Strategy Bot does alone at level 3, and what it never does (docs/goals-and-kpis.md, "Your Strategy Bot";
+spec: Head of Product, Strategy Bot, tests 9, 12 and 15).
 
-At level 3 ("Acts on its own") the CEO Bot makes a decision alone: one reason and a few changes to bot tasks, made
-together under one action id (`decide`). The changes it may make are `create` (a new task for a bot), `reorder` (a
-bot's task to the top of its queue), `reassign` (a bot's task to another bot) and `close` (a bot's task). Every change
-is written with the action id on its task events, and the decision is a row in `ceo_actions`, the CEO Bot log on its
-page, newest first. Below level 3 it decides nothing alone: a recovery is a proposal (backend/ceo_suggest.py).
+At level 3 ("Acts on its own") the Strategy Bot makes a decision alone: one reason and a few changes to bot tasks, made
+together under one action id (`decide`). The changes it may make are `create` (a new task for a bot), `reorder` (a bot's
+task to the top of its queue), `reassign` (a bot's task to another bot) and `close` (a bot's task). Every change is
+written with the action id on its task events, and the decision is a row in `strategy_actions`, the Strategy Bot log on
+its page, newest first. Below level 3 it decides nothing alone: a recovery is a proposal (backend/strategy_suggest.py).
 
 The owner undoes a decision (`undo`): each task it changed goes back to what it was, field by field, and the bot that
-owns it is told. A field someone changed since is kept as they left it and the result says so in plain words: Undo
-never overwrites a later edit silently. A task the decision made is closed, unless someone has changed it since. What
-one task can't take back (a refusal) is said too, and the rest of the decision is still undone.
+owns it is told. A field someone changed since is kept as they left it and the result says so in plain words: Undo never
+overwrites a later edit silently. A task the decision made is closed, unless someone has changed it since. What one task
+can't take back (a refusal) is said too, and the rest of the decision is still undone.
 
 "Always the person's" (`PERSON_ONLY`) is checked on the server at every level (`gate`): anything that raises cost (wake
 schedules, routines, models), publishing, sending outside the company, adding or removing bots, changing a goal or KPI
-target, changing the vision, changing a bot's instructions, and any task for a person. The CEO Bot never does these;
-each try becomes a proposal in the owner's Needs you that says what it wanted and why it can't do it itself
+target, changing the vision, changing a bot's instructions, and any task for a person. The Strategy Bot never does
+these; each try becomes a proposal in the owner's Needs you that says what it wanted and why it can't do it itself
 (`Proposed`). A change in a decision that can't be made now (a person's task, a bot that is offline, a refusal) is never
-dropped either: it becomes a proposal the same way, and the log keeps it.
-"""
+dropped either: it becomes a proposal the same way, and the log keeps it."""
 
 import contextvars
 
-from . import ceo_bot
+from . import strategy_bot
 from . import hubdb as H
 
-CEO = "bot:" + ceo_bot.SLUG
+STRATEGY_BOT = "bot:" + strategy_bot.SLUG
 ACTIONS = ("create", "reorder", "reassign", "close")
 MAX_CHANGES = 10
 LOG_PAGE = 50
@@ -50,37 +49,38 @@ PERSON_ONLY = {
 
 # The action a write belongs to while a decision or its Undo is being made: hubdb._task_event stamps it on every task
 # event, so the log can show (and Undo can find) every change of one decision.
-ACTION = contextvars.ContextVar("ceo_action", default=None)
+ACTION = contextvars.ContextVar("strategy_action", default=None)
 
 
 class Proposed(H.Refused):
-    """The CEO Bot tried something that stays the person's. The write is undone like any refusal, but it is not one
+    """The Strategy Bot tried something that stays the person's. The write is undone like any refusal, but it is not one
     of the bot's mistakes (it does not count toward quarantine): `settle` files the proposal after the rollback."""
 
     def __init__(self, kind, what, why="", task_id=None, said=None):
         self.kind, self.what, self.why, self.task_id = kind, what, why, task_id
-        super().__init__("proposed", f"{PERSON_ONLY[kind][0].upper()}{PERSON_ONLY[kind][1:]} stays the owner's at every "
-                                     f"level: the CEO Bot does not do it. It is now a proposal in the owner's Needs you: "
-                                     f"{said or what}")
+        super().__init__("proposed",
+                         f"{PERSON_ONLY[kind][0].upper()}{PERSON_ONLY[kind][1:]} stays the owner's at every "
+                         f"level: the Strategy Bot does not do it. It is now a proposal in the owner's Needs you: "
+                         f"{said or what}")
 
 
 def acts(c):
-    """Whether this install's CEO Bot acts on its own: level 3."""
-    return ceo_bot.level(c) >= 3
+    """Whether this install's Strategy Bot acts on its own: level 3."""
+    return strategy_bot.level(c) >= 3
 
 
-def is_ceo(actor):
-    """Whether this write is the CEO Bot's, itself or acting for the owner."""
-    return actor == CEO or H.VIA.get() == CEO
+def is_strategy_bot(actor):
+    """Whether this write is the Strategy Bot's, itself or acting for the owner."""
+    return actor == STRATEGY_BOT or H.VIA.get() == STRATEGY_BOT
 
 
 def gate(c, actor, kind, what, why="", task_id=None):
-    """Refuse the CEO Bot something on the "always the person's" list (`PERSON_ONLY`), at every level. Anyone else
+    """Refuse the Strategy Bot something on the "always the person's" list (`PERSON_ONLY`), at every level. Anyone else
     passes. The caller says what was tried, in plain words (`what`); `settle` makes it a proposal. A try on an existing
     task names it `TASK` in `what` and passes `task_id`: the log names it only to a reader who can open it."""
     if kind not in PERSON_ONLY:
         raise ValueError(kind)
-    if is_ceo(actor):
+    if is_strategy_bot(actor):
         what = " ".join(str(what or "").split())[:500]
         raise Proposed(kind, what, " ".join(str(why or "").split())[:1000], task_id,
                        _say(c, what, task_id, _company(c), PRIVATE))
@@ -88,7 +88,7 @@ def gate(c, actor, kind, what, why="", task_id=None):
 
 def settle(c, exc):
     """After a `Proposed` write is rolled back (backend/store.py `refused`): the proposal in the owner's Needs you and
-    the line in the CEO Bot log. Returns the action id."""
+    the line in the Strategy Bot log. Returns the action id."""
     change = {"do": exc.kind, **({"task_id": exc.task_id} if exc.task_id else {})}
     return _log(c, kind=exc.kind, reason=exc.why, state="proposed",
                 left=[{"change": change, "text": exc.what, "why": PERSON_ONLY[exc.kind] + " stays the owner's"}])
@@ -110,7 +110,7 @@ PRIVATE = "a private task"
 
 
 def _company(c):
-    """Who reads the owner's proposal in Needs you, and the CEO Bot's own replies: a company task, by its title."""
+    """Who reads the owner's proposal in Needs you, and the Strategy Bot's own replies: a company task, by its title."""
     return lambda row: not H.task_private(c, row)
 
 
@@ -152,17 +152,17 @@ def _refused(rule):
 
 
 class Caller:
-    """What the CEO Bot may touch in a decision: no more than its own API calls may. A decision is made on the server
-    with Tico's own writes, which check nothing about the caller, so every task it names and every bot it gives a task
-    to is checked here first, by the rules a task read and a task write are held to:
+    """What the Strategy Bot may touch in a decision: no more than its own API calls may. A decision is made on the
+    server with Tico's own writes, which check nothing about the caller, so every task it names and every bot it gives a
+    task to is checked here first, by the rules a task read and a task write are held to:
 
-    - `reads(row)`: auth.task_sql (`visible`), the SQL behind every task the caller reads. A company task is hidden
-      when its owner or requester is a bot the caller may not read, unless the caller is one of them.
+    - `reads(row)`: auth.task_sql (`visible`), the SQL behind every task the caller reads. A company task is hidden when
+      its owner or requester is a bot the caller may not read, unless the caller is one of them.
     - `would_read(...)`: the same SQL on a task as a change would leave it, so a change never moves a task out of the
-      CEO Bot's sight either.
-    - `give(owner, task_id)`: why the CEO Bot may not hand this bot work (auth.target `write` and bot_contact), or
+      Strategy Bot's sight either.
+    - `give(owner, task_id)`: why the Strategy Bot may not hand this bot work (auth.target `write` and bot_contact), or
       None; the route supplies it from the caller's identity.
-    - `sees(owner)`: whether the CEO Bot may see this bot (auth `see`). One it can't see does not exist for it
+    - `sees(owner)`: whether the Strategy Bot may see this bot (auth `see`). One it can't see does not exist for it
       (docs/permissions.md): it is answered as a bot that isn't there, and never named (`name`)."""
 
     def __init__(self, c, visible, give, sees):
@@ -182,12 +182,12 @@ class Caller:
         return not H.is_bot(actor) or bool(self._sees(actor))
 
     def name(self, actor):
-        """An actor as the CEO Bot may name it: a bot it can't see by no more than the words it gave, as for a bot
+        """An actor as the Strategy Bot may name it: a bot it can't see by no more than the words it gave, as for a bot
         that isn't there (`_name`)."""
         return _name(self.c, actor) if self.sees(actor) else H.actor_id(actor)
 
     def task(self, actor, task_id):
-        """The task a change names, refused as a task that isn't there when the CEO Bot can't read it: the log, the
+        """The task a change names, refused as a task that isn't there when the Strategy Bot can't read it: the log, the
         proposal and their events then say nothing about it, as for any task write it can't read."""
         row = H.task(self.c, str(task_id)) if task_id else None
         if row and not self.reads(row):
@@ -196,10 +196,9 @@ class Caller:
 
 
 def _bot_task(c, task_id):
-    """A task the CEO Bot may change alone: live, owned by a bot, and company-visible. None otherwise. It never acts
-    alone on a private task, even one it may read: the log would carry the task's words (its note), and
-    Undo, made as the owner, could neither write it nor give back its guest. One it can't read never gets here
-    (`Caller.task`)."""
+    """A task the Strategy Bot may change alone: live, owned by a bot, and company-visible. None otherwise. It never
+    acts alone on a private task, even one it may read: the log would carry the task's words (its note), and Undo, made
+    as the owner, could neither write it nor give back its guest. One it can't read never gets here (`Caller.task`)."""
     row = H.task(c, str(task_id or ""))
     if not row or row["status"] not in H.ACTIVE_STATUSES or not H.is_bot(row["owner"]):
         return None
@@ -212,7 +211,7 @@ def _offline(c, actor):
 
 
 def describe(c, change, caller):
-    """One change in plain words, with TASK for the task it changes. A bot is named only as the CEO Bot sees it
+    """One change in plain words, with TASK for the task it changes. A bot is named only as the Strategy Bot sees it
     (`Caller.name`)."""
     do = change.get("do")
     row = H.task(c, change.get("task_id") or "") if change.get("task_id") else None
@@ -229,8 +228,8 @@ def describe(c, change, caller):
 
 def _keeps_private(c, owner, what):
     """Why a task can't go to a bot that keeps its tasks private, or None. Giving it one makes the task private
-    (task_create, task_update): the owner could then neither read it nor put it back or close it, so the CEO Bot does
-    not do it alone, for a new task or a reassigned one."""
+    (task_create, task_update): the owner could then neither read it nor put it back or close it, so the Strategy Bot
+    does not do it alone, for a new task or a reassigned one."""
     if H.private_tasks_default(c, owner):
         return f"{_name(c, owner)} keeps its tasks private, so giving it {what} stays the owner's"
     return None
@@ -238,11 +237,11 @@ def _keeps_private(c, owner, what):
 
 def _check(c, change, caller):
     """Why this change can't be made alone, in plain words, with whether it is a person's (`PERSON_ONLY`) — or None.
-    Cleans `change` in place: owners become actors and text is trimmed. A task it names that the CEO Bot can't read
+    Cleans `change` in place: owners become actors and text is trimmed. A task it names that the Strategy Bot can't read
     is refused outright (`Caller.task`); a bot it may not give work to, or a task the change would hide from it, is
     the owner's proposal, said before anything about that bot (its state, its privacy) is."""
     do = change.get("do")
-    row = caller.task(CEO, change.get("task_id"))
+    row = caller.task(STRATEGY_BOT, change.get("task_id"))
     if do not in ACTIONS:
         return f"a change is {'|'.join(ACTIONS)}", None
     if do in ("create", "reassign"):
@@ -251,7 +250,7 @@ def _check(c, change, caller):
             change["owner"] = owner
             return "a task for a person stays the person's to give", "person_task"
         if not H.is_bot(owner) or not H.bot(c, H.actor_id(owner)) or not caller.sees(owner):
-            # A bot the CEO Bot can't see is answered as one that isn't there, in its own words, and `change` keeps
+            # A bot the Strategy Bot can't see is answered as one that isn't there, in its own words, and `change` keeps
             # them: nothing it writes back (the receipt, the proposal) tells the two apart.
             return f"no bot {change.get('owner') or '(none named)'} to give the task to", None
         change["owner"] = owner
@@ -263,8 +262,8 @@ def _check(c, change, caller):
         change["body"] = str(change.get("body") or "").strip()[:8000]
         if not change["title"]:
             return "a new task needs a title", None
-        if not caller.would_read(change["owner"], CEO):
-            return f"a new task for {_name(c, change['owner'])} would be out of the CEO Bot's sight", None
+        if not caller.would_read(change["owner"], STRATEGY_BOT):
+            return f"a new task for {_name(c, change['owner'])} would be out of the Strategy Bot's sight", None
         return _keeps_private(c, change["owner"], "a new task") or _offline(c, change["owner"]), None
     if row and H.is_human(row["owner"]):
         return f"{TASK} is a person's task, so it stays theirs", "person_task"
@@ -274,7 +273,7 @@ def _check(c, change, caller):
         return f"{TASK} is already {caller.name(row['owner'])}'s", None
     if do == "reassign" and not caller.would_read(change["owner"], row["requester"], row.get("private") or 0):
         # A new owner drops the guest (task_update), so the task is read as it would be then.
-        return f"giving {TASK} to {_name(c, change['owner'])} would put it out of the CEO Bot's sight", None
+        return f"giving {TASK} to {_name(c, change['owner'])} would put it out of the Strategy Bot's sight", None
     if do == "reassign" and (private := _keeps_private(c, change["owner"], TASK)):
         return private, None
     if do == "close":
@@ -297,10 +296,11 @@ def _same(change):
 
 def _undone(c, change):
     """Why a change the owner already undid can't be made again alone, or None. Undo of a reorder, reassign or close
-    leaves no mark on the task the CEO Bot reads, so the server keeps the owner's Undo standing: the same change
+    leaves no mark on the task the Strategy Bot reads, so the server keeps the owner's Undo standing: the same change
     again is their proposal, not the bot's decision."""
     key = _same(change)
-    for (changes_json,) in c.execute("SELECT changes_json FROM ceo_actions WHERE kind='decision' AND state='undone' "
+    for (changes_json,) in c.execute("SELECT changes_json FROM strategy_actions WHERE "
+                                     "kind='decision' AND state='undone' "
                                      "ORDER BY undone_at DESC LIMIT ?", (UNDONE_SCAN,)):
         if any(_same(x.get("change") or {}) == key for x in (H._json(changes_json, None) or {}).get("done") or []):
             return "the owner undid this same change in an earlier decision, so making it again stays theirs"
@@ -323,23 +323,23 @@ def _was_private(c, item, task):
 
 
 def _apply(c, change, goal_id, reason):
-    """Make one change as the CEO Bot; returns what Undo needs: the task, and its fields before and after."""
+    """Make one change as the Strategy Bot; returns what Undo needs: the task, and its fields before and after."""
     do = change["do"]
     if do == "create":
-        made = H.task_create(c, CEO, change["title"],
+        made = H.task_create(c, STRATEGY_BOT, change["title"],
                              (change["body"] + "\n\n" if change["body"] else "") +
-                             f"Made by the {ceo_bot.name(c)} on its own: {reason}",
+                             f"Made by the {strategy_bot.name(c)} on its own: {reason}",
                              change["owner"], goal_id=goal_id or None, lane="company")
         return {"task_id": made["id"], "made": True, "before": None, "after": _snapshot(H.task(c, made["id"]))}
     row = H.task(c, change["task_id"])
     before = _snapshot(row)
     if do == "reorder":
-        H.task_update(c, CEO, row["id"], rank=H._queue_end(c, row["owner"], top=True), mover=True, quiet=True)
+        H.task_update(c, STRATEGY_BOT, row["id"], rank=H._queue_end(c, row["owner"], top=True), mover=True, quiet=True)
     elif do == "reassign":
-        H.task_update(c, CEO, row["id"], owner=change["owner"], mover=True)
+        H.task_update(c, STRATEGY_BOT, row["id"], owner=change["owner"], mover=True)
     else:
-        H.task_close(c, H.KEEPER, row["id"], change["note"] or f"Closed by the {ceo_bot.name(c)}: {reason}")
-        c.execute("UPDATE tasks SET closed_by=? WHERE id=?", (CEO, row["id"]))
+        H.task_close(c, H.KEEPER, row["id"], change["note"] or f"Closed by the {strategy_bot.name(c)}: {reason}")
+        c.execute("UPDATE tasks SET closed_by=? WHERE id=?", (STRATEGY_BOT, row["id"]))
     _bump(c, row["id"])
     return {"task_id": row["id"], "made": False, "before": before, "after": _snapshot(H.task(c, row["id"]))}
 
@@ -350,16 +350,17 @@ def _bump(c, task_id):
 
 
 def decide(c, actor, reason, changes, goal_id=None, *, visible, give, sees):
-    """A decision the CEO Bot makes alone, at level 3: each change made on its own under one action id, the rest (a
+    """A decision the Strategy Bot makes alone, at level 3: each change made on its own under one action id, the rest (a
     person's task, a bot offline, a refusal) one proposal in the owner's Needs you with the reason. `visible` is the
-    CEO Bot's auth.task_sql, `give` its check on handing a bot work and `sees` whether it may see a bot (`Caller`).
+    Strategy Bot's auth.task_sql, `give` its check on handing a bot work and `sees` whether it may see a bot (`Caller`).
     Returns the action id; the reader reads it with `entry`."""
     H._writer(c, actor)
-    if not is_ceo(actor) or H.VIA.get():
-        H.refuse(c, actor, "identity", f"Only the {ceo_bot.name(c)} decides alone, and only for itself")
+    if not is_strategy_bot(actor) or H.VIA.get():
+        H.refuse(c, actor, "identity", f"Only the {strategy_bot.name(c)} decides alone, and only for itself")
     if not acts(c):
-        H.refuse(c, actor, "state", f"The {ceo_bot.name(c)} acts on its own only at level 3, which the owner chooses "
-                                    "in Settings; propose a recovery instead (POST /api/v2/goal-proposals)")
+        H.refuse(c, actor, "state",
+                 f"The {strategy_bot.name(c)} acts on its own only at level 3, which the owner chooses "
+                 "in Settings; propose a recovery instead (POST /api/v2/goal-proposals)")
     reason = " ".join(str(reason or "").split())[:1000]
     if not reason:
         H.refuse(c, actor, "lint", "say why, in a sentence the owner reads in the log")
@@ -369,8 +370,8 @@ def decide(c, actor, reason, changes, goal_id=None, *, visible, give, sees):
         H.refuse(c, actor, "not-found", f"no goal {goal_id}")
     caller = Caller(c, visible, give, sees)
     # Checked before anything is written: the log, the proposal and their events must say nothing about a task the
-    # CEO Bot can't read, so such a decision is refused as a task that isn't there, like any task write it can't read.
-    # `_check` asks again before each change, by the same rule.
+    # Strategy Bot can't read, so such a decision is refused as a task that isn't there, like any task write it can't
+    # read. `_check` asks again before each change, by the same rule.
     for change in changes:
         caller.task(actor, change.get("task_id") if isinstance(change, dict) else None)
     action_id = H.new_id()
@@ -384,19 +385,19 @@ def decide(c, actor, reason, changes, goal_id=None, *, visible, give, sees):
             if why:
                 left.append({"change": change, "text": describe(c, change, caller), "why": why, "kind": kind})
                 continue
-            c.execute("SAVEPOINT ceo_change")
+            c.execute("SAVEPOINT strategy_change")
             try:
                 out = _apply(c, change, goal_id, reason)
             except H.Refused as exc:
-                c.execute("ROLLBACK TO ceo_change")
-                c.execute("RELEASE ceo_change")
+                c.execute("ROLLBACK TO strategy_change")
+                c.execute("RELEASE strategy_change")
                 left.append({"change": change, "text": describe(c, change, caller), "rule": exc.rule,
                              "why": _refusal(c, H.task(c, change.get("task_id") or ""), exc)})
                 continue
-            c.execute("RELEASE ceo_change")
+            c.execute("RELEASE strategy_change")
             text = describe(c, change, caller)
             if out["made"]:
-                # Its title is the CEO Bot's, but the task is the company's now: named as it is when read.
+                # Its title is the Strategy Bot's, but the task is the company's now: named as it is when read.
                 text = f"New task for {_name(c, change['owner'])}: {TASK}"
             done.append({"change": change, "text": text, **out})
     finally:
@@ -418,7 +419,7 @@ def _task_of(item):
 
 
 def _propose(c, reason, left):
-    """What the CEO Bot couldn't do alone, as one item in the owner's Needs you, or why it isn't there (no owner
+    """What the Strategy Bot couldn't do alone, as one item in the owner's Needs you, or why it isn't there (no owner
     yet). Returns (task id or None, note)."""
     owner = _owner(c)
     if not owner:
@@ -428,41 +429,42 @@ def _propose(c, reason, left):
                                                                          PRIVATE)) for x in left]
     lines = "\n".join(f"- {text}: {why}" for text, why in said)
     # One item per thing proposed: the same thing tried again finds the item already waiting (a duplicate).
-    title = (f"Decide on the {ceo_bot.name(c)}'s proposal: {said[0][0]}" if len(left) == 1 else
-             f"Decide on {len(left)} changes the {ceo_bot.name(c)} proposed: {reason}")[:200]
-    body = (f"Please decide whether to make these changes yourself; the {ceo_bot.name(c)} may not make them.\n"
+    title = (f"Decide on the {strategy_bot.name(c)}'s proposal: {said[0][0]}" if len(left) == 1 else
+             f"Decide on {len(left)} changes the {strategy_bot.name(c)} proposed: {reason}")[:200]
+    body = (f"Please decide whether to make these changes yourself; the {strategy_bot.name(c)} may not make them.\n"
             + (f"Why it wanted them: {reason}\n" if reason else "") + lines +
             f"\nNothing changed. Make the change yourself if you agree, or close this to leave it.")
-    c.execute("SAVEPOINT ceo_propose")
+    c.execute("SAVEPOINT strategy_propose")
     try:
-        # Private, between the owner and the CEO Bot that asks: it names company tasks by their titles, which a
-        # person who reads the owner's work may not be allowed to open. The CEO Bot stays its requester, so the 5 a day
-        # and a repeated proposal are still counted (ceo_bot.asked_today).
-        made = H.task_create(c, CEO, title, body, owner, lint=False, private=True)
+        # Private, between the owner and the Strategy Bot that asks: it names company tasks by their titles, which a
+        # person who reads the owner's work may not be allowed to open. The Strategy Bot stays its requester, so the 5 a
+        # day and a repeated proposal are still counted (strategy_bot.asked_today).
+        made = H.task_create(c, STRATEGY_BOT, title, body, owner, lint=False, private=True)
     except H.Refused as exc:
-        c.execute("ROLLBACK TO ceo_propose")
-        c.execute("RELEASE ceo_propose")
+        c.execute("ROLLBACK TO strategy_propose")
+        c.execute("RELEASE strategy_propose")
         return None, f"Not in Needs you: {exc.detail or exc.rule}; it stays here in the log"
-    c.execute("RELEASE ceo_propose")
+    c.execute("RELEASE strategy_propose")
     return made["id"], ""
 
 
 def _log(c, *, kind, reason, state, done=(), left=(), goal_id=None, action_id=None):
     proposal, note = _propose(c, reason, list(left)) if left else (None, "")
-    row = {"id": action_id or H.new_id(), "created": H.now(), "actor": CEO, "kind": kind, "reason": reason or "",
-           "goal_id": goal_id or None, "state": state, "proposal_task": proposal, "note": note,
+    row = {"id": action_id or H.new_id(), "created": H.now(), "actor": STRATEGY_BOT, "kind": kind,
+           "reason": reason or "", "goal_id": goal_id or None, "state": state, "proposal_task": proposal,
+           "note": note,
            "changes_json": H._dump({"done": [_logged(c, x) for x in done], "left": [_logged(c, x) for x in left]})}
-    c.execute("INSERT INTO ceo_actions (id, created, actor, kind, reason, goal_id, state, proposal_task, note, "
+    c.execute("INSERT INTO strategy_actions (id, created, actor, kind, reason, goal_id, state, proposal_task, note, "
               "changes_json) VALUES (:id, :created, :actor, :kind, :reason, :goal_id, :state, :proposal_task, :note, "
               ":changes_json)", row)
-    H.event(c, CEO, "ceo_bot." + ("decided" if kind == "decision" else "proposed"), row["id"],
+    H.event(c, STRATEGY_BOT, "strategy_bot." + ("decided" if kind == "decision" else "proposed"), row["id"],
             {"kind": kind, "done": len(done), "left": len(left)})
     return row["id"]
 
 
 def _stored(c, action_id):
     """A log row as kept: its lines with TASK, for Undo. Nobody reads this; they read `entry`."""
-    row = H._one(c, "SELECT * FROM ceo_actions WHERE id=?", (action_id,))
+    row = H._one(c, "SELECT * FROM strategy_actions WHERE id=?", (action_id,))
     if not row:
         return None
     changes = H._json(row.pop("changes_json"), None) or {}
@@ -524,20 +526,21 @@ def _as_read_by(c, can_read, row):
 
 
 def receipt(row):
-    """What the CEO Bot is told of its own decision: each line as it may read it, without the task fields Undo keeps
-    (owner, status, queue place, guest). The log with those is the owner's (GET /api/v2/ceo-bot/log)."""
+    """What the Strategy Bot is told of its own decision: each line as it may read it, without the task fields Undo
+    keeps (owner, status, queue place, guest). The log with those is the owner's (GET /api/v2/strategy-bot/log)."""
     def item(x):
         return {k: v for k, v in x.items() if k not in ("before", "after")}
     return {**row, "done": [item(x) for x in row["done"]], "left": [item(x) for x in row["left"]]}
 
 
 def log(c, visible, before=None, limit=LOG_PAGE):
-    """The CEO Bot log, newest first, as a reader sees it (`visible`, their auth.task_sql): {items, next_before}.
+    """The Strategy Bot log, newest first, as a reader sees it (`visible`, their auth.task_sql): {items, next_before}.
     Paged by `created`, then id: `next_before` is "<created>|<id>" of the page's last entry, so entries made in the
     same instant are never skipped between pages. A bare time is read as before that time."""
     limit = max(1, min(int(limit or LOG_PAGE), LOG_PAGE))
     at, _, after_id = str(before or "").partition("|")
-    rows = c.execute("SELECT id, created FROM ceo_actions WHERE (?='' OR created<? OR (?!='' AND created=? AND id<?)) "
+    rows = c.execute("SELECT id, created FROM strategy_actions WHERE (?='' OR created<? OR "
+                     "(?!='' AND created=? AND id<?)) "
                      "ORDER BY created DESC, id DESC LIMIT ?",
                      (at, at, after_id, at, after_id, limit + 1)).fetchall()
     items = [entry(c, r[0], visible) for r in rows[:limit]]
@@ -554,7 +557,7 @@ def undo(c, actor, action_id):
     H._writer(c, actor)
     row = _stored(c, action_id)
     if not row:
-        H.refuse(c, actor, "not-found", f"no CEO Bot decision {action_id}")
+        H.refuse(c, actor, "not-found", f"no Strategy Bot decision {action_id}")
     if row["state"] != "done":
         H.refuse(c, actor, "duplicate", "this decision was " + ("undone already" if row["state"] == "undone" else
                                                                 "a proposal; nothing was changed to undo"))
@@ -572,15 +575,15 @@ def undo(c, actor, action_id):
                 # alone, so nothing is refused and its guest keeps it.
                 note(f"{TASK} is private, so Undo leaves it as it is")
                 continue
-            c.execute("SAVEPOINT ceo_undo")
+            c.execute("SAVEPOINT strategy_undo")
             try:
                 did = (_unmake if item.get("made") else _restore)(c, actor, task, item, row["created"], note)
             except H.Refused as exc:
-                c.execute("ROLLBACK TO ceo_undo")
-                c.execute("RELEASE ceo_undo")
+                c.execute("ROLLBACK TO strategy_undo")
+                c.execute("RELEASE strategy_undo")
                 note(f"{TASK} could not be put back: {_refusal(c, task, exc)}")
                 continue
-            c.execute("RELEASE ceo_undo")
+            c.execute("RELEASE strategy_undo")
             if did:
                 restored.append({"task_id": task["id"], "text": did})
                 _bump(c, task["id"])
@@ -588,9 +591,9 @@ def undo(c, actor, action_id):
     finally:
         ACTION.reset(token)
     result = {"restored": restored, "kept": kept}
-    c.execute("UPDATE ceo_actions SET state='undone', undone_at=?, undone_by=?, undo_json=? WHERE id=?",
+    c.execute("UPDATE strategy_actions SET state='undone', undone_at=?, undone_by=?, undo_json=? WHERE id=?",
               (H.now(), actor, H._dump(result), action_id))
-    H.event(c, actor, "ceo_bot.undone", action_id, {"restored": len(restored), "kept": len(kept)})
+    H.event(c, actor, "strategy_bot.undone", action_id, {"restored": len(restored), "kept": len(kept)})
     return action_id
 
 
@@ -642,8 +645,9 @@ def _unmake(c, actor, task, item, since, note):
         if who:
             note(f"{TASK}, which it made, was changed since by {_name(c, who)}, so it stays open")
             return None
-    H.task_close(c, H.KEEPER, task["id"], f"Undone by {_name(c, actor)}: the {ceo_bot.name(c)} made this task on its "
-                                          "own")
+    H.task_close(c, H.KEEPER, task["id"],
+                 f"Undone by {_name(c, actor)}: the {strategy_bot.name(c)} made this task on its "
+                 "own")
     return f"Closed {TASK}, which it made"
 
 
@@ -689,8 +693,8 @@ def _restore(c, actor, task, item, since, note):
 
 def _tell(c, actor, task, held_by):
     """Tell each bot the Undo changed things for: the task's owner now, and the bot the decision gave it to."""
-    said = (f"{_name(c, actor)} undid a decision the {ceo_bot.name(c)} made on its own; this task is back as it was "
-            "before it")
+    said = (f"{_name(c, actor)} undid a decision the {strategy_bot.name(c)} made on its own; "
+            "this task is back as it was before it")
     for bot in dict.fromkeys((task["owner"], held_by)):
         if bot and H.is_bot(bot):
             H._wake(c, task, bot, said + ("." if bot == task["owner"] else

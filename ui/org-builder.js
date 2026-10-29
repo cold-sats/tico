@@ -150,7 +150,7 @@ function obChartHTML(state, big) {
   const cols = big ? obCols(state, depts.length) : 1, rows = [];
   for (let i = 0; i < depts.length; i += cols) rows.push(depts.slice(i, i + cols));
   return `<div class="oc${big ? ' oc-big' : ''}" style="--cols:${cols}">
-      <div class="oc-top"><div class="oc-node oc-ceo" data-oc-ceo>${personAvatar(me, 28)}<span class="oc-text"><strong>${esc(me.name || 'You')}</strong><small>CEO</small></span></div></div>
+      <div class="oc-top"><div class="oc-node oc-owner" data-oc-owner>${personAvatar(me, 28)}<span class="oc-text"><strong>${esc(me.name || 'You')}</strong><small>CEO</small></span></div></div>
       ${rows.length ? `<div class="oc-rows">${rows.map(row => `<div class="oc-row" style="--k:${row.length}">${row.map(id => obDeptNodeHTML(state, id, big)).join('')}</div>`).join('')}</div>`
         : '<p class="oc-empty">Groups appear here.</p>'}
     </div>`;

@@ -424,12 +424,13 @@ class Scheduler:
                         G.refresh(c, [goal_id])
                 run.did("Done")
             try:
-                # The CEO Bot's Monday note: started once above Passive, paused at Passive (backend/ceo_bot.py `reconcile`).
-                from . import ceo_bot
+                # The Strategy Bot's Monday note: started once above Passive, paused at Passive (backend/strategy_bot.py
+                # `reconcile`).
+                from . import strategy_bot
                 with self.store.transaction() as c:
-                    ceo_bot.reconcile(c)
+                    strategy_bot.reconcile(c)
             except Exception as exc:
-                failures.append({"ceo_bot": type(exc).__name__})
+                failures.append({"strategy_bot": type(exc).__name__})
         # The controlled jobs, each on its saved preset (Settings > Routines): KPI stale asks, the Health Monitor's scan
         # (hourly by default), Still wanted? (daily) and ask go-ahead.
         for key, run in QUICK.items():

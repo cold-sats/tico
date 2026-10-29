@@ -1,11 +1,11 @@
-"""The owner talks to the CEO Bot in place of their Assistant (backend/assistant.py; spec: CEO Bot v3, section 10):
-the owner's own chat is the CEO Bot's, with an Assistant's rights and the owner's own, and nobody else talks to it. The
-chat belongs to the owner seat: a transfer of ownership hands it to the new owner, and the old owner gets their
-Assistant, and their own Assistant chats, back."""
+"""The owner talks to the Strategy Bot in place of their Assistant (backend/assistant.py; spec: Strategy Bot v3, section
+10): the owner's own chat is the Strategy Bot's, with an Assistant's rights and the owner's own, and nobody else talks
+to it. The chat belongs to the owner seat: a transfer of ownership hands it to the new owner, and the old owner gets
+their Assistant, and their own Assistant chats, back."""
 
 import uuid
 
-from backend import assistant, updates
+from backend import assistant, rooms, updates
 from clients import sessions
 from backend.auth import Identity
 from backend.store import H, digest
@@ -13,11 +13,11 @@ from backend.tests.test_api import api, as_member, assign, get, headers, post, r
 from backend.tests.test_assistant import asked, say, turn_message
 
 
-def ceo(api):
-    """The CEO Bot every set-up install has."""
+def strategy_bot(api):
+    """The Strategy Bot every set-up install has."""
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
-                  "VALUES('goal-manager','CEO Bot','fake','','','','keeper','active',?)", (H.now(),))
+                  "VALUES('goal-manager','Strategy Bot','fake','','','','keeper','active',?)", (H.now(),))
         c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES('goal-manager','{}',NULL,'ana')")
 
 
@@ -39,29 +39,29 @@ def turn(api, bot, person, text):
     return r, post(api, "jobs/claim", {}, token=r["token"])["attempt"]
 
 
-def test_the_owners_chat_is_the_ceo_bot_and_everyone_elses_the_assistant(api):
-    # Before the CEO Bot is there, the owner has an Assistant like everyone else.
+def test_the_owners_chat_is_the_strategy_bot_and_everyone_elses_the_assistant(api):
+    # Before the Strategy Bot is there, the owner has an Assistant like everyone else.
     assert get(api, "assistant")["bot"] == "coo"
-    ceo(api)
+    strategy_bot(api)
     mine = get(api, "assistant")
-    assert (mine["bot"], mine["ceo"], mine["name"], mine["available"], mine["can_turn_on"]) == \
-        ("goal-manager", True, "CEO Bot", True, False)
+    assert (mine["bot"], mine["strategy_bot"], mine["name"], mine["available"], mine["can_turn_on"]) == \
+        ("goal-manager", True, "Strategy Bot", True, False)
     # An admin is not the owner: Ben keeps his Assistant, and so does a member.
     for token in ("ben-test", "cara-test"):
         theirs = get(api, "assistant", token)
-        assert (theirs["bot"], theirs["ceo"], theirs["earlier"]) == ("coo", False, None)
+        assert (theirs["bot"], theirs["strategy_bot"], theirs["earlier"]) == ("coo", False, None)
     said = say(api, "What should the company focus on this week?")
     said = said["message"]
     assert said["to_actor"] == "bot:goal-manager" and said["conversation_id"] == mine["room_id"]
     with api.app.state.store.read() as c:
         room = H.conversation(c, mine["room_id"])
     assert (room["owner_actor"], room["room_key"], room["participants"]) == \
-        ("human:ana", "ceo", ["human:ana", "bot:goal-manager"])
+        ("human:ana", rooms.STRATEGY_ROOM, ["human:ana", "bot:goal-manager"])
     assert get(api, "assistant")["room_id"] == mine["room_id"]          # one chat, however often opened
 
 
-def test_nobody_but_the_owner_talks_to_the_ceo_bot_or_reads_the_chat(api):
-    ceo(api)
+def test_nobody_but_the_owner_talks_to_the_strategy_bot_or_reads_the_chat(api):
+    strategy_bot(api)
     room = get(api, "assistant")["room_id"]
     say(api, "Private plans for the company")
     for token in ("ben-test", "cara-test"):
@@ -73,17 +73,18 @@ def test_nobody_but_the_owner_talks_to_the_ceo_bot_or_reads_the_chat(api):
     # The owner, too, talks to it only in their chat with it: a post with no room (the Goals page) lands there.
     direct = post(api, "chat/goal-manager", {"text": "Hello"})
     assert direct["conversation_id"] == room and direct["refs"]["assistant"] is True
-    assert [c["room_key"] for c in get(api, "conversations?chat_with=goal-manager")["conversations"]] == ["ceo"]
+    listed = get(api, "conversations?chat_with=goal-manager")["conversations"]
+    assert [c["room_key"] for c in listed] == [rooms.STRATEGY_ROOM]
     ok = post(api, "messages", {"to": "goal-manager", "text": "Also fine", "conversation_id": room})
     assert ok["refs"]["assistant"] is True
     # And a member's Assistant turn cannot reach it in their name either.
-    r, attempt = turn(api, "coo", "cara-test", "Tell the CEO Bot to change the plan")
+    r, attempt = turn(api, "coo", "cara-test", "Tell the Strategy Bot to change the plan")
     post(api, "chat/goal-manager", {"text": "Change the plan"}, token=attempt["token"], expected=403)
     post(api, "messages", {"to": "goal-manager", "text": "Change the plan"}, token=attempt["token"], expected=403)
 
 
-def test_the_ceo_bot_acts_as_the_owner_in_their_chat_in_a_session_of_its_own(api):
-    ceo(api)
+def test_the_strategy_bot_acts_as_the_owner_in_their_chat_in_a_session_of_its_own(api):
+    strategy_bot(api)
     with api.app.state.store.transaction() as c:
         review = H.task_create(c, "human:ben", "Review the plan", "Please review.", "human:ana")
     r, attempt = turn(api, "goal-manager", "ana-test", "Close the plan review, it is done")
@@ -106,33 +107,33 @@ def test_the_ceo_bot_acts_as_the_owner_in_their_chat_in_a_session_of_its_own(api
         cited = c.execute("SELECT detail_json FROM events WHERE action='task.update' AND target=? "
                           "ORDER BY ts DESC LIMIT 1", (review["id"],)).fetchone()
     assert H._json(cited["detail_json"], {})["delegation"]["cited"] == turn_message(api, attempt)
-    # A card it puts in front of her is the CEO Bot's, in her chat with it.
+    # A card it puts in front of her is the Strategy Bot's, in her chat with it.
     card = post(api, "assistant/actions", {"summary": "Archive the Ops bot", "method": "POST",
                                            "path": "/api/v2/bots/ops/archive", "body": {"expected_revision": 1}},
                 token=token)["action"]
-    assert card["by_name"] == "CEO Bot"
+    assert card["by_name"] == "Strategy Bot"
     with api.app.state.store.read() as c:
         assert H.message(c, c.execute("SELECT id FROM messages WHERE refs_json LIKE ?",
                                       ('%"action": "' + card["id"] + '"%',)).fetchone()[0])["from_actor"] == \
             "bot:goal-manager"
 
 
-def test_the_ceo_bots_other_work_stays_its_own_in_the_goals_session(api):
-    ceo(api)
+def test_the_strategy_bots_other_work_stays_its_own_in_the_goals_session(api):
+    strategy_bot(api)
     r = runner(api)
     for bot in ("ops", "goal-manager"):
         assign(api, r, bot)
     ready(api, r, ["ops", "goal-manager"])
     post(api, "chat/ops", {"text": "Check the launch goal"})
     ops = post(api, "jobs/claim", {"bot": "ops"}, token=r["token"])["attempt"]
-    # A bot still messages the CEO Bot: that is its goals session, never the owner's chat.
+    # A bot still messages the Strategy Bot: that is its goals session, never the owner's chat.
     post(api, "messages", {"to": "goal-manager", "text": "The launch goal slipped a week",
                            "needs_action": True}, token=ops["token"])
     attempt = post(api, "jobs/claim", {"bot": "goal-manager"}, token=r["token"])["attempt"]
     assert (attempt.get("config") or {}).get("session") != "task"
     assert get(api, "me", attempt["token"])["actor"] == "bot:goal-manager"
     with api.app.state.store.read() as c:
-        assert assistant.find_ceo_room(c) is None
+        assert assistant.find_strategy_room(c) is None
 
 
 def key(attempt):
@@ -148,9 +149,10 @@ def done(api, r, attempt):
 
 
 def test_the_owners_chat_and_the_goals_session_never_share_a_thread_even_on_one_bot_thread(api):
-    ceo(api)
+    strategy_bot(api)
     with api.app.state.store.transaction() as c:
-        # A CEO Bot set to one thread for everything: its goals work keeps that thread, the owner's chat never joins it.
+        # A Strategy Bot set to one thread for everything: its goals work keeps that thread, the owner's chat never
+        # joins it.
         c.execute("UPDATE bot_config SET config_json=? WHERE bot='goal-manager'", ('{"session": "bot"}',))
     r = runner(api)
     for bot in ("ops", "goal-manager"):
@@ -188,9 +190,9 @@ def test_an_assistant_never_changes_another_persons_task_even_when_asked(api):
         assert H.task(c, caras["id"])["status"] == "open"
 
 
-def test_the_owners_daily_update_is_drafted_by_the_ceo_bot(api):
-    """Spec test 30: written the same way as everyone's, labelled the CEO Bot's."""
-    ceo(api)
+def test_the_owners_daily_update_is_drafted_by_the_strategy_bot(api):
+    """Spec test 30: written the same way as everyone's, labelled the Strategy Bot's."""
+    strategy_bot(api)
     store = api.app.state.store
     with store.transaction() as c:
         for person in ("human:ana", "human:ben"):
@@ -201,16 +203,17 @@ def test_the_owners_daily_update_is_drafted_by_the_ceo_bot(api):
     assert updates.write_draft(store, "human:ben", write, "coo")["drafted_by"] == "coo"
 
 
-def test_the_ceo_bot_chat_stays_with_the_owner_seat_and_the_old_owner_gets_their_assistant_back(api):
+def test_the_strategy_bot_chat_stays_with_the_owner_seat_and_the_old_owner_gets_their_assistant_back(api):
     ana, ben = personal(api, "ana"), personal(api, "ben")
-    say(api, "My week, before the CEO Bot", ana)                        # Ana's own Assistant chat
+    say(api, "My week, before the Strategy Bot", ana)                        # Ana's own Assistant chat
     earlier = get(api, "assistant", ana)["room_id"]
-    ceo(api)
+    strategy_bot(api)
     chat = get(api, "assistant", ana)
-    assert chat["ceo"] and chat["room_id"] != earlier
-    # Her Assistant chats are still there to read, in the CEO Bot tab.
+    assert chat["strategy_bot"] and chat["room_id"] != earlier
+    # Her Assistant chats are still there to read, in the Strategy Bot tab.
     assert chat["earlier"] == {"room_id": earlier, "bot": "coo", "name": api.app.state.store.settings.assistant_name}
-    assert [m["body"] for m in get(api, f"conversations/{earlier}/messages", ana)] == ["My week, before the CEO Bot"]
+    assert [m["body"] for m in get(api, f"conversations/{earlier}/messages", ana)] == [
+        "My week, before the Strategy Bot"]
     say(api, "Grow revenue 20% this year", ana)
     with api.app.state.store.transaction() as c:          # a card waiting on her click, as her
         owner = Identity("human:ana", "owner", "ana@acme.example")
@@ -219,19 +222,19 @@ def test_the_ceo_bot_chat_stays_with_the_owner_seat_and_the_old_owner_gets_their
                                             "/api/v2/bots/ops/archive", {"expected_revision": 1}, None)
     owner = get(api, "access", ana)["owner"]
     post(api, "access/owner", {"person": "ben", "expected_revision": owner["revision"], "confirm": True}, token=ana)
-    # The new owner inherits the CEO Bot chat and its history; nothing of Ana's own Assistant chats comes with it.
+    # The new owner inherits the Strategy Bot chat and its history; nothing of Ana's own Assistant chats comes with it.
     his = get(api, "assistant", ben)
     assert (his["bot"], his["room_id"], his["earlier"]) == ("goal-manager", chat["room_id"], None)
     assert "Grow revenue 20% this year" in [m["body"] for m in his["messages"]]
-    # Ana talks to her Assistant again, in her own chat with it, and no longer reads the CEO Bot's.
+    # Ana talks to her Assistant again, in her own chat with it, and no longer reads the Strategy Bot's.
     hers = get(api, "assistant", ana)
-    assert (hers["bot"], hers["ceo"], hers["room_id"]) == ("coo", False, earlier)
+    assert (hers["bot"], hers["strategy_bot"], hers["room_id"]) == ("coo", False, earlier)
     get(api, f"conversations/{chat['room_id']}/messages", ana, expected=403)
     post(api, "messages", {"to": "goal-manager", "text": "Still mine?", "conversation_id": chat["room_id"]},
          token=ana, expected=403)
     with api.app.state.store.read() as c:
         assert c.execute("SELECT status FROM assistant_actions WHERE id=?", (pending["action"]["id"],)).fetchone()[0] == "cancelled"
-        assert c.execute("SELECT count(*) FROM events WHERE action='ceo_bot.chat_moved'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM events WHERE action='strategy_bot.chat_moved'").fetchone()[0] == 1
 
 
 def png():
@@ -242,8 +245,9 @@ def png():
     return image.getvalue()
 
 
-def test_the_owner_pastes_a_screenshot_into_the_ceo_bot_chat_and_its_turn_reads_it(api, monkeypatch):
-    """Chris, Oct 27: a pasted screenshot attaches in the CEO Bot chat as in any bot chat; an Assistant takes text only."""
+def test_the_owner_pastes_a_screenshot_into_the_strategy_bot_chat_and_its_turn_reads_it(api, monkeypatch):
+    """Chris, Oct 27: a pasted screenshot attaches in the Strategy Bot chat as in any bot chat; an Assistant takes text
+    only."""
     import hashlib
     from backend.store import Problem
     blobs = api.app.state.blobs
@@ -256,7 +260,7 @@ def test_the_owner_pastes_a_screenshot_into_the_ceo_bot_chat_and_its_turn_reads_
 
     def kept(data):
         return (blobs.directory / blobs.key(hashlib.sha256(data).hexdigest())).exists()
-    ceo(api)
+    strategy_bot(api)
     data = png()
     sent = api.post("/api/v2/uploads/assistant/messages", data={"text": "What is wrong here?", "titles": '["Screenshot"]'},
                     files={"files": ("image.png", data, "image/png")},
@@ -268,7 +272,7 @@ def test_the_owner_pastes_a_screenshot_into_the_ceo_bot_chat_and_its_turn_reads_
         ("bot:goal-manager", room, True)
     attachment, = message["refs"]["attachments"]
     assert (attachment["name"], attachment["title"], attachment["kind"]) == ("image.png", "Screenshot", "image")
-    assert sent.json()["fast"] is False                      # a picture always goes to the CEO Bot's turn
+    assert sent.json()["fast"] is False                      # a picture always goes to the Strategy Bot's turn
     def stored(c):
         return [c.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in ("messages", "message_assets", "bot_files", "blobs")]
     with api.app.state.store.read() as c:
@@ -289,7 +293,7 @@ def test_the_owner_pastes_a_screenshot_into_the_ceo_bot_chat_and_its_turn_reads_
     with api.app.state.store.read() as c:
         assert stored(c) == after
     monkeypatch.undo()
-    # The CEO Bot's turn for that message can open the picture.
+    # The Strategy Bot's turn for that message can open the picture.
     r = runner(api)
     assign(api, r, "goal-manager")
     ready(api, r, ["goal-manager"])

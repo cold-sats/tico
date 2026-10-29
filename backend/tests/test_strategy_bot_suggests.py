@@ -1,18 +1,19 @@
-"""What the CEO Bot does at level 2, "Suggests actions" (backend/ceo_suggest.py, backend/ceo_merge.py; spec: Head of
-Product, CEO Bot, tests 8, 13, 15 and 19). A red goal gets a recovery the owner approves, applied exactly and in the
-CEO Bot's name; several bots asking the owner the same thing are one item whose answer reaches each of them; what
-can't be done comes back saying why; after 10 approvals in a row the Monday note may offer level 3, once a month."""
+"""What the Strategy Bot does at level 2, "Suggests actions" (backend/strategy_suggest.py, backend/strategy_merge.py;
+spec: Head of Product, Strategy Bot, tests 8, 13, 15 and 19). A red goal gets a recovery the owner approves, applied
+exactly and in the Strategy Bot's name; several bots asking the owner the same thing are one item whose answer reaches
+each of them; what can't be done comes back saying why; after 10 approvals in a row the Monday note may offer level 3,
+once a month."""
 
-from backend import ceo_suggest
+from backend import strategy_suggest
 from backend.store import H
 from backend.tests.test_api import api, get, post  # noqa: F401
-from backend.tests.test_ceo_bot_level import level
-from backend.tests.test_company import bot, with_ceo_bot
+from backend.tests.test_strategy_bot_level import level
+from backend.tests.test_company import bot, with_strategy_bot
 from backend.tests import test_goal_asks
 from backend.tests.test_goal_asks import asks, needs_tasks, sync
 from backend.tests.test_kpis import goal_with_kpi, log
 
-OWNER, CEO = "human:ana", "bot:goal-manager"
+OWNER, STRATEGY_BOT = "human:ana", "bot:goal-manager"
 
 
 def red_goal(api):
@@ -48,28 +49,29 @@ def tasks_of(api, owner):
 
 def test_at_level_2_a_red_goal_gets_one_recovery_the_owner_approves_exactly(api):
     """Spec test 8, level 2 half: a red goal is one proposal with options in Needs you, no task changes until the owner
-    approves, and approving applies exactly the option chosen, as the CEO Bot. Level 1 makes no proposal (refused), and
-    nobody but the CEO Bot proposes one."""
-    ceo = with_ceo_bot(api)
+    approves, and approving applies exactly the option chosen, as the Strategy Bot. Level 1 makes no proposal (refused),
+    and nobody but the Strategy Bot proposes one."""
+    strategy_token = with_strategy_bot(api)
     post(api, "company", {"vision": "Every small landlord runs their rentals on Tico."})
     goal = red_goal(api)
     first = bot_task(api, "ops", "Write the onboarding email")
     second = bot_task(api, "ops", "Clean up old reports")
-    recovery(api, goal["id"], second, ceo, expected=422)                     # level 1: it suggests nothing
+    recovery(api, goal["id"], second, strategy_token, expected=422)                     # level 1: it suggests nothing
     level(api, 2)
-    recovery(api, goal["id"], second, bot(api, "ops"), expected=403)        # only the CEO Bot proposes one
+    recovery(api, goal["id"], second, bot(api, "ops"), expected=403)        # only the Strategy Bot proposes one
     # A task for a person stays the person's to make, at every level.
     post(api, "goal-proposals", {"kind": "recovery", "goal_id": goal["id"], "payload": {
         "evidence": "x", "options": [{"label": "Ana does it", "actions": [
-            {"do": "create", "owner": OWNER, "title": "Fix it yourself"}]}]}}, token=ceo, expected=422)
+            {"do": "create", "owner": OWNER, "title": "Fix it yourself"}]}]}}, token=strategy_token, expected=422)
     before = {t["id"]: t["rank"] for t in tasks_of(api, "bot:ops")}
-    proposal = recovery(api, goal["id"], second, ceo)
+    proposal = recovery(api, goal["id"], second, strategy_token)
     sync(api)
     mine = asks(api, OWNER)
     assert [a["kind"] for a in mine if a["kind"] in ("kpi_red", "recovery")] == ["recovery"]   # one item, not two
     [item] = [a for a in mine if a["kind"] == "recovery"]
     assert item["title"] == "Approve a recovery for Raise activation"
-    assert "Activation fell" in item["body"] and "Option 1: Ops fixes setup first (the CEO Bot's pick)" in item["body"]
+    assert "Activation fell" in item["body"]
+    assert "Option 1: Ops fixes setup first (the Strategy Bot's pick)" in item["body"]
     assert {t["id"]: t["rank"] for t in tasks_of(api, "bot:ops")} == before                      # nothing yet
     assert [i["kind"] for i in get(api, "goals/needs-you")["items"]].count("recovery") == 1
     # Ben may not decide Ana's company goal; Ana approves the pick.
@@ -80,7 +82,7 @@ def test_at_level_2_a_red_goal_gets_one_recovery_the_owner_approves_exactly(api)
     ops = tasks_of(api, "bot:ops")
     [made] = [t for t in ops if t["id"] not in before]
     assert (made["title"], made["requester"], made["goal_id"]) == \
-        ("Fix the setup step that drops new accounts", CEO, goal["id"])
+        ("Fix the setup step that drops new accounts", STRATEGY_BOT, goal["id"])
     live = sorted((t for t in ops if t["status"] in H.ACTIVE_STATUSES), key=lambda t: t["rank"])
     assert live[0]["id"] == second and first in {t["id"] for t in live}                            # moved to the top
     assert tasks_of(api, "bot:finance") == []                                                      # the other option: no
@@ -93,10 +95,10 @@ def test_what_cant_be_done_comes_back_saying_why_and_lowering_to_1_withdraws(api
     """Spec test 15, proposal side: a bot that is paused when the owner approves gets nothing, and that part comes back
     as a new proposal that says why in plain words; nothing is dropped. Choosing another option is not "unchanged".
     Lowering the level to 1 withdraws what still waits."""
-    ceo = with_ceo_bot(api)
+    strategy_token = with_strategy_bot(api)
     level(api, 2)
     goal = red_goal(api)
-    proposal = recovery(api, goal["id"], bot_task(api, "ops", "Clean up old reports"), ceo)
+    proposal = recovery(api, goal["id"], bot_task(api, "ops", "Clean up old reports"), strategy_token)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bots SET state='paused' WHERE slug='finance'")
     decided = post(api, f"goal-proposals/{proposal['id']}/decide", {"decision": "confirm", "option": 1})["proposal"]
@@ -119,9 +121,9 @@ def test_what_cant_be_done_comes_back_saying_why_and_lowering_to_1_withdraws(api
 def test_a_retry_approved_while_still_blocked_comes_back_again_and_then_applies(api):
     """Approving the retry while the bot is still paused files a new retry, not the one just decided; once the bot is
     back, approving that one makes the task."""
-    ceo = with_ceo_bot(api)
+    strategy_token = with_strategy_bot(api)
     level(api, 2)
-    proposal = recovery(api, red_goal(api)["id"], bot_task(api, "ops", "Clean up old reports"), ceo)
+    proposal = recovery(api, red_goal(api)["id"], bot_task(api, "ops", "Clean up old reports"), strategy_token)
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bots SET state='paused' WHERE slug='finance'")
     first = post(api, f"goal-proposals/{proposal['id']}/decide", {"decision": "confirm", "option": 1})["proposal"]
@@ -146,9 +148,9 @@ def ask_ana(api, slug, title):
 
 def test_three_bots_asking_the_same_thing_are_one_item_and_the_answer_reaches_each(api):
     """Spec test 13: three bots ask the owner the same thing (a question on a task, a task waiting on her, a task filed
-    for her); the CEO Bot merges them and Needs you shows one item, not three. Her one answer reaches each bot that
+    for her); the Strategy Bot merges them and Needs you shows one item, not three. Her one answer reaches each bot that
     asked, and the item is done. A merged item that ends unanswered puts the originals back."""
-    ceo = with_ceo_bot(api)
+    strategy_token = with_strategy_bot(api)
     asked = ask_ana(api, "ops", "Ship the pricing page")
     waiting = bot_task(api, "coo", "Plan the launch")
     with api.app.state.store.transaction() as c:
@@ -159,20 +161,22 @@ def test_three_bots_asking_the_same_thing_are_one_item_and_the_answer_reaches_ea
     assert set(originals) <= needs_tasks(api, "ana-test")
     body = {"person": OWNER, "title": "Which pricing page goes live first?",
             "question": "Ops, COO and Finance each need to know which pricing page launches first.", "tasks": originals}
-    post(api, "ceo-bot/merge", body, token=ceo, expected=422)                 # level 1: no merging
+    post(api, "strategy-bot/merge", body, token=strategy_token, expected=422)                 # level 1: no merging
     level(api, 2)
-    post(api, "ceo-bot/merge", body, token=bot(api, "ops"), expected=403)    # only the CEO Bot
-    merged = post(api, "ceo-bot/merge", body, token=ceo)
+    post(api, "strategy-bot/merge", body, token=bot(api, "ops"), expected=403)    # only the Strategy Bot
+    merged = post(api, "strategy-bot/merge", body, token=strategy_token)
     item = merged["task"]
-    assert (item["owner"], item["status"], item["waiting_on"]) == (CEO, "waiting", OWNER)
+    assert (item["owner"], item["status"], item["waiting_on"]) == (STRATEGY_BOT, "waiting", OWNER)
     assert [o["task_id"] for o in merged["originals"]] == originals
     shown = needs_tasks(api, "ana-test")
     assert item["id"] in shown and not set(originals) & shown                # one item, not three
     # It names the originals, so the Tasks page, which lists Needs you from its own copy of the tasks, leaves them out.
     page = test_goal_asks.get(api, "needs-you", "ana-test")["items"]
     assert next(i for i in page if i["id"] == item["id"])["merged"] == originals
-    assert get(api, "ceo-bot")["asked_today"] == {OWNER: 2}       # it counts toward the 5 a day, with the vision ask
-    post(api, "ceo-bot/merge", {**body, "tasks": originals[:2]}, token=ceo, expected=422)      # already merged
+    # it counts toward the 5 a day, with the vision ask
+    assert get(api, "strategy-bot")["asked_today"] == {OWNER: 2}
+    # already merged
+    post(api, "strategy-bot/merge", {**body, "tasks": originals[:2]}, token=strategy_token, expected=422)
     # Ana answers once, on the merged item.
     post(api, f"tasks/{item['id']}/comments", {"text": "The landlord page first."})
     with api.app.state.store.read() as c:
@@ -183,17 +187,18 @@ def test_three_bots_asking_the_same_thing_are_one_item_and_the_answer_reaches_ea
             assert reply and "The landlord page first." in reply["body"] and '"quiet"' not in reply["refs_json"]
             assert not H.open_task_asks(c, H.task(c, task_id))
         said = c.execute("SELECT body FROM messages WHERE from_actor=? AND to_actor='bot:finance' AND "
-                         "json_extract(refs_json,'$.task')=? ORDER BY created DESC", (CEO, filed)).fetchone()
+                         "json_extract(refs_json,'$.task')=? ORDER BY created DESC", (STRATEGY_BOT, filed)).fetchone()
         assert said and "The landlord page first." in said[0]
         assert H.task(c, waiting)["waiting_on"] is None
-        assert {r[0] for r in c.execute("SELECT state FROM ceo_merges WHERE merged_into=?", (item["id"],))} == {"answered"}
+        assert {r[0] for r in c.execute("SELECT state FROM "
+                                        "strategy_merges WHERE merged_into=?", (item["id"],))} == {"answered"}
     assert not set(originals + [item["id"]]) & needs_tasks(api, "ana-test")
     # Another merge whose item ends unanswered: its originals are back in Needs you.
     again = [ask_ana(api, "ops", "Ship the docs page"), ask_ana(api, "coo", "Ship the help page")]
-    second = post(api, "ceo-bot/merge", {**body, "tasks": again}, token=ceo)["task"]
+    second = post(api, "strategy-bot/merge", {**body, "tasks": again}, token=strategy_token)["task"]
     assert not set(again) & needs_tasks(api, "ana-test")
     with api.app.state.store.transaction() as c:
-        H.task_update(c, CEO, second["id"], status="declined", note="Not the same question after all.")
+        H.task_update(c, STRATEGY_BOT, second["id"], status="declined", note="Not the same question after all.")
     assert set(again) <= needs_tasks(api, "ana-test")
     # A new question after the answer was passed on is back in her Needs you, and may be merged again.
     with api.app.state.store.transaction() as c:
@@ -201,9 +206,10 @@ def test_three_bots_asking_the_same_thing_are_one_item_and_the_answer_reaches_ea
         H.task_comment(c, "bot:coo", waiting, "Which day do we launch?", ask={"who": OWNER})
         H.task_update(c, "bot:coo", waiting, status="waiting", waiting_on=OWNER, note="Which day do we launch?")
     assert {asked, waiting} <= needs_tasks(api, "ana-test") and filed not in needs_tasks(api, "ana-test")
-    post(api, "ceo-bot/merge", {**body, "title": "Price and launch day?", "tasks": [asked, waiting]}, token=ceo)
+    post(api, "strategy-bot/merge", {**body, "title": "Price and launch day?", "tasks": [asked, waiting]},
+         token=strategy_token)
     # Answered as an open question (the "answer" step in Needs you) rather than a reply: the same pass-on.
-    third = post(api, "ceo-bot/merge", {**body, "tasks": again}, token=ceo)["task"]
+    third = post(api, "strategy-bot/merge", {**body, "tasks": again}, token=strategy_token)["task"]
     with api.app.state.store.transaction() as c:
         ask = next(a for a in H.open_task_asks(c, H.task(c, third["id"])) if a["to_actor"] == OWNER)
         H.answer(c, OWNER, ask["id"], "The help page first.")
@@ -214,7 +220,7 @@ def test_three_bots_asking_the_same_thing_are_one_item_and_the_answer_reaches_ea
 
 def test_a_merged_item_names_only_the_originals_its_reader_may_read(api):
     """The merged item's list of originals is the reader's: one Ana can no longer read is left out of it."""
-    ceo = with_ceo_bot(api)
+    strategy_token = with_strategy_bot(api)
     asked = ask_ana(api, "ops", "Ship the pricing page")
     from backend.tests.test_api import unrelated_task_managers
     with api.app.state.store.transaction() as c:
@@ -222,8 +228,9 @@ def test_a_merged_item_names_only_the_originals_its_reader_may_read(api):
     with api.app.state.store.transaction() as c:
         filed = H.task_create(c, "bot:finance", "Pick the pricing page to launch", "Which one?", OWNER)["id"]
     level(api, 2)
-    item = post(api, "ceo-bot/merge", {"person": OWNER, "title": "Which pricing page first?", "question": "Which one?",
-                                        "tasks": [asked, filed]}, token=ceo)["task"]
+    item = post(api, "strategy-bot/merge",
+                {"person": OWNER, "title": "Which pricing page first?", "question": "Which one?",
+                 "tasks": [asked, filed]}, token=strategy_token)["task"]
     with api.app.state.store.transaction() as c:      # Ops' task becomes its own private task, out of Ana's reach
         c.execute("UPDATE tasks SET private=1, requester='bot:ops', guest=NULL WHERE id=?", (asked,))
     page = test_goal_asks.get(api, "needs-you", "ana-test")["items"]
@@ -233,11 +240,12 @@ def test_a_merged_item_names_only_the_originals_its_reader_may_read(api):
 def test_a_merged_answer_never_settles_a_question_asked_after_the_merge(api):
     """Ana answers one original where it was asked, and that bot asks her something else; her answer on the merged
     item reaches the other bot only, and the new question stays open in her Needs you."""
-    ceo = with_ceo_bot(api)
+    strategy_token = with_strategy_bot(api)
     level(api, 2)
     first, second = ask_ana(api, "ops", "Ship the pricing page"), ask_ana(api, "coo", "Plan the launch")
-    item = post(api, "ceo-bot/merge", {"person": OWNER, "title": "Which pricing page first?", "question": "Which one?",
-                                       "tasks": [first, second]}, token=ceo)["task"]
+    item = post(api, "strategy-bot/merge",
+                {"person": OWNER, "title": "Which pricing page first?", "question": "Which one?",
+                 "tasks": [first, second]}, token=strategy_token)["task"]
     with api.app.state.store.transaction() as c:
         [old] = H.open_task_asks(c, H.task(c, first))
         H.answer(c, OWNER, old["id"], "The landlord page.")
@@ -247,36 +255,39 @@ def test_a_merged_answer_never_settles_a_question_asked_after_the_merge(api):
     with api.app.state.store.read() as c:
         [new] = H.open_task_asks(c, H.task(c, first))
         assert new["body"] == "Which price goes on it?" and not H.open_task_asks(c, H.task(c, second))
-        states = dict(c.execute("SELECT original, state FROM ceo_merges WHERE merged_into=?", (item["id"],)).fetchall())
+        states = dict(c.execute("SELECT original, state FROM "
+                                "strategy_merges WHERE merged_into=?", (item["id"],)).fetchall())
     assert states == {first: "released", second: "answered"}
     assert first in needs_tasks(api, "ana-test")
 
 
 def test_ten_approvals_in_a_row_offer_level_3_once_a_month(api):
     """Spec test 19: at level 2, after 10 recoveries approved in a row with its pick unchanged, the Monday note may
-    offer level 3: the CEO Bot records the offer, which is refused before it is due and again within 30 days. It
+    offer level 3: the Strategy Bot records the offer, which is refused before it is due and again within 30 days. It
     never raises its own level, and a rejection starts the count again."""
-    ceo = with_ceo_bot(api)
+    strategy_token = with_strategy_bot(api)
     level(api, 2)
     goal = red_goal(api)
     for n in range(13):
-        p = recovery(api, goal["id"], bot_task(api, "ops", f"Task {n}"), ceo)
+        p = recovery(api, goal["id"], bot_task(api, "ops", f"Task {n}"), strategy_token)
         post(api, f"goal-proposals/{p['id']}/decide", {"decision": "reject" if n == 2 else "confirm"})
         if n == 2:
-            assert get(api, "ceo-bot")["level3_offer"]["streak"] == 0
+            assert get(api, "strategy-bot")["level3_offer"]["streak"] == 0
         if n == 11:
-            assert get(api, "ceo-bot", token=ceo)["level3_offer"]["due"] is False
-            post(api, "ceo-bot/level3-offer", {}, token=ceo, expected=422)            # not due yet
-    offer = get(api, "ceo-bot", token=ceo)["level3_offer"]
+            assert get(api, "strategy-bot", token=strategy_token)["level3_offer"]["due"] is False
+            post(api, "strategy-bot/level3-offer", {}, token=strategy_token, expected=422)            # not due yet
+    offer = get(api, "strategy-bot", token=strategy_token)["level3_offer"]
     assert (offer["streak"], offer["due"]) == (10, True)
-    post(api, "ceo-bot/level3-offer", {}, token="ana-test", expected=403)          # the CEO Bot's note only
-    made = post(api, "ceo-bot/level3-offer", {}, token=ceo)["level3_offer"]
+    post(api, "strategy-bot/level3-offer", {}, token="ana-test", expected=403)          # the Strategy Bot's note only
+    made = post(api, "strategy-bot/level3-offer", {}, token=strategy_token)["level3_offer"]
     assert made["due"] is False and made["last_offered_at"]
-    post(api, "ceo-bot/level3-offer", {}, token=ceo, expected=422)                 # not again this month
-    level(api, 3, token=ceo, expected=403)                                         # never raises its own level
+    # not again this month
+    post(api, "strategy-bot/level3-offer", {}, token=strategy_token, expected=422)
+    # never raises its own level
+    level(api, 3, token=strategy_token, expected=403)
     with api.app.state.store.transaction() as c:                                   # a month on, it may again
-        record = ceo_suggest.ceo_bot._record(c)
+        record = strategy_suggest.strategy_bot._record(c)
         record["level3_offers"] = [H.shift(H.now(), days=-31)]
-        ceo_suggest.ceo_bot._save(c, record)
-    assert get(api, "ceo-bot", token=ceo)["level3_offer"]["due"] is True
-    assert get(api, "ceo-bot")["level"] == 2
+        strategy_suggest.strategy_bot._save(c, record)
+    assert get(api, "strategy-bot", token=strategy_token)["level3_offer"]["due"] is True
+    assert get(api, "strategy-bot")["level"] == 2

@@ -1,5 +1,6 @@
 // Offline browser regression: the Support pop-up. The ? opens it over the current screen (a bottom sheet on a phone)
-// on the latest request that isn't Closed or Removed; Esc, ✕ and a click outside close it and give focus back; unsent
+// on the latest request that isn't Closed or Removed (Your requests when that one is a day old and read); Esc, ✕ and
+// a click outside close it and give focus back; unsent
 // words survive. The box shows exactly what it will send under Attach details, Enter files the request (Shift+Enter is
 // a new line) or continues the latest one, Your requests lists each request with its status badge and an unread dot,
 // a reply puts a count on the ? and opening the conversation reads it, a failed send says so in place, the trash asks
@@ -534,6 +535,20 @@ const UNREACHABLE = 'Not sent. Could not reach Tico support. Try again in a mome
     const filed = JSON.parse(v.calls.find(c => c.startsWith('POST tickets {')).slice('POST tickets '.length));
     assert.equal(filed.app_version, '0.3.48');
     assert.equal(filed.diagnostics, 'c'.repeat(64));
+    assert.deepEqual(v.errors, []);
+    await v.ctx.close();
+
+    // Only old requests still open (Oct 29: it opened on a week-old alert): Tico support shows Your requests, reading nothing.
+    v = await visit({seed: [{id: 'sup_7', created: at(3 * 24 * 60), status: 'open', message: 'Health Monitor alert', messages: [], sent: {}},
+                            {id: 'sup_6', created: at(5), status: 'closed', message: 'Just closed', messages: [], sent: {}}]});
+    await v.page.locator('#ask-fab').click();
+    await v.page.locator('#ask-add').click();
+    await v.page.locator('#ask-support').click();
+    await v.page.locator('#support-pop[open] [data-requests] .support-item').first().waitFor();
+    assert.equal(await v.page.locator('#support-pop [data-mine]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await v.page.locator('#support-pop [data-view]').isVisible(), false);
+    assert.deepEqual(await v.page.locator('#support-pop [data-requests] .support-item-title').allInnerTexts(), ['Just closed', 'Health Monitor alert']);
+    assert.ok(!v.calls.some(c => c.endsWith('/read')));
     assert.deepEqual(v.errors, []);
     await v.ctx.close();
 

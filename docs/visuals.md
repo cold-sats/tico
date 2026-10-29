@@ -9,6 +9,9 @@ Pictures, SVG and visual pages show inline as cards. Video and audio play inside
 visual address or [Tico file hosting](files.md#tico-file-hosting), pages and SVG are cards with **Open** instead
 ([details](#with-and-without-a-visual-address)).
 
+A page a bot keeps current, with a cadence and a status line Tico draws, is a [page](pages.md): the same frame and
+the same clean-up, published with `hub page publish`.
+
 ## When a bot adds a visual
 
 Every bot's instructions carry this line, word for word:

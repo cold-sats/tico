@@ -51,19 +51,20 @@ const chat = over => ({available: true, state: 'active', can_turn_on: false, roo
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
-    // The owner: from the CEO Bot chat to the page, with both layers; they edit their own entry and delete a company one.
+    // The owner: from the Strategy Bot chat to the page, with both layers; they edit their own entry and delete a
+    // company one.
     {
       const owner = {id: 'ana', role: 'owner', name: 'Ana', email: 'ana@example.test', cloud: true};
       const learned = {personal: [entry('p1', 'personal', 'Short summaries, numbers first', true)],
         company: {vision: 'Every team runs on bots', description: '', priorities: [{id: 'g1', title: 'Ship the desktop app', status: 'green'}],
           entries: [entry('c1', 'company', 'Launches matter more than hiring news', true), entry('c2', 'company', 'Partners before press', false)]}};
-      const {page, errors, writes} = await open(browser, owner, learned, chat({bot: 'goal-manager', ceo: true, name: 'Chief', room_id: 'ceo1'}));
+      const {page, errors, writes} = await open(browser, owner, learned, chat({bot: 'goal-manager', strategy_bot: true, name: 'Chief', room_id: 'strategy1'}));
       await page.goto('https://tico-ui.test/#/assistant');
       await page.locator('#chat-composer .p-text').waitFor();
       await page.locator('#main .asst-learned').click();
       await page.locator('#learned-company').waitFor();
       assert.equal(new URL(page.url()).hash, '#/assistant/learned', 'owner: the link opens the page');
-      assert.match(await page.locator('.learned-head').innerText(), /Chief reads this before every reply/, 'owner: names the CEO Bot');
+      assert.match(await page.locator('.learned-head').innerText(), /Chief reads this before every reply/, 'owner: names the Strategy Bot');
       assert.doesNotMatch(await page.locator('#main').innerText(), /Assistant/, 'owner: no Assistant wording');
       const personal = page.locator('#learned-personal'), company = page.locator('#learned-company');
       assert.match(await personal.innerText(), /Short summaries, numbers first[\s\S]*Taught in chat/, 'owner: their own layer');
@@ -90,7 +91,7 @@ const chat = over => ({available: true, state: 'active', can_turn_on: false, roo
     // A member: their own layer only, named for their Assistant; with nothing taught yet it says how to teach it.
     {
       const member = {id: 'ben', role: 'human', name: 'Ben', email: 'ben@example.test', cloud: true};
-      const {page, errors} = await open(browser, member, {personal: [], company: null}, chat({bot: 'coo', ceo: false, name: 'Assistant'}));
+      const {page, errors} = await open(browser, member, {personal: [], company: null}, chat({bot: 'coo', strategy_bot: false, name: 'Assistant'}));
       await page.goto('https://tico-ui.test/#/assistant/learned');
       await page.locator('#learned-personal').waitFor();
       assert.equal(await page.locator('#learned-company').count(), 0, 'member: no company layer');

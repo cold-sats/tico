@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from clients.catalog import free_slug, slug_from_name
 
 from . import access as Access
-from . import ceo_acts as CA
-from . import ceo_bot
+from . import strategy_acts as CA
+from . import strategy_bot
 from . import message_bots as MessageBots
 from . import bot_access as BA
 from . import models as M
@@ -549,12 +549,13 @@ class SettingsAdmin:
 
     def archive(self, c, who, bot, body):
         CA.gate(c, who.actor, "bots", f"remove {bot}")
-        # The assistant, BotOps, the Librarian, the CEO Bot and the Task Manager are built in: nobody archives them, the owner included.
+        # The assistant, BotOps, the Librarian, the Strategy Bot and the Task Manager are built in: nobody archives
+        # them, the owner included.
         if bot in (self.settings.assistant_bot, "botops", "librarian", "goal-manager", "task-manager"):
             raise Problem("system_bot", (self.settings.assistant_name if bot == self.settings.assistant_bot
                                          else "BotOps" if bot == "botops" else "The Librarian" if bot == "librarian"
                                          else "The Task Manager" if bot == "task-manager"
-                                         else "The " + ceo_bot.name(c))
+                                         else "The " + strategy_bot.name(c))
                           + " is built in to every team and cannot be archived or deleted; you can pause or rename it", 409)
         self._manager(c, who, bot)
         if self._config(c, bot)["revision"] != body.expected_revision:

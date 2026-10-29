@@ -694,7 +694,7 @@ CREATE TABLE IF NOT EXISTS task_check_models (
   harness TEXT NOT NULL, effort TEXT NOT NULL DEFAULT '', role TEXT NOT NULL, created_by TEXT, created TEXT);
 """
 
-# What the CEO Bot has asked a person on the Goals page's behalf (backend/goal_asks.py): one row per
+# What the Strategy Bot has asked a person on the Goals page's behalf (backend/goal_asks.py): one row per
 # KPI or proposal, kind and person, naming the task that asks it; append to preserve existing installations.
 GOAL_ASKS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS goal_asks (
@@ -741,26 +741,28 @@ CREATE TABLE IF NOT EXISTS compact_first(
   PRIMARY KEY(bot, conversation_id));
 """
 
-# The CEO Bot's merged asks (backend/ceo_merge.py): each original item in a person's Needs you that one CEO Bot item
-# stands for, and what became of it; append to preserve existing installations.
-CEO_MERGES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS ceo_merges (
+# The Strategy Bot's merged asks (backend/strategy_merge.py): each original item in a person's Needs you that one
+# Strategy Bot item stands for, and what became of it. An install that has the old table gets the table and its rows
+# before the migrations run (`_sync_strategy_tables`), so this creates the table only on a new install.
+STRATEGY_MERGES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS strategy_merges (
   merged_into TEXT NOT NULL, original TEXT NOT NULL, person TEXT NOT NULL, asker TEXT NOT NULL,
   how TEXT NOT NULL DEFAULT 'asked', ask_id TEXT,
   state TEXT NOT NULL DEFAULT 'merged', created TEXT NOT NULL, settled_at TEXT, note TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (merged_into, original));
-CREATE INDEX IF NOT EXISTS ceo_merges_original ON ceo_merges(original, state);
-CREATE INDEX IF NOT EXISTS ceo_merges_person ON ceo_merges(person, created);
+CREATE INDEX IF NOT EXISTS strategy_merges_original ON strategy_merges(original, state);
+CREATE INDEX IF NOT EXISTS strategy_merges_person ON strategy_merges(person, created);
 """
 
-# The CEO Bot log (backend/ceo_acts.py): each decision it made alone at level 3, or each thing it proposed because it
-# stays the owner's, and its Undo. Every task event one decision (or its Undo) wrote carries its action id.
-CEO_ACTIONS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS ceo_actions (
+# The Strategy Bot log (backend/strategy_acts.py): each decision it made alone at level 3, or each thing it proposed
+# because it stays the owner's, and its Undo. Every task event one decision (or its Undo) wrote carries its action id.
+# As for STRATEGY_MERGES_SCHEMA, an install with the old table gets the table and its rows first.
+STRATEGY_ACTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS strategy_actions (
   id TEXT PRIMARY KEY, created TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
   goal_id TEXT, state TEXT NOT NULL, proposal_task TEXT, note TEXT NOT NULL DEFAULT '',
   changes_json TEXT NOT NULL DEFAULT '{}', undone_at TEXT, undone_by TEXT, undo_json TEXT);
-CREATE INDEX IF NOT EXISTS ceo_actions_created ON ceo_actions(created);
+CREATE INDEX IF NOT EXISTS strategy_actions_created ON strategy_actions(created);
 ALTER TABLE task_events ADD COLUMN action_id TEXT;
 CREATE INDEX IF NOT EXISTS task_events_action ON task_events(action_id);
 """
@@ -874,8 +876,8 @@ MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes us
               LIVE_MEETINGS_SCHEMA, LIVE_MEETINGS_ROUTING_LIMITS_SCHEMA,
               LIVE_MEETINGS_CHAT_ROUTING_SCHEMA, TASK_RELATIONS_SCHEMA, TRIGGERS_SCHEMA,
               TRIGGER_SIGNING_SCHEMA, CHECK_MODELS_SCHEMA, GOAL_ASKS_SCHEMA, RUN_TRIGGERS_SCHEMA,
-              TASK_GUEST_SCHEMA, CEO_MERGES_SCHEMA, ONE_LOGIN_PER_COMPUTER_SCHEMA, RUN_PURPOSE_SCHEMA,
-              RUN_ROTATION_SCHEMA, LIVE_MEETING_ACCESS_SCHEMA, CEO_ACTIONS_SCHEMA,
+              TASK_GUEST_SCHEMA, STRATEGY_MERGES_SCHEMA, ONE_LOGIN_PER_COMPUTER_SCHEMA, RUN_PURPOSE_SCHEMA,
+              RUN_ROTATION_SCHEMA, LIVE_MEETING_ACCESS_SCHEMA, STRATEGY_ACTIONS_SCHEMA,
               MARKET_SPEND_SCHEMA, RULE_EVENTS_SCHEMA,
               TRIGGERS_INCOMING_SCHEMA, HOOK_RELAY_SCHEMA,
               WEBHOOKS_SCHEMA, SLEEP_IDLE_SCHEMA,
@@ -1103,6 +1105,93 @@ def ensure_market_reads(conn):
         conn.execute("RELEASE market_read_indexes")
 
 
+# The Strategy Bot's tables, each under the name an older release gives it. That release, reopened on the file after a
+# rollback, counts the migrations that make its tables as run, so for one release the old tables stay here. Triggers
+# keep each equal to its new one, so that release reads every row as it last was; it writes only to the old table, so
+# on start the old table holds the rows as they are, and the new one is made equal to it (`_sync_strategy_tables`).
+STRATEGY_TABLES = (("ceo_merges", "strategy_merges", STRATEGY_MERGES_SCHEMA),
+                   ("ceo_actions", "strategy_actions", STRATEGY_ACTIONS_SCHEMA))
+_MIRRORS = ("insert", "update", "delete")
+
+
+def _tables(conn):
+    return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def _shared_columns(conn, old, new):
+    kept = {row[1] for row in conn.execute(f"PRAGMA table_info({new})")}
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept]
+
+
+def _mirror(conn, old, new):
+    """The triggers that copy every write to `new` to `old` (STRATEGY_TABLES)."""
+    columns = _shared_columns(conn, old, new)
+    names, values = ",".join(columns), ",".join("new." + column for column in columns)
+    keys = [row[1] for row in conn.execute(f"PRAGMA table_info({new})") if row[5]]
+    match = " AND ".join(f"{key}=old.{key}" for key in keys)
+    upsert = f"INSERT OR REPLACE INTO {old}({names}) VALUES({values});"
+    for event, body in (("insert", upsert), ("update", f"DELETE FROM {old} WHERE {match}; {upsert}"),
+                        ("delete", f"DELETE FROM {old} WHERE {match};")):
+        conn.execute(f"CREATE TRIGGER IF NOT EXISTS {new}_to_old_{event} AFTER {event.upper()} ON {new} "
+                     f"BEGIN {body} END")
+
+
+def _sync_strategy_tables(conn):
+    """Make each Strategy Bot table under its new name equal to the one under its old name, before the migrations run:
+    the old one holds every row as it last was, whichever release wrote it (STRATEGY_TABLES). A file from before the
+    rename gets its new tables here. What differs is looked at again under the write lock, so two servers starting
+    together copy once."""
+    def pending(old, new):
+        found = _tables(conn)
+        if old not in found:
+            return False
+        if new not in found:
+            return True
+        columns = ",".join(_shared_columns(conn, old, new))
+        return conn.execute(f"SELECT 1 FROM (SELECT {columns} FROM {old} EXCEPT SELECT {columns} FROM {new}) UNION ALL "
+                            f"SELECT 1 FROM (SELECT {columns} FROM {new} EXCEPT SELECT {columns} FROM {old}) "
+                            "LIMIT 1").fetchone() is not None
+    for old, new, schema in STRATEGY_TABLES:
+        if not pending(old, new):
+            continue
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if pending(old, new):
+                _apply(conn, schema)
+                for event in _MIRRORS:      # the copy below is not this release's write to mirror back
+                    conn.execute(f"DROP TRIGGER IF EXISTS {new}_to_old_{event}")
+                columns = ",".join(_shared_columns(conn, old, new))
+                conn.execute(f"DELETE FROM {new}")
+                conn.execute(f"INSERT INTO {new}({columns}) SELECT {columns} FROM {old}")
+                _mirror(conn, old, new)     # back before the lock goes, so no write by another server is missed
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+def _keep_old_strategy_tables(conn):
+    """Give each Strategy Bot table its old-named twin, with its columns, where a new install has none, and the
+    triggers that copy every write to it (STRATEGY_TABLES)."""
+    triggers = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+    if all(old in _tables(conn) and {f"{new}_to_old_{event}" for event in _MIRRORS} <= triggers
+           for old, new, _ in STRATEGY_TABLES):
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for old, new, _ in STRATEGY_TABLES:
+            if old not in _tables(conn):
+                sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (new,)).fetchone()[0]
+                conn.execute(re.sub(r'^CREATE TABLE (IF NOT EXISTS )?("?)\w+\2', f"CREATE TABLE {old}", sql))
+                columns = ",".join(_shared_columns(conn, old, new))
+                conn.execute(f"INSERT INTO {old}({columns}) SELECT {columns} FROM {new}")
+            _mirror(conn, old, new)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
 def migrate(conn, adopt_legacy=False):
     """Apply every migration the file has not seen, by `PRAGMA user_version`.
 
@@ -1113,6 +1202,7 @@ def migrate(conn, adopt_legacy=False):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == 0 and not adopt_legacy:
         _refuse_foreign(conn)
+    _sync_strategy_tables(conn)
     from .flight import begin
     for i in range(version, len(MIGRATIONS)):
         done = begin(conn)
@@ -1133,6 +1223,7 @@ def migrate(conn, adopt_legacy=False):
             raise
         finally:
             done()
+    _keep_old_strategy_tables(conn)
     ensure_market_reads(conn)
     # Cloud added explicit room scopes after the original local schema. Keep old local
     # databases usable without relying on SQLite's unsupported ADD COLUMN IF NOT EXISTS.
@@ -3246,8 +3337,8 @@ def answer(conn, actor, message_id, body, unknown=False, *, comment_refs=None, c
         hook(conn, "needs_you.answered", message_id, lambda: {"id": message_id, "to": actor, "from": asked["from_actor"],
                                                               "task_id": about}, actor, revision=0)
     if about and asked["from_actor"] == "bot:goal-manager" and is_human(actor):
-        from . import ceo_merge
-        ceo_merge.on_reply(conn, actor, task(conn, about), body)     # answered in Needs you: on to each asker
+        from . import strategy_merge
+        strategy_merge.on_reply(conn, actor, task(conn, about), body)     # answered in Needs you: on to each asker
     if about and is_human(actor):
         from . import ask_ingest
         ask_ingest.on_reply(conn, actor, about, body)     # repeats the ask filter merged here hear the answer too
@@ -5175,8 +5266,9 @@ def task_comment(conn, actor, task_id, text, wake=True, *, ask=None, extra_refs=
         conn.execute('UPDATE messages SET public=1 WHERE id=?', (msg['id'],))
         msg = message(conn, msg['id'])
     if is_human(actor) and row["owner"] == "bot:goal-manager":
-        from . import ceo_merge
-        ceo_merge.on_reply(conn, actor, row, text)     # a person's answer to the CEO Bot's merged item goes to each asker
+        from . import strategy_merge
+        # a person's answer to the Strategy Bot's merged item goes to each asker
+        strategy_merge.on_reply(conn, actor, row, text)
     if is_human(actor):
         from . import ask_ingest
         ask_ingest.on_reply(conn, actor, task_id, text)     # repeats the ask filter merged here hear the answer too
@@ -5547,13 +5639,13 @@ ASK_QUOTE_MAX = 4000        # a quoted answer is what the person said, not a doc
 def task_ask_resolve(conn, actor, task_id, message_id, quote=None, *, relay=False):
     """Settle an open question on a task that was answered somewhere else, or is no longer wanted.
 
-    With `quote`, the person's words from where they answered (a chat, a call): the question's asker, or the
-    task's owner bot, records them as the answer, marked as quoted by whoever recorded it. Without, the asker
-    withdraws the question: it stays in the thread, superseded. Either way it leaves every Needs you list and
-    count. Nothing is sent and nobody wakes: the answer is filed quietly for the asker's next turn on the task.
+    With `quote`, the person's words from where they answered (a chat, a call): the question's asker, or the task's
+    owner bot, records them as the answer, marked as quoted by whoever recorded it. Without, the asker withdraws the
+    question: it stays in the thread, superseded. Either way it leaves every Needs you list and count. Nothing is sent
+    and nobody wakes: the answer is filed quietly for the asker's next turn on the task.
 
-    `relay` is the CEO Bot passing on the answer a person gave once for several bots (backend/ceo_merge.py), never a
-    route: the CEO Bot records it on a task that is not its own, and the asker wakes to it."""
+    `relay` is the Strategy Bot passing on the answer a person gave once for several bots (backend/strategy_merge.py),
+    never a route: the Strategy Bot records it on a task that is not its own, and the asker wakes to it."""
     _writer(conn, actor)
     row = task(conn, task_id)
     if not row:
@@ -5669,7 +5761,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     from .roadmaps import settings as roadmap_settings
     # Bots (and Assistant/BotOps acting for a person) publish only through an approved publication.
     if visibility == 'public' or public_title or public_summary:
-        from .ceo_acts import gate
+        from .strategy_acts import gate
         gate(conn, actor, "publish", f"publish a new task on the public roadmap: {public_title or title}")
     bot_review = (is_bot(actor) or VIA.get()) and roadmap_settings(conn)['bot_public_approval']
     if bot_review and (visibility == 'public' or public_title or public_summary):
@@ -6223,8 +6315,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                 refuse(conn, actor, "identity", "The Task Manager reassigns only within the owner's department; "
                        "leave a comment for the department instead")
         if is_human(new_owner) and new_owner != row["owner"]:
-            from .ceo_acts import TASK, gate
-            # The proposal lands in the CEO Bot log, which names the task only to a reader who may open it.
+            from .strategy_acts import TASK, gate
+            # The proposal lands in the Strategy Bot log, which names the task only to a reader who may open it.
             gate(conn, actor, "person_task", f"give {TASK} to {person_name(conn, new_owner)}", task_id=task_id)
         _takes_tasks(conn, actor, new_owner, row["title"], TR.parent_of(conn, task_id))
         if new_owner != row["owner"]:
@@ -6261,9 +6353,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if rank is not None:
         sets.append("rank=:rank")
         args["rank"] = float(rank)
-        # A queue move writes no event of its own, except on a task a CEO Bot decision changed: its Undo keeps a
-        # later move, even one back to the same place (backend/ceo_acts.py).
-        if float(rank) != row.get("rank") and _ceo_changed(conn, task_id):
+        # A queue move writes no event of its own, except on a task a Strategy Bot decision changed: its Undo keeps a
+        # later move, even one back to the same place (backend/strategy_acts.py).
+        if float(rank) != row.get("rank") and _strategy_changed(conn, task_id):
             _task_event(conn, task_id, actor, "rank", row.get("rank"), float(rank), note or "")
     if person != row.get("waiting_on"):
         sets.append("waiting_on=:waiting_on")
@@ -7039,8 +7131,8 @@ def _task_event(conn, task_id, actor, field, old, new, note=""):
     via = VIA.get()
     if via and not any(r[1] == "via" for r in conn.execute("PRAGMA table_info(task_events)")):
         conn.execute("ALTER TABLE task_events ADD COLUMN via TEXT")
-    # A CEO Bot decision (or its Undo) stamps each change it makes with its action id (backend/ceo_acts.py).
-    from .ceo_acts import ACTION
+    # A Strategy Bot decision (or its Undo) stamps each change it makes with its action id (backend/strategy_acts.py).
+    from .strategy_acts import ACTION
     action = ACTION.get()
     extra = (("via", via),) * bool(via) + (("action_id", action),) * bool(action)
     conn.execute("INSERT INTO task_events (id, task_id, ts, actor, field, old, new, note"
@@ -7052,9 +7144,9 @@ def _task_event(conn, task_id, actor, field, old, new, note=""):
         _task_changed(conn, task_id, actor, field, old, new, event_id)
 
 
-def _ceo_changed(conn, task_id):
-    """Whether a CEO Bot decision (or its Undo) is writing this task now or has changed it before."""
-    from .ceo_acts import ACTION
+def _strategy_changed(conn, task_id):
+    """Whether a Strategy Bot decision (or its Undo) is writing this task now or has changed it before."""
+    from .strategy_acts import ACTION
     return bool(ACTION.get()) or bool(conn.execute(
         "SELECT 1 FROM task_events WHERE task_id=? AND action_id IS NOT NULL LIMIT 1", (task_id,)).fetchone())
 
@@ -9177,9 +9269,10 @@ def needs_you(conn, who):
     # A bot's task set waiting on this person: one concrete ask, its title and waiting note.
     waited = [t for t in _rows(conn.execute("SELECT * FROM tasks WHERE status='waiting' AND waiting_on=? "
                                             "ORDER BY created", (actor,))) if t["id"] not in seen and not TS.snoozed(t)]
-    # What the CEO Bot merged into one item of its own is that item here, not each original (backend/ceo_merge.py).
-    from . import ceo_merge
-    merged = ceo_merge.hidden(conn, actor)
+    # What the Strategy Bot merged into one item of its own is that item here, not each original
+    # (backend/strategy_merge.py).
+    from . import strategy_merge
+    merged = strategy_merge.hidden(conn, actor)
     # A declined task on a steps-only type (the Product roadmap) stays on its Declined step, where the board and
     # the public roadmap show it: closing it off the list would take it off both, so it is not on the list.
     by_step = {r["id"] for r in conn.execute("SELECT id FROM task_types WHERE steps_only=1")}

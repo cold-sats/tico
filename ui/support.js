@@ -82,8 +82,12 @@
   const last = t => (t.messages || []).at(-1)?.created || t.created;
   const newestFirst = list => [...list].sort((a, b) => (Date.parse(last(b)) || 0) - (Date.parse(last(a)) || 0));
   const ended = t => ['closed', 'gone'].includes(t.status);
-  // The pop-up opens on the request with the most recent message that isn't Closed or Removed.
+  // The request with the most recent message that isn't Closed or Removed.
   const latest = () => newestFirst(state.tickets).find(t => !ended(t));
+  // The pop-up opens on the newest of those with an unread reply or a message in the last day. An older one (say a
+  // week-old alert) is not opened on its own: Your requests is shown instead (a new request when none is open).
+  const RECENT_MS = 24 * 3600 * 1000;
+  const landing = () => newestFirst(state.tickets).find(t => !ended(t) && (t.unread || Date.now() - (Date.parse(last(t)) || 0) < RECENT_MS));
   const isOpen = () => !!pop?.open;
   const draft = () => {
     if (!drafts.has(selected)) drafts.set(selected, {message: '', email: compose?.email || '', ids: true, diag: !selected, perf: 24, bundle: null, key: uid(), kind: 'support', report: null, open: false});
@@ -755,8 +759,8 @@
       note('');
     } catch (e) { if (state.enabled === null) note(e.message, true); else note(POLL_FAILED, true); }
   }
-  // how: {ticket} opens that request, {fresh} a new one, {list} Your requests; nothing opens the latest request,
-  // unless the person left words unsent in the one they had open.
+  // how: {ticket} opens that request, {fresh} a new one, {list} Your requests; nothing opens the latest recent request
+  // (or Your requests, see `landing`), unless the person left words unsent in the one they had open.
   async function open(how = {}) {
     build();
     if (!isOpen()) {
@@ -778,7 +782,7 @@
       view = 'chat';
       if (how.ticket && state.tickets.some(t => t.id === how.ticket)) selected = how.ticket;
       else if (how.fresh) selected = '';
-      else if (!kept) selected = latest()?.id || '';
+      else if (!kept) { selected = landing()?.id || ''; if (!selected && latest()) view = 'list'; }
     }
     if (selected && !current()) selected = latest()?.id || '';
     render(); renderThread(true);
