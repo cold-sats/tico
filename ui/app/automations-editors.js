@@ -123,8 +123,11 @@ function auTriggerFields(t) {
     schedule: () => auFld('Cron', auIn('trigger.cron', t.cron, '0 7 * * 1-5')) + auFld('Time zone', auIn('trigger.tz', t.tz)),
     webhook: () => auFld('Webhook', `<input type="text" value="${esc(t.name || t.id || '')}" disabled>`),
     listening: () => auFld('Destination', auIn('trigger.destination', t.destination)),
-    event: () => auFld('Event', auIn('trigger.name', t.name))}[t.type];
-  return auFld('Event', `<input type="text" value="${esc(AU_TRIGGER_WORDS[t.type] || t.type || '')}" disabled>`) + (src ? src() : '')
+    event: () => auFld('Event', auSel('trigger.name', auWithCur(Object.entries(AU_EVENTS), t.name, auEventWords(t.name)), t.name,
+      t.name ? `title="${esc(t.name)}"` : ''))}[t.type];
+  // An event trigger's one field names its event; the others say what kind of trigger it is first.
+  const kind = t.type === 'event' ? '' : auFld('Event', `<input type="text" value="${esc(AU_TRIGGER_WORDS[t.type] || t.type || '')}" disabled>`);
+  return kind + (src ? src() : '')
     + auBox('Filters', auCondRows('trigger.filters', t.filters) + auPlus('trigger.filters', 'cond', 'Filter'));
 }
 function auFilterFields(s) {
