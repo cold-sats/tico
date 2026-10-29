@@ -150,10 +150,10 @@ def proactive(c):
     return level(c) >= 2
 
 
-def _review(c, actor, record):
+def _review(c, actor, record, raised=False):
     """The Monday note (the bot's `goals-review` routine, declared paused) starts when the level is above Passive: when
-    the owner raises it from Passive, or, on an install that never chose a level, once `reconcile` finds the routine
-    if no person has ever started or paused it.
+    the owner raises it from Passive (`raised`), or later, once `reconcile` finds the routine, if no person has ever
+    started or paused it.
     Back at Passive, it is paused again only if this started it and nobody has paused or started it since: a person's
     own choice is never overruled. `review_settled` says it has had its one go at starting it at the current raise, so
     `reconcile` never starts it again."""
@@ -169,8 +169,8 @@ def _review(c, actor, record):
     if not row or row["deleted_at"]:
         return              # not there yet: `reconcile` starts it once it is
     record["review_settled"] = True
-    # Above Passive only by default: a note a person already started or paused stays as they left it.
-    if not row["enabled"] and (record.get("level") in LEVELS or not _review_touched(c, "")):
+    # Only the owner's raise from Passive overrides a person's earlier start or pause; the default never does.
+    if not row["enabled"] and (raised or not _review_touched(c, "")):
         routines.update(c, H.KEEPER, REVIEW, {"enabled": True})
         record["review_armed"] = H.now()
         H.event(c, actor, "ceo_bot.review_armed", REVIEW, {})
@@ -348,7 +348,7 @@ def set_level(c, actor, value):
     history.append({"level": value, "was": was, "by": actor, "at": at})
     record.update(level=value, level_history=history[-HISTORY_KEEP:])
     if (value >= 2) != (was >= 2):
-        _review(c, actor, record)               # the Monday note starts above Passive and stops back at it
+        _review(c, actor, record, raised=True)  # the Monday note starts above Passive and stops back at it
     _save(c, record)
     if value < 2:
         from . import ceo_suggest

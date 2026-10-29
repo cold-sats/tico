@@ -288,6 +288,22 @@ def test_an_upgrade_to_the_new_default_keeps_a_monday_note_a_person_paused(api):
     assert not review_enabled(api)
 
 
+def test_confirming_the_default_never_restarts_a_monday_note_a_person_paused(api):
+    """The routine appears after the upgrade, a person starts and pauses it, and the owner confirms Suggests actions
+    before the next reconcile: confirming the default is no raise, so the reconcile leaves the note paused."""
+    with_ceo_bot(api, level=None)
+    store = api.app.state.store
+    with store.transaction() as c:
+        ceo_bot.reconcile(c)                                                  # no routine yet
+    review_routine(api)
+    with store.transaction() as c:
+        routines.update(c, OWNER, REVIEW, {"enabled": True})
+        routines.update(c, OWNER, REVIEW, {"enabled": False})
+        ceo_bot.set_level(c, OWNER, 2)
+        ceo_bot.reconcile(c)
+    assert not review_enabled(api)
+
+
 def test_with_no_chosen_level_passive_pauses_the_note_and_withdraws_what_waits_and_the_default_changes_nothing(api):
     """The owner picks Passive on an install that never chose a level: the Monday note the reconcile started is paused
     and the recoveries still waiting are withdrawn, exactly as when lowering from level 2. Picking the level the install
