@@ -761,6 +761,24 @@ def test_require_never_gives_the_check_to_a_bot_on_a_model_a_reseller_picks(api)
     assert checks(api, task) == []
 
 
+def test_a_bot_now_on_a_model_a_reseller_picks_is_not_independent_whatever_it_ran_before(api):
+    """rev-c's last run was on Anthropic, but it now runs on Cursor's auto, which may pick OpenAI's model: it is not
+    shown independent of an OpenAI build."""
+    from backend.check_independence import assess
+    team(api)
+    task = qa_ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE turn_usage_segments SET model='gpt-6.1-sol',provider='openai',runtime='codex' "
+                  "WHERE turn_id=?", ("builder-" + task["id"],))
+        c.execute("INSERT INTO turns(id,bot,started,finished) VALUES('before','rev-c',?,?)", (H.now(), H.now()))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('before',0,'claude-haiku-5-5','anthropic')")
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='rev-c'", (encode(
+            {"name": "rev-c", "runtime": "cursor", "model": "cursor-auto", "status": "active", "profile": "reviewer"}),))
+        decision = assess(c, task, "rev-c")
+    assert decision["eligible"] is False and decision["reason"] == "checker model-family provenance is unknown"
+
+
 def test_require_never_gives_the_check_to_a_bot_whose_model_company_is_unknown(api):
     """rev-a names no model and has no runs to read, so it may be on the builder's company: a required check waits
     and says why, where a preferred one would take it."""
