@@ -101,7 +101,7 @@ async function pageDashboard(place) {
 }
 function dashDraw(state) {
   const v = state.view, root = state.root;
-  if (v.kind === 'team') { root.querySelector('h1').textContent = v.name; document.title = v.name + ' · Tico'; }
+  if (v.kind === 'team') { root.querySelector('h1').textContent = v.name; }
   const actions = root.querySelector('.dash-actions');
   actions.hidden = !v.can_edit;
   const aud = root.querySelector('[data-dash-audience]');

@@ -210,9 +210,9 @@ async function shot(page, name) {
       assert.deepEqual(await headings(page), ['TASKS BY STATUS · ENGINEERING', 'DONE PER WEEK · ENGINEERING', 'NEEDS YOU · ENGINEERING']);
       assert.equal(await page.locator('#tree a.dept-label.cur').count(), 1);
       const kids = page.locator('#tree li.org-group:has(> .noderow a.dept-label.cur) > ul');
-      const open = await kids.isVisible();
+      const wasOpen = await kids.isVisible();
       await page.locator('#tree li.org-group:has(> .noderow a.dept-label.cur) > .noderow .chev').click();
-      assert.equal(await kids.isVisible(), !open, 'the arrow folds the group');
+      assert.equal(await kids.isVisible(), !wasOpen, 'the arrow folds the group');
       assert.equal(await page.evaluate(() => location.hash), '#/team/eng', 'and does not open the page');
       // Its audience: narrowed to chosen people.
       await page.locator('[data-dash-audience]').click();
