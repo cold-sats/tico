@@ -2,6 +2,8 @@
 server runs (harness.Org) and makes one piece of state a browser test starts from, through the API a teammate calls.
 Seeds run in the order given. A seed returns False when it skipped itself because the route it needs is not built yet;
 otherwise it returns None."""
+import json
+
 SEEDS = {}
 
 
@@ -160,14 +162,16 @@ def pages(world):
     """The Engineering Lead's pages and files, published during one turn on Dana's task "Q3 launch": an older weekly
     page filed on the task and a bot-wide weekly page that replaced it (data from Oct 27), a launch plan filed on the
     task, and a signup funnel CSV bot-wide, so Library › Files has pages, data and a search hit inside a CSV. A page
-    filed on the task is pinned to its top; the replaced one is left out there. Dana names the bot "Engineering Lead",
+    filed on the task is pinned to its top; the replaced one is left out there. The bot is named "Engineering Lead",
     so the status lines name it, not its slug."""
     from .harness import DANA
-    bots = _ok(world.api("get", "/api/v2/bots", who=DANA), "bots")
-    revision = next(b for b in (bots if isinstance(bots, list) else bots["bots"]) if b["slug"] == "engineering-lead")
-    _ok(world.api("post", "/api/v2/bots/engineering-lead/definition",
-                  {"display_name": "Engineering Lead", "expected_revision": revision["revision"]}, who=DANA),
-        "the Engineering Lead's name")
+    # Written as the harness writes the bots' other fields: the definition route refuses the reports_to it set by hand.
+    with world.store.transaction() as c:
+        c.execute("UPDATE bots SET display_name='Engineering Lead' WHERE slug='engineering-lead'")
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='engineering-lead'").fetchone()[0]
+                            or "{}")
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='engineering-lead'",
+                  (json.dumps({**config, "display_name": "Engineering Lead"}),))
     made = _ok(world.api("post", "/api/v2/tasks", {"title": "Q3 launch", "body": "Plan the Q3 launch.",
                                                     "owner": "engineering-lead"}, who=DANA), "task")
     task = (made.get("task") or made)["id"]
