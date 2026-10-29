@@ -3981,7 +3981,7 @@ def _set_status(conn, actor, row, status=None, type=None, step=None, note="", *,
     ts = now()
     from .task_blocked import transition
     transition(conn, row, effective, step_id, note, ts,
-               manual=effective == 'waiting' and declared_hold(conn, actor, row, step, step_id))
+               manual=effective == 'waiting' and declared_hold(conn, actor, row, step, step_id), stepped=step is not None)
     conn.execute("UPDATE tasks SET status=?,type_id=?,step_id=?,updated=? WHERE id=?",
                  (effective, type_id, step_id, ts, row["id"]))
     if row.get("type_id") != type_id:

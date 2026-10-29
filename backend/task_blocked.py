@@ -118,7 +118,7 @@ def clocks(row, at):
             'blocked_seconds': seconds(row.get('blocked_since'), at)}
 
 
-def transition(c, row, effective, step_id, note, at, manual=False):
+def transition(c, row, effective, step_id, note, at, manual=False, stepped=False):
     """Called in the same transaction as every status/step move."""
     from . import hubdb as H
     if 'blocked_since' not in row:
@@ -147,7 +147,7 @@ def transition(c, row, effective, step_id, note, at, manual=False):
             # for the hold it replaces, never stays on a ticket parked by hand.
             text = str(note).strip().splitlines()[0][:1000] if str(note or '').strip() else 'Waiting on a hold'
             c.execute("UPDATE tasks SET blocked_reason=?,blocked_kind='manual' WHERE id=?", (text, row['id']))
-        if row.get('blocked_since') and step_id and step_id != row.get('step_id'):
+        if stepped and row.get('blocked_since') and step_id and step_id != row.get('step_id'):
             # A move to another working step while held (a person's, or a retry's that stays held): the hold clears
             # onto the step it was moved to, not the one it left (hubdb._task_state's resume).
             landed = c.execute('SELECT status FROM task_steps WHERE id=?', (step_id,)).fetchone()
