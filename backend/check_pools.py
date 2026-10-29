@@ -361,10 +361,18 @@ def _earlier_reviewers(c, ticket, step):
     return out
 
 
+def _company_rank(c, slug, builder):
+    """How a bot's model company orders it for a check of a build on the `builder` companies: 0 for another company,
+    1 for one Tico can't name all of, which may be the builder's, 2 for the builder's own."""
+    if makers(c, slug, known_only=True) & builder:
+        return 2
+    return 0 if makers(c, slug, whole=True) else 1
+
+
 def ranked(c, ticket, step, slugs, limit, exclude=()):
     """(free members best first, why none is) for this ticket's check at `step`. A check ranks a bot of another model
-    company than the builder's (`builder_makers`) ahead of a bot of the builder's company, which is still free when no
-    other is, unless the step's `other_company` is `require`: then such a bot is never free for the ticket, nor is any
+    company than the builder's (`builder_makers`) ahead of a bot of a company Tico can't name, and that ahead of a bot of
+    the builder's company, which is still free when no other is, unless the step's `other_company` is `require`: then such a bot is never free for the ticket, nor is any
     bot while Tico cannot name the builder's company or the bot's. Then eligibility from `assess`, fewest open checks,
     the longest idle (no turn yet counts as longest), then by name."""
     from . import step_flow
@@ -388,13 +396,15 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
         idle = (c.execute("SELECT last_turn_at FROM bots WHERE slug=?", (slug,)).fetchone() or [None])[0] or ""
         # Require needs both companies named and apart: a company Tico cannot name, or a run with a segment it cannot
         # name, may be the builder's.
-        known = (makers(c, slug, whole=True) if required else makers(c, slug, known_only=True)) if builder else set()
-        same = bool(known & builder)
-        if required and (not builder or same or not known):
-            why.add("builder" if not builder else "company" if same else "unknown")
-            continue
+        if required:
+            known = makers(c, slug, whole=True) if builder else set()
+            same = bool(known & builder)
+            if not builder or same or not known:
+                why.add("builder" if not builder else "company" if same else "unknown")
+                continue
         # Model company only orders the free bots, so it ranks first; eligibility, workload and idle time break ties.
-        free.append((same, 0 if decision["eligible"] else 1, held, idle, slug))
+        rank = _company_rank(c, slug, builder) if builder and not required else 0
+        free.append((rank, 0 if decision["eligible"] else 1, held, idle, slug))
     free.sort()
     if free:
         return [slug for _, _, _, _, slug in free], ""
@@ -608,11 +618,11 @@ def _take(c, wait, only=None):
     free, reason = ranked(c, ticket, step, slugs, limit)
     if only is not None:
         builder = builder_makers(c, ticket)
-        def same(slug):
-            return bool(makers(c, slug, known_only=True) & builder)
-        # The bot that just finished takes the wait, unless it runs on the builder's company and a free bot does not:
-        # then the best free one does, as `ranked` orders them.
-        free = [] if only not in free else [only] if not same(only) or same(free[0]) else free
+        def rank(slug):
+            return _company_rank(c, slug, builder) if builder else 0
+        # The bot that just finished takes the wait, unless a free bot ranks ahead of it by model company: then the
+        # best free one does, as `ranked` orders them.
+        free = [] if only not in free else [only] if rank(only) <= rank(free[0]) else free
     for slug in free:
         # Taken before the request is filed, so the one-check-per-head rule does not see its own wait.
         c.execute("UPDATE check_waits SET state='filed',updated=? WHERE id=?", (H.now(), wait["id"]))

@@ -776,6 +776,20 @@ def test_require_never_gives_the_check_to_a_bot_on_a_model_a_reseller_picks(api)
     assert checks(api, task) == []
 
 
+def test_prefer_ranks_a_bot_of_another_company_ahead_of_one_whose_company_is_unknown(api):
+    """The builder has no usage record, so its configured Anthropic counts, and no bot is shown independent. rev-b runs
+    on Cursor's auto, which may pick Anthropic; rev-a runs on OpenAI and already holds a check. rev-a takes it."""
+    team(api)
+    task = qa_ticket(api, built=False)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='rev-b'", (encode(
+            {"name": "rev-b", "runtime": "cursor", "model": "cursor-auto", "status": "active", "profile": "reviewer"}),))
+    set_pool(api, task, "In QA", ["rev-b", "rev-a"], limit=2)
+    busy(api, "rev-a")
+    to_qa(api, task)
+    assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
+
+
 def test_a_bot_now_on_a_model_a_reseller_picks_is_not_independent_whatever_it_ran_before(api):
     """rev-c's last run was on Anthropic, but it now runs on Cursor's auto, which may pick OpenAI's model: it is not
     shown independent of an OpenAI build."""
