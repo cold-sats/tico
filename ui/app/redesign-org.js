@@ -49,7 +49,7 @@ function rdoMoveTargets(from) {
 }
 
 // ----------------------------------------------------------------- the tree
-// The sidebar's chart (orgTreeByParent: groups, reports_to, the CEO Bot's place) without helpers and recruiting seats.
+// The sidebar's chart (orgTreeByParent: groups, reports_to) without helpers (the Strategy Bot too) and recruiting seats.
 function rdoTree() {
   const by = orgTreeWithHelpers(orgTreeByParent()), out = {};
   for (const [k, kids] of Object.entries(by)) out[k] = kids.filter(n => n.kind !== 'seat' && !(n.kind === 'group' && n.helpers));

@@ -50,6 +50,7 @@ function redesignNav() {
   const rest = before.filter(el => !order.includes(el) && !subs.contains(el));
   nav.append(...order, ...rest);
   rdLibSync();
+  renderTree();   // marks the current page again: Automations and Tools did not exist when the first route drew the rail
 }
 // Library open or folded: what this browser chose, opened while a Library page is showing (a fold there holds until
 // the next visit). A browser that will not store it keeps Library open.
