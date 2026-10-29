@@ -304,25 +304,30 @@ async function hostedHandshake(browser, current) {
   await page.waitForFunction(() => window.__calls.length > 1);
   assert.deepEqual(await page.evaluate(() => window.__calls[1]), current ? {origin:'', files:FILES} : {origin:''},
     current ? 'the shell hears the files address' : 'an older shell never hears a field it would refuse');
-  await page.locator('figure.vcard[data-state="open"]').waitFor();
-  assert.equal(await page.locator('iframe.vcard-frame').count(), 0, 'no frame before the shell follows it');
-  assert.equal(await page.evaluate(() => visualPageSrc('/visuals/' + 'YQ.' + 'a'.repeat(43))), null);
+  // ACK inside the UI's bridge wait (NATIVE_VISUAL_WAIT_MS): the chat renders only after it, and a timed-out
+  // wait queues a clear this fake shell would never answer. Before the ACK a same-origin page src is refused.
+  assert.equal(await page.evaluate(() => visualPageSrc('/visuals/' + 'YQ.' + 'a'.repeat(43))), null,
+    'no frame before the shell follows it');
   await page.evaluate(accepted => window.__pending[1](accepted), current);
-  await page.evaluate(() => NATIVE_VISUAL_PENDING);
   if (current) {
     await page.locator('figure.vcard[data-state="ready"] iframe.vcard-frame[src]').waitFor();
     assert.equal(await page.evaluate(() => NATIVE_VISUAL_FILES), FILES);
     assert.ok(reads.length > 0);
   } else {
-    assert.equal(await page.locator('figure.vcard[data-state="open"]').count(), 1);
+    await page.locator('figure.vcard[data-state="open"]').waitFor();
+    assert.equal(await page.locator('iframe.vcard-frame').count(), 0);
+    assert.equal(await page.evaluate(() => window.__calls.length), 2, 'an older shell gets no clear after a refused grant');
     assert.deepEqual(reads, [], 'an older shell would open the redirect in the browser');
   }
   assert.deepEqual(errors, []);
   await page.close();
 }
 
+// A promise the page never settles would otherwise hold the job until the runner's own timeout.
+const watchdog = setTimeout(() => { console.error('native window: timed out'); process.exit(1); }, 480000);
+let browser;
 (async () => {
-  const browser = await webkit.launch({headless:true});
+  browser = await webkit.launch({headless:true});
   const page = await browser.newPage({serviceWorkers:'block', viewport:{width:1240,height:820},
     userAgent:'Mozilla/5.0 AppleWebKit/605.1.15 TicoHub'});
   const errors = [], posted = [];
@@ -386,5 +391,6 @@ async function hostedHandshake(browser, current) {
   await hostedHandshake(browser, true);
   await hostedHandshake(browser, false);
   await browser.close();
+  clearTimeout(watchdog);
   console.log('native window: no rail mode; usable from 360px to 1240px');
-})().catch(error => { console.error(error); process.exit(1); });
+})().catch(async error => { console.error(error); await browser?.close().catch(() => {}); process.exit(1); });
