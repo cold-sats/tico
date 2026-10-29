@@ -147,3 +147,35 @@ def toured(world):
     for who in (DANA, OMAR, PRIYA):
         _ok(world.api("post", "/api/v2/setup/getting-started/state", {"tour": True}, who=who), "tour seen")
     _ok(world.api("post", "/api/v2/system/usage-count/notice", {"state": "dismissed"}, who=DANA), "usage notice")
+
+
+PAGE_HTML = ('<!doctype html><html><head><title>{title}</title></head><body style="margin:0;font:15px system-ui">'
+             '<h1 style="margin:16px">{title}</h1><p style="margin:16px">{text}</p>'
+             '<svg viewBox="0 0 300 80" width="300" height="80"><rect x="16" y="10" width="{bar}" height="40" fill="#4a7"/>'
+             '</svg><script>steal()</script></body></html>')
+
+
+@seed("pages")
+def pages(world):
+    """The Engineering Lead's pages and files, published during one turn on Dana's task "Q3 launch": a weekly page that
+    replaced an older one (data from Oct 27), a launch plan filed on the task (its top card), and a signup funnel
+    CSV bot-wide, so Library › Files has pages, data and a search hit inside a CSV."""
+    from .harness import DANA
+    made = _ok(world.api("post", "/api/v2/tasks", {"title": "Q3 launch", "body": "Plan the Q3 launch.",
+                                                    "owner": "engineering-lead"}, who=DANA), "task")
+    task = (made.get("task") or made)["id"]
+
+    def act(token, attempt):
+        def page(name, title, text, bar, **fields):
+            body = {"name": name, "title": title, "text": PAGE_HTML.format(title=title, text=text, bar=bar), **fields}
+            return _ok(world.api("post", "/api/v2/pages", body, who=token), name)["page"]["file_id"]
+        old = page("weekly-old.html", "Engineering weekly (old)", "Last month's numbers.", 90, scope="bot",
+                   cadence="weekly")
+        page("weekly.html", "Engineering weekly", "Shipped 14 changes; review time fell to 6 hours.", 240,
+             scope="bot", cadence="weekly", as_of="2026-10-27", replaces=old)
+        page("launch.html", "Launch plan", "Beta on Nov 3, general release on Nov 17.", 160, task=task)
+        _ok(world.api("post", "/api/v2/files/uploads", {
+            "name": "funnel.csv", "title": "Signup funnel", "scope": "bot",
+            "text": "stage,visitors\nlanding,1200\nsignup,310\nactivated,140\n"}, who=token), "funnel.csv")
+    if world.turn("engineering-lead", act=act) is None:
+        raise RuntimeError("the Engineering Lead's turn did not run")

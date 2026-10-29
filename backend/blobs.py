@@ -623,6 +623,37 @@ class Blobs:
         return data
 
 
+    def purge(self, digest, kind=None):
+        """Remove `digest`'s bytes from every place this server reads them from: this computer's disk, the place new
+        files go to and each earlier place, with Tico file hosting's cleaned copy of a page or SVG (`kind`). Only for
+        bytes no row needs any more (backend/file_library.py `drain`). Raises, naming each place that refused, so the
+        caller tries again; a place that does not hold them is fine."""
+        key = self.key(digest)
+        (self.directory / key).unlink(missing_ok=True)
+        with self._write_lock:
+            places = [(self.settings, self._sources, self._s3), *((p, s, None) for p, s in self._earlier)]
+        failed = []
+        for place, sources, client in places:
+            if not place.blob_bucket:
+                continue
+            keys = [self.s3_key(digest, place)]
+            found = self.edge
+            if kind and found and location_of(place) == found["location"] \
+                    and getattr(self, "visual_ancestors", None) is not None:
+                from .tico_storage import _visual, _visual_key
+                path = _visual(digest, kind, self.visual_ancestors)[0]
+                keys.append(_visual_key(place, path))
+                self._edge_seen.pop((found["location"], path), None)
+            try:
+                s3 = client if client is not None else sources.client_for(sources.kind)
+                for each in keys:
+                    s3.delete_object(Bucket=place.blob_bucket, Key=each)
+            except Exception as exc:
+                failed.append(f"{location_of(place)}: {type(exc).__name__}")
+        if failed:
+            raise RuntimeError("could not remove the bytes from " + ", ".join(failed))
+
+
 def register(c, who, digest, size, name, content_type="application/octet-stream"):
     # A display name is never used to construct a storage path.
     name = Path(str(name).replace("\\", "/")).name

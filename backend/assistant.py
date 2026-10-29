@@ -471,6 +471,7 @@ _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/(?:goal-proposals|proposals)/[^/]+/decide"), ("POST", r"/api/v2/support/tickets"),
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
     ("POST", r"/api/v2/(slack|github/app)/disconnect"),
+    ("DELETE", r"/api/v2/files/[^/]+"),
     ("POST", r"/api/v2/access/owner"), ("POST", r"/api/v2/enrollments"), ("POST", r"/api/v2/seats/[^/]+/hire"),
     # A webhook moved to another destination while it holds secret headers (app.py `destination_card`).
     ("POST", r"/api/v2/webhooks/[^/]+/update"),
@@ -714,7 +715,7 @@ def describe(c, method, path, body):
         (r"/api/v2/support/tickets", lambda g: "Send this to the Tico team: " + preview(body.get("message"))),
         (r"/api/v2/directory(/sync|/preview)?", lambda g: "Change the people directory sync"),
         (r"/api/v2/(slack|github/app)/disconnect", lambda g: "Disconnect " + g[0].split("/")[0].title()),
-        (r"/api/v2/files/([^/]+)", lambda g: "Change a file's listing"),
+        (r"/api/v2/files/([^/]+)", lambda g: "Delete a file for good" if method == "DELETE" else "Change a file's listing"),
     )
     for pattern, fn in rules:
         if (mm := re.fullmatch(pattern, path)):

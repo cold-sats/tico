@@ -1439,6 +1439,12 @@ class Store:
                 ensure_market_briefing(c)
                 from .market import ensure_turn_sources
                 ensure_turn_sources(c)                  # which automation turn changed the graph (redesign)
+                # Pages, the files' search text and hard deletes (backend/pages.py, backend/file_library.py).
+                # Unversioned the same way: an older release never reads the tables.
+                from .pages import ensure as ensure_pages
+                from .file_library import ensure as ensure_file_library
+                ensure_pages(c)
+                ensure_file_library(c)
                 # Temporary task assignments are retired (#420): their actors are archived and off every computer,
                 # their open tasks back with the role. Unversioned and idempotent like the trash; the tables stay inert.
                 from .shared_bots import retire_assignments

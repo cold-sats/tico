@@ -34,6 +34,7 @@ TAGS = {
     "Needs you": "What is waiting on the signed-in person: questions, tasks, approvals.",
     "Meetings": "Recorded meetings.",
     "Files": "What a bot creates, revises or delivers, listed on its page (docs/files.md).",
+    "Pages": "HTML pages bots publish and keep current (docs/pages.md): a file with a cadence, a data date and a status line.",
     "Docs": "The team's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; external sources, including indexed public GitHub docs; and search across them.",
     "Assistant": "The signed-in person's own private Assistant chat (docs/assistant.md): ask, and confirm what it proposes.",
     "Goals": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the CEO Bot works out from their KPIs, "
@@ -1703,6 +1704,56 @@ SCHEMAS.update({
     'WebhookReplayed': obj({'webhook': 's', 'since': 's', 'checked': 'i', 'queued': 'i', 'more': 'b'}),
     'WebhookQueued': obj({'queued': 'i', 'type': 's'}),
     'WebhookSends': obj({'items': items(ref('WebhookSendRow')), 'more': 'b', 'next_offset': 'i'}, required=['items', 'more']),
+})
+
+# Pages and Library › Files (backend/pages.py, backend/file_library.py).
+STABLE.extend([
+    ("/api/v2/pages", "post", "Pages", "publishPage",
+     "A bot publishes an .html page (raw with fields in the query, or JSON); scripts and outside loads are removed", "PagePublished"),
+    ("/api/v2/pages", "get", "Pages", "listPages",
+     "Pages the caller may read: `ids` (up to 50) in that order, leaving out the unreadable; else newest first by bot or task",
+     "PageList"),
+    ("/api/v2/pages/{fid}", "get", "Pages", "getPage", "One page and its status line; 404 when the caller may not read it",
+     "PageShown"),
+    ("/api/v2/pages/{fid}", "patch", "Pages", "editPage",
+     "Change a page's cadence, data date or replacement, or archive or restore it (the bot, owner and bot managers)",
+     "PageShown"),
+    ("/api/v2/files", "get", "Files", "listFiles",
+     "Library › Files: every file the caller may see, newest activity first, filtered by kind, bot, team, task, date, "
+     "pinned or archived; paged and byte-capped, no totals", "FileLibrary"),
+    ("/api/v2/files/search", "get", "Files", "searchFiles",
+     "Search the files the caller may read by title and text, best first, each with an excerpt", "FileSearch"),
+    ("/api/v2/files/{fid}", "delete", "Files", "deleteFile",
+     "The owner deletes a file for good: every version's bytes leave storage; activity keeps who and when", "FileDeleted"),
+])
+SCHEMAS.update({
+    "Page": obj({"file_id": "s", "title": "s", "bot": "s", "bot_name": "s", "version": "i", "updated": "s",
+                 "updated_by": "n", "updated_by_name": "s",
+                 "cadence": {"type": "string", "enum": ["none", "daily", "weekly", "monthly"]},
+                 "as_of": {"type": ["string", "null"], "description": "The date the data is from (YYYY-MM-DD)"},
+                 "stale_days": {"type": ["integer", "null"], "description": "Days since the last version once past "
+                                "1.5x the cadence; null while current or without a cadence"},
+                 "replaced_by": {"type": ["string", "null"], "description": "The newer page's file id, when the reader "
+                                 "may see it"}, "replaced_by_title": "n", "archived": "b", "task_id": "n",
+                 "src": {"type": ["string", "null"], "description": "Where to frame the page; null means open it "
+                         "(GET /api/v2/files/{fid}/versions/{number})"}},
+                required=["file_id", "title", "bot", "bot_name", "version", "updated", "updated_by", "cadence",
+                          "as_of", "stale_days", "replaced_by", "archived", "task_id", "src"]),
+    "PageShown": obj({"page": ref("Page"), "can_manage": "b", "can_delete": "b"}, required=["page"]),
+    "PagePublished": obj({"page": ref("Page"), "unembedded": items({"type": "string"}), "created": "b"},
+                         required=["page", "unembedded"]),
+    "PageList": obj({"pages": items(ref("Page")), "has_more": "b", "next_cursor": "n"}, required=["pages"]),
+    "LibraryFile": obj({"id": "s", "bot": "s", "bot_name": "s", "title": "s", "kind": "s",
+                        "library_kind": {"type": "string", "enum": ["page", "document", "image", "data", "media", "other"]},
+                        "kind_label": "s", "version": "i", "last_activity_at": "s", "archived": "b",
+                        "page": {"type": ["object", "null"], "description": "{cadence, archived} for a page"},
+                        "pins": {"type": "array", "description": "Where the file is pinned, when pins exist"}},
+                       required=["id", "bot", "title", "kind", "library_kind", "version", "last_activity_at"]),
+    "FileLibrary": obj({"files": items(ref("LibraryFile")), "has_more": "b", "next_cursor": "n"}),
+    "FileSearchHit": obj({"id": "s", "title": "s", "kind": "s", "library_kind": "s", "bot": "s", "bot_name": "s",
+                          "version": "i", "updated": "s", "url": "n", "page": "b", "excerpt": "s", "score": "f"}),
+    "FileSearch": obj({"results": items(ref("FileSearchHit"))}),
+    "FileDeleted": obj({"deleted": "s", "versions": "i"}),
 })
 
 ANSWERS = SCHEMAS

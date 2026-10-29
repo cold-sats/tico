@@ -134,10 +134,52 @@ activity, with the visible `total`), `POST /api/v2/files/uploads`, `/links`, `/i
 It returns `content`, `published`, `updated` and `source`; `published: false` means the Computer has not reported content yet.
 It never substitutes the bot's description for its Instructions.
 `docs/custom-frontend.md` and `examples/custom-frontend` show a bot's Files in a frontend of your own.
+Pages, Library › Files, search and deleting for good are below and in [Pages](pages.md).
+
+## Library › Files
+
+**Library › Files** lists every file the viewer may see, across all bots and whoever added it: bots' files and
+[pages](pages.md), task and chat attachments, people's uploads, links and imports. Each row passes the same check as
+the bot's page, so a file you may not read adds no row, name or count.
+
+- **Filters:** kind (Pages, Documents, Images, Data, Video and audio, Other), bot, team (its nested teams
+  included), task, date, pinned and archived. They ride in the address (`#/library/files?kind=page&bot=…`).
+- **Rows:** title, kind, bot, last updated, and where a page is pinned. A page opens full size; another stored file
+  opens in the file viewer; a link opens at its provider.
+- **Paging:** newest activity first, 50 rows at a time, each answer capped in bytes, with no total.
+
+`GET /api/v2/files?kind=&bot=&team=&task=&since=&until=&pinned=&archived=&limit=&cursor=`.
+
+## Search
+
+Search finds files by title and text: Markdown and plain text as they are, HTML as its visible text (never its
+scripts or styles), and CSV or TSV by its header and first 50 rows. PDFs and office files are found by title. The
+ranking follows [Docs](docs.md#search): title first, then text, each hit with an excerpt. Every hit passes the same
+visibility check as a list row.
+
+Tico indexes a version when it is published. A file from before this release is indexed in the background, a few
+hundred at a time; until then only its title is found.
+
+`GET /api/v2/files/search?q=&limit=`, `hub file search "<words>"`, file hits in the search box (⌘K), and the
+Librarian, which searches files beside the docs.
+
+## Deleting a file for good
+
+For a file that holds something it shouldn't. **Only the owner** deletes a file for good: **Delete for good** in a
+page's menu, `DELETE /api/v2/files/{id}`, or `hub file delete ID` with an owner token. BotOps asks the owner to
+confirm first.
+
+- Every version's bytes leave every place Tico stored them: this server, the company's bucket and its earlier
+  places, and Tico file hosting. Bytes another file still uses stay.
+- Its search text, page settings and pins go.
+- One row stays, titled **Deleted file**, and its activity records who deleted it, when and how many versions,
+  without the name or the content. Publishing the same path again makes a new file.
+- Backups already taken keep their copy until they age out.
 
 ## Retention
 
-Versions are immutable and kept unless you stop [Tico file hosting](#tico-file-hosting) and its retention period ends.
+Versions are immutable and kept unless you stop [Tico file hosting](#tico-file-hosting) and its retention period ends,
+or the owner [deletes the file for good](#deleting-a-file-for-good).
 The owner or a bot administrator removes a file from the bot's page (`PATCH /api/v2/files/{id}` with `archived: true`). That hides the row
 and keeps the bytes; the file returns when the bot publishes a changed version. A bot cannot remove a file.
 
