@@ -120,7 +120,7 @@ async function shot(target, name) {
     await page.waitForFunction(() => !document.querySelector('#task-body [data-group="need:decide"] [data-recommend]'));
 
     // Overview: the count and what went away on its own.
-    await page.evaluate(() => { location.hash = '#/overview'; });
+    await page.evaluate(() => { location.hash = '#/overview/campus'; });
     const strip = page.locator('#overview-needs');
     await strip.waitFor();
     assert.equal(await strip.locator('strong').textContent(), 'Needs you 6');
