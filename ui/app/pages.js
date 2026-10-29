@@ -13,14 +13,14 @@ const PAGE_FULL_MIN = 240;
 const pageDay = iso => { const d = new Date(String(iso) + 'T12:00:00'); return isNaN(d) ? String(iso) : d.toLocaleDateString(undefined, {month: 'short', day: 'numeric'}); };
 const pageHref = id => PAGE_ROUTE + encodeURIComponent(id);
 // The bot's name as the rest of the app shows it (duplicates get their slug), else the server's.
-const pageBot = x => x.bot && (S.emps || []).some(e => e.name === x.bot) ? botDisplayName(x.bot) : x.bot_name || x.bot || '';
+const pageBotName = x => x.bot && (S.emps || []).some(e => e.name === x.bot) ? botDisplayName(x.bot) : x.bot_name || x.bot || '';
 function pageStatusHTML(p) {
   if (p.replaced_by) {
     return `<div class="pg-status pg-replaced">Replaced by <a href="${esc(pageHref(p.replaced_by))}">${esc(p.replaced_by_title || 'a newer page')}</a></div>`;
   }
   const stale = Number.isInteger(p.stale_days);
   const by = String(p.updated_by || '');
-  const who = by.startsWith('bot:') ? pageBot({bot: by.slice(4), bot_name: p.updated_by_name}) : p.updated_by_name || pageBot(p);
+  const who = by.startsWith('bot:') ? pageBotName({bot: by.slice(4), bot_name: p.updated_by_name}) : p.updated_by_name || pageBotName(p);
   const parts = [stale ? `Not updated in ${p.stale_days} day${p.stale_days === 1 ? '' : 's'}`
     : `Updated ${esc(ago(p.updated))}${who ? ' by ' + esc(who) : ''}`, 'v' + Number(p.version)];
   if (p.cadence && p.cadence !== 'none') parts.push(esc(p.cadence));
@@ -310,7 +310,7 @@ function lfRowHTML(f) {
   return `<a class="lf-row" href="${esc(url)}"${attrs}>
     <span class="nav-icon" aria-hidden="true">${link ? 'link' : LF_ICON[kind] || 'inventory_2'}</span>
     <span class="lf-main"><span class="lf-title">${esc(f.title)}</span>
-      <span class="lf-meta">${esc(label.replace(/s$/, ''))} · ${esc(pageBot(f))} · ${esc(ago(f.last_activity_at))}${f.archived ? ' · archived' : ''}</span>
+      <span class="lf-meta">${esc(label.replace(/s$/, ''))} · ${esc(pageBotName(f))} · ${esc(ago(f.last_activity_at))}${f.archived ? ' · archived' : ''}</span>
       ${f.excerpt ? `<span class="lf-excerpt">${esc(f.excerpt)}</span>` : ''}</span>${pins}</a>`;
 }
 function lfDraw() {
@@ -335,6 +335,6 @@ function pagesStop(r) {
 async function searchFileHits(q) {
   if (q.trim().length < 2) return [];
   const r = await get(`/v2/files/search?q=${encodeURIComponent(q.trim())}&limit=6`);
-  return (r.results || []).map(h => ({kind: 'file', label: h.title, alias: pageBot(h), icon: LF_ICON[h.library_kind] || 'inventory_2',
+  return (r.results || []).map(h => ({kind: 'file', label: h.title, alias: pageBotName(h), icon: LF_ICON[h.library_kind] || 'inventory_2',
     href: h.library_kind === 'page' ? pageHref(h.id) : RD_FILES + '?q=' + encodeURIComponent(q.trim())}));
 }

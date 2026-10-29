@@ -71,3 +71,19 @@ def test_a_change_to_a_listed_file_changes_the_url(tmp_path):
     assert second.etag[ui_bundle.JS_PATH] != first.etag[ui_bundle.JS_PATH] and second.page != first.page
     (ui / "app/a.js").write_text("const A = 3;\n")                         # not strict: it cannot share a script
     assert bundles.get() is None
+
+
+def test_no_two_files_declare_the_same_top_level_name():
+    # The listed files share one scope (bundled or not), so a top-level const, let or class whose name another file
+    # also declares is a SyntaxError that leaves the whole app blank.
+    from pathlib import Path
+    decl = re.compile(r"^(?:async\s+)?(function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)", re.M)
+    ui = Path(ui_bundle.__file__).resolve().parent.parent / "ui"
+    _, paths = ui_bundle.build(ui)
+    seen = {}
+    for path in paths:
+        if path.suffix == ".js":
+            for kind, name in decl.findall(path.read_text()):
+                seen.setdefault(name, []).append((path.name, kind))
+    clashes = {n: d for n, d in seen.items() if len(d) > 1 and any(k in ("const", "let", "class") for _, k in d)}
+    assert clashes == {}
