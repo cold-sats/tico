@@ -202,30 +202,35 @@ async function decideRun(run, decision) {
   run.decided = run.jobs.every(job => job.decided === decision) ? decision : 'mixed';
   return run.decided;
 }
-// Tico's own update restarts every computer at once, so the runs it stops arrive together. Those safe to try again (the
-// rule the sweep and the review card share) are grouped under one choice when two or more stopped within ten minutes.
-// Each keeps its own line under Details, and a run that is not safe keeps its own choice outside the group.
+// Tico's own update restarts every computer at once, so the runs it stops arrive together. The ones the server puts in
+// the update's group (`update_group`: no named outside action, no approval used) and that nobody has started deciding
+// share one choice, two or more stopped within ten minutes of the first; a later update makes a group of its own.
+// Each keeps its own line under Details, and any other run keeps its own choice outside the group.
 const UPDATE_GROUP_MS = 10 * 60e3;
-function updateGroup(issues) {
+function updateGroups(issues) {
   const members = issues.flatMap(issue => (issue.runs || []).map((run, i) => ({issue, run, i, at: Date.parse(run.at || '')})))
-    .filter(m => m.run.cause === 'update' && m.run.retry && !m.run.decided && Number.isFinite(m.at));
-  if (members.length < 2) return null;
-  const first = Math.min(...members.map(m => m.at));
-  if (Math.max(...members.map(m => m.at)) - first > UPDATE_GROUP_MS) return null;
-  return {members, at: new Date(first)};
+    .filter(m => m.run.cause === 'update' && m.run.update_group && !m.run.chosen && !stoppedChosen(m.run) && Number.isFinite(m.at))
+    .sort((a, b) => a.at - b.at);
+  const groups = [];
+  for (const m of members) {
+    const last = groups.at(-1);
+    if (last && m.at - last.at <= UPDATE_GROUP_MS) last.members.push(m);
+    else groups.push({members: [m], at: m.at});
+  }
+  return groups.filter(g => g.members.length > 1).map((g, k) => ({...g, k, at: new Date(g.at)}));
 }
 // Only the people who may decide a run see its buttons: the others read the same line with no choice to make.
 const updateGroupRow = group => {
   const n = group.members.length, deciding = group.members.filter(m => m.issue.can_review && m.run.jobs).length;
   const scope = deciding === n ? 'all of them' : `the ${deciding} you can decide`;
-  return `<div class="settings-issue stopped-group" data-update-group>
-    <div><strong>Tico’s update at ${group.at.toISOString().slice(11, 16)} UTC stopped ${n} run${n === 1 ? '' : 's'}</strong>
+  return `<div class="settings-issue stopped-group" data-update-group="${group.k}">
+    <div><strong>${n} run${n === 1 ? '' : 's'} stopped during Tico’s update at ${group.at.toISOString().slice(11, 16)} UTC</strong>
     <p>${deciding ? `Try all again applies to ${scope}. Each bot checks what already happened first.` : 'Only the operator of each bot, or BotOps, can decide them.'}</p></div>
     <div class="issue-buttons">${deciding ? '<button class="primary" type="button" data-group-decision="resume">Try all again</button><button class="ghost" type="button" data-group-decision="dismiss">Don’t retry</button>' : ''}<button class="ghost" type="button" data-group-details aria-expanded="false">Details</button></div>
     <ul class="stopped-lines" data-group-runs hidden></ul><p class="stopped-result" data-group-result role="status" aria-live="polite"></p></div>`;
 };
 function bindUpdateGroup(panel, group, stopped) {
-  const el = panel.querySelector('[data-update-group]');
+  const el = panel.querySelector(`[data-update-group="${group.k}"]`);
   if (!el) return;
   const runs = el.querySelector('[data-group-runs]'), result = el.querySelector('[data-group-result]');
   // Each member's own line moves under Details, keeping the buttons bound by bindStoppedLines.
@@ -242,7 +247,7 @@ function bindUpdateGroup(panel, group, stopped) {
   const picks = [...el.querySelectorAll('[data-group-decision]')];
   picks.forEach(button => button.onclick = async () => {
     const decision = button.dataset.groupDecision;
-    const todo = group.members.filter(m => m.issue.can_review && m.run.jobs && !m.run.decided && m.li);
+    const todo = group.members.filter(m => m.issue.can_review && m.run.jobs && !stoppedChosen(m.run) && m.li);
     picks.forEach(b => b.disabled = true);
     result.classList.remove('err'); result.textContent = 'Saving choices…';
     try {
@@ -264,7 +269,7 @@ function bindUpdateGroup(panel, group, stopped) {
 function needsYou() {
   document.querySelector('.needs-you')?.remove();
   const issues = (S.status?.health_issues || []).filter(needsPerson);
-  const group = updateGroup(issues);
+  const groups = updateGroups(issues);
   const panel = document.createElement('section'); panel.className = 'needs-you';
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Needs you');
   const stopped = [];
@@ -272,7 +277,7 @@ function needsYou() {
   const row = issue => `<div class="settings-issue" data-key="${esc(needsYouKey(issue))}"><div><strong>${esc(issue.title)}</strong><p>${esc(issue.detail)}</p>${issue.action && issue.action !== 'review' ? `<p class="muted">${esc(issue.action)}</p>` : ''}${stoppedLines(issue, stopped)}</div>
     <div class="issue-buttons">${issue.kind === 'uncertain_work' ? `<button class="ghost" data-execution-review="${esc(issue.bot)}">${issue.runs?.length ? 'Details' : 'Review now'}</button>` : ''}${runnerRestartButton(issue)}${issue.bot ? `<a class="ghost" href="#/bot/${esc(issue.bot)}/more">Open bot</a>` : ''}</div></div>`;
   panel.innerHTML = `<header><h2>${issues.length === 1 ? 'One thing needs you' : `${issues.length} things need you`}</h2><button class="ghost" data-close aria-label="Close">Close</button></header>
-    <div data-list>${group ? updateGroupRow(group) : ''}${issues.map(row).join('') || '<p>Nothing needs you right now.</p>'}</div>
+    <div data-list>${groups.map(updateGroupRow).join('')}${issues.map(row).join('') || '<p>Nothing needs you right now.</p>'}</div>
     <div class="row"><button class="ghost" data-snooze>Snooze for an hour</button><a class="ghost" href="#/settings">Open Settings</a></div>`;
   const close = () => { needsYouRemember({seen: issues.map(needsYouKey)}); panel.remove(); };
   panel.querySelector('[data-close]').onclick = close;
@@ -283,7 +288,7 @@ function needsYou() {
   panel.querySelectorAll('a[href]').forEach(a => a.addEventListener('click', close));
   bindRunnerRestart(panel);
   bindStoppedLines(panel, stopped);
-  if (group) bindUpdateGroup(panel, group, stopped);
+  groups.forEach(group => bindUpdateGroup(panel, group, stopped));
   document.body.appendChild(panel);
   return panel;
 }

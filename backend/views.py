@@ -630,7 +630,7 @@ def operation_issues(c, who, auth):
                     at = (stamps[0].strftime("%H:%M") if stamps and len(stamps) == len(rows)
                           and (stamps[-1] - stamps[0]).total_seconds() <= 600 else None)
                     when = f" at {at} UTC" if at else ""
-                    why = {"update": f"Tico's update stopped {these}{when}",
+                    why = {"update": f"{these.capitalize()} stopped during Tico's update{when}",
                            "interrupted": f"Its computer interrupted {these}{when}, usually for a restart",
                            "quota": f"{these.capitalize()} stopped at a usage limit",
                            "capacity": f"{these.capitalize()} stopped because the AI service was busy",

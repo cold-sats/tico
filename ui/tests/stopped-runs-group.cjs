@@ -1,7 +1,8 @@
 // Tico's own update restarts every computer at once, so the runs it stops arrive together. Needs you groups the ones
-// safe to try again under one row with "Try all again" (one request per run) and "Don't retry", with each run's own
-// line under Details. A run that is not safe keeps its own line and choices outside the group. Someone who may not
-// decide the runs sees the same row with no buttons. Checked at desktop and phone widths.
+// the server puts in the update's group under one row with "Try all again" (one request per run) and "Don't retry",
+// with each run's own line under Details, one row per cluster of stops within ten minutes. A run that recorded an
+// outside action, a run with a choice already saved for one of its requests, and a lone later stop keep their own
+// lines. Someone who may not decide the runs sees the same rows with no buttons. Checked at desktop and phone widths.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -9,20 +10,28 @@ const {html, uiFile} = require('./support/page.cjs');
 const {unrouted} = require('./support/routes.cjs');
 const {t} = (() => { try { return require('./support/load.cjs'); } catch { return {t: ms => ms}; } })();
 
-// Two bots' runs stopped by the update within ten minutes, plus one run that may have acted.
-const update = (title, at, retry, id) => ({title, cause: 'update', why: 'Tico’s update', routine: true, retry,
-  at, decided: null, jobs: [{id, attempt_id: `a-${id}`, decided: null}]});
+// Two bots' runs stopped by the update within ten minutes, plus one run that may have acted, one folded run with a
+// choice already saved for one of its requests, and a third bot's two runs stopped by a later update.
+const update = (title, at, retry, id, group = retry) => ({title, cause: 'update', why: 'Stopped during Tico’s update',
+  routine: true, retry, update_group: group, at, decided: null, jobs: [{id, attempt_id: `a-${id}`, decided: null}]});
+const partly = {...update('Draft the release notes', '2026-10-28T14:03:00Z', true, 'u6'), chosen: true,
+  jobs: [{id: 'u6', attempt_id: 'a-u6', decided: 'dismiss'}, {id: 'u6b', attempt_id: 'a-u6', decided: null}]};
 const issues = canReview => [
   {kind: 'uncertain_work', title: 'ops has 2 stopped runs holding up work', bot: 'ops', severity: 'error',
     detail: 'Tico’s update stopped these runs at 14:02 UTC, not a bug. 1 queued request waits until you decide.',
     needs_person: true, action: 'review', can_review: canReview, more_runs: 0,
     runs: [update('Ship the receipts fix', '2026-10-28T14:02:10Z', true, 'u1'),
-      update('Weekly numbers', '2026-10-28T14:03:40Z', true, 'u2')].map(run => canReview ? run : {...run, jobs: undefined})},
+      update('Weekly numbers', '2026-10-28T14:03:40Z', true, 'u2'), partly].map(run => canReview ? run : {...run, jobs: undefined})},
   {kind: 'uncertain_work', title: 'builder has 2 stopped runs holding up work', bot: 'builder', severity: 'error',
     detail: 'Tico’s update stopped these runs at 14:04 UTC, not a bug.', needs_person: true, action: 'review',
     can_review: canReview, more_runs: 0,
     runs: [update('Billing 3/5', '2026-10-28T14:04:05Z', true, 'u3'),
       update('Review the migration plan', '2026-10-28T14:04:05Z', false, 'u4')].map(run => canReview ? run : {...run, jobs: undefined})},
+  {kind: 'uncertain_work', title: 'writer has 2 stopped runs holding up work', bot: 'writer', severity: 'error',
+    detail: 'These runs stopped during Tico’s update at 14:30 UTC, not a bug.', needs_person: true, action: 'review',
+    can_review: canReview, more_runs: 0,
+    runs: [update('Rotate the keys', '2026-10-28T14:30:00Z', false, 'u5', true),
+      update('Answer the support queue', '2026-10-28T14:31:00Z', true, 'u7')].map(run => canReview ? run : {...run, jobs: undefined})},
 ];
 
 (async () => {
@@ -77,8 +86,10 @@ const issues = canReview => [
     // A person who may decide: one row for the three safe runs, the unsafe one stays on its own line.
     {
       const {page, panel, errors, decisions} = await open({canReview: true, width: 1280, height: 800});
-      const group = panel.locator('[data-update-group]');
-      assert.match(await group.locator('strong').innerText(), /Tico.s update at 14:02 UTC stopped 3 runs/);
+      const group = panel.locator('[data-update-group="0"]');
+      assert.equal(await panel.locator('[data-update-group]').count(), 2);
+      assert.match(await group.locator('strong').innerText(), /^3 runs stopped during Tico.s update at 14:02 UTC$/);
+      assert.match(await panel.locator('[data-update-group="1"] strong').innerText(), /^2 runs stopped during Tico.s update at 14:30 UTC$/);
       assert.deepEqual(await group.locator('.issue-buttons > button').allInnerTexts(), ['Try all again', 'Don’t retry', 'Details']);
       assert.equal(await group.locator('[data-group-runs]').isVisible(), false);
       await group.locator('[data-group-details]').click();
@@ -91,11 +102,16 @@ const issues = canReview => [
       const risky = panel.locator('.stopped-line', {hasText: 'Review the migration plan'});
       assert.equal(await group.locator('[data-group-runs]', {hasText: 'Review the migration plan'}).count(), 0);
       assert.deepEqual(await risky.locator('button').allInnerTexts(), ['Don’t retry', 'Try again']);
+      // A run with a choice saved for one of its requests stays on its own line, its other choice closed.
+      const chosen = panel.locator('.stopped-line', {hasText: 'Draft the release notes'});
+      assert.equal(await panel.locator('[data-group-runs]', {hasText: 'Draft the release notes'}).count(), 0);
+      assert.deepEqual(await chosen.locator('button:enabled').allInnerTexts(), ['Don’t retry']);
       await shot(page, 'stopped-group-desktop');
       // Try all again posts each run's own request once, then every grouped line says what was queued.
       await group.locator('[data-group-decision=resume]').click();
       await group.locator('[data-group-result]', {hasText: 'Queued to try again.'}).waitFor();
       assert.deepEqual(decisions.map(d => [d.id, d.decision]), [['u1', 'resume'], ['u2', 'resume'], ['u3', 'resume']]);
+      assert.ok(decisions.every(d => /Check existing work/.test(d.note)), 'each retry tells the bot to check first');
       await group.locator('[data-group-details]').click();
       assert.deepEqual(await group.locator('[data-group-runs] [data-result]').allInnerTexts(),
         ['Queued to try again.', 'Queued to try again.', 'Queued to try again.']);
@@ -106,7 +122,7 @@ const issues = canReview => [
     // Phone: the row keeps inside the panel, its buttons as tall as their words, and nothing scrolls sideways.
     {
       const {page, panel, errors} = await open({canReview: true, width: 390, height: 800});
-      const fit = await panel.locator('[data-update-group]').evaluate(el => {
+      const fit = await panel.locator('[data-update-group="0"]').evaluate(el => {
         const box = node => node.getBoundingClientRect();
         const host = el.closest('.needs-you');
         return {group: box(el), panel: box(host), buttons: [...el.querySelectorAll('button')].map(b => box(b).height),
@@ -122,8 +138,8 @@ const issues = canReview => [
     // Someone who may not decide: the same group and times, no buttons, and no choice on any line.
     {
       const {page, panel, errors, decisions} = await open({canReview: false, width: 1280, height: 800});
-      const group = panel.locator('[data-update-group]');
-      assert.match(await group.locator('strong').innerText(), /stopped 3 runs/);
+      const group = panel.locator('[data-update-group="0"]');
+      assert.match(await group.locator('strong').innerText(), /^3 runs stopped/);
       assert.deepEqual(await group.locator('.issue-buttons > button').allInnerTexts(), ['Details']);
       assert.equal(await panel.locator('[data-run-decision], [data-group-decision]').count(), 0);
       assert.equal(await panel.locator('.stopped-picks').count(), 0);

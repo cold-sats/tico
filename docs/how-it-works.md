@@ -273,12 +273,13 @@ in the recovery history and shows its ownership in Stopped runs. Within five min
 scheduler re-evaluates the stopped job and records who owns recovery and why.
 When the computer reports a restart, a run resumes on the next scheduler sweep, including one that used a shell or
 edited files. Its recovery note gives the interruption time and tells it to check what already happened first;
-the same computer continues the same provider session. A hub update restarts computers the same way, with no restart
-report: a run that was running when an update started, and ended within the lease plus fifteen minutes of the update
-finishing (the snapshot and health check take minutes), is judged as restarted and its note says Tico's update did it.
-Needs you groups the runs an update stopped that are safe to try again into one row, two or more within ten minutes,
-with **Try all again** and **Don’t retry** for the people who may decide them; each run keeps its own line under
-Details, and a run that is not safe keeps its own choices. A stopped run is counted once however many requests were
+the same computer continues the same provider session. A hub update restarts computers too, often with no restart
+report. A run that ended within the lease plus fifteen minutes of an update finishing (the snapshot and health check
+take minutes) stopped during it: Needs you says so, but that is timing, not proof, so the run is held by the same rule
+as any lapsed run. Needs you groups those runs, two or more within ten minutes, into one row with **Try all again**
+and **Don’t retry** for the people who may decide them; each retry tells the bot to check what already happened
+first. Each run keeps its own line under Details, and a run that recorded a named outside action or used an approval,
+or one with a choice already saved, keeps its own choices. A stopped run is counted once however many requests were
 folded into it. A consumed approval or a named irreversible outside action
 (merge, publish, send or payment) holds it for BotOps instead, and the review names the action. A second interruption
 is dismissed and BotOps is told. The computer records fixed operation labels alongside shell events without exposing

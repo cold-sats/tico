@@ -534,28 +534,51 @@ def lapsed_shell_run(api, summary='ls notes', update=None):
     return machine, message, attempt
 
 
+def update_line(api):
+    """The run's own line, as Needs you lists it for its operator."""
+    from backend import execution
+    store = api.app.state.store
+    with store.read_transaction() as c:
+        [line], _ = execution.stopped_rows(c, store.settings.test_identities['ana-test'], api.app.state.auth, 'ops')
+    return line
+
+
 @pytest.mark.parametrize('update', [0, -300])
-def test_a_lapse_during_tico_s_update_with_only_a_shell_command_is_retried_by_the_sweep(api, update):
-    """An update restarts the computer under a run with no report. A shell command that names no outside action is
-    what a computer's own restart report is judged by, so the sweep resumes it at once. The updater restarts the
-    runners after it reports its finish, so a run that began minutes after the update finished is cut by it too."""
+def test_a_lapse_during_tico_s_update_is_named_and_grouped_but_not_retried_on_timing_alone(api, update):
+    """A lapse near an update is timing, not proof the update restarted the run's computer: one on a computer the
+    update never touched looks the same. The run is held like any lapse that used a shell, its line says it stopped
+    during the update, and it joins the update's one choice. The updater restarts the runners after it reports its
+    finish, so a run that began minutes after the update finished counts too."""
     machine, message, attempt = lapsed_shell_run(api, update=update)
-    [review] = get(api, 'bots/ops/execution-review')['jobs']
-    assert review['stopped'] == 'restarted' and "Tico's update restarted the computer" in review['reason']
-    assert [d['state'] for d in sweep(api)] == ['queued']
-    ready(api, machine, ['ops'])
-    body = claim(api, machine)['message']['body']
-    assert "interrupted at " in body and "by Tico's update restarting its computer" in body
-    assert 'Check what already happened first' in body
-
-
-def test_a_lapse_during_tico_s_update_that_ran_a_named_outside_action_stays_held(api):
-    machine, message, attempt = lapsed_shell_run(api, summary='gh pr merge 12', update=0)
     assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
     [review] = get(api, 'bots/ops/execution-review')['jobs']
-    assert review['stopped'] == 'changed'
-    assert ("Tico's update restarted the computer under the run after the run recorded merge pull request"
-            in review['reason'])
+    assert review['stopped'] != 'restarted' and 'restart' not in review['reason'].lower()
+    line = update_line(api)
+    assert (line['cause'], line['why'], line['update_group']) == ('update', "Stopped during Tico's update", True)
+
+
+def test_a_restart_the_computer_reports_during_tico_s_update_is_retried_by_the_sweep(api):
+    """The computer's own restart report is the proof: with it, a run that used only a shell resumes at once."""
+    machine, message, attempt = setup_attempt(api)
+    post(api, f"attempts/{attempt['id']}/started", {'thread_id': 'updated'}, machine['token'])
+    post(api, f"attempts/{attempt['id']}/events", {'events': [
+        {'seq': 1, 'kind': 'status', 'payload': {'state': 'active', 'tool_events': True}},
+        {'seq': 2, 'kind': 'tool', 'payload': {'tool': 'shell', 'status': 'started', 'item_id': 'sh1',
+                                               'summary': 'ls notes'}}]}, machine['token'])
+    hub_update(api)
+    post(api, f"attempts/{attempt['id']}/complete", {'outcome': 'interrupted', 'last_seq': 2,
+         'text': 'Runner restarted during execution'}, machine['token'])
+    [review] = get(api, 'bots/ops/execution-review')['jobs']
+    assert review['stopped'] == 'restarted'
+    assert "The computer reported a restart during Tico's update" in review['reason']
+    assert [d['state'] for d in sweep(api)] == ['queued']
+
+
+def test_a_lapse_during_tico_s_update_that_ran_a_named_outside_action_stays_out_of_the_group(api):
+    machine, message, attempt = lapsed_shell_run(api, summary='gh pr merge 12', update=0)
+    assert sweep(api) == [] and job_state(api, attempt['job_id']) == 'uncertain'
+    line = update_line(api)
+    assert line['cause'] == 'update' and line['update_group'] is False
 
 
 @pytest.mark.parametrize('update', [None, -3600])
@@ -1325,8 +1348,9 @@ def test_a_stopped_run_that_holds_queued_work_needs_a_person_and_says_what_waits
     assert issue['detail'] == ('Its computer stopped answering during this run, not a bug. '
                                '2 queued requests wait until you decide.')
     assert issue['runs'] == [{'title': 'Archive the old bots', 'cause': 'timeout', 'why': 'Computer stopped answering',
-                              'routine': True, 'retry': False, 'at': issue['runs'][0]['at'],
-                              'jobs': [{'id': attempt['job_id'], 'attempt_id': attempt['id']}], 'decided': None}]
+                              'routine': True, 'retry': False, 'update_group': False, 'at': issue['runs'][0]['at'],
+                              'jobs': [{'id': attempt['job_id'], 'attempt_id': attempt['id']}], 'chosen': False,
+                              'decided': None}]
     assert issue['runs'][0]['at'] and issue['more_runs'] == 0 and issue['can_review'] is True
     post(api, f"jobs/{attempt['job_id']}/reconcile", {'attempt_id': attempt['id'], 'decision': 'dismiss',
          'note': 'The archive already ran; do not repeat it.', 'acknowledge_uncertain_effects': True})
@@ -1406,7 +1430,9 @@ def busy_folded_run(api):
          'text': 'Runner restarted during execution'}, machine['token'])
     post(api, f"tasks/{task_id}/comments", {'text': 'And tell me when it is up.'})   # waits behind the held run
     rival(api, machine, attempt)
-    [line] = stopped_issue(api)['runs']
+    issue = stopped_issue(api)
+    print("ISSUE", issue)
+    [line] = issue["runs"]
     assert len(line['jobs']) == 2 and line['decided'] is None and all('decided' not in j for j in line['jobs'])
     return line['jobs']
 
@@ -1427,12 +1453,16 @@ def test_a_choice_saved_while_the_bot_is_busy_shows_on_its_stopped_run_line(api,
             'acknowledge_uncertain_effects': True}
     assert post(api, f"jobs/{first['id']}/reconcile", {**body, 'attempt_id': first['attempt_id']})['deferred'] is True
     # Partway: the saved request says so, the other is still to decide, so the line still offers its choice.
-    [line] = stopped_issue(api)['runs']
+    issue = stopped_issue(api)
+    print("ISSUE", issue)
+    [line] = issue["runs"]
     assert [j.get('decided') for j in line['jobs']] == ['resume', None] and line['decided'] is None
     assert post(api, f"jobs/{second['id']}/reconcile", {**body, 'attempt_id': second['attempt_id']})['deferred'] is True
     assert 'runs' not in stopped_issue(api)
     beside_open_work(monkeypatch)
-    [line] = stopped_issue(api)['runs']
+    issue = stopped_issue(api)
+    print("ISSUE", issue)
+    [line] = issue["runs"]
     assert [j['decided'] for j in line['jobs']] == ['resume', 'resume'] and line['decided'] == 'resume'
     # A reader who may not decide still sees that a choice is saved, without the handles.
     [seen] = stopped_issue(api, 'ben-test')['runs']
@@ -1448,7 +1478,9 @@ def test_a_run_whose_folded_requests_got_different_saved_choices_is_settled(api,
         assert post(api, f"jobs/{job['id']}/reconcile",
                     {**body, 'decision': decision, 'attempt_id': job['attempt_id']})['deferred'] is True
     beside_open_work(monkeypatch)
-    [line] = stopped_issue(api)['runs']
+    issue = stopped_issue(api)
+    print("ISSUE", issue)
+    [line] = issue["runs"]
     assert [j['decided'] for j in line['jobs']] == ['resume', 'dismiss'] and line['decided'] == 'mixed'
 
 
