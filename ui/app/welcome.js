@@ -369,6 +369,7 @@ function onbSummaryHTML(state) {
       || (state.providers?.providers || []).filter(row => (state.providers.enabled || []).includes(row.id)).map(row => row.label).join(', ')
       || 'Choose later in Settings > Computers')}
     ${label('Computers', onbMachineStatus(r))}
+    ${S.config?.visuals === 'media' ? label('Pages', 'Open cards. Tico file hosting or a visual address shows them inline.') : ''}
     ${frSummaryTeamHTML(state)}
   </div>`;
 }

@@ -250,6 +250,77 @@ async function visualHandshake(browser) {
   await page.close();
 }
 
+// Tico file hosting with no visual address: a page's `src` is on the app's own route, which sends its frame on to the
+// company's files address. The shell is told that address with the visual origin, and the page frames only once it
+// acknowledged it; a shell too old to know it never hears the address, and the page stays an Open card.
+async function hostedHandshake(browser, current) {
+  const FILES = 'https://acme-files.ticofiles.com';
+  const page = await browser.newPage({serviceWorkers:'block', userAgent:'Mozilla/5.0 AppleWebKit/605.1.15 TicoHub'});
+  const errors = [], reads = [];
+  page.on('pageerror', e => {
+    if (e.message !== "Service Worker is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag") errors.push(e.message);
+  });
+  await page.addInitScript({content:`
+    (() => {
+    if (window.top !== window) return;
+    window.EventSource = undefined;
+    window.__calls = []; window.__pending = [];
+    window.__TAURI__ = {core:{invoke: (command, args) => {
+      if (command !== 'bridge' || args.name !== 'visualOrigin') return Promise.resolve(null);
+      window.__calls.push(args.body);
+      return new Promise(resolve => window.__pending.push(resolve));
+    }}};
+    ${bridge}
+    ${current ? '' : "window.ticoNativeFeatures = window.ticoNativeFeatures.filter(f => f !== 'visualFiles');"}
+    })();
+  `});
+  const config = {company_name:'Acme', visual_origin:'', visual_files:FILES, visuals:'hosted'};
+  const message = {id:'m1', from_actor:'bot:ops', body:'Weekly', created:'2026-01-01T00:00:00Z',
+    refs:{attachments:[{id:'f1', file_id:'f1', version:1, current_version:1, ref:'f1@1', title:'Weekly', kind:'page',
+      name:'weekly.html', size:100, content_type:'text/html', url:'/api/v2/files/f1', src:'/visuals/'+TOKEN}]}};
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url()), p = url.pathname;
+    const json = body => route.fulfill({contentType:'application/json', body:JSON.stringify(body)});
+    if (p.startsWith('/visuals/')) { reads.push(p); return route.fulfill({contentType:'text/html', body:'<p>Weekly</p>'}); }
+    if (p === '/') return route.fulfill({contentType:'text/html', body:html});
+    if (p.startsWith('/tico/ui/')) {
+      const file = uiFile(p.slice('/tico/ui/'.length));
+      if (fs.existsSync(file)) return route.fulfill({path:file});
+    }
+    if (p === '/api/me') return json({id:'ana', email:'ana@acme.example', role:'owner', cloud:true, config});
+    if (p === '/api/v2/config') return json(config);
+    if (p === '/api/employees') return json([{name:'ops', display_name:'Ops', status:'active', host:'keeper', can_chat:true}]);
+    if (p === '/api/humans') return json({people:[{id:'ana', name:'Ana'}], groups:[]});
+    if (p === '/api/status') return json({cloud:true, keeper_alive:true, health_issues:[]});
+    if (p === '/api/v2/status') return json({bots:[{bot:'ops', state:'idle', open_tasks:0}]});
+    if (p === '/api/v2/needs-you') return json({items:[]});
+    if (p === '/api/v2/conversations') return json({conversations:[{id:'c-ops', kind:'chat', scope:'personal', participants:['human:ana','bot:ops']}]});
+    if (p === '/api/v2/conversations/c-ops/snapshot') return json({messages:[message], execution:null});
+    return json(unrouted(p));
+  });
+  await page.goto('https://tico-ui.test/#/bot/ops/chat', {waitUntil:'domcontentloaded'});
+  await page.waitForFunction(() => window.__calls.length > 0);
+  await page.evaluate(() => window.__pending[0](false));
+  await page.waitForFunction(() => window.__calls.length > 1);
+  assert.deepEqual(await page.evaluate(() => window.__calls[1]), current ? {origin:'', files:FILES} : {origin:''},
+    current ? 'the shell hears the files address' : 'an older shell never hears a field it would refuse');
+  await page.locator('figure.vcard[data-state="open"]').waitFor();
+  assert.equal(await page.locator('iframe.vcard-frame').count(), 0, 'no frame before the shell follows it');
+  assert.equal(await page.evaluate(() => visualPageSrc('/visuals/' + 'YQ.' + 'a'.repeat(43))), null);
+  await page.evaluate(accepted => window.__pending[1](accepted), current);
+  await page.evaluate(() => NATIVE_VISUAL_PENDING);
+  if (current) {
+    await page.locator('figure.vcard[data-state="ready"] iframe.vcard-frame[src]').waitFor();
+    assert.equal(await page.evaluate(() => NATIVE_VISUAL_FILES), FILES);
+    assert.ok(reads.length > 0);
+  } else {
+    assert.equal(await page.locator('figure.vcard[data-state="open"]').count(), 1);
+    assert.deepEqual(reads, [], 'an older shell would open the redirect in the browser');
+  }
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
 (async () => {
   const browser = await webkit.launch({headless:true});
   const page = await browser.newPage({serviceWorkers:'block', viewport:{width:1240,height:820},
@@ -312,6 +383,8 @@ async function visualHandshake(browser) {
   assert.deepEqual(posted.filter(([name]) => name === 'visualOrigin'), [], 'older shells never receive the new command');
   assert.deepEqual(errors, []);
   await visualHandshake(browser);
+  await hostedHandshake(browser, true);
+  await hostedHandshake(browser, false);
   await browser.close();
   console.log('native window: no rail mode; usable from 360px to 1240px');
 })().catch(error => { console.error(error); process.exit(1); });
