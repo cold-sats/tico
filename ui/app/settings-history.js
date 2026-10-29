@@ -112,7 +112,10 @@ function renderSettingsHistory(el = $('#set-history'), history = SETTINGS_DATA.h
   }).join('');
   const more = history?.next_before
     ? '<button class="ghost" type="button" data-settings-older>Show older</button>' : '';
-  el.innerHTML = `${pendingRows ? `<h3>In progress</h3>${pendingRows}` : ''}`
+  // The page leaves out the oldest transitions when they would not fit (backend/settings_admin.py history).
+  const late = history?.transitions_truncated
+    ? '<p class="empty">Some older in-progress changes are not listed here.</p>' : '';
+  el.innerHTML = `${pendingRows || late ? `<h3>In progress</h3>${pendingRows}${late}` : ''}`
     + `${rows || '<div class="empty">No settings changes yet.</div>'}${more}`;
   const drawn = el._settingsDrawn = {};
   el.onclick = async event => {

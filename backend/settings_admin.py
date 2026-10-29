@@ -24,6 +24,8 @@ from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
 from .readiness import absolute, can_run
 from .statuses import PARKED_SQL
+from . import fast_json
+from . import names as actor_names
 from . import read_cache
 from . import report_managers
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
@@ -34,6 +36,23 @@ def _json(value, fallback=None):
         return json.loads(value) if isinstance(value, str) else value
     except (TypeError, ValueError):
         return fallback
+
+
+def _bytes(value):
+    """The bytes `value` takes as the route sends it: fast_json encodes the stable answers (backend/app.py)."""
+    return len(fast_json.dumps(value))
+
+
+def _fit(items, budget):
+    """The leading `items` that fit in `budget` bytes with their commas: (those, their bytes, whether any were cut)."""
+    kept, used = [], 0
+    for item in items:
+        cost = _bytes(item) + 1
+        if used + cost > budget:
+            return kept, used, True
+        kept.append(item)
+        used += cost
+    return kept, used, False
 
 def repository_present(c, bot):
     from .agents import external_harness
@@ -58,9 +77,9 @@ def compact_at(config):
 
 # The fields a manager bot changes on its report (report_managers.SCOPES). Anyone who manages the bot may undo them.
 REPORT_UNDO = ("model", "task_model", "identity")
-# A page of the settings history is at most this many bytes of JSON as it is sent, counted in UTF-8 (an emoji is four
-# bytes, not one character). A change past that starts the next page (`next_before`); one bigger than a page on its own
-# is sent without its values (`truncated`), so the page still moves on past it.
+# A page of the settings history is at most this many bytes of JSON as it is sent, names included, counted in UTF-8 (an
+# emoji is four bytes, not one character). A change past that starts the next page (`next_before`); one bigger than a
+# page on its own is sent without its values (`truncated`), so the page still moves on past it.
 HISTORY_PAGE_BYTES = 256 * 1024
 
 
@@ -1033,8 +1052,9 @@ class SettingsAdmin:
         """One page of the settings changes the caller may see, newest first, and `next_before` for the page after it.
         The owner sees every change, and every transition on the first page. A person who manages a bot sees only the
         changes its manager bots made to the bots they manage (via `report_manager`), and no transitions. Anyone else
-        sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. A page stays within
-        HISTORY_PAGE_BYTES (a change alone over that comes without its values, `truncated`)."""
+        sees none. `bot` keeps to one bot; `before` (a page's `next_before`) keeps to older changes. The page is at most
+        HISTORY_PAGE_BYTES as it is sent: its transitions come first, newest first, and `transitions_truncated` says
+        when some were left out; its changes take what is left."""
         if who.role not in ("owner", "human"):
             raise Problem("forbidden", "Only the owner, or a person who manages the bot, sees its settings changes",
                           403)
@@ -1043,49 +1063,71 @@ class SettingsAdmin:
         # The bots first: a caller who manages none reads no change at all, and anyone else reads only theirs.
         bots = None if owner and not bot else self._history_bots(c, who, bot)
         rows = self._history_rows(c, owner, bots, before, limit)
-        changes, used = [], 2   # the page's JSON: its brackets, then each change with the comma after it
-        for row in rows:
-            if len(changes) == limit:
-                break
-            value = dict(row)
-            value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
-            try:
-                current = self.snapshot(c, row["bot"], row["field"])
-            except (ValueError, Problem, TypeError, KeyError):
-                # A field an older release wrote, or a bot deleted since: history still shows it.
-                current = None
-            # The owner's own list, and a change a manager bot made to its report (anyone who manages the bot may
-            # undo it).
-            owners_undo = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access",
-                                            "profile")
-                           # A profile change from a bot that had none has nothing to go back to (undo: 409).
-                           and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
-            value["can_undo"] = bool(not row["undone_at"] and current == value["after"]
-                                     and ((owner and owners_undo) or self._report_undo(row)))
-            value["truncated"] = False
-            size = len(encode(value).encode())
-            if size > HISTORY_PAGE_BYTES:
+        changes = [self._history_change(c, row, owner) for row in rows[:limit]]
+        actor_names.annotate(c, changes)
+        # What the page takes besides its changes: its keys, and a cursor as long as an id.
+        room = HISTORY_PAGE_BYTES - _bytes({"changes": [], "next_before": H.new_id(), "transitions": [],
+                                            "transitions_truncated": True})
+        for value in changes:
+            if _bytes(value) + 1 > room:
                 # Bigger than a page on its own (a long list of people, say): sent without its values. It is still
-                # taken here, so the page moves on past it.
+                # taken, so the page moves on past it.
                 value.update(before=None, after=None, truncated=True)
-                size = len(encode(value).encode())
-            if changes and used + size + 1 > HISTORY_PAGE_BYTES:
-                break
-            changes.append(value)
-            used += size + 1
-        transitions = []
+        transitions, cut, used = [], False, 0
         if owner and not before:
             ids = c.execute("SELECT id FROM bot_transitions" + (" WHERE bot=?" if bot else "")
                             + " ORDER BY created DESC LIMIT ?", ([bot] if bot else []) + [limit]).fetchall()
             transitions = [self.get(c, who, row[0]) for row in ids]
-        return {"changes": changes, "transitions": transitions,
-                "next_before": changes[-1]["id"] if len(rows) > len(changes) else None}
+            actor_names.annotate(c, transitions)
+            # The first change keeps its room, so a page that has transitions still takes a change.
+            transitions, used, cut = _fit(transitions, room - (_bytes(changes[0]) + 1 if changes else 0))
+        changes = _fit(changes, room - used)[0]
+        return self._page(c, rows, changes, transitions, cut)
+
+    def _history_change(self, c, row, owner):
+        """A settings change with what the page says about it (`can_undo`); `history` fits it afterwards."""
+        value = dict(row)
+        value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
+        try:
+            current = self.snapshot(c, row["bot"], row["field"])
+        except (ValueError, Problem, TypeError, KeyError):
+            # A field an older release wrote, or a bot deleted since: history still shows it.
+            current = None
+        # The owner's own list, and a change a manager bot made to its report (anyone who manages the bot may undo it).
+        owners_undo = (row["field"] in ("owners", "co_owners", "model", "placement", "fallback", "access", "profile")
+                       # A profile change from a bot that had none has nothing to go back to (undo: 409).
+                       and (row["field"] != "profile" or bool((value["before"] or {}).get("profile"))))
+        value["can_undo"] = bool(not row["undone_at"] and current == value["after"]
+                                 and ((owner and owners_undo) or self._report_undo(row)))
+        value["truncated"] = False
+        return value
+
+    def _page(self, c, rows, changes, transitions, cut):
+        """The page as it is sent: its names are added (they are bytes too), then, while it is over a page, its last
+        change goes to the next page, then its last transition. A lone change still over a page comes without its
+        values."""
+        while True:
+            page = {"changes": changes, "transitions": transitions, "transitions_truncated": cut,
+                    "next_before": changes[-1]["id"] if len(rows) > len(changes) else None}
+            actor_names.annotate(c, page)
+            if _bytes(page) <= HISTORY_PAGE_BYTES:
+                return page
+            if len(changes) > 1:
+                changes.pop()
+            elif transitions:
+                transitions.pop()
+                cut = True
+            elif changes[0]["truncated"]:
+                return page
+            else:
+                changes[0].update(before=None, after=None, truncated=True)
 
     @staticmethod
     def _history_rows(c, owner, bots, before, limit):
         """The newest `limit` + 1 changes the caller may see, newest first (`bots` None: every bot's). Each bot is its
-        own query, an index seek (`settings_changes_bot`, or `settings_changes_bot_via` for a person's view) that reads
-        at most `limit` + 1 rows, so a bot's ordinary history is never read by a person who sees none of it."""
+        own query, an index seek (`settings_changes_bot_id`, or `settings_changes_bot_via_id` for a person's view) in
+        id order within a timestamp, that reads at most `limit` + 1 rows, so a bot's ordinary history is never read by a
+        person who sees none of it."""
         rows = []
         for slug in [None] if bots is None else bots:
             where, args = [], []

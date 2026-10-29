@@ -156,3 +156,69 @@ def test_a_settings_change_bigger_than_a_page_comes_without_its_values_and_pagin
     assert alone["changes"][0]["truncated"] is True
     past = api.get(f"/api/v2/settings/history?limit=1&before={ids[1]}", headers=headers()).json()
     assert [row["id"] for row in past["changes"]] == [ids[2]] and past["changes"][0]["truncated"] is False
+
+
+def prepared_transitions(api, cid, count, text):
+    """`count` prepared transitions of ops, newest first, each with a checkpoint of `text` in the chat `cid` (the table
+    gives every checkpoint a message of its own, so each one is a copy of the chat's first message)."""
+    stamp = H.now()
+    with api.app.state.store.transaction() as c:
+        first = dict(c.execute(
+            "SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid LIMIT 1", (cid,)).fetchone())
+        clone(c, "messages", {**first, "from_actor": "bot:ops", "to_actor": "human:ana"}, count,
+              created=lambda i: H.shift(first["created"], seconds=-i - 1))
+        messages = [row[0] for row in c.execute(
+            "SELECT id FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?", (cid, count)).fetchall()]
+        for i, message in enumerate(messages):
+            tid = H.new_id()
+            c.execute("INSERT INTO bot_transitions(id,bot,kind,target_json,requested_by,expected_revision,state,"
+                      "created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
+                      (tid, "ops", "model", encode({"model": "fake-model"}), "human:ana", 1, "prepared",
+                       H.shift(stamp, seconds=-i), stamp))
+            c.execute("INSERT INTO bot_transition_checkpoints(transition_id,conversation_id,message_id,state,"
+                      "checkpoint_json) VALUES(?,?,?,?,?)",
+                      (tid, cid, message, "prepared",
+                       encode({"current_objective": text,
+                               "next_recommended_action": "Ask Ana", "open_decisions": []})))
+
+
+def test_a_settings_history_first_page_with_transitions_stays_within_its_bytes(api):
+    # Three prepared changes with a checkpoint of about 20 KB each, and a page of changes that fills what they leave.
+    # The 120 people who made the changes have long names: the page sends each name beside its id.
+    _, msg, _ = setup_attempt(api)
+    prepared_transitions(api, msg["conversation_id"], 3, "A checkpoint of the chat's objective. " * 550)
+    text = {"display_name": "Ops", "description": "A long description. " * 80}
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO humans(id,name,email,slack_id,teams_json) VALUES(?,?,?,?,?)",
+                      [(f"person-{i:03d}", f"Person {i:03d} " + "with a long name " * 6, None, None, None)
+                       for i in range(120)])
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), "ops", "definition", encode(text), encode(text), f"human:person-{i:03d}", None,
+                        H.shift(H.now(), seconds=-i), None) for i in range(120)])
+    opened = api.get("/api/v2/settings/history?limit=100", headers=headers())
+    page = opened.json()
+    assert len(opened.content) <= 256 * KB
+    assert len(page["transitions"]) == 3 and page["transitions_truncated"] is False
+    assert len(page["changes"]) >= 40 and page["next_before"]
+
+
+def test_a_settings_history_first_page_leaves_out_the_oldest_transitions_its_bytes_cannot_hold(api):
+    # Twelve prepared changes of about 45 KB each are more than a page. The newest that fit are sent and flagged, and
+    # the page still takes its changes.
+    _, msg, _ = setup_attempt(api)
+    prepared_transitions(api, msg["conversation_id"], 12, "A checkpoint of the chat's objective. " * 1200)
+    text = {"display_name": "Ops", "description": "A long description. " * 80}
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), "ops", "definition", encode(text), encode(text), "human:ana", None,
+                        H.shift(H.now(), seconds=-i), None) for i in range(5)])
+    opened = api.get("/api/v2/settings/history?limit=100", headers=headers())
+    page = opened.json()
+    assert len(opened.content) <= 256 * KB
+    with api.app.state.store.read() as c:
+        newest = [row[0] for row in c.execute("SELECT id FROM bot_transitions ORDER BY created DESC")]
+    kept = [row["id"] for row in page["transitions"]]
+    assert page["transitions_truncated"] is True and 0 < len(kept) < 12 and kept == newest[:len(kept)]
+    assert len(page["changes"]) >= 1

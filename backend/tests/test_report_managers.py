@@ -265,9 +265,65 @@ def test_a_persons_view_of_a_bots_changes_is_an_index_seek_whatever_the_bots_his
     for path in ("settings/history?bot=counsel", "settings/history"):
         answer, plans = settings_reads(api, monkeypatch, path, "ben-test")
         assert answer["changes"] == [] and plans, path
-        assert all("USING INDEX settings_changes_bot_via" in plan and "SCAN settings_changes" not in plan
+        assert all("USING INDEX settings_changes_bot_via_id" in plan and "SCAN settings_changes" not in plan
                    for plan in plans), (path, plans)
     # The owner's view of one bot reads it by its own index: the newest 100 of its 3,000.
     answer, plans = settings_reads(api, monkeypatch, "settings/history?bot=counsel", "ana-test")
     assert len(answer["changes"]) == 100 and plans
-    assert all("USING INDEX settings_changes_bot (" in plan for plan in plans), plans
+    assert all("USING INDEX settings_changes_bot_id (" in plan for plan in plans), plans
+
+
+def test_a_tie_of_changes_at_one_time_pages_in_id_order_and_no_read_sorts_it(api, monkeypatch):
+    """Newest first is (created, id). Each history read's index ends in id, so SQLite reads a tie group in that order;
+    a sort would read every change at one time before its first page, and a `before` page would sort them again."""
+    bot(api, "lead", reports_to="human:ben")
+    bot(api, "counsel", reports_to="lead")
+    with api.app.state.store.transaction() as c:
+        c.executemany("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created,"
+                      "via) VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(H.new_id(), "counsel", "task_model", encode(None), encode(HAIKU), "bot:lead", None,
+                        "2026-10-28T12:00:00.000000Z", report_managers.VIA if i % 2 else None) for i in range(600)])
+    store = api.app.state.store
+    real, statements = store.read, []
+
+    @contextmanager
+    def traced():
+        with real() as c:
+            c.set_trace_callback(statements.append)
+            try:
+                yield c
+            finally:
+                c.set_trace_callback(None)
+
+    monkeypatch.setattr(store, "read", traced)
+
+    def read_page(path, token):
+        """One page of a history read, and the query plan of each statement it runs on settings_changes."""
+        del statements[:]
+        answer = get(api, path, token=token)
+        with real() as c:
+            plans = [" ".join(row[3] for row in c.execute("EXPLAIN QUERY PLAN " + sql))
+                     for sql in statements if "FROM settings_changes" in sql]
+        return answer, plans
+
+    with real() as c:
+        rows = c.execute("SELECT id, created, bot, via FROM settings_changes").fetchall()
+
+    def newest_first(keep):
+        return [row[0] for row in sorted(rows, key=lambda row: (row[1], row[0]), reverse=True) if keep(row)]
+
+    cases = [("settings/history?bot=counsel&limit=100", "ana-test",
+              newest_first(lambda row: row[2] == "counsel")),
+             ("settings/history?bot=counsel&limit=100", "ben-test",
+              newest_first(lambda row: row[2] == "counsel" and row[3] == report_managers.VIA)),
+             ("settings/history?limit=100", "ana-test", newest_first(lambda row: True))]
+    for path, token, expected in cases:
+        seen, before = [], ""
+        for _ in range(20):
+            answer, plans = read_page(f"{path}&before={before}", token)
+            assert plans and not [plan for plan in plans if "TEMP B-TREE" in plan], (path, token, plans)
+            seen += [row["id"] for row in answer["changes"]]
+            before = answer["next_before"]
+            if not before:
+                break
+        assert seen == expected and len(seen) == len(set(seen)) > 100, (path, token)
