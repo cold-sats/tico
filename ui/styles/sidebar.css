@@ -36,8 +36,6 @@
 .section-body[hidden]{display:none}
 .nav-row{display:flex;align-items:center;gap:2px}
 .nav-row>.nav-link{flex:1;min-width:0}
-button.nav-librarian{border:0;background:none;cursor:pointer;padding:0}
-.nav-librarian[hidden]{display:none}
 #mobile-more{position:relative}
 .org-head>.section-toggle{flex:1;min-width:0}
 .org-history{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:none;cursor:pointer;padding:0}
@@ -45,9 +43,6 @@ button.nav-librarian{border:0;background:none;cursor:pointer;padding:0}
 .org-history .nav-icon{font-size:18px}
 .org-history[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 14%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 60%,transparent),0 0 10px color-mix(in srgb,var(--accent) 45%,transparent)}
 .org-history[aria-pressed="true"] .nav-icon{color:var(--accent)}
-.nav-librarian{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:var(--muted);text-decoration:none}
-.nav-librarian:hover,.nav-librarian.cur{background:var(--surface2);color:var(--ink);text-decoration:none}
-.nav-librarian .nav-icon{width:16px;height:16px;font-size:16px}
 .inbox-list{list-style:none;margin:0;padding:0 0 6px}
 .inbox-list a{display:flex;align-items:center;gap:8px;padding:6px 10px 6px 12px;border-radius:6px;color:var(--ink);text-decoration:none;font-size:var(--t-base)}
 .inbox-list a:hover{background:var(--surface2);text-decoration:none}

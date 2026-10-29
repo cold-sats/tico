@@ -2,7 +2,7 @@
    only that code adds. */
 
 /* Sidebar: what moved out of the rail. Library's pages sit under it. */
-html.redesign #nav-inboxes-section,html.redesign #nav-strategy-librarian{display:none!important}
+html.redesign #nav-inboxes-section{display:none!important}
 .rd-lib{display:flex;flex-direction:column}
 .rd-lib[hidden]{display:none}
 /* Library folds: the Team section's chevron, on a small square beside the link (the sidebar's other row buttons). */
