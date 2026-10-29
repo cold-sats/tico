@@ -39,6 +39,7 @@ The operation groups below are generated from the committed spec's tags. After r
 | Needs you | What is waiting on the signed-in person: questions, tasks, approvals. |
 | Meetings | Recorded meetings. |
 | Files | What a bot creates, revises or delivers, listed on its page ([guide](files.md)). |
+| Pages | HTML pages bots publish and keep current ([guide](pages.md)): a file with a cadence, a data date and a status line. |
 | Docs | The team's docs ([guide](docs.md)): internal docs written or imported in Tico, with history and locks; external sources, including indexed public GitHub docs; and search across them. |
 | Assistant | The signed-in person's own private Assistant chat ([guide](assistant.md)): ask, and confirm what it proposes. |
 | Goals | What every person and bot is for ([guide](goals-and-kpis.md)): goals with a colour the Strategy Bot works out from their KPIs, unless a person set one; check-ins in the owner's words; proposals the owner confirms. |

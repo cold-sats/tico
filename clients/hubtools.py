@@ -2401,6 +2401,20 @@ def pin_remove(api, args):
     return _as_person(api).call("DELETE", "pins/" + args["pin"], {}, _key(args))
 
 
+@tool("hub_file_search", "Search the files you may read, every bot's and people's uploads alike, by title and text "
+      "(Markdown, text, a page's words, a CSV's header and first rows): best first, each with an excerpt.",
+      {"q": _s("Words to find"), "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, required=("q",))
+def files_search(api, args):
+    return api.get("files/search", q=args["q"], limit=args.get("limit"))
+
+
+@tool("hub_file_delete", "Delete a file for good, the owner only: every version's bytes leave storage and only the "
+      "fact that it was deleted stays. For a file that holds something it should not; archive anything else.",
+      {"id": _s("File id")}, required=("id",), writes=True)
+def files_delete(api, args):
+    return _as_person(api).call("DELETE", f"files/{args['id']}", None, _key(args))
+
+
 def files_publish_path(client, args):
     """`hub file publish <path>`: the CLI reads the file (inside this checkout only) and sends the bytes."""
     from clients import bot_files as BF
@@ -2413,6 +2427,67 @@ def files_publish_path(client, args):
     if commit:
         query["commit"] = commit
     return client.request("POST", "/api/v2/files/uploads?" + BF.urlencode(query), raw=data, key=_key(args))
+
+
+# ----------------------------------------------------------------------------- pages
+# A page is an HTML file a bot keeps up to date to show people what it did and found (docs/pages.md). Tico draws its
+# status line (updated, by, version, cadence, data date) outside the page; scripts and outside loads are removed.
+CADENCE = {"enum": ["none", "daily", "weekly", "monthly"], "description": "How often you mean to update it; past 1.5x "
+           "this the page says it is out of date"}
+
+
+def _page_fields(args):
+    return {k: args[k] for k in ("title", "cadence", "as_of", "task", "replaces", "scope") if args.get(k)}
+
+
+@tool("hub_page_publish", "Publish a page: one self-contained .html file (inline CSS, SVG charts, no scripts; "
+      "anything that would load from elsewhere is removed). Put the headline and key numbers first: a card shows the "
+      "top. Publishing the same name again adds a version. With `task` it shows at the top of that task.",
+      {"name": _s("File name ending .html, e.g. weekly-review.html"), "text": _s("The page's HTML"),
+       "title": _s("What people see"), "cadence": CADENCE,
+       "as_of": _s("The date the data is from (YYYY-MM-DD) when it differs from today"),
+       "task": _s("The task it is for; it shows at the top of that task"),
+       "replaces": _s("The id of an older page of yours this one takes the place of"),
+       "scope": {"enum": ["task", "bot"]}, "path": _s("The file's path in your repository")},
+      required=("name", "text"), writes=True)
+def pages_publish(api, args):
+    body = {**_page_fields(args), **{k: args[k] for k in ("name", "text", "path") if args.get(k)}}
+    return api.post("pages", body, key=_key(args))
+
+
+@tool("hub_page_list", "Pages you may read, newest first: title, bot, version, when updated, cadence, data date, and "
+      "whether one is out of date or replaced.",
+      {"bot": _s("Only this bot's pages"), "task": _s("Only this task's pages"),
+       "archived": {"type": "boolean", "description": "Archived pages instead"},
+       "limit": {"type": "integer", "minimum": 1, "maximum": 50}, "cursor": _s("next_cursor from the previous page")})
+def pages_list(api, args):
+    return api.get("pages", bot=args.get("bot"), task=args.get("task"), archived=args.get("archived") or None,
+                   limit=args.get("limit"), cursor=args.get("cursor"))
+
+
+@tool("hub_page_show", "One page's status: title, bot, version, updated and by whom, cadence, data date, out of date "
+      "or replaced. Read its HTML with the file's address.", {"id": _s("Page id (its file id)")}, required=("id",))
+def pages_show(api, args):
+    return api.get("pages/" + args["id"])
+
+
+@tool("hub_page_archive", "Archive a page (hidden from lists and search; links still open it), or bring it back "
+      "with `restore`. Its bot, the people above it, bot administrators and the owner may.",
+      {"id": _s("Page id"), "restore": {"type": "boolean", "description": "Bring an archived page back"}},
+      required=("id",), writes=True)
+def pages_archive(api, args):
+    return _as_person(api).patch("pages/" + args["id"], {"archived": not args.get("restore")}, key=_key(args))
+
+
+def pages_publish_path(client, args):
+    """`hub page publish <path>`: the CLI reads the .html file (inside this checkout only) and sends the bytes."""
+    from clients import bot_files as BF
+    try:
+        name, _, data, relative = BF.read_local(BF.checkout_root(), args["path"])
+    except BF.Refused as exc:
+        return {"refused": "page", "detail": str(exc)}
+    query = {"name": name, "path": relative, **_page_fields(args)}
+    return client.request("POST", "/api/v2/pages?" + BF.urlencode(query), raw=data, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- docs
@@ -5658,7 +5733,11 @@ AUDIENCE = {
     **{name: PEOPLE for name in ("hub_seat_create", "hub_seat_update", "hub_seat_close")},
     "hub_org_models": KINDS,
     # Files are a bot's own: only a bot, or the computer running it, publishes them.
-    **{name: BOTS for name in ("hub_file_publish", "hub_file_link", "hub_file_touch", "hub_file_import")},
+    **{name: BOTS for name in ("hub_file_publish", "hub_file_link", "hub_file_touch", "hub_file_import",
+                               "hub_page_publish")},
+    # A hard delete is the owner's alone; BotOps asks the owner who asked for it to confirm (backend/botops_act.py).
+    "hub_file_delete": ("owner", "botops"),
+    "hub_page_archive": PEOPLE + BOTS,
     # Reads that go over POST, which the Assistant may not make on its own.
     **{name: NOT_ASSISTANT for name in ("hub_sql", "hub_classify", "hub_decision_ask", "hub_decision_outcome",
                                          "hub_market_ask")},

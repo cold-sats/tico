@@ -155,3 +155,9 @@ with `hub file touch <url>` after each edit (Tico keeps the address, never the d
 object is copied on this computer with `hub file import s3://bucket/key`. Share a file as a viewable URL or a Tico
 file, never a bare `s3://` URI: `hub` rewrites one to its view URL when the server maps the bucket, and otherwise
 `hub file import` makes it a Tico file. Files humans send you are inputs, not yours to list.
+
+A page is an HTML file you keep current for people to look at (a weekly review, a scan, a plan):
+`hub page publish reports/weekly.html --title "..." --cadence weekly [--as-of YYYY-MM-DD] [--task ID]`. It runs no
+script and loads nothing from elsewhere; charts are inline SVG. Put the headline and key numbers first: a card shows
+the top. Size it by its content, never 100vh. Tico shows when it was last updated. `hub file search` finds files
+by their text.

@@ -88,6 +88,15 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub file touch <file-id|url>           you edited a linked document again: it moves to the top
     hub file import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
     hub file list [--bot X] [--limit N]    what is on the page, newest activity first
+    hub file search "<words>" [--limit N]  every file you may read, by title and text, with an excerpt
+    hub file delete <id>                   the owner deletes a file for good: its bytes leave storage
+    hub page publish <file.html> [--title T] [--cadence none|daily|weekly|monthly] [--as-of YYYY-MM-DD]
+                  [--task ID] [--replaces PAGE]
+                                           a page people see with an updated line; again adds a version
+                                           (docs/pages.md)
+    hub page list [--bot X] [--task ID] [--archived]   pages you may read, newest first
+    hub page show <id>                     one page's status: updated, by, version, cadence, stale or replaced
+    hub page archive <id> [--restore]      hide a page from lists and search, or bring it back
     hub card list [--place P]              what is pinned at dashboard, team:<group>, bot:<slug> or task:<id>
     hub card add <template> [--place P] [--team G] [--weeks N] [--count N] [--kpi ID] [--title T] [--size S]
                                            tasks_by_status, done_per_week, needs_you, spend, kpi, automation_runs,
@@ -813,6 +822,37 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--task")
     s.set_defaults(fn="file import")
+    s = files.add_parser("search", help="every file you may read, by title and text")
+    s.add_argument("q")
+    s.add_argument("--limit", type=int)
+    s.set_defaults(fn="file search")
+    s = files.add_parser("delete", help="the owner deletes a file for good: its bytes leave storage")
+    s.add_argument("id")
+    s.set_defaults(fn="file delete")
+    page = sub.add_parser("page", help="pages: HTML a bot keeps up to date, with Tico's updated line").add_subparsers(dest="sub")
+    s = page.add_parser("publish", help="publish an .html file from this checkout; again adds a version")
+    s.add_argument("path")
+    s.add_argument("--title")
+    s.add_argument("--cadence", choices=["none", "daily", "weekly", "monthly"])
+    s.add_argument("--as-of", dest="as_of", help="the date the data is from, YYYY-MM-DD")
+    s.add_argument("--task", help="the task it is for; it shows at the top of that task")
+    s.add_argument("--replaces", help="the id of an older page this one takes the place of")
+    s.add_argument("--scope", choices=["task", "bot"])
+    s.set_defaults(fn="page publish")
+    s = page.add_parser("list", help="pages you may read, newest first")
+    s.add_argument("--bot")
+    s.add_argument("--task")
+    s.add_argument("--archived", action="store_true", default=None)
+    s.add_argument("--limit", type=int)
+    s.add_argument("--cursor")
+    s.set_defaults(fn="page list")
+    s = page.add_parser("show", help="one page's status")
+    s.add_argument("id")
+    s.set_defaults(fn="page show")
+    s = page.add_parser("archive", help="hide a page from lists and search, or --restore it")
+    s.add_argument("id")
+    s.add_argument("--restore", action="store_true", default=None)
+    s.set_defaults(fn="page archive")
     cards = sub.add_parser("card", help="Tico's built-in cards on the Dashboard, team pages, sidebars and tasks").add_subparsers(dest="sub")
     s = cards.add_parser("list", help="what is pinned at a place, with what each card shows you")
     s.add_argument("--place")
