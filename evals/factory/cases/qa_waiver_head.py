@@ -147,9 +147,7 @@ def judgments_at(w, check, head):
         if judged and head.startswith(judged):
             out.append((w.H.parse_ts(e["ts"]), verdict))
     if not check.get("verdict") and check["status"] == "done":
-        filed = w.sql("SELECT new FROM task_events WHERE task_id=? AND field='review_head' "
-                      "ORDER BY ts DESC, rowid DESC LIMIT 1", (check["id"],))
-        judged = str(filed[0]["new"] if filed else "").split(",")[0].lower()
+        judged = w.judged_head(check)
         done = w.sql("SELECT max(ts) ts FROM task_events WHERE task_id=? AND field='status' AND new='done'",
                      (check["id"],))
         if judged and head.startswith(judged) and done and done[0]["ts"]:

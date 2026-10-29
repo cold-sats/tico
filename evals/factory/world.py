@@ -546,12 +546,20 @@ class World:
         stands over a pass at the same head: only a new head clears it (backend/verdict_moves.py `_verdict_at`)."""
         head = str(head or "").lower()
         for c in self.checks(task_id):
-            if self.check_step(c) != step or not head.startswith(str(c.get("verdict_head") or "-").lower()):
+            if self.check_step(c) != step or not head.startswith(str(c.get("verdict_head") or self.judged_head(c)
+                                                                     or "-").lower()):
                 continue
             verdict = c.get("verdict") or ("comments" if c["status"] == "done" else "")
             if verdict and verdict not in ("approve", "pass"):
                 return True
         return False
+
+    def judged_head(self, check):
+        """The head a check was filed for (its newest review_head), which a check done with no verdict judged, as
+        backend/verdict_moves.py `_judged_head` reads it."""
+        filed = self.sql("SELECT new FROM task_events WHERE task_id=? AND field='review_head' "
+                         "ORDER BY ts DESC, rowid DESC LIMIT 1", (check["id"],))
+        return str(filed[0]["new"] if filed else "").split(",")[0].lower()
 
     def fallback(self, who, task_id, what):
         self.fallbacks.append((self.now(), who, self.title(task_id), what))
