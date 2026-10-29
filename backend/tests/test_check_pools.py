@@ -776,6 +776,39 @@ def test_require_never_gives_the_check_to_a_bot_whose_recent_run_has_a_segment_o
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
 
 
+def test_require_waits_while_part_of_the_builders_run_is_of_unknown_company(api):
+    """The builder's run was partly on Anthropic and partly on a model Tico can't name, which may be OpenAI's: a
+    required check waits rather than go to rev-a on OpenAI."""
+    team(api)
+    task = qa_ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) VALUES(?,1,'','')",
+                  ("builder-" + task["id"],))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+    [wait] = get(api, "tasks/" + task["id"])["task"]["check_waits"]
+    assert "the builder ran on" in wait["reason"], wait["reason"]
+
+
+def test_require_never_gives_the_check_to_a_bot_now_on_a_model_of_unknown_company_after_known_runs(api):
+    """rev-a's last run was on OpenAI, but it now names no model Tico knows, which may be Anthropic's: a required
+    check waits."""
+    team(api)
+    task = qa_ticket(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO turns(id,bot,started,finished) VALUES('before','rev-a',?,?)", (H.now(), H.now()))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('before',0,'gpt-6.1-sol','openai')")
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='rev-a'",
+                  (encode({"name": "rev-a", "runtime": "fake", "status": "active", "profile": "reviewer"}),))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+
+
 def test_a_recent_check_on_a_check_model_says_nothing_about_a_bot_with_no_task_model(api):
     """rev-a runs on OpenAI with no task model; its last check ran on Anthropic because it had a check model. A
     required check for an Anthropic build still goes to it."""

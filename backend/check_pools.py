@@ -266,12 +266,15 @@ def _recent_turns(c, slug, task, runs):
             if not (r[1] and (task_run_models.of(c, r[1]) or H.check_model(c, r[1])))][:RECENT_TURNS]
 
 
-def makers(c, slug, known_only=False):
+def makers(c, slug, known_only=False, whole=False):
     """Every model company a checker may run on: the one a task filed to it runs on (`maker`), and what its last few
     such runs actually ran on (a bot whose model is not signed in runs on its fallback, which is the company that would
     do the check). A run with an unknown segment makes the answer empty, or with `known_only` adds nothing, leaving
-    what is known."""
+    what is known. With `whole`, a model of a company Tico cannot name makes it empty too."""
     from .usage_records import ran_on
+    mine = maker(c, slug)
+    if whole and not mine:
+        return set()
     _, task, runs = _task_model(c, slug)
     recent = ran_on(c, _recent_turns(c, slug, task, runs)).values()
     found = set()
@@ -280,14 +283,17 @@ def makers(c, slug, known_only=False):
         if not known_only and (not segments or any(not segment.get("family") for segment in segments)):
             return set()
         found.update(segment["family"] for segment in segments if segment.get("family"))
-    return (found | {maker(c, slug)}) - {""}
+    return (found | {mine}) - {""}
 
 
-def builder_makers(c, ticket):
+def builder_makers(c, ticket, whole=False):
     """The model companies the ticket's builder builds on: what its runs on the ticket actually ran on. Its configured
-    model's company stands in only while none of those runs is known, since a run that fell back ran on another one."""
+    model's company stands in only while none of those runs is known, since a run that fell back ran on another one.
+    With `whole`, a run on the ticket with a part of unknown company makes the answer empty: that part may be any."""
     from .check_independence import _executed
-    built, _ = _executed(c, ticket["id"])
+    built, known = _executed(c, ticket["id"])
+    if whole and not known and c.execute("SELECT 1 FROM turns WHERE task_id=?", (ticket["id"],)).fetchone():
+        return set()
     if built:
         return set(built)
     owner = ticket.get("owner") or ""
@@ -356,8 +362,8 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
     from .check_independence import assess
     excluded = set(exclude) | _earlier_reviewers(c, ticket, step)
     kind = step_flow.check_kind(step)
-    builder = builder_makers(c, ticket) if kind else set()
     required = bool(kind) and step_flow.other_company(step) == "require"
+    builder = builder_makers(c, ticket, whole=required) if kind else set()
     free, why = [], set()
     for slug in slugs:
         if slug in excluded or "bot:" + slug == ticket["owner"]:
@@ -373,7 +379,7 @@ def ranked(c, ticket, step, slugs, limit, exclude=()):
         idle = (c.execute("SELECT last_turn_at FROM bots WHERE slug=?", (slug,)).fetchone() or [None])[0] or ""
         # Require needs both companies named and apart: a company Tico cannot name, or a run with a segment it cannot
         # name, may be the builder's.
-        known = makers(c, slug, known_only=not required) if builder else set()
+        known = (makers(c, slug, whole=True) if required else makers(c, slug, known_only=True)) if builder else set()
         same = bool(known & builder)
         if required and (not builder or same or not known):
             why.add("builder" if not builder else "company" if same else "unknown")
