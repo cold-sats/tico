@@ -26852,6 +26852,10 @@
               3
             ]
           },
+          "level_chosen": {
+            "type": "boolean",
+            "description": "Whether the owner chose the level; if not, it is the default"
+          },
           "levels": {
             "type": "array",
             "items": {

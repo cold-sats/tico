@@ -1142,6 +1142,8 @@ SCHEMAS = {
                     required=["goals", "owners", "unaligned", "other_kpis", "proposals"]),
     "CeoBotView": obj({"name": "s", "regular_checks": {"type": "boolean", "description": "Whether the KPI pass and the automatic goal colours run"},
                        "level": {"type": "integer", "enum": [1, 2, 3]},
+                       "level_chosen": {"type": "boolean",
+                                        "description": "Whether the owner chose the level; if not, it is the default"},
                        "levels": items(obj({"level": "i", "name": "s", "sentence": "s", "ready": "b"},
                                            required=["level", "name", "sentence", "ready"])),
                        "level_changed_by": "s", "level_changed_by_name": "s", "level_changed_at": "s",
