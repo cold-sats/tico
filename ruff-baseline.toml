@@ -10,7 +10,7 @@
 #   B018         8   owner: engineering
 #   B023        18   owner: engineering
 #   B034         1   owner: engineering
-#   B904        37   owner: engineering
+#   B904        36   owner: engineering
 #   B905        20   owner: engineering
 #   BLE001     131   owner: engineering
 #   DTZ005       2   owner: engineering
@@ -119,7 +119,6 @@
 "backend/scheduler.py" = ["BLE001"]
 "backend/screen_binary.py" = ["PLW1510"]
 "backend/screen_relay.py" = ["BLE001"]
-"backend/server.py" = ["B904"]
 "backend/settings_admin.py" = ["B905", "F401"]
 "backend/slack_app.py" = ["BLE001"]
 "backend/slack_gateway.py" = ["B023", "BLE001", "F401", "S110"]
