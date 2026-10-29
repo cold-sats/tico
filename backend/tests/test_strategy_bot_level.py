@@ -346,9 +346,10 @@ def test_with_no_chosen_level_passive_pauses_the_note_and_withdraws_what_waits_a
     [entry] = get(api, "strategy-bot")["level_history"]
     assert (entry["level"], entry["was"], entry["by"]) == (1, 2, OWNER)
     with store.read() as c:
-        status, note = c.execute("SELECT status, decision_note FROM goal_proposals WHERE id=?",
-                                 (waiting["id"],)).fetchone()
-    assert (status, note) == ("rejected", strategy_suggest.WITHDRAWN)
+        status, note, by = c.execute("SELECT status, decision_note, decided_by FROM goal_proposals WHERE id=?",
+                                     (waiting["id"],)).fetchone()
+    # Tico withdrew it, not the owner: no streak, an older release's after a rollback included, counts it as a no.
+    assert (status, note, by) == ("rejected", strategy_suggest.WITHDRAWN, H.KEEPER)
     with store.transaction() as c:
         strategy_bot.reconcile(c)
     assert not review_enabled(api)                                           # at Passive nothing starts it again

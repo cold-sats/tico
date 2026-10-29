@@ -288,10 +288,12 @@ def result_text(c, proposal):
     return text
 
 
-def withdraw(c, actor):
-    """Lowering the level to Passive withdraws every recovery still waiting: Passive suggests no task changes."""
+def withdraw(c):
+    """Lowering the level to Passive withdraws every recovery still waiting: Passive suggests no task changes. Tico
+    decides it, not a person, so no streak counts it as a rejection: neither `streak` nor an older release's, which
+    knows only the note it wrote (strategy_bot.OLD_WITHDRAWN). Who lowered the level is in its event."""
     c.execute("UPDATE goal_proposals SET status='rejected', decided_by=?, decided_at=?, decision_note=? "
-              "WHERE status='pending' AND kind=?", (actor, H.now(), WITHDRAWN, KIND))
+              "WHERE status='pending' AND kind=?", (H.KEEPER, H.now(), WITHDRAWN, KIND))
 
 
 # ----------------------------------------------------------------------------- the level 3 offer

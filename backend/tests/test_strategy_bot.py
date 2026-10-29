@@ -404,8 +404,8 @@ def test_an_older_release_after_a_rollback_reads_the_owners_settings_and_hide_ch
 
 
 def test_a_withdrawn_recovery_reads_the_current_note_and_another_note_is_kept(environment):
-    """Each old note of a withdrawn recovery reads the note `streak` counts; a note of any other decision stays as it
-    is."""
+    """Each old note of a withdrawn recovery reads the note `streak` counts, decided by Tico, so an older release after
+    a rollback, which knows only its own note, still passes it over; any other decision stays as it is."""
     api = company(environment)
     rows = (("old-passive", strategy_bot.OLD_WITHDRAWN[0]), ("old-level-1", strategy_bot.OLD_WITHDRAWN[1]),
             ("declined", "Declined: not this quarter"))
@@ -416,9 +416,11 @@ def test_a_withdrawn_recovery_reads_the_current_note_and_another_note_is_kept(en
                       (pid, H.now(), H.now(), note))
     with api.app.state.store.transaction() as c:
         strategy_bot.migrate(c)
-        notes = {r[0]: r[1] for r in c.execute("SELECT id, decision_note FROM goal_proposals WHERE kind='recovery'")}
-    assert notes == {"old-passive": strategy_suggest.WITHDRAWN, "old-level-1": strategy_suggest.WITHDRAWN,
-                     "declined": "Declined: not this quarter"}
+        notes = {r[0]: (r[1], r[2]) for r in c.execute("SELECT id, decision_note, decided_by FROM goal_proposals "
+                                                        "WHERE kind='recovery'")}
+    assert notes == {"old-passive": (strategy_suggest.WITHDRAWN, H.KEEPER),
+                     "old-level-1": (strategy_suggest.WITHDRAWN, H.KEEPER),
+                     "declined": ("Declined: not this quarter", "human:ana")}
 
 
 def test_the_name_an_older_release_gave_it_becomes_the_strategy_bot(environment):

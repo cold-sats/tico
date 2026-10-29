@@ -130,8 +130,10 @@ def migrate(c):
               "ON CONFLICT(actor,key) DO UPDATE SET value_json=excluded.value_json, updated=excluded.updated",
               (OLD_HIDE_PREF, HIDE_PREF, OLD_HIDE_PREF))
     from . import strategy_suggest
-    c.execute("UPDATE goal_proposals SET decision_note=? WHERE decision_note IN (?, ?)",
-              (strategy_suggest.WITHDRAWN, *OLD_WITHDRAWN))
+    # Decided by Tico, as `strategy_suggest.withdraw` records one now, so an older release after a rollback, which
+    # knows only its own note, still passes it over in its streak.
+    c.execute("UPDATE goal_proposals SET decision_note=?, decided_by=? WHERE decision_note IN (?, ?)",
+              (strategy_suggest.WITHDRAWN, H.KEEPER, *OLD_WITHDRAWN))
     bot = H.bot(c, SLUG)
     if bot and (bot.get("display_name") or "").strip() in ("", *OLD_NAMES):
         _rename(c, H.KEEPER, NAME)
@@ -398,7 +400,7 @@ def set_level(c, actor, value):
     _save(c, record)
     if value < 2:
         from . import strategy_suggest
-        strategy_suggest.withdraw(c, actor)          # Passive suggests no task changes: what still waits is withdrawn
+        strategy_suggest.withdraw(c)                 # Passive suggests no task changes: what still waits is withdrawn
     H.event(c, actor, "strategy_bot.level", SLUG, {"level": value, "was": was})
 
 
