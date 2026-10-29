@@ -257,9 +257,9 @@ TURNS_READ = 20
 def _recent_turns(c, slug, task, runs):
     """The bot's last few finished turns that ran where a check filed to it would: none on a task with a model of its
     own or a check model, which ran on that. With a task model that runs, only its turns on tasks; with one that
-    cannot run now, only its other turns, which run on its own model as the check would."""
+    cannot run now, all of them (`makers` sets aside what ran on that task model)."""
     from . import task_run_models
-    where = "" if not task else " AND task_id IS NOT NULL" if runs else " AND task_id IS NULL"
+    where = " AND task_id IS NOT NULL" if task and runs else ""
     rows = c.execute("SELECT id,task_id FROM turns WHERE bot=? AND finished IS NOT NULL" + where
                      + " ORDER BY finished DESC LIMIT ?", (slug, TURNS_READ)).fetchall()
     return [r[0] for r in rows
@@ -277,9 +277,13 @@ def makers(c, slug, known_only=False, whole=False):
         return set()
     _, task, runs = _task_model(c, slug)
     recent = ran_on(c, _recent_turns(c, slug, task, runs)).values()
+    # A task model that cannot run now won't do the check, so what ran on it says nothing; what fell back from it does.
+    idle = task["model"] if task and not runs else None
     found = set()
     for run in recent:
-        segments = run["segments"]
+        segments = [segment for segment in run["segments"] if not (idle and segment.get("model") == idle)]
+        if run["segments"] and not segments:
+            continue
         if not known_only and (not segments or any(not segment.get("family") for segment in segments)):
             return set()
         found.update(segment["family"] for segment in segments if segment.get("family"))

@@ -726,6 +726,27 @@ def test_a_task_model_that_cannot_run_counts_only_the_turns_on_the_bots_own_mode
     assert [k["owner"] for k in checks(api, task)] == ["bot:rev-a"]
 
 
+def test_a_task_that_fell_back_to_the_builders_company_keeps_a_require_check_off_the_bot(api):
+    """rev-a's task model on Anthropic cannot run, so a check would run on its own model, on OpenAI. But its last task
+    fell back to another Anthropic model, so it may again: a required check for an Anthropic build waits."""
+    team(api)
+    task = qa_ticket(api)
+    task_model(api, "rev-a", "claude-haiku-5-5", "claude")
+    own = busy(api, "rev-a")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE tasks SET status='done' WHERE id=?", (own["id"],))
+        c.execute("INSERT INTO turns(id,bot,started,finished,task_id) VALUES('fell','rev-a',?,?,?)",
+                  (H.now(), H.now(), own["id"]))
+        c.execute("INSERT INTO turn_usage_segments(turn_id,position,model,provider) "
+                  "VALUES('fell',0,'claude-sonnet-5-5','anthropic')")
+        c.execute("UPDATE runners SET readiness_json=? WHERE id='r1'",
+                  (json.dumps({"schema_version": 1, "bots": {}, "runtimes": {"claude": {"installed": False}}}),))
+    set_pool(api, task, "In QA", ["rev-a"], limit=1)
+    set_other_company(api, task, "In QA", "require")
+    to_qa(api, task)
+    assert checks(api, task) == []
+
+
 def test_require_never_gives_the_check_to_a_bot_whose_model_company_is_unknown(api):
     """rev-a names no model and has no runs to read, so it may be on the builder's company: a required check waits
     and says why, where a preferred one would take it."""
