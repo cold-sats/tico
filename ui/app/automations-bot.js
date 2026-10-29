@@ -3,7 +3,8 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them.
    The chat is BotOps' ordinary room (POST /v2/chat/botops, the conversation's snapshot and live events, as the CEO
    Bot's chat on Goals); BotOps builds with the viewer's rights. A message names the open automation in
-   refs.automation, and the edit it asks for is saved as the new version. What BotOps makes from New is saved off: its
+   refs.automation, and the edit it asks for is saved as the new version; with none open it carries what the list
+   shows (refs.automations_filter: range, tab, filters). What BotOps makes from New is saved off: its
    card's Turn on is PATCH {enabled: true}. A bot's proposal is a pending version (GET .../versions?status=pending);
    Turn on restores it (POST .../versions/{n}/restore), Discard deletes it. */
 'use strict';
@@ -85,7 +86,7 @@ function auBotMount(host) {
     const scope = sessionScope(pq(P, '.p-text'));
     B.known ||= new Set((AU.list || []).map(a => a.id));   // what exists before BotOps answers, to spot what it made
     try {
-      const out = await cloudCompose('/v2/chat/' + AU_BOT, {text, refs: AU.cur ? {automation: AU.cur.id} : {}});
+      const out = await cloudCompose('/v2/chat/' + AU_BOT, {text, refs: AU.cur ? {automation: AU.cur.id} : auBotScope()});
       pillAcknowledge(P, text, [], scope);
       if (!live()) return;
       const fresh = out.conversation && out.conversation.id !== B.conv?.id;
@@ -103,7 +104,7 @@ function auBotMount(host) {
   host.querySelector('.au-bf').append(composer.el);
   // New without waiting on BotOps (it may not reply): a blank automation, off, opened in the editor.
   const blank = document.createElement('button');
-  Object.assign(blank, {type: 'button', className: 'linkish au-blank', textContent: 'Blank', hidden: !!AU.id});
+  Object.assign(blank, {type: 'button', className: 'linkish au-blank', textContent: 'Blank', hidden: !auNewScreen()});
   blank.onclick = () => void auBlank(blank);
   host.querySelector('.au-bf').append(blank);
   props.addEventListener('click', e => {
@@ -120,7 +121,9 @@ function auBotMount(host) {
   })();
 }
 
-// After each route: the phone's Back, and the open automation's proposals.
+// Blank belongs to New (#/automations/bot) only, not to BotOps beside the list or a flow.
+const auNewScreen = () => !AU.id && AU.view === 'bot';
+// After each route: the phone's Back, Blank, and the open automation's proposals.
 function auBotSync() {
   if (!AU?.bot) return;
   const back = AU.root.querySelector('[data-bot-back]');
@@ -129,7 +132,7 @@ function auBotSync() {
   const fab = AU.root.querySelector('.au-botbtn');
   if (fab) fab.href = auHref(AU.id, 'bot');
   const blank = AU.root.querySelector('.au-blank');
-  if (blank) blank.hidden = !!AU.id;
+  if (blank) blank.hidden = !auNewScreen();
   void auBotProposals();
 }
 // The viewer's own, off, weekdays at 9 in their zone, no steps: POST /v2/automations, then open it.

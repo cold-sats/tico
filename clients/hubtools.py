@@ -2322,6 +2322,75 @@ def files_import(api, args):
     return api.request("POST", "/api/v2/files/imports?" + BF.urlencode(query), raw=data, key=_key(args))
 
 
+# ----------------------------------------------------------------------------- cards and pins (docs/overview.md)
+CARD_TEMPLATES = ("tasks_by_status", "done_per_week", "needs_you", "spend", "kpi", "automation_runs", "latest_pages")
+PLACE = _s("Where: dashboard, team:<group id>, bot:<slug> (a sidebar) or task:<id>")
+CARD_SETTINGS = {"team": _s("A group id; empty for the whole company"),
+                 "weeks": {"type": "integer", "description": "Done per week: weeks shown, 4 to 26"},
+                 "count": {"type": "integer", "description": "Latest pages: how many, 1 to 10"},
+                 "kpi": _s("KPI: the KPI id")}
+SIZE = _s("small, medium or large", enum=["small", "medium", "large"])
+
+
+def _card_settings(args):
+    return {k: args[k] for k in CARD_SETTINGS if args.get(k) is not None}
+
+
+@tool("hub_card_list", "What is pinned at a place, in order: each card with what it shows you, and the pages you may "
+      "read. Without a place, the cards you made or see.", {"place": PLACE})
+def card_list(api, args):
+    person = _as_person(api)
+    return person.get("places/" + args["place"]) if args.get("place") else person.get("cards")
+
+
+@tool("hub_card_add", "Add one of Tico's built-in cards, pinned at a place you may arrange. A bot pins to its own "
+      "sidebar or its task; the Dashboard and team pages are a person's (BotOps: the person who asked).",
+      {"template": _s("The card", enum=list(CARD_TEMPLATES)), "title": _s("Its heading; empty uses the card's name"),
+       "place": PLACE, "size": SIZE, **CARD_SETTINGS}, required=("template",), writes=True)
+def card_add(api, args):
+    body = {"template": args["template"], "settings": _card_settings(args), "title": args.get("title") or "",
+            "place": args.get("place") or "", "size": args.get("size") or "medium"}
+    return _as_person(api).post("cards", body, key=_key(args))
+
+
+@tool("hub_card_update", "Change a card's heading or settings (only those sent change).",
+      {"card": _s("Card id"), "title": _s("Its heading"), **CARD_SETTINGS}, required=("card",), writes=True)
+def card_update(api, args):
+    body = {"settings": _card_settings(args) or None, "title": args.get("title")}
+    return _as_person(api).patch("cards/" + args["card"], {k: v for k, v in body.items() if v is not None},
+                                 key=_key(args))
+
+
+@tool("hub_card_remove", "Remove a card and every pin of it.", {"card": _s("Card id")}, required=("card",), writes=True)
+def card_remove(api, args):
+    return _as_person(api).call("DELETE", "cards/" + args["card"], {}, _key(args))
+
+
+@tool("hub_pin_add", "Pin a page (page:<file id>) or a card (card:<id>) at a place. Pinning a page to the Dashboard "
+      "or a team page lets that place's audience read it; a private task's file is refused.",
+      {"place": PLACE, "item": _s("page:<file id> or card:<id>"), "size": SIZE,
+       "position": {"type": "integer", "description": "0 is first; left out, last"}},
+      required=("place", "item"), writes=True)
+def pin_add(api, args):
+    body = {"place": args["place"], "item": args["item"], "size": args.get("size") or "medium"}
+    if args.get("position") is not None:
+        body["position"] = args["position"]
+    return _as_person(api).post("pins", body, key=_key(args))
+
+
+@tool("hub_pin_update", "Resize or move a pin.", {"pin": _s("Pin id"), "size": SIZE,
+      "position": {"type": "integer", "description": "0 is first"}}, required=("pin",), writes=True)
+def pin_update(api, args):
+    body = {k: args[k] for k in ("size", "position") if args.get(k) is not None}
+    return _as_person(api).patch("pins/" + args["pin"], body, key=_key(args))
+
+
+@tool("hub_pin_remove", "Unpin. A card pinned nowhere else goes with it.", {"pin": _s("Pin id")}, required=("pin",),
+      writes=True)
+def pin_remove(api, args):
+    return _as_person(api).call("DELETE", "pins/" + args["pin"], {}, _key(args))
+
+
 def files_publish_path(client, args):
     """`hub file publish <path>`: the CLI reads the file (inside this checkout only) and sends the bytes."""
     from clients import bot_files as BF
@@ -2924,6 +2993,26 @@ def automation_run(api, args):
 def automation_runs(api, args):
     query = "&".join(f"{k}={args[k]}" for k in ("limit", "before") if args.get(k) not in (None, ""))
     return _as_person(api).get(f"automations/{args['id']}/runs" + ("?" + query if query else ""))
+
+
+@tool("hub_automation_recent_runs", "Runs across every automation you may see in the last `range`, newest first: what "
+      "started each, its outcome or failing step, steps, time and cost. `trigger: system` is Tico's own jobs.",
+      {"range": {"type": "string", "enum": ["5m", "1h", "24h", "7d"], "default": "1h"},
+       "status": {"type": "string", "enum": ["done", "failed", "waiting", "running"]},
+       "trigger": _s("message, task_received, schedule, webhook, listening, event or system; comma-separated"),
+       "owner": _s("person:<id>, bot:<slug> or group:<id>"), "limit": {"type": "integer", "default": 50},
+       "before": _s("`next` from the page before")})
+def automation_recent_runs(api, args):
+    query = "&".join(f"{k}={quote(str(args[k]), safe=',')}" for k in ("range", "status", "trigger", "owner", "limit", "before")
+                     if args.get(k) not in (None, ""))
+    return _as_person(api).get("automations/runs" + ("?" + query if query else ""))
+
+
+@tool("hub_automation_stats", "Runs, failures and cost per automation you may see over the last `range`, in time "
+      "buckets oldest first, with totals: which automations fail or cost the most.",
+      {"range": {"type": "string", "enum": ["5m", "1h", "24h", "7d"], "default": "1h"}})
+def automation_stats(api, args):
+    return _as_person(api).get("automations/stats?range=" + quote(str(args.get("range") or "1h"), safe=""))
 
 
 @tool("hub_automation_versions", "An automation's versions, newest first; `status: pending` for proposals only.",

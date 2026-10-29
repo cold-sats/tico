@@ -1,9 +1,10 @@
 # Weekly goals review
 
 A short message to the team owner, and to the Chief of Staff if the team has one (`hub team show` shows the
-bots; use the one that owns the weekly brief). Under 200 words. It is the Monday note in the owner's chat, and only above Passive (`level` in `hub goal ceo-bot`):
-the server starts this routine when the owner raises the level and pauses it back at Passive. Leave the routine as it
-is; at Passive, a run of it ends with one line saying the note is off at Passive.
+bots; use the one that owns the weekly brief). Under 200 words. It is the Monday note in the owner's chat, and
+only above Passive (`level` in `hub goal ceo-bot`): the server starts this routine when the level is above
+Passive and pauses it back at Passive. Leave the routine as it is; at Passive, a run of it ends with one line
+saying the note is off at Passive.
 
 Run `playbooks/goals-make-sense.md` first, so the proposals it files are in the list. Facts first, then
 interpretation, labelled:

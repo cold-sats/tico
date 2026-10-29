@@ -126,6 +126,8 @@ button.rail-ico{border:0;padding:0;background:none;font:inherit;cursor:pointer}
 .bot-sidebar-edit{position:absolute;z-index:1;top:var(--s2);right:4px}
 #main.bot-split-layout .bot-sidebar-edit{top:calc(6px + var(--s2));right:8px}
 #pane-tasks:has(>.bot-sidebar-edit:not([hidden]))>.bot-w:not([data-off]):has(>.rail-sec:not([hidden])):not(#pane-tasks>.bot-w:not([data-off]):has(>.rail-sec:not([hidden]))~.bot-w)>.rail-sec>:is(.rail-head,.rail-h):first-child{padding-right:24px}
+/* A pinned page first in the rail has no heading line: it starts below the edit icon, in the line a heading would have. */
+#pane-tasks:has(>.bot-sidebar-edit:not([hidden]))>.bot-w:not([data-off]):has(>.rail-sec:not([hidden])):not(#pane-tasks>.bot-w:not([data-off]):has(>.rail-sec:not([hidden]))~.bot-w)>.bot-pin:not(:has(>.rail-h:first-child)){padding-top:36px}
 /* Edit mode, where the sidebar sits: Done and Cancel on top, each widget with a handle, an eye and a bottom edge. */
 .bot-rail-editbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:6px;padding:6px 0;background:var(--bg);border-bottom:1px solid var(--line)}
 .bot-rail-editbar[hidden],.bot-w-bar,.bot-w-foot{display:none}

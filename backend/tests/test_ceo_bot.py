@@ -92,7 +92,7 @@ def test_every_install_has_the_ceo_bot_at_the_top_of_the_chart(environment):
     api = company(environment)
     reports_before = stored(api)[0]
     shown = api.get("/api/v2/ceo-bot", headers=signed_in()).json()
-    assert "on" not in shown and shown["name"] == "CEO Bot" and shown["level"] == 1 and shown["regular_checks"] is True
+    assert "on" not in shown and shown["name"] == "CEO Bot" and shown["level"] == 2 and shown["regular_checks"] is True
     assert "ceo_bot" not in api.get("/api/v2/config", headers=signed_in()).json()
     flip = api.post("/api/v2/ceo-bot", json={"on": False}, headers=signed_in())
     assert flip.status_code == 405, flip.text                                    # nobody turns it off, the owner included

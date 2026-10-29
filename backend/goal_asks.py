@@ -1,7 +1,7 @@
 """What the Goals page needs from a person, as tasks the CEO Bot asks (docs/goals-and-kpis.md, "Needs you").
 
-Only above Passive (backend/ceo_bot.py `proactive`): at Passive, the default, `sync` files nothing new and Needs you
-shows only what was already asked. A task filed before stays until it is resolved, as below.
+Only above Passive (backend/ceo_bot.py `proactive`): at Passive, `sync` files nothing new and Needs you shows only what
+was already asked. A task filed before stays until it is resolved, as below.
 
 Three things wait on a person: a KPI off track (red) on a goal they own, a KPI they keep whose reading is out of
 date (stale or missing), and a proposal to confirm or reject. Each is one task, requested by the CEO Bot and

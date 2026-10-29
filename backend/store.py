@@ -818,6 +818,7 @@ class Store:
             c.executescript(_rule_suggestions.SCHEMA)
             from . import system_routines as _system_routines
             c.executescript(_system_routines.SCHEMA)
+            _system_routines.ensure(c)
             from . import task_rules as _task_rules
             c.executescript(_task_rules.SCHEMA)
             from . import audit_log as _audit_log
@@ -865,6 +866,8 @@ class Store:
             H.add_column(c, "bot_task_tabs", "widgets_json", "TEXT")
             from . import learned as _learned
             c.executescript(_learned.SCHEMA)
+            from . import cards as _cards
+            c.executescript(_cards.SCHEMA)
             from . import task_manager as _task_manager
             c.executescript(_task_manager.SCHEMA)
             from . import health_monitor as _health_monitor

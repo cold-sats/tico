@@ -1,6 +1,6 @@
 """What the Goals page needs from a person is a CEO Bot task (backend/goal_asks.py): one per KPI or proposal, kind and
-person, in Tasks and Decide, closed by itself once resolved. Only above Passive: at Passive, the default, nobody is
-asked anything (spec: CEO Bot v3, test 20)."""
+person, in Tasks and Decide, closed by itself once resolved. Only above Passive: at Passive nobody is asked anything
+(spec: CEO Bot v3, test 20). `goal_manager(api)` is an install the owner set to Passive."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -14,7 +14,8 @@ MANAGER = "bot:goal-manager"
 
 
 def goal_manager(api, level=1):
-    """The CEO Bot, at Passive unless the owner raised it (`level`)."""
+    """The CEO Bot at `level`, chosen by the owner (Passive unless asked otherwise); None leaves it as built, at the
+    default level."""
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
                   "VALUES('goal-manager','CEO Bot','fake','','','','keeper','active',?)", (H.now(),))
@@ -23,7 +24,8 @@ def goal_manager(api, level=1):
 
 
 def raise_level(api, level):
-    if level != 1:
+    """The owner chooses `level` (`ceo_bot.set_level`); None chooses nothing."""
+    if level is not None:
         with api.app.state.store.transaction() as c:
             ceo_bot.set_level(c, "human:ana", level)
 
@@ -132,7 +134,7 @@ def test_an_owner_change_moves_the_ask_and_without_a_goal_manager_nothing_is_fil
     # No CEO Bot: no task, and the Goals page still says what waits.
     assert not asks(api)
     assert any(i["kind"] == "kpi_red" and "task" not in i for i in get(api, "goals/needs-you", "ben-test")["items"])
-    goal_manager(api)
+    goal_manager(api, level=2)
     sync(api)
     [old] = [a for a in asks(api) if a["kind"] == "kpi_red"]
     assert old["owner"] == "human:ben"

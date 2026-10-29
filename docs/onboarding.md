@@ -397,7 +397,8 @@ update, without a click, once a model is chosen and a computer is enrolled; unti
 The fourth, the [CEO Bot](goals-and-kpis.md#the-ceo-bot), keeps the KPIs and sets goals' automatic colours. It is
 built the same way (a required, bootstrap card; a team from before it existed gets it on update once a model is chosen
 and a computer is enrolled). Its routines start paused: the server arms the daily KPI pass once the first KPI exists, and the
-weekly goals review (the Monday note) stays paused until the owner raises the CEO Bot above **Passive** ([Your CEO Bot](ceo-bot.md)).
+weekly goals review (the Monday note) is started too, since every install starts at **Suggests actions**; choosing
+**Passive** pauses it ([Your CEO Bot](ceo-bot.md)).
 
 A team that set the assistant aside before it was built in (v0.2.1 to v0.2.9 let the wizard skip it) keeps it archived
 on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant page and at the top of

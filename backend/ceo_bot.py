@@ -17,8 +17,8 @@ its KPI readings, goal events and old messages stay attached. It is named "CEO B
   itself (its config, `reports_to`, access, level, Goals, chat), are as they were.
 - "Regular checks" (`checks`, default on) are the KPI pass routine and the automatic goal colours. Off, neither runs
   until the owner turns them back on; the owner's chat still works.
-- "How much your CEO Bot does" (`level`): Passive (1, the default), Suggests actions (2), Acts on its own (3). At
-  Passive it does nothing on its own beyond the regular checks (`proactive`).
+- "How much your CEO Bot does" (`level`): Passive (1), Suggests actions (2, where every install starts), Acts on its
+  own (3). At Passive it does nothing on its own beyond the regular checks (`proactive`).
 
 Only the owner changes the level, the regular checks and its name, on their own click (backend/goal_routes.py,
 backend/settings_admin.py); a bot never does, the CEO Bot included.
@@ -57,7 +57,7 @@ def name(c):
 def view(c):
     history = level_history(c)
     return {"name": name(c), "regular_checks": checks(c),
-            "level": level(c), "levels": levels(),
+            "level": level(c), "level_chosen": _record(c).get("level") in LEVELS, "levels": levels(),
             "level_changed_by": history[0]["by"] if history else "",
             "level_changed_at": history[0]["at"] if history else "",
             "level_history": history, "asked_today": asked_today_all(c),
@@ -145,28 +145,37 @@ REVIEW = SLUG + ":goals-review"
 
 def proactive(c):
     """Whether it does anything on its own beyond the regular checks: asking goal owners, the vision ask, Why lines
-    in Needs you, the Monday note. Only at a level the owner raised it to; at Passive, never."""
+    in Needs you, the Monday note. Above Passive, which every install is at until its owner chooses otherwise; at
+    Passive, never."""
     return level(c) >= 2
 
 
-def _review(c, actor, record):
-    """The Monday note (the bot's `goals-review` routine, declared paused) starts when the owner raises the level
-    from Passive. Back at Passive, it is paused again only if this started it and nobody has paused or started it
-    since: a person's own choice is never overruled. `review_settled` says it has had its one go at starting it at
-    the current raise, so `reconcile` never starts it again."""
+def _review(c, actor, record, raised=False):
+    """The Monday note (the bot's `goals-review` routine, declared paused) starts when the level is above Passive: when
+    the owner raises it from Passive (`raised`), or later, once `reconcile` finds the routine, if no person has
+    started or paused it since that raise (`review_raised`, kept while the routine is missing) or, with no raise, ever.
+    Back at Passive, it is paused again only if this started it and nobody has paused or started it since: a person's
+    own choice is never overruled. `review_settled` says it has had its one go at starting it at the current raise, so
+    `reconcile` never starts it again."""
     from . import routines
     row = routines.row(c, REVIEW)
     if (record.get("level") if record.get("level") in LEVELS else DEFAULT_LEVEL) < 2:     # the level being saved
         armed = record.pop("review_armed", None)
         record.pop("review_settled", None)
+        record.pop("review_raised", None)
         if row and not row["deleted_at"] and armed and row["enabled"] and not _review_touched(c, armed):
             routines.update(c, H.KEEPER, REVIEW, {"enabled": False})
             H.event(c, actor, "ceo_bot.review_paused", REVIEW, {})
         return
     if not row or row["deleted_at"]:
+        if raised:
+            record["review_raised"] = H.now()
         return              # not there yet: `reconcile` starts it once it is
     record["review_settled"] = True
-    if not row["enabled"]:
+    since = record.pop("review_raised", None)
+    # Only the owner's raise from Passive overrides a person's earlier start or pause; the default never does, and a
+    # person's choice after the raise still wins.
+    if not row["enabled"] and (raised or not _review_touched(c, since or "")):
         routines.update(c, H.KEEPER, REVIEW, {"enabled": True})
         record["review_armed"] = H.now()
         H.event(c, actor, "ceo_bot.review_armed", REVIEW, {})
@@ -180,9 +189,10 @@ def _review_touched(c, since):
 
 
 def reconcile(c):
-    """At startup (`migrate`) and once an hour (backend/scheduler.py): above Passive, a Monday note whose routine appeared after the level was
-    raised is started once, never again after that one go, so a person who pauses it later stays paused. At Passive,
-    a Monday note the old level 1 started (before v3) and nobody touched since is paused."""
+    """At startup (`migrate`) and once an hour (backend/scheduler.py): above Passive, a Monday note whose routine
+    appeared after the level was raised, or was never chosen, is started once, never again after that one go, so a
+    person who pauses it later stays paused. At Passive, a Monday note the old level 1 started (before v3) and nobody
+    touched since is paused."""
     record = _record(c)
     if proactive(c) and record.get("review_settled"):
         return
@@ -271,8 +281,9 @@ def chart_groups(roster, entries, chart, groups, archived=(), hidden=False):
 
 # ----------------------------------------------------------------------------- how much it does
 # "How much your CEO Bot does" (Settings > CEO Bot): three levels, chosen by the owner on their own click, never by
-# an admin or a bot, the CEO Bot included (backend/goal_routes.py). Every install starts at Passive (level 1; installs
-# on the old level 1, "Goals and tracking", are Passive now). Each change is kept in the record with who and when.
+# an admin or a bot, the CEO Bot included (backend/goal_routes.py). Every install starts at Suggests actions (level 2)
+# until its owner chooses another; a level the owner stored, Passive included, is kept. Each change is kept in the
+# record with who and when.
 # Level 2 asks goal owners, proposes Why lines, sends the Monday note and suggests recoveries (backend/goal_asks.py,
 # backend/ceo_suggest.py, backend/ceo_merge.py). Level 3 also decides alone (backend/ceo_acts.py). A level whose
 # behaviour has not arrived yet says so in its sentence (`READY`, `NOT_YET`); every level has arrived.
@@ -292,12 +303,12 @@ LEVELS = {
 }
 READY = {1, 2, 3}
 NOT_YET = " Not yet: until this level arrives in a later release, it does what level 2 does."
-DEFAULT_LEVEL = 1
+DEFAULT_LEVEL = 2
 HISTORY_KEEP = 50
 
 
 def level(c):
-    """The level this install's CEO Bot works at: 1 (Passive) unless the owner chose another."""
+    """The level this install's CEO Bot works at: 2 (Suggests actions) unless the owner chose another."""
     value = _record(c).get("level")
     return value if value in LEVELS else DEFAULT_LEVEL
 
@@ -325,20 +336,24 @@ def named(c, value):
 
 def set_level(c, actor, value):
     """Choose the level. The caller has checked it is the owner (backend/goal_routes.py). The same level again
-    changes nothing and logs nothing."""
+    changes nothing and logs nothing, except that picking the default is kept as the owner's choice, so a later
+    default never moves it."""
     H._writer(c, actor)
     if value not in LEVELS:
         raise H.Refused("lint", "choose level 1, 2 or 3")
     record = _record(c)
     was = level(c)
     if value == was:
+        if record.get("level") not in LEVELS:
+            record["level"] = value
+            _save(c, record)
         return
     at = H.now()
     history = [r for r in record.get("level_history") or [] if isinstance(r, dict)]
     history.append({"level": value, "was": was, "by": actor, "at": at})
     record.update(level=value, level_history=history[-HISTORY_KEEP:])
     if (value >= 2) != (was >= 2):
-        _review(c, actor, record)               # the Monday note starts above Passive and stops back at it
+        _review(c, actor, record, raised=True)  # the Monday note starts above Passive and stops back at it
     _save(c, record)
     if value < 2:
         from . import ceo_suggest

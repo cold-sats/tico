@@ -112,7 +112,10 @@ A file inherits the visibility of where it came from:
   to its participants and to the team owner, who can open direct chats. Personal Assistant rooms are the exception:
   only their human sees them, the owner included. In a shared bot room, only its members do. Anyone else does not learn a file name, a count, a version or an
   activity entry from it, on the bot's page or anywhere else;
-- **bot-wide**: anyone with **Read** permission on the bot ([See, Read and Write](permissions.md)). **See** alone lets them reach the bot's page, not read its files.
+- **bot-wide**: anyone with **Read** permission on the bot ([See, Read and Write](permissions.md)). **See** alone lets them reach the bot's page, not read its files;
+- **pinned wider**: a page a person pinned to the Dashboard or a team page is also readable by that place's audience
+  ([Overview](overview.md)). A bot's own pins never widen, and a private task's file is never pinned there. Each pin and
+  unpin is in the file's activity (`pinned`, `unpinned`, with the place).
 
 The check applies to every list row, the total, metadata, activity, versions and every download.
 
@@ -285,8 +288,12 @@ be started again to copy what remains.
 
 Files in Tico storage are reachable only through short-lived signed links. Tico checks access on every request,
 private-task files stay private, and there is no public listing. Pictures, video and audio open inline from the
-company's files address. For self-hosted companies using file hosting, web pages and SVG files show as **Open**
-cards that open the file viewer. Full inline pages and SVG are a separate change.
+company's files address. Web pages and SVG files show inline from it too, so a Mac or local install with no
+[visual address](visuals.md#self-hosting) of its own still shows them in conversations and on pages: Tico stores a
+cleaned copy beside each one (`/visuals/…`, as described above) and, after checking the reader, sends their browser
+to a four-minute link to it. A page stored before file hosting was turned on stays an **Open** card until **Move
+existing files** copies it. While credits are out or hosting is stopped, a page that already has its copy still
+shows inline; a new one is an **Open** card.
 
 When the owner stops file hosting on the Gateway page, new files go back to the company's own storage: its bucket,
 or the server's storage if it has no bucket. **Download all files** offers a ZIP export of every file and version

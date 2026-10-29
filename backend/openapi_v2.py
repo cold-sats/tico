@@ -525,6 +525,10 @@ STABLE = [
      "An Add a KPI suggestion may be confirmed with a `target` for the link (as a goal's KPI target), used in place of its own. "
      "A recovery applies exactly the chosen option (`option`, else the CEO Bot's pick) in the CEO Bot's name; what "
      "can't be done comes back as a new recovery saying why", "GoalProposalResult"),
+    ("/api/v2/proposals/{pid}/note", "post", "Goals", "addGoalProposalReason",
+     "After a reject, the person who turned the suggestion down adds one line on why (at most 280 characters), once, "
+     "while it has none; a pending or confirmed suggestion, anyone else, a second reason or an empty one is refused. "
+     "The CEO Bot reads it before suggesting again", "GoalProposalResult"),
     ("/api/v2/kpis", "get", "KPIs", "listKpis",
      "The KPIs the caller may see; archived KPIs are omitted unless include_archived=true; goal_id, owner, unlinked=true narrow it; auto_for=<bot> is that bot's five automatic KPIs", "KpiList"),
     ("/api/v2/kpis", "post", "KPIs", "createKpi",
@@ -780,10 +784,15 @@ SCHEMAS = {
                    "public_url": "s", "owner_email": "s", "version": "s",
                    "visual_origin": {"type": "string", "description": "Configured non-secret visual origin, or empty "
                                      "when absent or invalid; grants no native IPC permission."},
-                   "visuals": {"type": "string", "enum": ["full", "media"],
+                   "visuals": {"type": "string", "enum": ["full", "hosted", "media"],
                                "description": "How visuals show, from the setup (no switch): full with a separate "
-                                              "visual address; media without one (pictures, video and audio inline, "
-                                              "pages and SVG open in the file viewer)."},
+                                              "visual address; hosted without one while Tico file hosting takes new "
+                                              "files (pages and SVG inline from the company's files address); media "
+                                              "otherwise (pictures, video and audio inline, pages and SVG open in the "
+                                              "file viewer)."},
+                   "visual_files": {"type": "string", "description": "Signed-in callers: the Tico file hosting origin "
+                                    "pages and SVG show from when there is no visual address, else empty; grants no "
+                                    "native IPC permission."},
                    "s3_view_urls": {"type": "object", "additionalProperties": {"type": "string"},
                                     "description": "Signed-in callers: bucket -> https base an s3://bucket/key opens at "
                                                    "(base + '/' + key, each segment URL-encoded; TICO_S3_VIEW_URLS)"}},
@@ -1119,7 +1128,9 @@ SCHEMAS = {
                               "an Add a KPI suggestion's measure {name, definition, source_note, unit, direction, existing} "
                               "and target_label; a new target's now_label and target_label; a new definition's or wording's "
                               "changes [{label, now, proposed}]"},
-                        may_decide={"type": "boolean", "description": "Whether the caller may confirm or reject it"}),
+                        may_decide={"type": "boolean", "description": "Whether the caller may confirm or reject it"},
+                        may_reason={"type": "boolean", "description": "Whether the caller may still add the reason it "
+                                    "was turned down: they turned it down, and it has none"}),
     "GoalView": obj({}, required=["kpis", "children", "chain", "tasks", "events", "checkins", "proposals"],
                     kpis=items(ref("Kpi")), children=items(ref("Goal")), chain=items(ref("Goal")), tasks=items({"type": "object"}),
                     events=items({"type": "object"}), checkins=items(ref("GoalCheckinView")), proposals=items(ref("GoalProposalView"))),
@@ -1140,6 +1151,8 @@ SCHEMAS = {
                     required=["goals", "owners", "unaligned", "other_kpis", "proposals"]),
     "CeoBotView": obj({"name": "s", "regular_checks": {"type": "boolean", "description": "Whether the KPI pass and the automatic goal colours run"},
                        "level": {"type": "integer", "enum": [1, 2, 3]},
+                       "level_chosen": {"type": "boolean",
+                                        "description": "Whether the owner chose the level; if not, it is the default"},
                        "levels": items(obj({"level": "i", "name": "s", "sentence": "s", "ready": "b"},
                                            required=["level", "name", "sentence", "ready"])),
                        "level_changed_by": "s", "level_changed_by_name": "s", "level_changed_at": "s",
@@ -1355,6 +1368,13 @@ STABLE.extend([
      "Automation"),
     ("/api/v2/automations/guide", "get", "Automations", "getAutomationGuide",
      "How BotOps builds and edits automations, with the flow format generated from the hub's code", "AutomationGuide"),
+    ("/api/v2/automations/runs", "get", "Automations", "listAllAutomationRuns",
+     "Runs across every automation you may see in the last range (5m, 1h, 24h, 7d), newest first: what started each, "
+     "its outcome or failing step, steps, time and cost; status, trigger, owner and ids narrow it (before → next)",
+     "AutomationOverviewRuns"),
+    ("/api/v2/automations/stats", "get", "Automations", "getAutomationStats",
+     "Runs, failures and cost per automation you may see over the range, in buckets oldest first, with totals",
+     "AutomationStats"),
     ("/api/v2/automations/question-sets", "get", "Automations", "listQuestionSets",
      "The saved question sets a Decide step may name (`set`), each with its questions", "QuestionSets"),
     ("/api/v2/automations/{aid}", "get", "Automations", "getAutomation",
@@ -1396,7 +1416,11 @@ SCHEMAS.update({
                        "spend_cap": {"type": ["object", "null"]}, "batch": {"type": ["object", "null"]},
                        "last_run": {"type": ["object", "null"]},
                        "counts": obj({"today": obj({"runs": "i", "dropped": "i"})}),
-                       "next_run": {"type": ["string", "null"]}, "pending": "i", "warning": "s"},
+                       "next_run": {"type": ["string", "null"]}, "pending": "i", "warning": "s",
+                       "kind": {"type": "string", "description": "The trigger as the overview groups it; system for "
+                                "Tico's own jobs"},
+                       "paused": {"type": "boolean", "description": "Off because the run guard paused it"},
+                       "schedule": {"type": "string", "description": "A system job's schedule in words"}},
                       required=["id", "can_edit"]),
     "AutomationList": obj({"automations": items(ref("Automation")), "next": {"type": ["integer", "null"]}}),
     "AutomationDeleted": obj({"id": "s", "deleted": "b"}),
@@ -1404,6 +1428,20 @@ SCHEMAS.update({
     "AutomationRunNow": obj({"run": ref("AutomationRun")}),
     "AutomationRuns": obj({"runs": items(ref("AutomationRun")), "next": {"type": ["string", "null"]},
                            "daily": items(obj({"day": "s", "runs": "i", "dropped": "i"}))}),
+    "AutomationOverviewRuns": obj({
+        "runs": items(obj({"id": "s", "automation_id": "s", "automation_name": "s",
+                           "trigger": {"enum": ["message", "task_received", "schedule", "webhook", "listening", "event",
+                                                "system"]},
+                           "owner": "s", "started": "s", "finished": {"type": ["string", "null"]}, "status": "s",
+                           "cost": "f", "started_by": "s", "outcome": "s", "step_count": {"type": ["integer", "null"]},
+                           "count": {"type": "integer", "description": "Quiet system-job runs folded into this row"}},
+                          required=["id", "automation_id", "automation_name", "trigger", "started", "status"])),
+        "next": {"type": ["string", "null"]}, "since": "s"}),
+    "AutomationStats": obj({
+        "range": "s", "since": "s", "until": "s", "bucket_seconds": "i",
+        "automations": items(obj({"id": "s", "runs": "i", "failed": "i", "cost": "f",
+                                  "buckets": items(obj({"ok": "i", "failed": "i"}))})),
+        "totals": obj({"runs": "i", "failed": "i", "cost": "f", "buckets": items(obj({"ok": "i", "failed": "i"}))})}),
     "AutomationVersions": obj({"versions": items(obj({"n": "i", "actor": "s", "at": "s",
                                                       "status": {"enum": ["active", "pending"]}, "summary": "s",
                                                       "flow": {"type": "object"}},
@@ -1682,6 +1720,40 @@ PROBLEM = {"type": "object", "required": ["error"], "properties": {"error": {
     "type": "object", "required": ["code", "detail"], "additionalProperties": True,
     "properties": {"code": {"type": "string"}, "detail": {"type": "string"}, "retryable": {"type": "boolean"},
                    "sign_in": {"type": "string", "description": "On a 401 with built-in sign-in: the login path"}}}}}
+
+TAGS['Cards and pins'] = ("Tico's built-in cards and where pages and cards are pinned: the Dashboard, team pages, bot "
+                          "sidebars and tasks (docs/overview.md). A card shows each reader only what they may see.")
+STABLE.extend([
+    ('/api/v2/places/{place}', 'get', 'Cards and pins', 'getPlace', 'A place\'s pins in order (dashboard, team:<group>, '
+     'bot:<slug>, task:<id>), each card with what it shows the caller; unreadable pages are left out', 'Place'),
+    ('/api/v2/places/{place}', 'put', 'Cards and pins', 'savePlace', 'Save a Dashboard or team page (its default cards '
+     'become pins) and a team page\'s audience', 'Place'),
+    ('/api/v2/places/{place}/order', 'post', 'Cards and pins', 'orderPlace', 'Put every pin at a place in this order', 'Place'),
+    ('/api/v2/pins', 'post', 'Cards and pins', 'addPin', 'Pin page:<file id> or card:<id> at a place: a bot its own, to '
+     'its sidebar or task; a person who arranges the Dashboard or a team page there', 'Place'),
+    ('/api/v2/pins/{pid}', 'patch', 'Cards and pins', 'updatePin', 'Resize or move a pin', 'Place'),
+    ('/api/v2/pins/{pid}', 'delete', 'Cards and pins', 'removePin', 'Unpin; a card pinned nowhere else goes with it', None),
+    ('/api/v2/cards', 'get', 'Cards and pins', 'listCards', 'Cards the caller made or sees pinned, with their data; '
+     '`ids` reads up to 50', 'CardList'),
+    ('/api/v2/cards', 'post', 'Cards and pins', 'addCard', 'A built-in card, pinned at `place` in the same write', None),
+    ('/api/v2/cards/choices', 'get', 'Cards and pins', 'getCardChoices', 'Card templates and their settings, the teams, '
+     'and the KPIs and pages the caller may pick', None),
+    ('/api/v2/cards/{cid}', 'patch', 'Cards and pins', 'updateCard', 'Change a card\'s heading or settings', None),
+    ('/api/v2/cards/{cid}', 'delete', 'Cards and pins', 'removeCard', 'Remove a card and every pin of it', None),
+])
+SCHEMAS['Card'] = obj({'id': 'n', 'template': {'enum': ['tasks_by_status', 'done_per_week', 'needs_you', 'spend', 'kpi',
+                                                        'automation_runs', 'latest_pages']},
+                       'title': 's', 'heading': 's', 'name': 's', 'team_name': 's', 'settings': 'o', 'hidden': 'b',
+                       'data': {'type': ['object', 'null'], 'description': 'What the card shows the caller; null when hidden'}},
+                      required=['id', 'template', 'heading', 'settings', 'hidden', 'data'])
+SCHEMAS['CardList'] = obj({'cards': items(ref('Card')), 'next': 'n'})
+SCHEMAS['Place'] = obj({'place': 's', 'kind': {'enum': ['dashboard', 'team', 'bot', 'task']}, 'saved': 'b', 'can_edit': 'b',
+                        'pins': items(obj({'id': 'n', 'item': 'n', 'position': 'i', 'size': {'enum': ['small', 'medium', 'large']},
+                                           'card': ref('Card'),
+                                           'page': obj({'file_id': 's', 'title': 's', 'bot': 's', 'updated': 's', 'archived': 'b'})},
+                                          required=['id', 'item', 'position', 'size'])),
+                        'audience': {'type': 'object', 'description': 'A team page: who sees it (docs/permissions.md)'},
+                        'name': 's', 'group': 's'}, required=['place', 'kind', 'saved', 'can_edit', 'pins'])
 
 DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "

@@ -82,6 +82,9 @@ def automation(client, args):
             raise APIError("input", "--input must be JSON") from None
     elif args.sub == "runs":
         fields.update({k: getattr(args, k) for k in ("limit", "before") if getattr(args, k) is not None})
+    elif args.sub in ("recent-runs", "stats"):
+        fields.update({k: getattr(args, k) for k in ("range", "status", "trigger", "owner", "limit", "before")
+                       if getattr(args, k, None) is not None})
     elif args.sub == "versions" and args.pending:
         fields["status"] = "pending"
     elif args.sub in ("restore", "discard"):
@@ -160,6 +163,8 @@ def run(args, who=None):
     if args.cmd == "inbound":
         return via_tool(client,args)
     if args.cmd == "settings":
+        return via_tool(client, args)
+    if args.cmd in ("card", "pin"):
         return via_tool(client, args)
     if fn.startswith(("trigger relay ", "relay ", "sleep ")):
         return via_tool(client, args)

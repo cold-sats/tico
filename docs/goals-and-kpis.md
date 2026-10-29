@@ -122,7 +122,7 @@ built-ins it is not on the [team chart](org-chart.md); nobody archives it, and o
 computer and a model exist. Its template is `templates/catalog/goal-manager/`; its playbooks are the product.
 
 There is no On/Off switch. How much it does is the [level](ceo-bot.md) the owner picks, and a new install starts at
-**Passive**. Its first job is the team's [strategy](strategy.md): it proposes the Strategy page to the owner and, when a
+**Suggests actions**. Its first job is the team's [strategy](strategy.md): it proposes the Strategy page to the owner and, when a
 bet's wrong-if trips, puts one Decide card in front of them; the owner writes and publishes, never the bot.
 On goals and KPIs it does five things:
 
@@ -156,8 +156,8 @@ the level and whether the regular checks are on. Each goal gets a [Why line](#a-
 
 ### How much your CEO Bot does
 
-**Settings > CEO Bot** has the **Regular checks** toggle and three levels: **Passive** (where every company starts),
-**Suggests actions** and **Acts on its own**. At **Acts on its own** it also decides on bots' tasks itself, each
+**Settings > CEO Bot** has the **Regular checks** toggle and three levels: **Passive**, **Suggests actions** (where
+every company starts) and **Acts on its own**. At **Acts on its own** it also decides on bots' tasks itself, each
 decision with an Undo ([Your CEO Bot](ceo-bot.md#the-ceo-bot-log)).
 
 - **Passive** keeps the regular checks (KPI readings and automatic goal colours) and otherwise acts only when you talk to
@@ -250,6 +250,9 @@ their own click) or rejects it; confirming makes the change as that human.
 Pending proposals appear under **Needs you** on the Goals page for the human who decides them, except a Why, which
 waits on its goal. To confirm a Why with your own words, send `why` with the decision:
 `{"decision": "confirm", "why": "..."}`.
+
+After **No, leave it**, the card offers one optional line, "Tell the CEO Bot why?": the CEO Bot reads it before it suggests
+again, and it is shown only to people who may read the goal's bot (and the measure's).
 
 ### What needs a person is a task
 
@@ -393,6 +396,7 @@ The stable v2 routes are in [openapi/v2.json](openapi/v2.json):
 | `GET/POST /api/v2/kpis/{id}/readings` | the readings (`?effective=true` leaves out corrected ones); post one |
 | `GET /api/v2/bots/{bot}/kpis` | a bot's automatic KPIs |
 | `GET/POST /api/v2/proposals`, `POST .../{id}/decide` | list, propose, confirm or reject |
+| `POST /api/v2/proposals/{id}/note` | after a reject, its decider adds one line (up to 280 characters) on why, once |
 | `GET/POST /api/v2/company` | read the Vision and Description (with whether you may edit); save them (owner). Kept for older clients: the vision now lives on the [Strategy](strategy.md) page |
 | `GET /api/v2/company/history` | every change to the Vision and Description, newest first, with who and when |
 | `POST /api/v2/goals/{id}/why` | set a goal's Why (`{"why": "..."}`; empty clears it); a person who may change the goal |
