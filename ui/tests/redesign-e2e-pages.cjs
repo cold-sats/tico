@@ -16,6 +16,9 @@ run('redesign-e2e-pages', ['org', 'toured', 'pages'], async ({hub, browser, phon
   const rows = page.locator('.lf-row');
   await page.waitForFunction(() => document.querySelectorAll('.lf-row').length === 4, null, {timeout: t(15000)})
     .catch(() => assert.fail(`${tag}: four files listed (${JSON.stringify(page.errors)})`));
+  // The first-result feedback question covers the phone's bottom bar; Dana skips it.
+  const skip = page.locator('#feedback-ask:not([hidden]) [data-skip]');
+  if (await skip.count()) await skip.click();
   const titles = await page.locator('.lf-title').allInnerTexts();
   for (const want of ['Engineering weekly', 'Engineering weekly (old)', 'Launch plan', 'Signup funnel'])
     assert.ok(titles.includes(want), `${tag}: lists ${want} (${titles})`);
