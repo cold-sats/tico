@@ -23,6 +23,8 @@ function load(name, mapping = {[label]: record}) {
     let source = resources[name].Properties.FunctionCode;
     if (typeof source !== 'string') source = source['Fn::Join'][1].map(x => typeof x === 'string' ? x : 'files.example').join('');
     assert.ok(Buffer.byteLength(source) < 10240, 'CloudFront function size');
+    // CloudFront's runtime rejects `await` in call arguments at run time ("await in arguments not supported").
+    assert.ok(!/[(,[]\s*await\b/.test(source), 'no await inside call arguments');
     source = source.replace("import cf from 'cloudfront';", '').replace("import crypto from 'crypto';", '');
     const context = vm.createContext({crypto, Date: {now: () => now * 1000}, cf: {kvs: () => ({get: async key => {
         if (!(key in mapping)) throw Error('unknown');
