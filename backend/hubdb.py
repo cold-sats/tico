@@ -1108,9 +1108,9 @@ def ensure_market_reads(conn):
 def _rename_strategy_tables(conn):
     """Move each table the Strategy Bot had under its old name to its new one, before the migrations below create the
     new name empty. The old table is looked for again under the write lock, so two servers starting together move it
-    once. When both names are there (an older release reopened the file and wrote to the old one), the old rows the
-    new table lacks are copied in and the old table goes, so the log and merges read every row. The indexes take the
-    new names on the table."""
+    once. When both names are there, an older release reopened the file and wrote to the old one since, so its rows
+    are the newer: they are copied in over any of the same key, and the old table goes, so the log and merges read
+    every row as it last was. The indexes take the new names on the table."""
     def tables():
         return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for old, new, schema, old_indexes in (
@@ -1124,7 +1124,7 @@ def _rename_strategy_tables(conn):
             if old in found and new in found:
                 kept = {row[1] for row in conn.execute(f"PRAGMA table_info({new})")}
                 columns = ",".join(row[1] for row in conn.execute(f"PRAGMA table_info({old})") if row[1] in kept)
-                conn.execute(f"INSERT OR IGNORE INTO {new}({columns}) SELECT {columns} FROM {old}")
+                conn.execute(f"INSERT OR REPLACE INTO {new}({columns}) SELECT {columns} FROM {old}")
                 conn.execute(f"DROP TABLE {old}")
             elif old in found:
                 conn.execute(f"ALTER TABLE {old} RENAME TO {new}")

@@ -334,8 +334,9 @@ def test_hiding_the_strategy_bot_is_a_persons_own_yes_or_no(environment):
 
 
 def test_the_settings_an_install_from_before_stored_under_old_keys_move_to_the_new_ones(environment):
-    """The registry row and each person's "Hide from my chart" move to their new keys with their values, and a value a
-    person already stored under a new key stays: the migration never writes over a choice made since."""
+    """The registry row and each person's "Hide from my chart" move to their new keys with their values. Where a person
+    has both, the later stays: an older release reopened the file and wrote the old one since, or the new one is the
+    choice made since."""
     api = company(environment)
     with api.app.state.store.transaction() as c:
         c.execute("DELETE FROM registry_metadata WHERE key=?", (strategy_bot.KEY,))
@@ -345,7 +346,12 @@ def test_the_settings_an_install_from_before_stored_under_old_keys_move_to_the_n
             c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES(?,?,'true',?)",
                       (person, strategy_bot.OLD_HIDE_PREF, H.now()))
         c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES('human:ben',?,'false',?)",
-                  (strategy_bot.HIDE_PREF, H.now()))
+                  (strategy_bot.HIDE_PREF, H.shift(H.now(), minutes=1)))
+        # Cara chose under the new key, then an older release ran and she chose again under the old one.
+        c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES('human:cara',?,'true',?)",
+                  (strategy_bot.HIDE_PREF, H.shift(H.now(), minutes=-5)))
+        c.execute("INSERT INTO preferences(actor,key,value_json,updated) VALUES('human:cara',?,'false',?)",
+                  (strategy_bot.OLD_HIDE_PREF, H.now()))
     with api.app.state.store.transaction() as c:
         assert strategy_bot.migrate(c) is False                      # the moved record says it has run
         record = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key=?",
@@ -354,8 +360,26 @@ def test_the_settings_an_install_from_before_stored_under_old_keys_move_to_the_n
                              "FROM registry_metadata WHERE key=?", (strategy_bot.OLD_KEY,)).fetchone()[0]
         hidden = {r[0]: r[1] for r in c.execute("SELECT actor, value_json FROM preferences WHERE key=?",
                                                 (strategy_bot.HIDE_PREF,))}
+        left = c.execute("SELECT COUNT(*) FROM preferences WHERE key=?", (strategy_bot.OLD_HIDE_PREF,)).fetchone()[0]
     assert record["migrated_at"] == "2026-01-01T00:00:00Z" and old_rows == 0
-    assert hidden == {"human:ana": "true", "human:ben": "false"}
+    assert hidden == {"human:ana": "true", "human:ben": "false", "human:cara": "false"} and left == 0
+
+
+def test_a_level_and_checks_chosen_while_an_older_release_ran_win_over_the_record(environment):
+    """The owner set level 3 with checks on; an older release then ran, writing its own record under the old key, and
+    the owner chose Passive and checks off there. On the next start both choices hold, and the rest of the record
+    stays."""
+    api = company(environment)
+    with api.app.state.store.transaction() as c:
+        strategy_bot._save(c, {**strategy_bot._record(c), "level": 3, "checks": True, "review_settled": True})
+        c.execute("INSERT INTO registry_metadata(key,value_json) VALUES(?,?)",
+                  (strategy_bot.OLD_KEY, '{"on":true,"level":1,"checks":false}'))
+    with api.app.state.store.transaction() as c:
+        strategy_bot.migrate(c)
+        record = strategy_bot._record(c)
+        old_rows = c.execute("SELECT COUNT(*) FROM registry_metadata WHERE key=?",
+                             (strategy_bot.OLD_KEY,)).fetchone()[0]
+    assert (record["level"], record["checks"], record.get("review_settled"), old_rows) == (1, False, True, 0)
 
 
 def test_a_withdrawn_recovery_reads_the_current_note_and_another_note_is_kept(environment):

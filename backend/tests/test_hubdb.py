@@ -1311,8 +1311,8 @@ class StrategyTableNames(HubCase):
         self.assertEqual(before[0][0], "a1")
 
     def test_when_both_names_exist_the_old_rows_join_the_new_table_and_the_old_one_goes(self):
-        """An older release reopened the file and wrote to the old table: its rows join the new one, which keeps its
-        own row where both have the same id."""
+        """An older release reopened the file and wrote to the old table since: its rows join the new one, and where
+        both have the same id the old row, the later, wins (an Undo done then stays done)."""
         self.conn.execute("INSERT INTO strategy_actions(id,created,actor,kind,state) VALUES('a1',?,?,'level','done')",
                           (H.now(), "bot:goal-manager"))
         self.back_to_old_names("strategy_actions")
@@ -1325,5 +1325,5 @@ class StrategyTableNames(HubCase):
         self.conn.commit()
         H.migrate(self.conn)
         self.assertEqual([tuple(r) for r in self.conn.execute("SELECT id, state FROM strategy_actions ORDER BY id")],
-                         [("a1", "done"), ("new", "done")])
+                         [("a1", "done"), ("new", "undone")])
         self.assertNotIn("ceo_actions", self.names())
