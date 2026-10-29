@@ -11,7 +11,7 @@ const rdUnder = (r, base) => r === base || r.startsWith(base + '/') || r.startsW
 const goalsBase = () => RD_GOALS;
 
 // One "?" per panel: the explanation a row would otherwise carry, on hover, focus or tap.
-const helpBubble = text => `<span class="rd-help" tabindex="0" role="button" aria-label="${esc(text)}">?<span class="rd-help-pop" role="tooltip">${esc(text)}</span></span>`;
+const helpBubble = (text, attrs = '') => `<span class="rd-help"${attrs ? ' ' + attrs : ''} tabindex="0" role="button" aria-label="${esc(text)}">?<span class="rd-help-pop" role="tooltip">${esc(text)}</span></span>`;
 
 // ----------------------------------------------------------------- the sidebar
 // The rail is rearranged in place, once, not drawn again: the links keep their own badges and handlers (sidebar.js,
